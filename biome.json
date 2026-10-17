@@ -1,0 +1,17 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "files": {
+    "includes": [
+      "lib/finish-voice.ts",
+      "extensions/mahiro-finish-voice.ts",
+      "test/finish-voice.test.ts",
+      "test/agent-roles.test.ts",
+      "biome.json",
+      "package.json"
+    ]
+  },
+  "formatter": { "indentStyle": "space", "indentWidth": 2 },
+  "javascript": {
+    "formatter": { "quoteStyle": "double", "semicolons": "always" }
+  }
+}

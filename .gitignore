@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+.env
+.env.*
+.letta/
+.agent-state/runtime/
+.cocoindex_code/
+.pids/
+test-results/
+*.log
