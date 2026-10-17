@@ -254,6 +254,17 @@ the same PID gate; unused severities are cleared. Remaining <20 is critical,
 <50 warning, otherwise OK. The sibling Herdr renderer remains a separate owner,
 not a runtime import. Native ProgramStatusReporter/OSC 7501 remains untouched.
 
+As approved on 2026-10-17, Mahiro Herdr separately displays its existing shared
+Codex account cache for `agent=pi` with provider token `openai`, using the same
+labels, severity and freshness rules as Letta. That sidebar projection is owned
+by `mahiro-herdr/src/core.mjs`, not this Pi quota collector. It is not Pi-native
+allowance or proof of matching accounts. This package still makes no native-direct
+quota/auth requests and its footer quota row remains omitted.
+For exact native `openai`, Pi display publications omit all six quota token sets
+and clears, including heartbeats, reloads and a pending model selection before
+context refresh. Metadata source IDs do not protect shared token keys from clears.
+Legacy `openai-codex` quota publication and expiry clears remain unchanged.
+
 Model switches suppress old context until finite positive matching successful
 assistant usage arrives. Errors, aborts, zero/wrong-model usage cannot revive it.
 A 1-second context poll observes public invalidation. Git polls at most every

@@ -231,8 +231,9 @@ test("quota authorization denial is truthful and stops requests until current Pi
   }
 });
 
-test("presentation owns footer cleanup, shared q keys clear when invalid; non-TUI never invokes hooks", async () => {
+test("legacy presentation owns footer cleanup, shared q keys clear when invalid; non-TUI never invokes hooks", async () => {
   const f = fixture();
+  f.ctx.model.provider = "openai-codex";
   const jobs: string[][] = [];
   let disposed = 0, renders = 0;
   let quota: Record<string, string> = { mahiro_sidebar_q1_ok: "Codex P:7d 59% left" };

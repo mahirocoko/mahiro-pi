@@ -166,6 +166,7 @@ export function start(ctx: Context, options: Options = {}) {
   let gitJob: Job | undefined, metadataJob: Job | undefined;
   let lastValues = "", identity = "", hideContext = false;
   let revision = 0;
+  let pendingModel: SnapshotContext["model"];
   let stopTimer = () => {};
 
   function render() {
@@ -177,11 +178,17 @@ export function start(ctx: Context, options: Options = {}) {
     else ctx.ui.setStatus("mahiro-status", `${git} · ${activity}`);
   }
 
+  function cancelMetadata() {
+    metadataJob?.cancel();
+    metadataJob = undefined;
+  }
+
   function tick() {
     if (!alive || ctx.mode !== "tui") return;
     try {
       const nextIdentity = JSON.stringify([ctx.model?.provider, ctx.model?.id]);
-      if (identity && nextIdentity !== identity) { hideContext = true; revision++; }
+      if (pendingModel?.provider === ctx.model?.provider && pendingModel?.id === ctx.model?.id) pendingModel = undefined;
+      if (identity && nextIdentity !== identity) { hideContext = true; revision++; cancelMetadata(); }
       identity = nextIdentity;
       options.presentation?.tick();
       render();
@@ -200,7 +207,9 @@ export function start(ctx: Context, options: Options = {}) {
       if (serialized === lastValues && now() - metadataAt < HEARTBEAT_MS) return;
       const sentRevision = revision;
       const args = metadataArgs(binding.HERDR_PANE_ID!, values, ++owner.seq);
-      if (options.presentation) for (const i of [1, 2]) for (const severity of ["ok", "warn", "critical"]) {
+      // Direct OpenAI sidebar quota belongs to Herdr's shared Codex adapter,
+      // including model_select before the host refreshes ctx.model.
+      if (options.presentation && ctx.model?.provider !== "openai" && pendingModel?.provider !== "openai") for (const i of [1, 2]) for (const severity of ["ok", "warn", "critical"]) {
         const key = `mahiro_sidebar_q${i}_${severity}`;
         args.push(...(quota[key] ? ["--token", `${key}=${quota[key]}`] : ["--clear-token", key]));
       }
@@ -249,7 +258,7 @@ export function start(ctx: Context, options: Options = {}) {
     contextFresh(message?: UsageMessage) {
       if (alive && freshUsage(message, ctx.model)) {
         const nextIdentity = JSON.stringify([ctx.model?.provider, ctx.model?.id]);
-        if (identity !== nextIdentity) revision++;
+        if (identity !== nextIdentity) { revision++; cancelMetadata(); }
         identity = nextIdentity;
         hideContext = false;
         tick();
@@ -257,6 +266,6 @@ export function start(ctx: Context, options: Options = {}) {
     },
     // model_select may arrive before ctx.model is refreshed. Clear old context
     // immediately, then the polling identity guard handles the refreshed model.
-    modelChanged(model?: SnapshotContext["model"]) { if (alive) { hideContext = true; revision++; lastValues = ""; options.presentation?.invalidate?.(model); tick(); } },
+    modelChanged(model?: SnapshotContext["model"]) { if (alive) { pendingModel = model; hideContext = true; revision++; cancelMetadata(); lastValues = ""; options.presentation?.invalidate?.(model); tick(); } },
   };
 }

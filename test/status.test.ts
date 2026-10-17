@@ -112,6 +112,117 @@ test("model/provider changes clear context and missing tokens; old acknowledgeme
   f.controller.dispose();
 });
 
+test("direct OpenAI heartbeat, model changes and reload never overwrite shared sidebar quota", async () => {
+  const presentation = { render() {}, tick() {}, tokens: () => ({}), invalidate() {}, dispose() {} };
+  const f = fixture({ presentation });
+  f.ctx.model = { id: "native", name: "Native", provider: "openai" };
+  // Discard the fixture's initial non-native publication.
+  f.jobs[1].resolve(); await flush();
+  f.controller.modelChanged(f.ctx.model);
+  const assertSharedUntouched = (args: string[]) => {
+    assert.ok(args.includes("mahiro_sidebar_provider=openai"));
+    assert.ok(args.some(value => value.startsWith("mahiro_sidebar_model=")));
+    assert.ok(!args.some(value => /^mahiro_sidebar_q[12]_(ok|warn|critical)(=|$)/.test(value)));
+  };
+  let report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assertSharedUntouched(report.args);
+  report.resolve(); await flush();
+  f.advance(HEARTBEAT_MS); f.controller.tick();
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assertSharedUntouched(report.args);
+  report.resolve(); await flush();
+  f.controller.contextFresh({ model: "native", provider: "openai", stopReason: "stop",
+    usage: { input: 20, output: 1, cacheRead: 0, cacheWrite: 0 } });
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assertSharedUntouched(report.args);
+  assert.ok(report.args.includes("mahiro_sidebar_context=ctx ▱▱▱▱▱▱ 0%"));
+  report.resolve(); await flush();
+  f.ctx.model = { ...f.ctx.model, id: "native-2", name: "Native 2" };
+  f.controller.modelChanged(f.ctx.model);
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assertSharedUntouched(report.args);
+  report.resolve(); await flush();
+  const replacement = start(f.ctx, f.options);
+  assertSharedUntouched(f.jobs.filter(job => job.command === "herdr").at(-1).args);
+  const before = f.jobs.length;
+  replacement.dispose();
+  assert.equal(f.jobs.length, before, "dispose must not emit quota clears");
+});
+
+test("legacy quota still publishes and clears, while pending direct OpenAI selection preserves shared slots", async () => {
+  let quota: Record<string, string> = { mahiro_sidebar_q1_warn: "Codex 7d 34%" };
+  const f = fixture({ presentation: { render() {}, tick() {}, tokens: () => quota, invalidate() { quota = {}; }, dispose() {} } });
+  f.jobs[1].resolve(); await flush();
+  f.ctx.model = { id: "legacy", name: "Legacy", provider: "openai-codex" };
+  f.controller.tick();
+  let report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assert.ok(report.args.includes("mahiro_sidebar_q1_warn=Codex 7d 34%"));
+  report.resolve(); await flush();
+  quota = {}; f.advance(HEARTBEAT_MS); f.controller.tick();
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assert.equal(report.args.filter(value => /^mahiro_sidebar_q[12]_(ok|warn|critical)$/.test(value)).length, 6);
+  report.resolve(); await flush();
+  const native = { id: "native", name: "Native", provider: "openai" };
+  f.controller.modelChanged(native); // ctx still holds legacy identity.
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assert.ok(!report.args.some(value => /^mahiro_sidebar_q[12]_/.test(value)));
+  report.resolve(); await flush();
+  f.advance(HEARTBEAT_MS); f.controller.tick();
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assert.ok(!report.args.some(value => /^mahiro_sidebar_q[12]_/.test(value)));
+  report.resolve(); await flush();
+  f.ctx.model = native; f.controller.tick();
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assert.ok(report.args.includes("mahiro_sidebar_provider=openai"));
+  assert.ok(!report.args.some(value => /^mahiro_sidebar_q[12]_/.test(value)));
+  report.resolve(); await flush();
+  f.ctx.model = { id: "legacy", name: "Legacy", provider: "openai-codex" };
+  f.controller.modelChanged(f.ctx.model);
+  report = f.jobs.filter(job => job.command === "herdr").at(-1);
+  assert.equal(report.args.filter(value => /^mahiro_sidebar_q[12]_(ok|warn|critical)$/.test(value)).length, 6);
+  f.controller.dispose();
+});
+
+test("model invalidation cancels deferred foreground checks before stale legacy quota can publish", async () => {
+  for (const change of ["selection", "poll", "usage"]) {
+    const f = fixture({ env: {} });
+    f.ctx.model = { id: "legacy", name: "Legacy", provider: "openai-codex" };
+    const controller = start(f.ctx, { ...f.options, env, publish: publishMetadata,
+      presentation: { render() {}, tick() {}, tokens: () => ({}), invalidate() {}, dispose() {} } });
+    const checks = () => f.jobs.filter(job => job.args[1] === "process-info");
+    const reports = () => f.jobs.filter(job => job.args[1] === "report-metadata");
+    const old = checks().at(-1);
+    const native = { id: "native", name: "Native", provider: "openai" };
+    if (change === "selection") controller.modelChanged(native); // Host context is still legacy.
+    f.ctx.model = native;
+    if (change === "usage") controller.contextFresh({ model: native.id, provider: native.provider, stopReason: "stop",
+      usage: { input: 20, output: 1, cacheRead: 0, cacheWrite: 0 } });
+    else controller.tick();
+    assert.equal(old.cancelled, true);
+    const current = checks().at(-1);
+    assert.notEqual(current, old);
+    const foreground = JSON.stringify({ result: { process_info: { pane_id: env.HERDR_PANE_ID,
+      foreground_processes: [{ pid: process.pid }] } } });
+    for (const job of checks().slice(0, -1)) job.resolve(foreground);
+    await flush();
+    assert.equal(reports().length, 0, "cancelled legacy PID callbacks must not submit reports");
+    const count = checks().length;
+    controller.tick();
+    assert.equal(checks().length, count, "old finalizers must not release the current job");
+    current.resolve(foreground); await flush();
+    assert.equal(reports().length, 1);
+    const report = reports()[0];
+    assert.ok(report.args.includes("mahiro_sidebar_provider=openai"));
+    assert.ok(!report.args.some(value => /^mahiro_sidebar_q[12]_/.test(value)));
+    report.resolve(); await flush();
+    f.advance(HEARTBEAT_MS); controller.tick();
+    checks().at(-1).resolve(foreground); await flush();
+    assert.equal(reports().length, 2);
+    assert.ok(!reports()[1].args.some(value => /^mahiro_sidebar_q[12]_/.test(value)));
+    controller.dispose();
+  }
+});
+
 test("failure retries without disrupting native status; Git failure is unknown", async () => {
   const f = fixture();
   f.jobs.forEach(job => job.reject()); await flush();
