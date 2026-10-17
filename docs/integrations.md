@@ -40,7 +40,7 @@ start status producers or resolve quota auth.
 | --- | --- |
 | Session tree, forks, templates and native usage data | Pi core; footer presents public data with native counting semantics. |
 | Footer, Git/activity and Pi Herdr display tokens | This repository; Herdr remains sidebar renderer and Pi lifecycle producer. |
-| Skills / five core aliases | `mahiro-skills` installs skills and thin native extension aliases. `/recap`, `/rrr`, `/forward`, `/mahiro-style` and `/working-tasks` dispatch `/skill:name` with native expansion; generic prompt instructions were insufficient in the live probe. |
+| Skills | `mahiro-skills` installs skills only for Pi. Invoke native `/skill:recap`, `/skill:rrr`, `/skill:forward`, `/skill:mahiro-style` and `/skill:working-tasks`; no redundant command aliases are generated. Receipt-owned unchanged legacy aliases are retired on update; modified or unverified files are preserved with warnings. Other hosts retain their own command contracts. |
 | Timestamps, realign and model profiles | Existing Letta owner remains separate; native Pi selection is not named-profile or per-turn timestamp parity. |
 | Goal, UX, Code Evidence, Code Map, Execution Run | Existing focused owners and human gates; no Pi port/shared framework claimed. |
 | Secret/commit guards, RTK, MCP | Letta remains unchanged. The canonical Mods Pi guard adapter and native MCP are active with scoped evidence below; no automatic RTK activation. |
@@ -60,7 +60,7 @@ invitation to install a broad replacement bundle or copy Letta state.
 | Letta entry | Pi disposition |
 | --- | --- |
 | `mahiro-user-timestamps` | Not ported. Per-turn Bangkok timestamp parity is not established. |
-| `mahiro-realign` | Not ported. Task-backed `/recap` is available; it is not the same injection mechanism. |
+| `mahiro-realign` | Not ported. Task-backed `/skill:recap` is available; it is not the same injection mechanism. |
 | `mahiro-model-profiles` | Native `/model` and thinking selection remain authoritative; the saved-profile mod is not ported. Owned native role files explicitly preserve model/effort bindings; they do not implement saved-profile parity or silent remapping. |
 | `mahiro-herdr-lifecycle` | Keep Pi's native Herdr lifecycle. This package publishes only its owned display metadata. |
 | `mahiro-goal` | Deferred; preserve explicit human approval. No Goal/state import or automatic creation. |
@@ -170,6 +170,10 @@ native call only after those gates passed. Entry/store hashes are cooperative
 local evidence, not full transitive or same-UID tamper containment.
 
 ## Live verification boundary — 2026-10-17
+
+The command-alias probe below predates Mahiro's 20:25 skills-only decision.
+It is historical invocation evidence, not the current command contract; use
+native `/skill:recap` now, as described in the owner map above.
 
 The existing Pi TUI kept native OpenAI `gpt-6.1-sol` / medium and subscription
 semantics. Its native `/recap --quick` read the same T190 UUID as Letta, called
