@@ -3,75 +3,56 @@ import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const directory = new URL("../agents/", import.meta.url);
-const expected = {
-  "repo-scout": ["gpt-6-luna", "max"],
-  researcher: ["gpt-6.1-sol", "medium"],
-  "memory-reflector": ["gpt-6.1-sol", "medium"],
-  implementer: ["gpt-6.1-sol", "medium"],
-  advisor: ["gpt-6-astra", "high"],
-  verifier: ["gpt-6.1-sol", "medium"],
-  "ui-review": ["gpt-6.1-sol", "medium"],
-  "thai-copy-review": ["gpt-5.6-terra", "medium"],
-  "long-task-executor": ["gpt-6.1-sol", "high"],
-  "git-commit": ["gpt-6-luna", "low"],
-  "general-purpose": ["gpt-6.1-sol", "medium"],
-  Explore: ["gpt-6-luna", "max"],
-  Plan: ["gpt-6-astra", "high"],
-};
-
-test("native role sources preserve approved model/effort bindings without provider fallback", () => {
-  assert.deepEqual(
-    readdirSync(directory).sort(),
-    Object.keys(expected)
-      .map((name) => `${name}.md`)
-      .sort(),
-  );
-  for (const [name, [model, thinking]] of Object.entries(expected)) {
-    const source = readFileSync(new URL(`${name}.md`, directory), "utf8");
-    const header = source.match(/^---\n([\s\S]+?)\n---\n/);
-    assert.ok(header, name);
-    assert.match(
-      header[1],
-      new RegExp(`^model: openai/${model.replaceAll(".", "\\.")}$`, "m"),
-      name,
-    );
-    assert.match(header[1], new RegExp(`^thinking: ${thinking}$`, "m"), name);
-    assert.match(
-      header[1],
-      name === "memory-reflector"
-        ? /^locked: true$/m
-        : /^locked: model, thinking$/m,
-      name,
-    );
-    if (name === "memory-reflector") {
-      for (const field of [
-        "tools: none",
-        "run_in_background: true",
-        "inherit_context: false",
-        "prompt_mode: replace",
-        "max_turns: 2",
-      ])
-        assert.ok(header[1].split("\n").includes(field));
-    }
-  }
+test("the package owns its reflector and commit role, not a personal workflow roster", () => {
+  assert.deepEqual(readdirSync(directory).sort(), [
+    "git-commit.md",
+    "memory-reflector.md",
+  ]);
 });
 
-test("discovery/copy roles do not expose file mutation tools; commit role stays Git-command-only", () => {
-  for (const name of [
-    "repo-scout",
-    "Explore",
-    "advisor",
-    "Plan",
-    "thai-copy-review",
-  ]) {
-    const source = readFileSync(new URL(`${name}.md`, directory), "utf8");
-    const tools = source.match(/^tools: (.+)$/m)?.[1].split(", ") ?? [];
-    assert.ok(tools.length, name);
-    for (const forbidden of ["bash", "edit", "write", "powershell"])
-      assert.ok(!tools.includes(forbidden), name);
-  }
-  assert.match(
-    readFileSync(new URL("git-commit.md", directory), "utf8"),
-    /^tools: bash$/m,
+test("the commit agent remains native locked and Git-command-only", () => {
+  const source = readFileSync(new URL("git-commit.md", directory), "utf8");
+  assert.match(source, /^model: openai\/gpt-6-luna$/m);
+  assert.match(source, /^thinking: low$/m);
+  assert.match(source, /^locked: model, thinking$/m);
+  assert.match(source, /^tools: bash$/m);
+  assert.ok(source.includes("Use Git commands only"));
+});
+
+test("the commit skill is a native package resource with explicit permission boundaries", () => {
+  const root = new URL("../", import.meta.url);
+  const manifest = JSON.parse(
+    readFileSync(new URL("package.json", root), "utf8"),
   );
+  assert.deepEqual(manifest.pi.skills, ["./skills"]);
+  const source = readFileSync(
+    new URL("skills/git-commit/SKILL.md", root),
+    "utf8",
+  );
+  assert.match(source, /^name: git-commit$/m);
+  assert.ok(source.includes("native `subagent` tool"));
+  assert.ok(source.includes("is not commit authorization"));
+  assert.ok(source.includes("Never create an empty commit"));
+  assert.ok(!source.includes("Agent tool"));
+});
+
+test("the required reflector retains its locked native no-tool isolated contract", () => {
+  const source = readFileSync(
+    new URL("memory-reflector.md", directory),
+    "utf8",
+  );
+  const header = source.match(/^---\n([\s\S]+?)\n---\n/);
+  assert.ok(header);
+  for (const field of [
+    "model: openai/gpt-6.1-sol",
+    "thinking: medium",
+    "locked: true",
+    "tools: none",
+    "run_in_background: true",
+    "inherit_context: false",
+    "prompt_mode: replace",
+    "max_turns: 2",
+  ]) {
+    assert.ok(header[1].split("\n").includes(field), field);
+  }
 });

@@ -29,6 +29,9 @@
     "check:format": "biome format lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts biome.json package.json"
   },
   "pi": {
+    "skills": [
+      "./skills"
+    ],
     "extensions": [
       "./extensions/mahiro-status.ts",
       "./extensions/mahiro-finish-voice.ts",

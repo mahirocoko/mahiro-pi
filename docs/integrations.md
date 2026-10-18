@@ -249,12 +249,12 @@ start status producers or resolve quota auth.
 | --- | --- |
 | Session tree, forks, templates and native usage data | Pi core; footer presents public data with native counting semantics. |
 | Footer, Git/activity and Pi Herdr display tokens | This repository; Herdr remains sidebar renderer and Pi lifecycle producer. |
-| Skills | `mahiro-skills` installs skills only for Pi. Invoke native `/skill:recap`, `/skill:rrr`, `/skill:forward`, `/skill:mahiro-style` and `/skill:working-tasks`; no redundant command aliases are generated. Receipt-owned unchanged legacy aliases are retired on update; modified or unverified files are preserved with warnings. Other hosts retain their own command contracts. |
+| Skills | `mahiro-skills` owns reusable cross-host skills. This package additionally owns the native git-commit skill/agent pair. Invoke native `/skill:git-commit`, `/skill:recap`, `/skill:rrr`, `/skill:forward`, `/skill:mahiro-style` and `/skill:working-tasks`; no redundant command aliases are generated. Other hosts retain their own command contracts. |
 | Timestamps, realign and model profiles | Existing Letta owner remains separate; native Pi selection is not named-profile or per-turn timestamp parity. |
 | Goal, UX, Code Evidence, Code Map, Execution Run | Existing focused owners and human gates; no Pi port/shared framework claimed. |
 | Secret/commit guards, RTK, MCP | Letta remains unchanged. The canonical Mods Pi guard adapter and native MCP are active with scoped evidence below; no automatic RTK activation. |
 | Tasks | Existing tsk board, no competing session ledger. |
-| Subagents | Pinned native orchestrator/permissions plus canonical guard package active; owned role bindings live-tested within the scope below. |
+| Subagents | Pinned native orchestrator/permissions plus canonical guard package active. This package authors memory-reflector plus the explicitly approved git-commit exception; the other personal workflow roles/model bindings remain local. Earlier personal-role runtime checks below are historical evidence, not package ownership. |
 | Memory, recall, reflection | Native curated Core remains the identity/preference owner. The deployed default corpus supports owned read-only scoped MD/history recall. A separately authorized parent controller now appends observed native root-user records and low-authority quoted notes; the actual controlled cross-session proof and default-root activation are described above. Native resume/requested journal reads remain available. Core/persona rewriting and human daily-work acceptance are not inferred from that proof. |
 | Agent Halo / completion voice | Separate owners. This package owns Pi finish voice only; no Halo audio bridge or Letta change. |
 | HiroHiro / browser QA | HiroHiro owns transport; Pi registration and rendered QA remain separate verification. |
@@ -270,7 +270,7 @@ invitation to install a broad replacement bundle or copy Letta state.
 | --- | --- |
 | `mahiro-user-timestamps` | Not ported. Per-turn Bangkok timestamp parity is not established. |
 | `mahiro-realign` | Not ported. Task-backed `/skill:recap` is available; it is not the same injection mechanism. |
-| `mahiro-model-profiles` | Native `/model` and thinking selection remain authoritative; the saved-profile mod is not ported. Owned native role files explicitly preserve model/effort bindings; they do not implement saved-profile parity or silent remapping. |
+| `mahiro-model-profiles` | Native `/model` and thinking selection remain authoritative; the saved-profile mod is not ported. Personal role model/effort bindings belong to local configuration. The package owns only memory-reflector and the approved git-commit profile; neither implements saved-profile parity or silent remapping. |
 | `mahiro-herdr-lifecycle` | Keep Pi's native Herdr lifecycle. This package publishes only its owned display metadata. |
 | `mahiro-goal` | Deferred; preserve explicit human approval. No Goal/state import or automatic creation. |
 | `mahiro-code-evidence` | Deferred; local validation receipts do not imply a native Code Evidence API. |

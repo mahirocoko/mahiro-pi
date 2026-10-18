@@ -21,8 +21,12 @@ is ignored runtime evidence, not another authoring copy.
   Project evidence belongs only under ignored `.agent-state/runtime/`.
 - Run `pnpm check` after changes. Run the explicit host geometry smoke when geometry
   changes; synthetic tests are not rendered/human acceptance.
-- Native role definitions live in `agents/`; `docs/agents.md` owns registration
-  and evidence boundaries. Preserve native OpenAI routing and explicit role locks.
+- Only `memory-reflector` and the explicitly approved `git-commit` role are authored in `agents/`;
+  `docs/agents.md` owns registration and evidence boundaries. Personal workflow
+  roles and model preferences stay local, not packaged or enforced by repo tests.
+  Preserve the reflector's native OpenAI routing and explicit role lock.
+  The paired native commit skill lives in `skills/git-commit/`; discussing or
+  editing that skill/agent is not authorization to create a commit.
 - Repository-local dev-only Biome 2.5.14 includes voice source/tests, the role test,
   `lib/continuity/**`, `test/continuity*.ts`, the continuity extension, its config
   and package manifest: two spaces, double quotes and semicolons. The explicit

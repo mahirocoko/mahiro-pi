@@ -38,8 +38,11 @@ excluded by the repository configuration.
 checks byte equivalence of the copied extension, libraries and original tests.
 That comparison is a migration check, not a permanent sibling dependency.
 
-Native role definitions are authored in `agents/`; see `docs/agents.md` for
-runtime registration, fixed model/effort bindings and their evidence boundary.
+Only `memory-reflector` and the approved `git-commit` role are authored in `agents/`;
+personal workflow roles stay in local Pi configuration. See `docs/agents.md` for
+the package/local ownership split, reflector registration and evidence boundaries.
+The paired `skills/git-commit/SKILL.md` loads through the native package skill
+resource as `/skill:git-commit`; no bare slash-command alias is generated.
 Execution-guard semantics remain owned by the separate canonical Mods adapter,
 not duplicated in this package or in the role prompts.
 

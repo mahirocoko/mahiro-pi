@@ -13,6 +13,7 @@ assert.equal(manifest.engines.node, ">=22.19.0");
 assert.deepEqual(manifest.pi.extensions, ["./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-continuity.ts"]);
 assert.equal(manifest.devDependencies["@biomejs/biome"], "2.5.14");
 assert.equal(manifest.letta, undefined);
+assert.deepEqual(manifest.pi.skills, ["./skills"]);
 for (const peer of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
   assert.equal(manifest.peerDependencies[peer], ">=1.3.0");
   assert.equal(manifest.peerDependenciesMeta[peer].optional, true);
@@ -21,7 +22,7 @@ assert.equal((await readFile(resolve(root, ".npmrc"), "utf8")).trim(), "auto-ins
 const args = process.argv.slice(2);
 assert.ok(args.length === 0 || args.length === 2 && args[0] === "--compare-source", "Expected --compare-source <old-pi-root>");
 const original = args.length ? resolve(args[1]) : undefined;
-const roots = new Set(["extensions", "lib", "test", "docs", "agents"]);
+const roots = new Set(["extensions", "lib", "test", "docs", "agents", "skills"]);
 const files = new Set(["package.json", "AGENTS.md", "README.md", "check-package.mjs", "check-geometry.ts", ".gitignore"]);
 let compared = 0;
 async function inspect(directory = "") {
