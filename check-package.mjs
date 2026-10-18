@@ -6,11 +6,11 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 assert.equal(manifest.name, "@mahirocoko/mahiro-pi");
-assert.equal(manifest.version, "0.1.0");
+assert.equal(manifest.version, "0.2.0");
 assert.equal(manifest.private, true);
 assert.equal(manifest.packageManager, "pnpm@10.33.0");
 assert.equal(manifest.engines.node, ">=22.19.0");
-assert.deepEqual(manifest.pi.extensions, ["./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts"]);
+assert.deepEqual(manifest.pi.extensions, ["./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-continuity.ts"]);
 assert.equal(manifest.devDependencies["@biomejs/biome"], "2.5.14");
 assert.equal(manifest.letta, undefined);
 for (const peer of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {

@@ -23,9 +23,11 @@ is ignored runtime evidence, not another authoring copy.
   changes; synthetic tests are not rendered/human acceptance.
 - Native role definitions live in `agents/`; `docs/agents.md` owns registration
   and evidence boundaries. Preserve native OpenAI routing and explicit role locks.
-- Repository-local dev-only Biome 2.5.14 formats only the new voice/role test files, its
-  config and package manifest with two spaces, double quotes and semicolons.
-  Run `pnpm check:format`; `pnpm format` writes only that narrow set. Do not mass
-  reformat the six legacy files. Package checks are not full typechecking.
+- Repository-local dev-only Biome 2.5.14 includes voice source/tests, the role test,
+  `lib/continuity/**`, `test/continuity*.ts`, the continuity extension, its config
+  and package manifest: two spaces, double quotes and semicolons. The explicit
+  `pnpm check:format` / `pnpm format` scripts still cover only voice/role/config/
+  manifest; check continuity separately with the installed Biome binary. Do not
+  mass-reformat the six legacy files. Package checks are not full typechecking.
 - No commits, publication, pushes, runtime/profile/auth changes or live probes
   without explicit authorization.

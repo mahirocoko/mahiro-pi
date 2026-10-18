@@ -3,7 +3,10 @@
   "files": {
     "includes": [
       "lib/finish-voice.ts",
+      "lib/continuity/**",
+      "test/continuity*.ts",
       "extensions/mahiro-finish-voice.ts",
+      "extensions/mahiro-continuity.ts",
       "test/finish-voice.test.ts",
       "test/agent-roles.test.ts",
       "biome.json",

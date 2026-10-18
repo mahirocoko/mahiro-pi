@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const directory = new URL("../agents/", import.meta.url);
 const expected = {
   "repo-scout": ["gpt-6-luna", "max"],
   researcher: ["gpt-6.1-sol", "medium"],
+  "memory-reflector": ["gpt-6.1-sol", "medium"],
   implementer: ["gpt-6.1-sol", "medium"],
   advisor: ["gpt-6-astra", "high"],
   verifier: ["gpt-6.1-sol", "medium"],
@@ -35,7 +36,23 @@ test("native role sources preserve approved model/effort bindings without provid
       name,
     );
     assert.match(header[1], new RegExp(`^thinking: ${thinking}$`, "m"), name);
-    assert.match(header[1], /^locked: model, thinking$/m, name);
+    assert.match(
+      header[1],
+      name === "memory-reflector"
+        ? /^locked: true$/m
+        : /^locked: model, thinking$/m,
+      name,
+    );
+    if (name === "memory-reflector") {
+      for (const field of [
+        "tools: none",
+        "run_in_background: true",
+        "inherit_context: false",
+        "prompt_mode: replace",
+        "max_turns: 2",
+      ])
+        assert.ok(header[1].split("\n").includes(field));
+    }
   }
 });
 

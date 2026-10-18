@@ -1,9 +1,9 @@
 {
   "name": "@mahirocoko/mahiro-pi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Mahiro's authored Pi footer, account-scoped quota and foreground-gated Herdr display metadata.",
+  "description": "Mahiro's native Pi continuity, focused roles, finish voice, footer and foreground-gated Herdr metadata.",
   "license": "UNLICENSED",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -22,8 +22,8 @@
     }
   },
   "scripts": {
-    "test": "node --test test/*.test.ts",
-    "check": "node check-package.mjs && node --test test/*.test.ts",
+    "test": "node --test --test-concurrency=1 test/*.test.ts",
+    "check": "node check-package.mjs && node --test --test-concurrency=1 test/*.test.ts",
     "check:geometry": "node check-geometry.ts",
     "format": "biome format --write lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts biome.json package.json",
     "check:format": "biome format lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts biome.json package.json"
@@ -31,7 +31,8 @@
   "pi": {
     "extensions": [
       "./extensions/mahiro-status.ts",
-      "./extensions/mahiro-finish-voice.ts"
+      "./extensions/mahiro-finish-voice.ts",
+      "./extensions/mahiro-continuity.ts"
     ]
   },
   "devDependencies": {

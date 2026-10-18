@@ -4,6 +4,7 @@ node_modules/
 .env.*
 .letta/
 .agent-state/runtime/
+.agent-state/learn/**/origin
 .cocoindex_code/
 .pids/
 test-results/

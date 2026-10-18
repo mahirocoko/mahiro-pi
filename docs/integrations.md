@@ -1,5 +1,214 @@
 # Pi integrations and ownership
 
+## Memory/history expansion — 2026-10-18
+
+T190 includes the existing Letta memory corpus, historical recall, reflection and
+agent-owned fresh Letta/Pi project comparisons. Mahiro requested these checks
+before switching, rather than waiting for his daily trial. Current daily
+continuity uses native `~/.pi/agent/AGENTS.md` plus the owned corpus at
+`~/.pi/agent/continuity`. Main explicitly curated the existing primary persona and
+seven confirmed human decisions into native context: the file is 3,993 bytes,
+with 1,456 bytes of retained facts under the 4 KiB editorial budget. This is an
+operator Core migration, not an automatic persona rewrite. The separate default-root
+quoted-note learning controller is now enabled as described below. A fresh native default session
+recalled all seven decisions without tools. After human native reauthentication,
+`pi-defaults-20261018T203418` also verified the primary Mahiro Code identity and
+existing work/safety boundaries without tools or model/thinking/root overrides.
+Actual provider-request metadata remains OpenAI `gpt-6.1-sol` / medium; settings,
+archive and native context were unchanged during that successful case. The one
+private snapshot preserves the previous context.
+The dated 2026-10-17 baseline below is historical deployment evidence, not the
+complete current migration target.
+
+The owned read-only recall extension is the package's third registered entry.
+Independent canonical guard ABI/tool-identity verification and the actual
+relative-reference regression passed after canonical SDK `baseDir` resolution was
+fixed; that source-alias fix is separate from policy activation. Global policy
+allows `recall_search` and `recall_read`, plus exactly the default data directory
+and its slash-delimited descendants under native `external_directory_read`.
+Default `*` denial, generic external-directory/write rules and other tool
+permissions remain unchanged. The canonical ABI now checks the actual recall
+tool grant, native read permission, explicitly matched `path_read` restrictions
+and directional external-read permission, while retaining provenance, lifecycle,
+cancellation and secret checks. A bare external-directory grant was rejected:
+the native family folds both directions and must not widen writes. Independent
+offline SDK counterexamples verified native write/edit/classified shell writes
+remain denied/non-auto-approved even when tool-level permissions allow them.
+This read grant also permits otherwise-authorized generic read-only tools to
+read the corpus; recall quote limits are not a universal filesystem boundary.
+It does not activate background learning.
+
+The private inert MD snapshot normalized 280 documents into 314 records; the
+receipt identifies 13 redacted **documents**, not 13 secrets. The streamed legacy
+history export read 12.27 GB and validated 615 conversation-start headers: 604
+accepted origin entries, including one zero-record entry (603 nonempty), produced
+68,806 normalized visible-only historical user/assistant records in 70 SHA-bound
+shards totaling 71,622,202 bytes. Eleven whole conversations were withheld for
+excluded-project markers; 87 missing-header origins were skipped. The 4,743
+sensitive-or-uncertain rows are not a secret count. Fifty-seven unknown-CWD origins
+(6,241 records) remain distinct unassigned scopes, never global. Conversation-start
+CWD is not verified per-message CWD. Sampled maximum RSS was 554,441,152 bytes, not
+a continuously measured peak; export code did not modify the original source.
+Independent read-only metadata/schema/privacy-fixture and 70-shard validation
+passed with these caveats. This is not semantic secret-free clearance, complete
+coverage, native Pi provenance or cryptographic signatures.
+
+The combined private inert trial root is recorded in
+`.agent-state/runtime/letta-harness-study/combined-history-receipt.json`.
+Its 75 files, totaling 75,457,833 bytes, were copied byte-identically into the
+fixed default runtime root; the original trial/export authorities were preserved.
+Files/directories retain private 600/700 modes. Deployment is recorded in
+`.agent-state/runtime/letta-harness-study/default-corpus-deployment.json`.
+Optional root-manifest `history: true` selects a fixed history subtree; unknown
+fields and false history flags reject. Without the flag, the old fast path makes
+no extra history IO. Runtime/scoped-reader integration passed 19 focused tests.
+Every read requires canonical ABI authorization, private/symlink-safe paths and
+pre-open bounds. Selected history is capped at 256 MiB; search returns at most
+six hits, 1,024 bytes each and 6,144 bytes total. Recall-read quotes are capped at
+2,048 bytes; the serialized runtime result is capped at 8,192 bytes. Snapshot and
+root-manifest post-await checks prevent forgotten records, lifecycle changes or
+scope remaps from reviving stale results. These are cooperative runtime guards,
+not same-UID tamper containment.
+
+Actual native OpenAI `gpt-6.1-sol` / medium provider-request metadata and autonomous
+nested codemode `recall_search`/`recall_read` succeeded in a neutral `mahiro-skills`
+memory quiz; the exact accepted MD citation was verified. Evidence is under
+`.agent-state/runtime/letta-harness-study/fresh-session-pilot/pi-skills-policy-20261018T183211`.
+A second-project `haabiz-ui` controlled record-ID anchor read a historical-user
+`letta_message` record with its exact hash; its receipt is under the same pilot
+parent in `pi-history-anchor-20261018T185947`. This second test is not a neutral
+quiz or generalized cross-project parity. Defaults, accepted dataset and source
+repositories were byte-identical at each test's time; raw provider streams were
+not retained. Those historical preservation checks do not freeze today's defaults.
+
+The deployed default was then verified without provider/model/thinking flags or
+`MAHIRO_CONTINUITY_ROOT`: `pi-defaults-20261018T195453` repeated the neutral skills
+question through native search/read and cited the exact accepted MD record;
+`pi-defaults-20261018T200028` read the second-project historical-user ID and exact
+hash. Both receipts are under the same pilot parent. Actual provider-request
+metadata is OpenAI `gpt-6.1-sol` / medium. Settings, archive and target source
+hashes remained identical during each case. The second case is still an ID
+anchor, not a neutral second-project quiz. The skills answer supported a past
+rejection but explicitly lacked its reason; do not report complete semantic
+equivalence to Letta. Normal SDK-owned OAuth refresh remains native behavior;
+the operator does not read, copy or substitute credentials. A diagnostic showed
+that freezing the auth file in the test sandbox blocks that normal refresh;
+that test-only restriction was removed, not the model/data/source write fences.
+After removal, native authentication initially still failed before the provider callback
+with zero input/output tokens. The exact credential/provider reason is not
+established from the retained safe signatures. Main stopped model retries and
+prepared native login with the human, without substituting another host's auth.
+The visible `Pi · reauth` tab in Herdr's existing workspace is `wA9:t4`, pane
+`wA9:p5`, with the expected cwd, OpenAI `gpt-6.1-sol` / medium and unchanged focus.
+Opening the native provider menu alone was not login proof. Mahiro confirmed
+login completed at 20:34; the subsequent actual default-provider identity case
+above succeeded and cleared the authentication blocker. Earlier failures remain
+dated diagnostic evidence, not a current auth failure. The dependency continuation
+was approved at 20:37; the bounded native quoted-note transaction and activation below
+subsequently cleared the technical reflection gate. Human daily-work acceptance remains pending.
+
+On 2026-10-18 at 19:11 Bangkok time, Mahiro explicitly requested the Pi global
+default `gpt-6.1-sol` / medium. Main changed only `defaultModel` and
+`defaultThinkingLevel`, preserving OpenAI routing, the existing target thinking
+override and other settings. At 19:13 a fresh `pi --mode rpc --no-session`, with no
+model/thinking flags, reported that default through `get_state` without inference.
+This is not a change to role definitions or Letta models.
+
+The source now wires a fail-closed quoted-note controller. Mahiro approved the
+bounded native dependency continuation at 20:37 on 2026-10-18. Deployment is now
+**enabled for the configured default memory root**, after independent counterprobes,
+the 99-test serial repository check, frozen patched dependency installation, role
+registration and the real native transaction below. The explicit grant is the scalar
+`continuity_learning_<SHA-256 of canonical root UTF-8 bytes>: allow`; the owned ABI's
+`learningPermission(root)` supplies its exact name. Native arbitrary-tool surfaces do
+not match a path-valued permission map, so an unscoped scalar or a path map is not
+accepted. Generic/external write rules are unchanged; read grants are not write authority.
+The controller requires healthy canonical ABI1 primary-session attribution, the
+public initial-outcome-claim marker and an exact locked, no-tool reflector role.
+It never uses foreground/queue bypass, private APIs, parent nudges or Core writes.
+
+Only observed interactive/RPC input hooks can admit newly appended, unambiguous
+native user entries. SDK/RPC root attribution is not verified human identity.
+Attachments, transformed inputs, imported DTOs, assistant/tool rows and old resume
+history cannot establish observation. Final successful native settlement starts
+at most one claimed background batch, with a 120-second deadline, two-turn cap,
+16 KiB source and 8 KiB/eight-note closed JSON result bounds. Parent validation
+confirms literal observed-source quotes only: notes remain UNTRUSTED low-authority
+historical evidence, never durable human preferences. Permission, immutable source,
+branch ancestry, generation, root mapping, lease and store snapshot checks precede
+publication. Failure does not advance the review cursor; source ingestion may
+already have persisted the observed native user record. Imported rows are skipped
+by archive ordinal without being promoted to observed evidence. Capped, still-attested
+remainders remain eligible before new inputs on the next qualifying turn; no idle
+drain loop runs. New foreground input cancels only the owned worker, not its observation.
+
+`/memory-status`, `/memory-forget <noteId>` and
+`/memory-correct <noteId> <retainedRecordId> <literal quote>` require current-project
+mapping and explicit learning permission. Correction uses an existing source, not
+a synthetic slash-command user record. Forgetting suppresses active notes/source
+reads; original historical archives and old generation files are not erased.
+Latest new/corrected notes receive bounded context visibility. No semantic
+correction, automatic retry, automatic rebase, Core/backup edit or second memory
+service is introduced. Offline source fixtures are not native/provider live proof.
+
+At 21:46 Bangkok, `native-reflection-live/run-20261018T214536` completed a real
+controlled RPC transaction using the existing authenticated profile, without model,
+thinking or provider flags. A primary turn and one claimed background worker both
+requested OpenAI `gpt-6.1-sol` / medium. The worker received the new observed canary,
+not the package's retained imported-note marker, and committed one low-authority
+quote. A new native session recalled that canary; learning was disabled in that
+second phase to separate persistent recall from another write. No parent inference
+occurred after settlement. This is actual runtime-controlled user-role evidence,
+not proof that an automated RPC sender is human. Temporary observer/permissions
+were restored, Core was unchanged and the canary stayed in the isolated proof store.
+The sole subsequent permission change enabled the real default root. The existing
+idle Herdr Pi pane was reloaded without focus or model changes; `/memory-status`
+reported the expected empty default quoted-note collection with zero model usage.
+Actual native `/memory-correct` and `/memory-forget` also applied successfully with
+zero provider requests over a disposable clone of that runtime-derived fixture;
+this verifies command wiring, not a second native-origin capture. A separate
+recovery counterprobe found rollback to an older generation discarded newer source
+references. The repaired canonical merge preserves current archive order, newer
+sources/facts, cursor and privacy controls; independent clone replay and fresh-store
+reopening pass. That rollback evidence is offline, not provider-backed.
+
+Letta's ordinary `--new` attempt at 17:21 failed at startup with EPERM. A bounded
+constant-size fence then allowed only one predicted new conversation while
+protecting old conversations, original agent and MemFS. The first real answer
+used the wrong repository because inherited `USER_CWD` overrode native tool cwd,
+despite a correct conversation header. Setting that child variable to the target
+fixed the harness: `letta-native-metadata-20261018T194237` answered the identical
+neutral skills question with current repository evidence and a cited historical
+rejection. The requested case question is shared; byte-identical runtime user
+envelopes were not established by the native-journal audit. Original agent,
+sampled core files, Git HEAD/refs and global settings
+remained unchanged; Git config writes stayed denied. The stream uses `message`
+events, so an old Pi-shaped inference counter's false value is not no-inference
+evidence; the final answer is independently matched against its owned native
+conversation journal. Pi and Letta chose different supported rejections; Pi
+reported an unknown reason. This is a bounded comparison, not generalized parity.
+The actual fresh CLI and pinned read-only study source are 0.34.16, commit
+`7be3c81f9cfce481994fe4484d59a5bf17cdb48a`; the long-lived parent Letta TUI is
+0.34.15. The unchanged Letta default is also `gpt-6.1-sol` / medium, but its OAuth
+provider route is not identical to Pi's route. A second identical neutral question
+was executed in Haabiz UI at 21:58/21:59 with existing read-only runners: Pi used
+scoped search/read and cited a hash-bound historical-assistant Docs CSS diagnosis
+(not a human acceptance record); Letta
+chose the current AGENTS granular-reset contract and its recorded reason. The
+answers were audited against their cited sources, and Letta's visible answer
+matched its owned native assistant journal entry. Source files, corpus, original
+agent, sampled core and settings were preserved. This establishes two bounded
+project comparisons with different supported choices, not equal user envelopes,
+equal information access or generalized semantic parity. T190 owns permissions
+and next action; human daily-workflow/product acceptance remains open.
+
+Repository package/source validation and 101 sequential tests passed; formatting
+and whitespace checks passed. The directional Mods adapter passed five sequential
+tests and its canonical repository check, followed by independent native public-API
+and controlled transaction probes.
+These gates are distinct from the actual provider-backed default cases above
+and cannot substitute for the scoped native reflection proof or human acceptance.
+
 ## Migration status — 2026-10-17
 
 `@mahirocoko/mahiro-pi` owns the authored Pi footer, status and completion voice,
@@ -46,7 +255,7 @@ start status producers or resolve quota auth.
 | Secret/commit guards, RTK, MCP | Letta remains unchanged. The canonical Mods Pi guard adapter and native MCP are active with scoped evidence below; no automatic RTK activation. |
 | Tasks | Existing tsk board, no competing session ledger. |
 | Subagents | Pinned native orchestrator/permissions plus canonical guard package active; owned role bindings live-tested within the scope below. |
-| Memory, recall, reflection | Native curated user context is active for prospective confirmed facts; guarded core tools own updates. Native resume/bounded requested journal reads own history. No corpus import, index or background reflection daemon. |
+| Memory, recall, reflection | Native curated Core remains the identity/preference owner. The deployed default corpus supports owned read-only scoped MD/history recall. A separately authorized parent controller now appends observed native root-user records and low-authority quoted notes; the actual controlled cross-session proof and default-root activation are described above. Native resume/requested journal reads remain available. Core/persona rewriting and human daily-work acceptance are not inferred from that proof. |
 | Agent Halo / completion voice | Separate owners. This package owns Pi finish voice only; no Halo audio bridge or Letta change. |
 | HiroHiro / browser QA | HiroHiro owns transport; Pi registration and rendered QA remain separate verification. |
 
@@ -75,7 +284,10 @@ invitation to install a broad replacement bundle or copy Letta state.
 | `mahiro-secret-read-guard` | Active through the canonical Mods Pi adapter, including native final arguments, filtered readers, nested calls and parent/child gates. The ordered bootstrap denies dispatch if canonical initialization/ownership fails. Unknown tools and PowerShell are denied; this is not an OS sandbox. |
 | `mahiro-finish-voice` | Pi-owned successful-settlement adapter here; no Halo audio relay or Letta change. |
 
-## Native agents and curated continuity active
+## Native agents and curated continuity active — 2026-10-17 baseline
+
+This section records the scoped 17 October deployment. The current expansion and
+18 October default change are described above; Main owns runtime activation.
 
 The pinned subagent/permission pair and complete ordered Mods guard package were
 registered in the existing native Pi profile on 2026-10-17. Twelve owned role
@@ -282,10 +494,12 @@ branch notifications. No extra model calls or invented backend statuses occur.
 
 ## Pi completion voice
 
-The package manifest loads both `extensions/mahiro-status.ts` and
-`extensions/mahiro-finish-voice.ts`. The single status-only CLI route above does
-not enable voice; loading the package enables both after Main's authorized reload.
-No runtime reload is performed by source development.
+The package manifest loads `extensions/mahiro-status.ts`,
+`extensions/mahiro-finish-voice.ts` and `extensions/mahiro-continuity.ts`.
+The single status-only CLI route above does not enable voice or recall; loading
+the package registers all three after Main's authorized reload. Recall still
+requires accepted data and healthy canonical guards. Source development performs
+no runtime reload.
 
 Voice uses only public `agent_start`, `agent_before_settle` and `agent_settled`:
 latest whole-run outcome must be completed and final settled must not be aborted.
@@ -307,15 +521,21 @@ storage; actual Kanya/audio and native settled-event E2E remain Main-owned check
 
 ## Verification boundaries
 
-`pnpm check` runs package/import/whitespace checks, the original 26 synthetic
-Node tests and focused silent completion-voice tests. They cover full native usage, cache/subscription, geometry widths,
-quota/auth/account invalidation, PID/non-TUI isolation, global ownership,
-sequence/freshness, cleanup and late callbacks without live auth/model calls.
+`pnpm check` runs package/import/whitespace checks and the Node test suite,
+including status, silent completion voice, native roles and continuity. Tests cover
+native usage, cache/subscription, geometry widths, quota/auth/account invalidation,
+PID/non-TUI isolation, generation ownership, freshness, cleanup, scoped imports,
+recall and stale-result rejection without live auth/model calls. For serialized
+execution, use `node check-package.mjs && node --test --test-concurrency=1 test/*.test.ts`.
 `pnpm check:geometry -- /absolute/path/to/host/package.json` separately resolves
 public host geometry and checks five widths plus Thai/ZWJ round-trip. No installed
-compiler or bundle tool is required; these checks are not typechecking. The local
-pinned Biome formatter is scoped to new voice source/tests, config and manifest;
-`pnpm check:format` checks those files without reformatting the legacy footer.
+compiler or bundle tool is required; these checks are not typechecking.
+
+Biome 2.5.14 includes voice source/tests, the role test, continuity library/tests
+and extension, its config and the package manifest. The `pnpm check:format` and
+`pnpm format` scripts still enumerate only the narrower voice/role/config/manifest
+set; check continuity explicitly with the installed Biome binary. Neither route
+should mass-reformat the six legacy files. No Markdown formatter is installed.
 
 Main inspected actual terminal text and metadata after the 2026-10-17 reference
 switch: one authored footer, the same model and usage values, and no quota row.

@@ -27,10 +27,12 @@ pnpm check:geometry -- /absolute/path/to/pi-coding-agent/package.json
 This resolves the public TUI package from that host, imports geometry only and
 makes no model/auth calls. It is not a browser, live rendering or visual-acceptance
 check. No TypeScript compiler is installed; `check` is source/package validation
-plus tests, not typechecking. Repository-local dev-only Biome 2.5.14 provides
-`pnpm check:format` and `pnpm format` for only the new voice/role test files, config and
-manifest. Install dev tools with `pnpm install --ignore-scripts`; optional host
-peers remain excluded by the repository configuration.
+plus tests, not typechecking. Repository-local dev-only Biome 2.5.14 includes
+voice source/tests, the role test, continuity library/tests and extension, config
+and manifest. `pnpm check:format` and `pnpm format` still enumerate only the
+voice/role/config/manifest subset; check continuity explicitly with the installed
+Biome binary. Do not mass-format the legacy footer. Optional host peers remain
+excluded by the repository configuration.
 
 `node check-package.mjs --compare-source /absolute/path/to/old/pi` optionally
 checks byte equivalence of the copied extension, libraries and original tests.

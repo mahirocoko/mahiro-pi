@@ -5,7 +5,17 @@ orchestrator discovers runtime copies in `~/.pi/agent/agents/`; Pi packages do n
 automatically install this resource type. Compare existing copies before updating;
 never overwrite user edits silently.
 
-The role names and model/effort pairs preserve the established Letta roster.
+The original twelve role names and model/effort pairs preserve the established Letta roster.
+The thirteenth source-owned role, `memory-reflector`, is a domain-specific no-tool
+native OpenAI `gpt-6.1-sol` / medium role with a fully locked replacement prompt,
+background execution and no inherited context. Its native frontmatter uses
+`tools: none`, `run_in_background`, `inherit_context` and `prompt_mode`, matching
+the executed upstream decoder. Main registered a byte-identical runtime copy, then
+the 2026-10-18 controlled native transaction exercised the real locked role on
+OpenAI `gpt-6.1-sol` / medium. Its provider payload excluded the retained imported
+note marker. This proves that narrow role path, not every roster model or human acceptance.
+The controller checks the public current role descriptor before dispatch; an
+unknown role or overridden capability never falls back to general-purpose.
 Models use native `openai` with the existing Pi authentication profile, not a new
 API key, another provider, or a fallback. Model and thinking fields are locked
 against model-facing overrides; an explicit human routing change must update the
