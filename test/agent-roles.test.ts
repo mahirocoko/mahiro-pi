@@ -3,9 +3,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const directory = new URL("../agents/", import.meta.url);
-test("the package owns its reflector and commit role, not a personal workflow roster", () => {
+test("the package owns memory system roles and the commit exception, not a personal roster", () => {
   assert.deepEqual(readdirSync(directory).sort(), [
     "git-commit.md",
+    "managed-memory-writer.md",
     "memory-reflector.md",
   ]);
 });
@@ -34,6 +35,27 @@ test("the commit skill is a native package resource with explicit permission bou
   assert.ok(source.includes("is not commit authorization"));
   assert.ok(source.includes("Never create an empty commit"));
   assert.ok(!source.includes("Agent tool"));
+});
+
+test("the managed writer is an isolated locked native system role with scoped tools only", () => {
+  const source = readFileSync(
+    new URL("managed-memory-writer.md", directory),
+    "utf8",
+  );
+  for (const field of [
+    "model: openai/gpt-6.1-sol",
+    "thinking: medium",
+    "locked: true",
+    "tools: agent_memory_read, agent_memory_edit, agent_memory_commit",
+    "run_in_background: true",
+    "inherit_context: false",
+    "prompt_mode: replace",
+    "max_turns: 8",
+  ])
+    assert.ok(source.split("\n").includes(field), field);
+  assert.match(source, /Replace contradicted knowledge/);
+  assert.match(source, /Input source\/user role does not prove/);
+  assert.doesNotMatch(source, /(?:^tools:|,)\s*(?:bash|write|edit)(?:,|$)/m);
 });
 
 test("the required reflector retains its locked native no-tool isolated contract", () => {

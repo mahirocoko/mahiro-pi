@@ -1,5 +1,86 @@
 # Pi integrations and ownership
 
+## Managed agent memory — controlled native proof, not default activation
+
+The fourth extension now implements one private Markdown/Git knowledge owner:
+Core/persona/preferences/methods, index discovery, shared global detailed knowledge,
+scoped deferred knowledge and
+procedural files. Main's read/edit/remove/commit tools and an isolated native writer
+converge on that owner. Configured automatic reflection captures bounded observed
+input, assistant action and selected local-check results, not merely literal user
+quotes. Native workers integrate nonconflicting files after successful completion;
+conflicts, source-linked forget controls, CAS, cancellation/revocation and rollback
+are covered by focused fixtures. Full details and activation gates belong to
+`docs/agent-memory.md`, not the historical quote-controller paragraphs below.
+
+The canonical Mods adapter owns a **separate** exact-root managed-memory capability
+and native child-session/service-outputFile binding. Existing C1 or read grants do
+not authorize Core writing. The new system role is `managed-memory-writer`; the
+old no-tool quote reflector and its deployed permission remain unchanged. Package
+registration does not register the new role, create a root, migrate bootstrap or
+grant authority. The real 3993-byte curated Core and corpus were not migrated;
+no credentials were copied or authentication/profile settings manually changed.
+The native-provider proof below can perform ordinary OAuth refresh; this is not
+a blanket auth-byte or whole-profile invariance claim.
+
+The owned SDK 1.3.0 fixture exercises actual native public tool/subagent dispatch
+with injected Faux transport and no external provider inference. It verifies
+separate grants, outputFile/session identity binding, a real Markdown draft→Git
+integration, changed Core in the next request and a fresh SDK session, revocation
+and project isolation. It exposed native replace-mode portable-parent-preamble
+inheritance; the public before_agent_start whole-worker-prompt replacement closes
+that concrete counterexample. These synthetic runtime receipts are **not** live
+provider learning, default deployment or independent acceptance.
+
+On 2026-10-19, fresh independent QA exposed project-management scope and ledger
+capacity/publication defects. The repairs use ledger V2 scoped/global source
+tombstones and complete pre-publication validation. Independent counterexample
+reruns verify cross-project preservation, own-source non-revival and unchanged
+readable files/index/HEAD on overflow; a fresh native SDK/Faux probe also passed.
+V1 managed ledgers fail closed; no real managed root existed and C1 is unchanged.
+
+The subsequent actual default-provider proof used native OpenAI `gpt-6.1-sol` /
+medium with no model/thinking flags, credential copy or fake HOME. Main committed
+a corrected project policy; a completed native background writer revised it in
+private deferred knowledge and added a generic procedure. A new session read that
+file and answered 51 to the identical query whose pre-learning answer was 45.2;
+51 was not stored as an answer. Independent receipt review supports this narrow
+loop. Seven source/package hashes and the real bootstrap/settings hashes were
+unchanged; normal native OAuth refresh is not auth-byte invariance.
+
+The failed auth/resource and project-role-discovery attempts remain dated in
+ignored local receipts, not successes. Live fixtures must keep the real agent
+directory, use project-scoped resources and align the owned CLI process cwd;
+the full contract documents the public API reasons. This is controlled provider
+evidence, not a perfectly configuration-matched experiment or complete automatic
+learning proof. Reversible real-root/bootstrap/role/permission activation and
+Mahiro's daily-companion acceptance are still pending. T190 remains active.
+
+A subsequent **synthetic, zero-provider capacity lane** raises only explicit
+configured ceilings to 512 maintained files (including Core/index), 256 KiB per
+shared/deferred/procedural detail and 8 MiB total; defaults and Core/index maxima
+are unchanged. A 40-MiB serialized private-view ceiling covers both base/proposed
+copies with reader-equivalent preflight before writes. Retention uses lightweight
+summaries and one selected body at a time; conflicts are not silently reclaimed.
+Bounded Git-object batches preserve the 15-second snapshot/10-second command limits.
+The 281-file / 3,607,826-byte synthetic inventory shape and the full envelope pass
+publication/hash-preserving restart, correction, rollback and conflict recovery.
+A 64-serialized-proposal retention stress passes inspection, refusal and explicit cleanup;
+peak process RSS is substantial (up to 1,477,648 KiB in the selected default-V8 run),
+not a hard runtime guarantee. Independent 131072-byte ledger capacity still limits
+metadata combinations. Main also closed the truncated-proposal recovery gap:
+management conflict selection supports complete Unicode paging and full hashes;
+independent registered-tool reconstruction, current-CAS publication, scope,
+revocation and forgotten-data counterchecks pass. Exact commands, measurements, bounds and
+unsupported combinations are documented in the managed-memory contract. These
+checks do not replay the earlier provider proof against the changed source, copy
+real content, activate the default managed root or satisfy daily-companion acceptance.
+Fresh independent QA and current native SDK/Faux dispatch passed. That native smoke
+uses zero external inference and does not specifically exercise conflict paging;
+registered-tool execution and native-wrapper passthrough evidence cover its args.
+Neither stress nor QA proves acceptable steady-state product RAM or 64 complete
+physical draft trees. Real migration, default activation and human acceptance stay open.
+
 ## Memory/history expansion — 2026-10-18
 
 T190 includes the existing Letta memory corpus, historical recall, reflection and
@@ -495,11 +576,12 @@ branch notifications. No extra model calls or invented backend statuses occur.
 ## Pi completion voice
 
 The package manifest loads `extensions/mahiro-status.ts`,
-`extensions/mahiro-finish-voice.ts` and `extensions/mahiro-continuity.ts`.
-The single status-only CLI route above does not enable voice or recall; loading
-the package registers all three after Main's authorized reload. Recall still
-requires accepted data and healthy canonical guards. Source development performs
-no runtime reload.
+`extensions/mahiro-finish-voice.ts`, `extensions/mahiro-continuity.ts` and
+`extensions/mahiro-agent-memory.ts`. The single status-only CLI route above does
+not enable voice or memory; loading the package registers all four after Main's
+authorized reload. Recall requires accepted data and healthy canonical guards;
+managed memory additionally needs its separate exact-root capability and explicit
+new-store/role activation. Source development performs no runtime reload.
 
 Voice uses only public `agent_start`, `agent_before_settle` and `agent_settled`:
 latest whole-run outcome must be completed and final settled must not be aborted.
@@ -531,10 +613,10 @@ execution, use `node check-package.mjs && node --test --test-concurrency=1 test/
 public host geometry and checks five widths plus Thai/ZWJ round-trip. No installed
 compiler or bundle tool is required; these checks are not typechecking.
 
-Biome 2.5.14 includes voice source/tests, the role test, continuity library/tests
-and extension, its config and the package manifest. The `pnpm check:format` and
-`pnpm format` scripts still enumerate only the narrower voice/role/config/manifest
-set; check continuity explicitly with the installed Biome binary. Neither route
+Biome 2.5.14 includes voice source/tests, role tests, continuity and managed-memory
+source/tests/extensions, its config and the package manifest. Format scripts now
+include managed-memory alongside the prior voice/role/config/manifest set; check
+continuity explicitly with the installed Biome binary. Neither route
 should mass-reformat the six legacy files. No Markdown formatter is installed.
 
 Main inspected actual terminal text and metadata after the 2026-10-17 reference

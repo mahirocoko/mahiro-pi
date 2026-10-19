@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Mahiro's native Pi continuity, focused roles, finish voice, footer and foreground-gated Herdr metadata.",
+  "description": "Mahiro's native Pi continuity, scoped managed memory, system roles, finish voice, footer and foreground-gated Herdr metadata.",
   "license": "UNLICENSED",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -25,8 +25,8 @@
     "test": "node --test --test-concurrency=1 test/*.test.ts",
     "check": "node check-package.mjs && node --test --test-concurrency=1 test/*.test.ts",
     "check:geometry": "node check-geometry.ts",
-    "format": "biome format --write lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts biome.json package.json",
-    "check:format": "biome format lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts biome.json package.json"
+    "format": "biome format --write lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts biome.json package.json",
+    "check:format": "biome format lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts biome.json package.json"
   },
   "pi": {
     "skills": [
@@ -35,7 +35,8 @@
     "extensions": [
       "./extensions/mahiro-status.ts",
       "./extensions/mahiro-finish-voice.ts",
-      "./extensions/mahiro-continuity.ts"
+      "./extensions/mahiro-continuity.ts",
+      "./extensions/mahiro-agent-memory.ts"
     ]
   },
   "devDependencies": {

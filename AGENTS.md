@@ -21,17 +21,24 @@ is ignored runtime evidence, not another authoring copy.
   Project evidence belongs only under ignored `.agent-state/runtime/`.
 - Run `pnpm check` after changes. Run the explicit host geometry smoke when geometry
   changes; synthetic tests are not rendered/human acceptance.
-- Only `memory-reflector` and the explicitly approved `git-commit` role are authored in `agents/`;
+- System memory roles `memory-reflector` (C1 quotes) and `managed-memory-writer`
+  (scoped maintained knowledge), plus the explicitly approved `git-commit` role,
+  are authored in `agents/`;
   `docs/agents.md` owns registration and evidence boundaries. Personal workflow
   roles and model preferences stay local, not packaged or enforced by repo tests.
   Preserve the reflector's native OpenAI routing and explicit role lock.
   The paired native commit skill lives in `skills/git-commit/`; discussing or
   editing that skill/agent is not authorization to create a commit.
-- Repository-local dev-only Biome 2.5.14 includes voice source/tests, the role test,
-  `lib/continuity/**`, `test/continuity*.ts`, the continuity extension, its config
-  and package manifest: two spaces, double quotes and semicolons. The explicit
-  `pnpm check:format` / `pnpm format` scripts still cover only voice/role/config/
-  manifest; check continuity separately with the installed Biome binary. Do not
-  mass-reformat the six legacy files. Package checks are not full typechecking.
+- Managed knowledge has one private Markdown/Git owner, distinct from C1 archives
+  and the human-curated bootstrap. `docs/agent-memory.md` owns its contract. The
+  separate exact-root canonical capability is mandatory; C1/read grants do not
+  permit managed writes. Native workers use identity-bound private views and public
+  per-run prompt replacement, never cwd overrides, shell tools or inherited corpus.
+  Source registration alone must not migrate Core, install roles or enable policy.
+- Repository-local dev-only Biome 2.5.14 includes voice source/tests, role tests,
+  continuity, managed-memory source/tests/extensions, config and manifest: two
+  spaces, double quotes and semicolons. Explicit format scripts include the new
+  managed roots and prior voice/role/config/manifest set; check continuity separately.
+  Do not mass-reformat the six legacy files. Checks are not full typechecking.
 - No commits, publication, pushes, runtime/profile/auth changes or live probes
   without explicit authorization.

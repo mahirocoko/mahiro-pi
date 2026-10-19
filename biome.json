@@ -4,6 +4,9 @@
     "includes": [
       "lib/finish-voice.ts",
       "lib/continuity/**",
+      "lib/agent-memory/**",
+      "test/agent-memory*.ts",
+      "extensions/mahiro-agent-memory.ts",
       "test/continuity*.ts",
       "extensions/mahiro-finish-voice.ts",
       "extensions/mahiro-continuity.ts",

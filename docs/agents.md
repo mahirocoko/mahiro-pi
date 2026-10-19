@@ -26,6 +26,32 @@ explicit commit request and approved scope; packaging it does not authorize a
 commit. The skill uses native Pi subagent dispatch, not a Letta tool interface.
 Package `pi.skills` loads the skill; it does not register the role automatically.
 
+## Managed knowledge writer (source available, not globally registered)
+
+`agents/managed-memory-writer.md` is an additional system memory role authorized
+by the full managed-memory run. It is not a restored personal specialist. It uses
+native OpenAI `gpt-6.1-sol` / medium, `locked: true`, `prompt_mode: replace`,
+`inherit_context: false`, background scheduling and an eight-turn ceiling. Its
+only tools are `agent_memory_read`, `agent_memory_edit`, `agent_memory_commit`.
+Main checks the immutable descriptor before dispatch, claims the initial outcome
+and never bypasses the queue. Canonical authority binds the native service's
+outputFile to the child's captured SessionManager and a private leased view.
+Caller arguments cannot select a lease or become a worker.
+
+The pinned native host retains a portable parent preamble even under replace
+mode. The managed extension therefore uses public `before_agent_start` to replace
+the **entire** bound worker prompt with this authored role body. A known unbound
+writer gets a minimal stop prompt, not inherited private context. Native SDK
+fixtures verify parent-context/cross-project markers are absent; this is not
+real-provider proof. The role maintains synthesized knowledge and corrections,
+not exact quotes. Successful completion integrates nonconflicting changes into
+the same store Main edits; conflicts remain private proposals. Automatic
+reflection and foreground assignments share this role and authoring owner.
+
+Register it explicitly only after reviewing the runtime role; packages do not
+auto-register agents. The source run did not touch the user's current roster.
+The old no-tool reflector remains a separate C1 evidence capability, unchanged.
+
 ## Personal workflow
 
 Other roles, their model/effort preferences and native built-in overrides belong
@@ -50,4 +76,6 @@ The 2026-10-17 exploration/implementation and MCP checks exercised then-installe
 personal roles. At that time twelve repository copies matched the runtime. That
 is historical registration evidence, superseded as ownership guidance by the
 local-only separation approved on 2026-10-18. Current package tests intentionally
-cover only the reflector/commit pair and do not inspect or mutate the user's HOME.
+cover the two system memory roles and commit exception, without inspecting or
+mutating the user's personal roster. Managed-memory native fixtures use a
+project-owned agent directory and injected transport; they do not mutate HOME.

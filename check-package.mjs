@@ -10,7 +10,7 @@ assert.equal(manifest.version, "0.2.0");
 assert.equal(manifest.private, true);
 assert.equal(manifest.packageManager, "pnpm@10.33.0");
 assert.equal(manifest.engines.node, ">=22.19.0");
-assert.deepEqual(manifest.pi.extensions, ["./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-continuity.ts"]);
+assert.deepEqual(manifest.pi.extensions, ["./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-continuity.ts", "./extensions/mahiro-agent-memory.ts"]);
 assert.equal(manifest.devDependencies["@biomejs/biome"], "2.5.14");
 assert.equal(manifest.letta, undefined);
 assert.deepEqual(manifest.pi.skills, ["./skills"]);
