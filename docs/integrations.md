@@ -412,13 +412,72 @@ startup. Do not install another global SDK merely to satisfy nested dependency
 checks. SDK imports are type-only and TUI import is deferred; non-TUI modes never
 start status producers or resolve quota auth.
 
+### Explicit setup authority — default skill policy only
+
+`mahiro-pi` owns the explicit source command `pnpm run setup --plan` (also the
+no-flag default) and `pnpm run setup --apply`. This is a separate activation step,
+not `pi install`, a manifest install hook, data import or startup side effect.
+Node >=22.19.0 runs the source TypeScript directly; no SDK internals are imported.
+Use `--agent-dir /absolute/canonical/path` to select a profile, otherwise native
+Pi's `PI_CODING_AGENT_DIR` override is used (with `~/` expansion), then
+`~/.pi/agent`. Relative or noncanonical directories are rejected rather than
+silently targeting another profile. Pi 1.3's public config source establishes
+that override; the command does not import or initialize Pi to discover it.
+
+Only `extensions/pi-permission-system/config.json` under that agent directory is
+eligible. The public pinned permission-system 40.2.2 schema defines singular
+`skill`, scalar `allow`/`ask`/`deny` or an ordered pattern map with last-match-wins
+semantics. A missing file creates only `{ "permission": { "skill": "allow" } }`;
+a missing surface gets scalar allow. That covers all discovered and future
+installed skills, not just a named list. Existing scalar restrictions and existing
+literal `*` rules are retained. A map lacking `*` receives a leading wildcard
+allow with the remaining entries in the same order. Named restrictions and deny
+reasons survive, with counts in the receipt; readiness is conservative when any
+restriction remains. Integer-like map keys that would defeat wildcard-prepend
+order are unsupported and fail closed. The raw skill input gate is not a tool
+session-rule grant: there is no session workaround or manual-read bypass.
+
+All other JSON semantics and runtime settings are preserved. Setup validates the
+bounded supported 40.2.2 config shape; malformed JSON, unknown schema fields,
+unsupported values, symlink ancestors/targets, nonregular or hardlinked targets,
+foreign-owned or group/other-writable files and data above 1 MiB fail closed.
+Setup accepts strict JSON only. The upstream loader also supports comments;
+JSONC profiles remain unsupported here and are refused without rewriting them.
+Existing file modes are preserved. New config files and byte-identical backups
+are owner-private 0600; newly needed directories use 0700. Preview writes nothing.
+Apply recomputes the pure reviewed plan, checks its hash again before publication,
+then atomically replaces the existing target (or exclusively links a new target).
+A no-op rerun creates no duplicate backup. No full policy or credentials are
+printed. The CLI's plan/apply invocations each take a fresh snapshot; callers of
+the pure plan/apply API can retain the reviewed plan and stale plans are rejected.
+
+On failure, the small error receipt distinguishes unpublished changes from
+published-but-durability-unconfirmed changes and names any completed private
+backup. Owned temporary files are cleaned on handled failures; newly created
+empty directories may remain. Recovery is manual: compare current content with
+the receipt's hashes, retain third-party edits, and restore only the intended
+skill field from the backup after review. Never automatically restore an entire
+profile over subsequent edits. Hash checks and atomic publication protect against
+observed concurrent edits, not hostile same-UID races between the final check and
+rename; this is not an OS sandbox or a general transaction framework.
+
+`mahiro-skills` owns copying reusable `SKILL.md` files only; canonical Mods
+`adapters/pi` owns execution enforcement and no skill-policy grants. There is no
+canonical complete default profile. This setup command installs neither owner,
+roles, memory, dependencies nor their capabilities. The manifest's four extension
+entries and order are unchanged. Fresh-machine bootstrap/public standalone
+readiness is not established: the private deployment still has canonical Mods
+sibling provenance, patched dependencies and unpublished source. Historical
+activation receipts below retain their dates and scope; they are not evidence
+that source installation alone enables the whole workflow.
+
 ## Compatibility owner map
 
 | Surface | Owner / boundary |
 | --- | --- |
 | Session tree, forks, templates and native usage data | Pi core; footer presents public data with native counting semantics. |
 | Footer, Git/activity and Pi Herdr display tokens | This repository; Herdr remains sidebar renderer and Pi lifecycle producer. |
-| Skills | `mahiro-skills` owns reusable cross-host skills. This package additionally owns the native git-commit skill/agent pair. Invoke native `/skill:git-commit`, `/skill:recap`, `/skill:rrr`, `/skill:forward`, `/skill:mahiro-style` and `/skill:working-tasks`; no redundant command aliases are generated. Other hosts retain their own command contracts. |
+| Skills | `mahiro-skills` copies reusable cross-host skill bodies; this package owns explicit default skill-policy setup separately from source installation. Canonical Mods owns enforcement, not these grants. This package additionally owns the native git-commit skill/agent pair. Invoke native `/skill:git-commit`, `/skill:recap`, `/skill:rrr`, `/skill:forward`, `/skill:mahiro-style` and `/skill:working-tasks`; no redundant command aliases are generated. Other hosts retain their own command contracts. |
 | Timestamps, realign and model profiles | Existing Letta owner remains separate; native Pi selection is not named-profile or per-turn timestamp parity. |
 | Goal, UX, Code Evidence, Code Map, Execution Run | Existing focused owners and human gates; no Pi port/shared framework claimed. |
 | Secret/commit guards, RTK, MCP | Letta remains unchanged. The canonical Mods Pi guard adapter and native MCP are active with scoped evidence below; no automatic RTK activation. |

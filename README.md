@@ -12,6 +12,43 @@ The existing local Pi session was switched and reloaded on 2026-10-17 with its
 authored footer and native metrics unchanged. This is not whole-workflow or human
 visual acceptance; see the integration document for remaining boundaries.
 
+## Explicit default skill activation
+
+Source installation and profile activation are separate. From this checkout, with
+Node >=22.19.0 and pnpm 10.33.0:
+
+```sh
+pnpm run setup --plan
+pnpm run setup --apply
+# Optional: select another existing or new profile explicitly:
+pnpm run setup --plan --agent-dir /absolute/canonical/agent-directory
+```
+
+Use `pnpm run setup`: bare `pnpm setup` is pnpm's own shell-setup command,
+not this package's activation script.
+
+No flag defaults to preview, never apply. The directory defaults to native Pi's
+`PI_CODING_AGENT_DIR` override (including `~/` expansion), otherwise
+`~/.pi/agent`. Explicit paths must be absolute and canonical; symlinks are refused.
+The command configures only `permission.skill` in
+`extensions/pi-permission-system/config.json` beneath that directory. A missing
+surface becomes scalar `allow`, covering all discovered and future installed
+skills without per-name grants. Existing scalar `ask`/`deny` and existing `*`
+rules stay unchanged. Ordered maps without `*` receive a leading wildcard allow;
+existing pattern exceptions keep their order and restrictions are reported.
+It does not claim unrestricted activation when restrictions remain.
+
+Apply uses a reviewed hash, private backup for an existing file, and atomic
+publication; reruns that need no change create no backup. The receipt contains
+hashes and restriction counts, not policy contents. Unsupported config or unsafe
+filesystem targets fail closed. No policy is written at extension startup, and
+no install hook is added. This is **default skill activation configured**, not a
+complete machine bootstrap: no skills, roles, guards, grants, memory, packages or
+provider settings are installed/imported. Canonical Mods enforces guards;
+`mahiro-skills` owns copying reusable skill bodies. Active sessions still need
+Main's separately authorized reload. See the integration document for recovery
+and the remaining private deployment/provenance boundaries.
+
 ## Development
 
 Use Node >=22.19.0 and pnpm 10.33.0. No dependency installation is required:

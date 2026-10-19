@@ -35,6 +35,8 @@ is ignored runtime evidence, not another authoring copy.
   permit managed writes. Native workers use identity-bound private views and public
   per-run prompt replacement, never cwd overrides, shell tools or inherited corpus.
   Source registration alone must not migrate Core, install roles or enable policy.
+- `lib/setup.ts` and `setup.mjs` own explicit default skill-policy preview/apply only;
+  source installation/startup never provisions a runtime profile, roles or grants.
 - Repository-local dev-only Biome 2.5.14 includes voice source/tests, role tests,
   continuity, managed-memory source/tests/extensions, config and manifest: two
   spaces, double quotes and semicolons. Explicit format scripts include the new

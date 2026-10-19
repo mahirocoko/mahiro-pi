@@ -3,6 +3,9 @@
   "files": {
     "includes": [
       "lib/finish-voice.ts",
+      "lib/setup.ts",
+      "setup.mjs",
+      "test/setup.test.ts",
       "lib/continuity/**",
       "lib/agent-memory/**",
       "test/agent-memory*.ts",
