@@ -465,9 +465,13 @@ rename; this is not an OS sandbox or a general transaction framework.
 `adapters/pi` owns execution enforcement and no skill-policy grants. There is no
 canonical complete default profile. This setup command installs neither owner,
 roles, memory, dependencies nor their capabilities. The manifest's four extension
-entries and order are unchanged. Fresh-machine bootstrap/public standalone
-readiness is not established: the private deployment still has canonical Mods
-sibling provenance, patched dependencies and unpublished source. Historical
+entries and order are unchanged. The separate explicit private-local bootstrap
+command is documented in [`bootstrap.md`](bootstrap.md); it composes reviewed
+canonical sibling sources, installed frozen prerequisites, role/skill owners and
+optional guarded new-root initialization. It is not a public portable installer,
+source-install/startup hook, real-profile activation or corpus migration. Public
+standalone readiness remains unestablished: private deployment still requires
+canonical Mods sibling provenance and patched dependencies. Historical
 activation receipts below retain their dates and scope; they are not evidence
 that source installation alone enables the whole workflow.
 

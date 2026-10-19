@@ -49,6 +49,27 @@ provider settings are installed/imported. Canonical Mods enforces guards;
 Main's separately authorized reload. See the integration document for recovery
 and the remaining private deployment/provenance boundaries.
 
+## Explicit private local bootstrap
+
+`pnpm run bootstrap --manifest /absolute/private/bootstrap.json --plan` previews
+an explicit private local profile composition. Apply requires the exact reviewed
+`--expect-plan <digest>`. This separate command registers the canonical local
+packages, only the three package-owned roles, explicitly selected skills through
+`mahiro-skills`, and optional skill policy / guarded new-memory initialization.
+It preserves unrelated settings, personal roles, denies and existing `yoloMode`;
+it does not choose a provider or copy authentication. Existing memory is validated
+read-only and preserved, never reseeded or automatically enabled.
+
+This is **not a public portable installer**: reviewed canonical sibling checkouts
+and already-installed frozen Mods dependencies are required. It never installs
+missing dependencies or runs at startup. Receipts describe sequential owner steps,
+not cross-owner atomicity. Optional initialization enters the actual guarded native
+tool pipeline using deterministic **Faux simulated transport**, with zero external
+inference; it does not prove native default-model behavior or human acceptance.
+See [the bootstrap contract](docs/bootstrap.md) for the strict manifest, prerequisites,
+review/apply procedure, recovery and exact test boundaries. No real profile apply
+or reload is implied by source/fixture tests.
+
 ## Development
 
 Use Node >=22.19.0 and pnpm 10.33.0. No dependency installation is required:

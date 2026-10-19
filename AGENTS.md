@@ -8,8 +8,11 @@ changing the authored footer, model or native usage. Historical rollback materia
 is ignored runtime evidence, not another authoring copy.
 
 - Use pnpm 10.33.0 and Node >=22.19.0. No install is needed for source tests.
-- Use public Pi APIs only: SDK imports are type-only; public Pi TUI geometry is
-  deferred until interactive startup. No host internals or sibling runtime imports.
+- Use public Pi APIs only: runtime extension SDK imports are type-only; public Pi
+  TUI geometry is deferred until interactive startup. No host internals or sibling
+  runtime imports in extensions. The explicit offline-bootstrap subprocess may
+  runtime-import the installed SDK's declared public entry solely for guarded
+  initialization; its deterministic Faux transport is not provider inference.
 - Preserve authored colors, spacing, footer cells and native usage semantics.
 - Native direct OpenAI quota stays omitted: no fallback link, auth lookup or
   speculative native quota request. Never borrow another host's credentials.
@@ -35,10 +38,13 @@ is ignored runtime evidence, not another authoring copy.
   permit managed writes. Native workers use identity-bound private views and public
   per-run prompt replacement, never cwd overrides, shell tools or inherited corpus.
   Source registration alone must not migrate Core, install roles or enable policy.
-- `lib/setup.ts` and `setup.mjs` own explicit default skill-policy preview/apply only;
-  source installation/startup never provisions a runtime profile, roles or grants.
+- `lib/setup.ts` and `setup.mjs` own explicit default skill-policy preview/apply only.
+  Separate `bootstrap.mjs` / `lib/bootstrap.ts` compose an explicitly reviewed
+  private local profile manifest; `docs/bootstrap.md` owns its gates. Neither source
+  installation nor startup provisions a profile, roles or grants. Bootstrap tests
+  use disposable ignored profiles, never the real profile or existing private Core.
 - Repository-local dev-only Biome 2.5.14 includes voice source/tests, role tests,
-  continuity, managed-memory source/tests/extensions, config and manifest: two
+  continuity, managed-memory and bootstrap source/tests/extensions, config and manifest: two
   spaces, double quotes and semicolons. Explicit format scripts include the new
   managed roots and prior voice/role/config/manifest set; check continuity separately.
   Do not mass-reformat the six legacy files. Checks are not full typechecking.

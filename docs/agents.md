@@ -10,7 +10,10 @@ fallback to a personal general-purpose agent.
 The native orchestrator discovers runtime definitions in `~/.pi/agent/agents/`.
 Pi packages do not automatically install this resource type. Registration of the
 package-owned reflector remains an explicit operator action: compare the existing
-runtime file before updating and never overwrite user edits silently.
+runtime file before updating and never overwrite user edits silently. The separate
+reviewed private [`bootstrap`](bootstrap.md) command can create only this role,
+managed-memory-writer and git-commit; identical files are no-op and differing files
+block. It does not package or synchronize the personal roster.
 
 The reflector uses native OpenAI `gpt-6.1-sol` / medium, `locked: true`,
 `tools: none`, `run_in_background: true`, `inherit_context: false`,

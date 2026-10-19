@@ -57,9 +57,13 @@ views. A public before_agent_start projection reads committed Core/discovery
 metadata on every primary request; private worker context never projects the
 primary corpus. Permission and structural checks are not semantic truth checks.
 
-Activation is explicit, default-off, and separate from C1 quote learning. No real
-bootstrap, corpus, role registration or HOME configuration is migrated by source
-installation. The existing no-tool quote reflector remains a distinct role.
+Activation is explicit, default-off, and separate from C1 quote learning. The
+separate reviewed private [`bootstrap`](bootstrap.md) command may initialize a
+new explicitly selected root only through guarded native `agent_memory_manage`
+with zero-external-inference Faux transport. Existing roots are read-validated and
+preserved, never reseeded or automatically enabled; this is not corpus migration
+or native default-provider proof. No real bootstrap, corpus, role registration or
+HOME configuration is migrated by source installation. The existing no-tool quote reflector remains a distinct role.
 
 The package registers managed memory before continuity, after the unchanged
 status/voice entries. Public SDK 1.3.0 package resolution preserves these declared

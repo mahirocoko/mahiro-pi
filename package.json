@@ -23,11 +23,12 @@
   },
   "scripts": {
     "setup": "node setup.mjs",
+    "bootstrap": "node bootstrap.mjs",
     "test": "node --test --test-concurrency=1 test/*.test.ts",
     "check": "node check-package.mjs && node --test --test-concurrency=1 test/*.test.ts",
     "check:geometry": "node check-geometry.ts",
-    "format": "biome format --write lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts biome.json package.json",
-    "check:format": "biome format lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts biome.json package.json"
+    "format": "biome format --write lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts biome.json package.json",
+    "check:format": "biome format lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts biome.json package.json"
   },
   "pi": {
     "skills": [
