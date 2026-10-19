@@ -37,6 +37,20 @@ test("the commit skill is a native package resource with explicit permission bou
   assert.ok(!source.includes("Agent tool"));
 });
 
+test("managed automatic learning registers before C1 can claim the shared native service", () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  // SDK 1.3.0 preserves declared entry order and awaits each settled handler.
+  // Keep status/voice order and both memory owners; do not disable C1 authority.
+  assert.deepEqual(manifest.pi.extensions, [
+    "./extensions/mahiro-status.ts",
+    "./extensions/mahiro-finish-voice.ts",
+    "./extensions/mahiro-agent-memory.ts",
+    "./extensions/mahiro-continuity.ts",
+  ]);
+});
+
 test("the managed writer is an isolated locked native system role with scoped tools only", () => {
   const source = readFileSync(
     new URL("managed-memory-writer.md", directory),

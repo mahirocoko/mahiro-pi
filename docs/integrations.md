@@ -1,8 +1,86 @@
 # Pi integrations and ownership
 
-## Managed agent memory — controlled native proof, not default activation
+## Managed agent memory — current native cutover, 2026-10-19
 
-The fourth extension now implements one private Markdown/Git knowledge owner:
+At 15:29 Asia/Bangkok Mahiro explicitly approved reversible real-memory migration,
+role registration and exact-root activation. Main seeded the previously absent
+`~/.pi/agent/memory`: **271 maintained Markdown files / 3,702,585 bytes**, including
+7,598-byte Core and 1,028-byte index, with forty canonical project mappings. The
+import used initialization plus **forty** scoped integrations (41 recorded
+revisions), ending at `437f7c650b37efa27b7a0f8f8ee75663f29724d3` before native learning.
+
+All 281 source entries are accounted for: 280 original bodies have private
+byte-identical backups; the protected OneDee reference body was not read,
+hashed or copied. Ten historical/retired sources remain retained evidence, not
+new procedures or current instructions. Twelve imported details have narrowly
+reviewed public auth-prose/placeholder formatting adaptations; no real credential
+was imported or encoded to evade the unchanged scanner. Complete detail, links,
+persona, identity and all seven former native continuity facts survive. This is
+an operator migration, not model learning or live cross-host synchronization.
+
+The new canonical managed writer is registered. Permission changes are exactly
+the default root's hashed capability plus five named managed-memory tool allows;
+deny-by-default, C1 authority and ordinary filesystem/external permissions remain
+unchanged. One stale subagent-package exclusion was replaced with the exact
+configured source. Model settings and all thirteen existing role files are
+unchanged. The root is 0700 and maintained files are 0600; standard Git-internal
+modes remain protected by that private root, not an OS/same-UID sandbox.
+
+Two fresh actual SDK sessions with injected Faux transport first verified real
+Core projection, shared detail reads and foreign-project denial, without external
+inference. Only afterward, at 16:08, the 3,993-byte bootstrap was reduced to a
+2,272-byte loader and root `automatic` explicitly enabled. The current and
+previous 3,691-byte bootstrap snapshots remain retained. A post-cutover zero-
+inference rerun additionally asserts unchanged managed episode names and C1
+revision, closing the first receipt's weaker revision-only episode assertion.
+
+Fresh independent inspection reconstructed all imported body adaptations and
+links and verified minimal configuration/role deltas. The subsequent **real
+default-provider transaction passed** on native OpenAI `gpt-6.1-sol` / medium,
+with ordinary OAuth refresh, no credential copy and no provider registration.
+Primary sessions exposed only `agent_memory_read`: Main could neither edit nor
+call reflection explicitly. A qualifying observed RPC input automatically started
+the locked managed writer; it completed seventeen tool uses and published changes
+to the project migration detail, new activation checkpoint and index. No C1
+reflector claimed that transaction's slot. This proves one bounded real automatic
+coexistence case, not every busy/error scheduling state.
+
+The baseline correctly lacked the new approval time. A fresh primary session
+then recovered 15:29 and distinguished the unverified operator relay from
+authenticated-human identity or a new permission grant. Core remained identical.
+The resulting maintained root has **272 files / 3,679,035 bytes**, at revision
+`42c8df2a616686f1a90a44fa448c5b1a3295b30f`. Independent semantic review found no
+concrete load-bearing loss in the migration-note consolidation; removed material
+was superseded chronology, duplicated lessons and transient evidence, with raw
+originals retained. This is maintained knowledge, not append-only archival text.
+
+The post-cutover Faux probe explicitly measured no managed episodes and C1
+revision zero before/after; following the real transaction C1 still has revision
+zero, no accepted quoted facts and no forget/correction controls. Its screened
+historical store was not migrated into maintained memory. Real controlled-process
+peak RSS was 282,096 KiB (about 275 MiB), versus 263,408 KiB for the post-cutover
+Faux probe; neither measurement establishes daily product RAM acceptance.
+Final serial `pnpm check`: **136 passed / 3 opt-in stress cases skipped**; touched
+code/manifest formatting and whitespace checks passed. Earlier explicit stress
+runs remain their own evidence, not this real-provider transaction.
+
+The controlled SDK sessions loaded the critical memory/guard/subagent packages
+with unrelated skills, themes and MCP disabled; they are not full interactive-app
+or complete personal-roster proof. These checks do not reload or prove the module/environment state of an
+already-running user Pi process. No matching native Pi CLI process was found at
+closeout; no user process was killed, moved or restarted.
+Human daily-primary/RAM acceptance and T190 completion remain open. No push or
+release was authorized by the migration.
+
+Private originals, plans, receipts and rollback instructions live under the
+ignored `.agent-state/runtime/managed-memory-migration-20261019/`. Restore only
+the exact backed-up profile fields/bootstrap and unchanged added role after
+stopping owned sessions; retain or rename the new root rather than deleting
+unique learned revisions. Never roll back over concurrent user edits.
+
+### Historical implementation/provider/capacity lanes — before real cutover
+
+The managed-memory extension implements one private Markdown/Git knowledge owner:
 Core/persona/preferences/methods, index discovery, shared global detailed knowledge,
 scoped deferred knowledge and
 procedural files. Main's read/edit/remove/commit tools and an isolated native writer
@@ -18,7 +96,8 @@ and native child-session/service-outputFile binding. Existing C1 or read grants 
 not authorize Core writing. The new system role is `managed-memory-writer`; the
 old no-tool quote reflector and its deployed permission remain unchanged. Package
 registration does not register the new role, create a root, migrate bootstrap or
-grant authority. The real 3993-byte curated Core and corpus were not migrated;
+grant authority. At that source/fixture checkpoint the real 3993-byte curated
+Core and corpus had not been migrated;
 no credentials were copied or authentication/profile settings manually changed.
 The native-provider proof below can perform ordinary OAuth refresh; this is not
 a blanket auth-byte or whole-profile invariance claim.
@@ -53,8 +132,9 @@ ignored local receipts, not successes. Live fixtures must keep the real agent
 directory, use project-scoped resources and align the owned CLI process cwd;
 the full contract documents the public API reasons. This is controlled provider
 evidence, not a perfectly configuration-matched experiment or complete automatic
-learning proof. Reversible real-root/bootstrap/role/permission activation and
-Mahiro's daily-companion acceptance are still pending. T190 remains active.
+learning proof. Real-root/bootstrap/role/permission activation was still pending
+at that checkpoint; the later cutover is above. Mahiro's daily-companion acceptance
+remains pending and T190 remains active.
 
 A subsequent **synthetic, zero-provider capacity lane** raises only explicit
 configured ceilings to 512 maintained files (including Core/index), 256 KiB per
@@ -79,19 +159,20 @@ Fresh independent QA and current native SDK/Faux dispatch passed. That native sm
 uses zero external inference and does not specifically exercise conflict paging;
 registered-tool execution and native-wrapper passthrough evidence cover its args.
 Neither stress nor QA proves acceptable steady-state product RAM or 64 complete
-physical draft trees. Real migration, default activation and human acceptance stay open.
+physical draft trees. Those results did not establish real migration or default
+activation; the separate cutover is above. Human acceptance remains open.
 
 ## Memory/history expansion — 2026-10-18
 
 T190 includes the existing Letta memory corpus, historical recall, reflection and
 agent-owned fresh Letta/Pi project comparisons. Mahiro requested these checks
-before switching, rather than waiting for his daily trial. Current daily
-continuity uses native `~/.pi/agent/AGENTS.md` plus the owned corpus at
+before switching, rather than waiting for his daily trial. At the 2026-10-18
+checkpoint daily continuity used native `~/.pi/agent/AGENTS.md` plus the corpus at
 `~/.pi/agent/continuity`. Main explicitly curated the existing primary persona and
 seven confirmed human decisions into native context: the file is 3,993 bytes,
 with 1,456 bytes of retained facts under the 4 KiB editorial budget. This is an
 operator Core migration, not an automatic persona rewrite. The separate default-root
-quoted-note learning controller is now enabled as described below. A fresh native default session
+quoted-note learning controller was enabled as described below. A fresh native default session
 recalled all seven decisions without tools. After human native reauthentication,
 `pi-defaults-20261018T203418` also verified the primary Mahiro Code identity and
 existing work/safety boundaries without tools or model/thinking/root overrides.
@@ -101,7 +182,14 @@ private snapshot preserves the previous context.
 The dated 2026-10-17 baseline below is historical deployment evidence, not the
 complete current migration target.
 
-The owned read-only recall extension is the package's third registered entry.
+The owned read-only recall/continuity extension is now the package's fourth
+registered entry, after managed memory. Public SDK 1.3.0 preserves manifest order
+and awaits settled handlers: qualifying managed automatic writing gets the shared
+native service first; C1 defers while it is running. When managed automatic writing
+does not start, C1 retains its legacy behavior. C1 authority, history, recall and
+forget controls remain intact. This source-order fix and its manifest regression
+alone are not real-default automatic coexistence evidence; the later actual
+native transaction in the current cutover section supplies that bounded proof.
 Independent canonical guard ABI/tool-identity verification and the actual
 relative-reference regression passed after canonical SDK `baseDir` resolution was
 fixed; that source-alias fix is separate from policy activation. Global policy
@@ -576,8 +664,8 @@ branch notifications. No extra model calls or invented backend statuses occur.
 ## Pi completion voice
 
 The package manifest loads `extensions/mahiro-status.ts`,
-`extensions/mahiro-finish-voice.ts`, `extensions/mahiro-continuity.ts` and
-`extensions/mahiro-agent-memory.ts`. The single status-only CLI route above does
+`extensions/mahiro-finish-voice.ts`, `extensions/mahiro-agent-memory.ts` and
+`extensions/mahiro-continuity.ts`. The single status-only CLI route above does
 not enable voice or memory; loading the package registers all four after Main's
 authorized reload. Recall requires accepted data and healthy canonical guards;
 managed memory additionally needs its separate exact-root capability and explicit

@@ -7,7 +7,9 @@ Asia/Bangkok on 2026-10-18, Mahiro approved the long design/implementation run
 following the complete-agent contract and native cross-session proof plan.
 
 This document owns the implemented managed-memory contract. A controlled native
-provider proof passed on 2026-10-19; the real default memory root is not activated.
+provider proof passed on 2026-10-19. At 15:29 Asia/Bangkok Mahiro separately
+approved reversible real migration; the default private root was seeded and
+explicitly activated at 16:08. This is not human daily-primary acceptance.
 `docs/integrations.md` owns actual activation/evidence; T190 owns progress and
 human acceptance. Source basis: Letta Code `7be3c81`, the 2320 source study.
 
@@ -19,7 +21,7 @@ human acceptance. Source basis: Letta Code `7be3c81`, the 2320 source study.
 | Native sessions, LLM execution, tools and subagent scheduling | Public Pi SDK and registered native subagent service |
 | Operation/path permissions and healthy-session identity | Canonical Mods Pi guard adapter, through a public capability |
 | Screened historical evidence and existing quote lifecycle | Existing continuity library/store/controller |
-| Existing human-curated native bootstrap | Native global AGENTS; preserve until an explicit reversible migration is verified |
+| Native bootstrap | Thin native global AGENTS; the seven confirmed facts now live in managed Core, with original snapshots retained |
 | Status/footer, auth/model defaults and unrelated workflows | Existing owners; unchanged by this work |
 
 There must be one authoring surface for maintained knowledge. Historical archives,
@@ -58,6 +60,20 @@ primary corpus. Permission and structural checks are not semantic truth checks.
 Activation is explicit, default-off, and separate from C1 quote learning. No real
 bootstrap, corpus, role registration or HOME configuration is migrated by source
 installation. The existing no-tool quote reflector remains a distinct role.
+
+The package registers managed memory before continuity, after the unchanged
+status/voice entries. Public SDK 1.3.0 package resolution preserves these declared
+file entries (including stable equal-precedence resource ordering); extension
+loading and event dispatch preserve that order and await each handler. Both memory
+owners use `agent_settled`, not `agent_end`. A qualifying managed automatic writer
+therefore claims the shared native service first and C1 defers on `hasRunning()`.
+If managed memory is inactive, unavailable or configured `automatic: false`, it
+claims no automatic job and C1 can retain its legacy behavior. This does not disable
+C1 grants, roles, history, recall or forget controls, nor enable automatic policy.
+The manifest regression guards registration order only; focused runtime fixtures
+are not a native two-controller coexistence or real-default activation proof.
+Main must verify automatic coexistence through the actual default native SDK after
+explicit root/role/permission activation, separately from earlier controlled proofs.
 
 ## Required behavior
 
@@ -203,7 +219,7 @@ only to that project's deferred files/episodes, and `null` applies only to globa
 files. Unknown or reused source IDs do not grant cross-project authority. A source
 crosslinked to a global file intentionally affects that shared file, including when
 another project later recovers it. Version 1 managed ledgers fail closed; this
-undeployed new-root feature does not migrate existing roots or change the C1 store.
+new-root format does not automatically migrate existing roots or change the C1 store.
 The full proposed ledger is reader-validated before worktree/index/HEAD mutation.
 
 Forgetting records monotonic path/source tombstones. Global/deferred/procedure files linked
@@ -326,9 +342,9 @@ not today's configured ceilings. They preserve the two full input sizes and prov
 discovery without body injection, cross-project shared reads, foreign-project denial,
 global source forget/non-revival and preservation of another project's reused source.
 This is storage/scope compatibility evidence, not proof of a completed semantic migration.
-No real memory content has been copied. The full current identity/preferences
-mapping, context-priority choices, source/size inventory and explicit activation
-approval still precede any writes to the real profile or new real memory root.
+At that pre-activation checkpoint no real memory content had been copied. The
+subsequent explicit approval, mapping and real cutover are recorded in
+`docs/integrations.md`; these earlier fixtures are not its deployment evidence.
 
 The metadata inventory is **281 tracked Markdown files / 3,607,826 bytes**, largest
 145,763 bytes; the six active system files total 123,717 bytes. These counts do not
@@ -422,7 +438,9 @@ serialized backing strings contribute to that peak; the implementation does not
 retain 64 parsed corpora. This is scoped functionality/performance evidence, not
 steady-state product RAM acceptance or a hard memory guarantee. RAM-sensitive
 daily-companion acceptance remains explicitly open.
-No real memory content, default root, bootstrap, profile or role activation changed.
+Those synthetic capacity runs did not change real content, default root,
+bootstrap, profile or roles. The later approved real cutover is a separate lane
+owned by the current activation section in `docs/integrations.md`.
 
 ## Delivery gates
 

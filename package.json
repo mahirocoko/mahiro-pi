@@ -35,8 +35,8 @@
     "extensions": [
       "./extensions/mahiro-status.ts",
       "./extensions/mahiro-finish-voice.ts",
-      "./extensions/mahiro-continuity.ts",
-      "./extensions/mahiro-agent-memory.ts"
+      "./extensions/mahiro-agent-memory.ts",
+      "./extensions/mahiro-continuity.ts"
     ]
   },
   "devDependencies": {

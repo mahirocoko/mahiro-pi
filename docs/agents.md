@@ -26,7 +26,12 @@ explicit commit request and approved scope; packaging it does not authorize a
 commit. The skill uses native Pi subagent dispatch, not a Letta tool interface.
 Package `pi.skills` loads the skill; it does not register the role automatically.
 
-## Managed knowledge writer (source available, not globally registered)
+## Managed knowledge writer
+
+The canonical role was explicitly registered in this machine's native role
+directory during the approved 2026-10-19 cutover. Its 2,370-byte body matches the
+packaged source; all thirteen pre-existing role files remain byte-identical.
+This per-machine registration is not an automatic package-install behavior.
 
 `agents/managed-memory-writer.md` is an additional system memory role authorized
 by the full managed-memory run. It is not a restored personal specialist. It uses
@@ -49,7 +54,8 @@ the same store Main edits; conflicts remain private proposals. Automatic
 reflection and foreground assignments share this role and authoring owner.
 
 Register it explicitly only after reviewing the runtime role; packages do not
-auto-register agents. The source run did not touch the user's current roster.
+auto-register agents. The original source/fixture run did not touch the roster;
+the later approved cutover added only this managed role.
 The old no-tool reflector remains a separate C1 evidence capability, unchanged.
 
 ## Personal workflow

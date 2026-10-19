@@ -2,8 +2,10 @@
 
 Private `@mahirocoko/mahiro-pi` 0.2.0 for Pi >=1.3.0: native continuity,
 scoped managed-memory authoring, focused system roles, completion voice, the
-authored footer and foreground-gated Herdr metadata. Managed-memory activation is
-explicit and default-off; source availability is not deployed/provider proof.
+authored footer and foreground-gated Herdr metadata. Source installation never
+activates managed memory automatically. Mahiro explicitly approved the reversible
+native-default cutover on 2026-10-19; current deployment and remaining provider/
+human gates belong to `docs/integrations.md`, not source availability alone.
 
 This repository owns the Pi package independently of the Letta mods repository.
 The existing local Pi session was switched and reloaded on 2026-10-17 with its
