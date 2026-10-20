@@ -266,6 +266,45 @@ test("private bootstrap native SDK/Faux smoke: guarded initialize, role/skill di
     );
     await session.prompt("Synthetic fresh-session projection check.");
     assert.ok(captured.at(-1)!.includes("SYNTHETIC_BOOTSTRAP_IDENTITY"));
+    assert.ok(captured.at(-1)!.includes("host-runtime-clock"));
+    const observed = session.sessionManager
+      .getBranch()
+      .filter(
+        (entry: any) =>
+          entry.type === "message" && entry.message.role === "user",
+      );
+    assert.equal(observed.length, 1);
+    assert.deepEqual(observed[0].message.content, [
+      { type: "text", text: "Synthetic fresh-session projection check." },
+    ]);
+    const beforeRealign = observed.length;
+    await session.prompt("/realign literal fixture focus");
+    // sendMessage triggers asynchronously; the public idle boundary observes it.
+    await session.waitForIdle();
+    const realignBranch = session.sessionManager.getBranch();
+    assert.equal(
+      realignBranch.filter(
+        (entry: any) =>
+          entry.type === "message" && entry.message.role === "user",
+      ).length,
+      beforeRealign,
+      "generated guidance must not become observed user evidence",
+    );
+    assert.ok(
+      realignBranch.some(
+        (entry: any) =>
+          entry.type === "custom_message" &&
+          entry.customType === "mahiro-realign",
+      ),
+      JSON.stringify(
+        realignBranch.map((entry: any) => ({
+          type: entry.type,
+          customType: entry.customType,
+          role: entry.message?.role,
+        })),
+      ),
+    );
+    assert.equal(readFileSync(join(root, "Core.md"), "utf8"), seed);
     policy.permission[key] = "deny";
     writeFileSync(setupTarget(agentDir), JSON.stringify(policy));
     await session.prompt("Synthetic revocation check.");
@@ -304,6 +343,10 @@ test("private bootstrap native SDK/Faux smoke: guarded initialize, role/skill di
       raw.includes("You maintain the primary companion"),
     );
     assert.ok(childRequests.length >= 4);
+    assert.ok(
+      childRequests.every((raw) => !raw.includes("host-runtime-clock")),
+      "native managed workers must not receive primary timestamp metadata",
+    );
     assert.ok(
       childRequests.every(
         (raw) =>

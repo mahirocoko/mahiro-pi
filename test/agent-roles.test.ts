@@ -48,6 +48,12 @@ test("managed automatic learning registers before C1 can claim the shared native
     "./extensions/mahiro-finish-voice.ts",
     "./extensions/mahiro-agent-memory.ts",
     "./extensions/mahiro-continuity.ts",
+    "./extensions/mahiro-native-utilities.ts",
+    "./extensions/mahiro-code-map.ts",
+    "./extensions/mahiro-goal.ts",
+    "./extensions/mahiro-code-evidence.ts",
+    "./extensions/mahiro-ux-workflow.ts",
+    "./extensions/mahiro-execution-run.ts",
   ]);
 });
 

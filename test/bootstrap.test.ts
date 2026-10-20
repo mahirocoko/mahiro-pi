@@ -361,12 +361,58 @@ test("bootstrap Mods preflight rejects wrong dependency pins, missing patch owne
     },
     pi: { extensions: ["./bootstrap.mjs", "./index.ts"] },
   };
+  const permissionHash = "c".repeat(64);
+  const permissionMapping =
+    "'@gotgenes/pi-permission-system@40.2.2': patches/@gotgenes__pi-permission-system@40.2.2.patch";
+  const permissionLock = `hash: ${permissionHash}\n    path: patches/@gotgenes__pi-permission-system@40.2.2.patch`;
   const hash = "a".repeat(64),
     workspace =
       "'@gotgenes/pi-subagents@23.4.1': patches/@gotgenes__pi-subagents@23.4.1.patch",
     lock = `hash: ${hash}`;
   assert.doesNotThrow(() =>
     assertBootstrapModsContract(metadata, workspace, lock, hash),
+  );
+  assert.doesNotThrow(() =>
+    assertBootstrapModsContract(
+      metadata,
+      `${workspace}\n${permissionMapping}`,
+      `${lock}\n${permissionLock}`,
+      hash,
+      permissionHash,
+    ),
+  );
+  assert.throws(
+    () =>
+      assertBootstrapModsContract(
+        metadata,
+        workspace,
+        `${lock}\n${permissionLock}`,
+        hash,
+        permissionHash,
+      ),
+    /provenance/,
+  );
+  assert.throws(
+    () =>
+      assertBootstrapModsContract(
+        metadata,
+        `${workspace}\n${permissionMapping}`,
+        lock,
+        hash,
+        permissionHash,
+      ),
+    /provenance/,
+  );
+  assert.throws(
+    () =>
+      assertBootstrapModsContract(
+        metadata,
+        `${workspace}\n${permissionMapping}`,
+        `${lock}\n${permissionLock}`,
+        hash,
+        "d".repeat(64),
+      ),
+    /provenance/,
   );
   for (const name of Object.keys(metadata.dependencies)) {
     const changed = structuredClone(metadata);

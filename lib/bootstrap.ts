@@ -598,6 +598,7 @@ export const assertBootstrapModsContract = (
   workspace: string,
   lock: string,
   patchHash: string,
+  permissionPatchHash?: string,
 ) => {
   if (
     !object(metadata) ||
@@ -612,7 +613,15 @@ export const assertBootstrapModsContract = (
     !workspace.includes(
       "'@gotgenes/pi-subagents@23.4.1': patches/@gotgenes__pi-subagents@23.4.1.patch",
     ) ||
-    !lock.includes(`hash: ${patchHash}`)
+    !lock.includes(`hash: ${patchHash}`) ||
+    (permissionPatchHash !== undefined &&
+      (!/^[a-f0-9]{64}$/.test(permissionPatchHash) ||
+        !workspace.includes(
+          "'@gotgenes/pi-permission-system@40.2.2': patches/@gotgenes__pi-permission-system@40.2.2.patch",
+        ) ||
+        !lock.includes(
+          `hash: ${permissionPatchHash}\n    path: patches/@gotgenes__pi-permission-system@40.2.2.patch`,
+        )))
   )
     throw new Error("Canonical patch provenance mismatch");
 };
@@ -624,11 +633,23 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
   const patch = readBootstrapFile(
     join(adapter, "patches/@gotgenes__pi-subagents@23.4.1.patch"),
   );
+  const permissionPatch = readBootstrapFile(
+    join(adapter, "patches/@gotgenes__pi-permission-system@40.2.2.patch"),
+  );
   const lock = readBootstrapFile(join(adapter, "pnpm-lock.yaml"));
   const workspace = readBootstrapFile(join(adapter, "pnpm-workspace.yaml"));
-  if (!patch || !lock || !workspace)
+  if (!patch || !permissionPatch || !lock || !workspace)
     throw new Error("Canonical patch provenance missing");
-  assertBootstrapModsContract(meta, workspace.text, lock.text, patch.hash);
+  assertBootstrapModsContract(
+    meta,
+    workspace.text,
+    lock.text,
+    patch.hash,
+    permissionPatch.hash,
+  );
+  // The source plan binds both authored patches/lock. Existing memory/bootstrap
+  // operations do not require Code Map/Goal authority or claim the installed
+  // owner is patched; those tools separately require winning-surface metadata.
   const dependencies: BootstrapPlan["dependencies"] = {
     subagents: "",
     permissions: "",
@@ -876,6 +897,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       "package.json",
       "bootstrap.mjs",
       "setup.mjs",
+      "goal-preview.mjs",
       "agents",
       "skills",
       "extensions",

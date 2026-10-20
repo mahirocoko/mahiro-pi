@@ -45,6 +45,33 @@ check of the installed patched files. Native initialization additionally checks
 the actual healthy guard node, runtime patch marker and discovered role names.
 Bun must already be available for the skill owner's CLI; nothing installs it.
 
+The source contract also checks the authored permission-system 40.2.2
+`matchedSurface` patch mapping/hash in the lock. The source snapshot already binds
+both patch artifacts and workspace/lock bytes. This does not claim that an older
+installed permission tree is patched: bootstrap memory/skill operations do not
+need or grant Code Map/Goal authority, and their existing compatible runtime remains
+usable. Both independently reject missing winning-surface metadata at actual
+execution. Its separately approved frozen install/reload/grant is not performed
+by planning, applying a bootstrap manifest or source tests. Positive Code Map proof
+uses an isolated patched-source mirror; the old installed owner stays unchanged.
+Goal uses the same authored owner metadata and isolated-source proof boundary.
+
+## Goal configuration preview is separate and read-only
+
+The package's seventh Goal resource does not add a bootstrap component, grant,
+seed or default skill-policy expansion. `pnpm goal:preview --project /canonical/project
+--agent-dir /private/profile` validates and prints only an opt-in source config and
+derived state-root capability names. It has no apply option and writes nothing,
+even when the profile is absent. Review [`goal.md`](goal.md) for native
+profile/project/session schema adaptation and private modes. Actual configuration,
+exact tool/root grants, patched-owner installation and fresh load are separately
+scoped operator actions, not preview or bootstrap side effects.
+
+Bootstrap's existing source snapshot binds complete `lib`/`extensions` trees,
+manifest and both authored patch artifacts. It additionally binds
+`goal-preview.mjs`; no Goal config/state is included as an installation payload.
+Existing Core, skills, roles and maintained-memory ownership remain unchanged.
+
 ## Strict reviewed manifest
 
 Save an owner-private **exactly 0600** JSON manifest outside tracked source.

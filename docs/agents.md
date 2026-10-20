@@ -74,6 +74,18 @@ Execution-guard semantics remain owned by the canonical Mods adapter, not role
 prompts. Writer/QA independence and human acceptance remain workflow boundaries,
 not a requirement to package the user's specialists here.
 
+## Goal primary-session boundary
+
+The opt-in native Goal source slice adds no role, worker, provider or model route.
+Canonical Mods checks actual primary SessionManager/header and native-child
+ownership. Known children receive neither primary Goal tools' authority nor its
+reminder. Public parentSession also conservatively rejects human forks; absence
+of an observable parent is not authenticated human identity. All command-side
+human mutations require public UI confirmation, not a command string or an
+`actor: human` tool argument. Ordinary agent updates keep their separate audited
+semantics. [`goal.md`](goal.md) owns the exact capability/state/confirmation
+contract. Source registration does not install roles, grants or Goal state.
+
 ## Evidence boundaries
 
 The controlled native transaction on 2026-10-18 exercised the locked reflector
