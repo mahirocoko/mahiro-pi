@@ -93,7 +93,9 @@ otherwise `~/.pi/agent`; no runtime SDK import is needed. Existing canonical
 projects are explicit, profile/project/source/protected-memory overlap rejects.
 Source registration/startup provisions no profile, grants, config, seed or import.
 No extra preview/installer/top-level bootstrap option is needed: the existing
-bootstrap recursively binds the extension/library/Mods adapter source trees.
+bootstrap recursively binds the Root extension/library/guard source trees.
+New guarded bootstrap from actual active10 is held before profile writes; see
+[`bootstrap.md`](bootstrap.md#current-compatibility-hold).
 
 Root-owned `lib/guards/index.ts` owns the narrow healthy-node ABI:
 `uxWorkflow: {version:1, generation, assertAccess, authorize}`. Actual public
@@ -113,7 +115,8 @@ path-read denials on root/state/lock gate every operation; writes also retain
 path-write denials. No second policy parser, security-factory copy, generic auth
 framework, fallback approval or new permission provisioning exists. The existing
 authored 40.2.2 owner patch is reused only in isolated offline positive fixtures;
-canonical installed dependencies remain old and fail closed.
+any public service without winning-surface attestation fails closed. Current
+phase preservation does not negate the earlier installed-root offline repair.
 
 ## Private persistence and limitations
 
@@ -154,13 +157,14 @@ not `/mh-ux unlock --force`.
 only generated IDs/times/native identity), native closed-schema tests, private-FD
 interference, read-no-init, bounds, queue/foreign lock, clear/recreate tickets and
 a real two-process CAS race. Root required `pnpm check:public-sdk` (also in `pnpm check`) also runs
-`ux-workflow-patch-test.mjs` / `ux-workflow-test.mjs`: actual public SDK/Faux with
+`lib/guards/test/ux-workflow-patch-test.mjs` / `ux-workflow-test.mjs`: actual public SDK/Faux with
 isolated patched and old owners, direct/nested/hook-free execution, permission/
 provenance denials, public UI gates/races/navigation/new-session isolation,
 ordinary no-confirm updates, strict user text/valid-PNG preservation and public
 shutdown before disposal. Fixture artifact/Goal/Evidence reads are trapped and
-fixture state/project bytes stay unchanged. Evidence is only under ignored
-`.agent-state/runtime/ux-workflow-port/`; prior proof remains untouched.
+fixture state/project bytes stay unchanged. Current SDK receipts are unique
+`.agent-state/runtime/candidate-isolation/required-sdk-*/` directories; earlier
+`.agent-state/runtime/ux-workflow-port/` proof remains dated and untouched.
 
 These checks do not install, configure, grant, import, reload, infer through a
 provider, modify real memory/roles/auth/models, mutate live UX/Goal/Evidence or

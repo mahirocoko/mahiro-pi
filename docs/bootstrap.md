@@ -1,5 +1,11 @@
 # Explicit private local Pi bootstrap
 
+## Current compatibility hold
+
+The actual `package.json` retains exactly ten feature entries; the live compatibility profile still uses the legacy guard package. A **new** guarded bootstrap from this checkout intentionally rejects `Canonical Pi pins/ordered guards mismatch` before profile writes (`lib/bootstrap.ts#assertBootstrapNativeContract`). Guards-first candidate13 is declared only by `test/candidate-extensions.json` and staged into owned copied roots. The procedures below describe that gated candidate contract, not a usable live-apply route from active10 or authorization for cutover. `test/bootstrap.test.ts` directly checks this rejection; `test/candidate-isolation.test.ts` covers the copied candidate and optional skills boundary.
+
+Earlier offline installed-root repair and the 2026-10-19 managed-memory activation are separate historical operations. This documentation phase preserves the 318 inventoried installed public assets and settings; it does not claim installed dependencies were never changed.
+
 ## Scope and owners
 
 `bootstrap.mjs` and `lib/bootstrap.ts` compose one explicitly selected private
@@ -29,17 +35,17 @@ Root declares pinned subagents **23.4.1** and permissions **40.2.2**, with both 
 
 The plan checks public package identity, ordered `lib/guards/bootstrap.mjs` then `lib/guards/index.ts`, canonical patch hashes in the lock, public initial-outcome/role-query declarations and a read-only reverse-patch check of supplied patched subagents. Native initialization additionally checks
 the actual healthy guard node, runtime patch marker and discovered role names.
-Bun must already be available for the skill owner's CLI; nothing installs it.
+Bun must already be available for the skill owner's CLI **only when selected skill copying needs that owner**; package-only candidate preview needs neither a skill checkout nor that CLI. Nothing installs it.
 
 The source contract also checks the authored permission-system 40.2.2
 `matchedSurface` patch mapping/hash in the lock. The source snapshot already binds
 both patch artifacts and workspace/lock bytes. This does not claim that an older
-installed permission tree is patched: bootstrap memory/skill operations do not
+installed permission tree is patched merely because source declares it: bootstrap memory/skill operations do not
 need or grant Code Map/Goal authority, and their existing compatible runtime remains
 usable. Both independently reject missing winning-surface metadata at actual
 execution. Its separately approved frozen install/reload/grant is not performed
 by planning, applying a bootstrap manifest or source tests. Positive Code Map proof
-uses an isolated patched-source mirror; the old installed owner stays unchanged.
+uses an isolated patched-source mirror; an old service lacking attestation remains denied. Current installed-asset preservation is phase-specific, not a claim that earlier repair never occurred.
 Goal uses the same authored owner metadata and isolated-source proof boundary.
 
 ## Goal configuration preview is separate and read-only
@@ -103,8 +109,8 @@ itself: only an explicitly authorized operator should execute apply.
 
 ## Applied behavior and preservation
 
-- Append the exact installed permission and patched subagent roots, the complete
-  this complete Pi package to `settings.json`. Preserve unrelated
+- Append the exact installed permission and patched subagent roots and
+  this complete candidate Pi package to `settings.json`. Preserve unrelated
   settings and package entries. Filtered/aliased/conflicting required sources,
   direct required-extension overrides and broad exclusion globs block rather than
   being silently rewritten. No package manager or network is invoked.
@@ -213,7 +219,7 @@ leave the last recorded step `running`; inspect actual owner state before retryi
 ## Verification and remaining boundaries
 
 ```sh
-node --test --test-concurrency=1 test/bootstrap*.test.ts
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/bootstrap*.test.ts
 pnpm check
 pnpm check:format
 git diff --check

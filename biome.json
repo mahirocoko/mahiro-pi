@@ -2,6 +2,9 @@
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
     "includes": [
+      "lib/worker-activity.ts",
+      "extensions/mahiro-worker-activity.ts",
+      "test/worker-activity.test.ts",
       "lib/guards/**",
       "lib/model-profiles.ts",
       "lib/rtk.ts",

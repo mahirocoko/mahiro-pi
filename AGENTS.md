@@ -20,6 +20,7 @@ is ignored runtime evidence, not another authoring copy.
   owners. This extension publishes display metadata, not completion truth.
 - Keep credentials, caches, installed copies and runtime evidence out of source.
   Project evidence belongs only under ignored `.agent-state/runtime/`.
+- Source ownership is not activation: actual `package.json` retains exact active10; guards-first candidate13 is test-only in `test/candidate-extensions.json` and owned copied roots. Current live compatibility still uses legacy guards; new guarded bootstrap from actual active10 must reject before profile writes. Root-only cutover requires separate approval.
 - `lib/guards/` owns Pi-only final-execution enforcement and pure secret/commit guard ports; original Letta entries remain unchanged. The public permission service is the sole policy resolver. Native model presets persist by private profile, not session UUID; context windows are hints only. RTK defaults off and must authorize original and rewritten final arguments before spawn.
 - Run `pnpm check` after changes. Run the explicit host geometry smoke when geometry
   changes; synthetic tests are not rendered/human acceptance.

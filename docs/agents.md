@@ -70,14 +70,16 @@ does not remove or modify them. This package neither installs, synchronizes nor
 requires a particular personal roster. Do not restore those source copies or
 add tests that enforce their names, prompts, models or tool lists.
 
-Execution-guard semantics remain owned by the canonical Mods adapter, not role
-prompts. Writer/QA independence and human acceptance remain workflow boundaries,
+Candidate execution-guard semantics are authored in Root `lib/guards/`, not role
+prompts. The public permission service alone resolves policy and public subagents
+alone run children. The current live compatibility profile still uses the legacy
+guard package; Root source ownership does not establish runtime cutover. Writer/QA independence and human acceptance remain workflow boundaries,
 not a requirement to package the user's specialists here.
 
 ## Goal primary-session boundary
 
 The opt-in native Goal source slice adds no role, worker, provider or model route.
-Canonical Mods checks actual primary SessionManager/header and native-child
+Root `lib/guards/index.ts` checks actual primary SessionManager/header and native-child
 ownership. Known children receive neither primary Goal tools' authority nor its
 reminder. Public parentSession also conservatively rejects human forks; absence
 of an observable parent is not authenticated human identity. All command-side

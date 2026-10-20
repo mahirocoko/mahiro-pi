@@ -1,0 +1,26 @@
+{
+  "unpatched": {
+    "dist/public.d.ts": "4754a06bd1c0fc960c25ccc5092d3610a73a681453e45737231f85ee2b88d359",
+    "src/index.ts": "677355618c6306a39e5a9f8f7e3bc88329724731ff6549f5bcb9bfeca9bafaaf",
+    "src/lifecycle/subagent-manager.ts": "1073fa21cda2d406fce88b528fbca7a66cf688888d0c9e4fa6f2b313379e2d62",
+    "src/service/service-adapter.ts": "25cd4506c56a91fe9ce7c5227ac97d64937d6470213e0ea284ad7e4496805cfd",
+    "src/service/service.ts": "4dec91e4f70b48a6407a43f3b5a2e434925aae431ff95a9270081c34ef3ebdc3",
+    "src/service/session-owner.ts": null
+  },
+  "v1": {
+    "dist/public.d.ts": "22d61a156ce9ee762bd7eccb804d1ed2286f96818cbf985ecf33451adac6d0cb",
+    "src/index.ts": "677355618c6306a39e5a9f8f7e3bc88329724731ff6549f5bcb9bfeca9bafaaf",
+    "src/lifecycle/subagent-manager.ts": "f4606d5695ed08306623bc897a4762017eec0a0b1dfbfa8d2eddbbe847676f39",
+    "src/service/service-adapter.ts": "e7ed7abebc92e1837c2eb072e1d5ec887a404fbbbaef282fdc1a28668564d8b6",
+    "src/service/service.ts": "e9db4557c6fa316b93109ae1b95a93aae1f7480094eeb6a6c933e096067227c5",
+    "src/service/session-owner.ts": null
+  },
+  "v2": {
+    "dist/public.d.ts": "947a4368aaa100ce47f073ac34b4e9d688c660c8f3148450e12789a29250c70a",
+    "src/index.ts": "51ac00dd4045613de033ca1222be803a9d78e50cc6346bc9b5594a17cf94aa87",
+    "src/lifecycle/subagent-manager.ts": "f4606d5695ed08306623bc897a4762017eec0a0b1dfbfa8d2eddbbe847676f39",
+    "src/service/service-adapter.ts": "e7ed7abebc92e1837c2eb072e1d5ec887a404fbbbaef282fdc1a28668564d8b6",
+    "src/service/service.ts": "dca73a22748ab184f6b0d7ce5fccc0ffab5a331296a1678ff52db7a0eb69e241",
+    "src/service/session-owner.ts": "e05cd872a6e01da73abb274c025a45a9a89abd2c3bcfddae598f5812b0f1c639"
+  }
+}

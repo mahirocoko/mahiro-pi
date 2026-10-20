@@ -4,10 +4,10 @@ Private `@mahirocoko/mahiro-pi` 0.2.0 for Pi >=1.3.0: native continuity,
 scoped managed-memory authoring, focused system roles, native realign/run-clock utilities, completion voice, the
 authored footer and foreground-gated Herdr metadata. Source installation never
 activates managed memory automatically. Mahiro explicitly approved the reversible
-native-default cutover on 2026-10-19; current deployment and remaining provider/
+managed-memory native-default cutover on 2026-10-19 (not the new Root guard cutover); current deployment and remaining provider/
 human gates belong to `docs/integrations.md`, not source availability alone.
 
-This repository owns **all Pi-specific implementation**, including native final-execution guards, ABI/provenance, bootstrap, authored public-owner patches, saved model presets and RTK control. No Mods checkout is a build, runtime, bootstrap or test prerequisite. The original Letta entries and historical adapter remain unchanged in their original repository. The root manifest loads both native guards first, preserves the original ten feature resources' relative order, then appends model profiles. [`docs/integrations.md`](docs/integrations.md#current-disposition-of-the-15-letta-entries) is the complete 15-entry owner map; feature ordinals below refer to that preserved ten-feature sequence, not guard-inclusive manifest slots.
+This repository owns **all Pi-specific implementation**, including native final-execution guards, ABI/provenance, bootstrap, authored public-owner patches, saved model presets and RTK control. No Mods checkout is a build, runtime, bootstrap or test prerequisite. The original Letta entries and historical adapter remain unchanged in their original repository. The **active root manifest remains the exact ten feature resources** for compatibility recovery; the live profile still uses the legacy guard package. The guards-first thirteen-resource list (including saved Models) exists only in `test/candidate-extensions.json` and owned copied test roots. Root source ownership is not a Root-only runtime cutover. [`docs/integrations.md`](docs/integrations.md#current-disposition-of-the-15-letta-entries) is the complete 15-entry owner map; feature ordinals below refer to that preserved ten-feature sequence, not guard-inclusive manifest slots.
 The existing local Pi session was switched and reloaded on 2026-10-17 with its
 authored footer and native metrics unchanged. This is not whole-workflow or human
 visual acceptance; see the integration document for remaining boundaries.
@@ -50,6 +50,8 @@ Main's separately authorized reload. See the integration document for recovery
 and the remaining private deployment/provenance boundaries.
 
 ## Explicit private local bootstrap
+
+**Current hold:** new guarded bootstrap from this actual active10 checkout intentionally rejects `Canonical Pi pins/ordered guards mismatch` before profile writes. Positive package-only preview is proved only in owned candidate13 copies; it needs no skill checkout when no skills are selected. The following procedure describes the gated candidate contract, not permission to change the root manifest or apply a live profile.
 
 `pnpm run bootstrap --manifest /absolute/private/bootstrap.json --plan` previews
 an explicit private local profile composition. Apply requires the exact reviewed
@@ -97,7 +99,7 @@ restored Code Map assertion requires that exact surface to be `mh_code_map`, an
 existing affirmative non-yolo tool-source grant, canonical provenance and healthy
 native context. Both family wildcards fail, including a later wildcard overriding
 an earlier exact allow. Old/unpatched services lack attestation and remain denied.
-The canonical installed dependency is intentionally unchanged: positive SDK/Faux
+The installed scoped assets are preserved in this phase; an earlier offline installed-root repair is historical, not a new change here. Positive SDK/Faux
 evidence uses isolated patched source mirrors, not a live installation. Separate
 dependency installation, fresh load and named grant approval are still required.
 Source approval does not apply grants or activate the resource. Use native
@@ -120,7 +122,7 @@ model updates retain audited agent semantics, not universal human approval.
 prints proposed source configuration/capability names only. It does not apply,
 grant, initialize, import or reload anything. The existing authored permission
 owner patch must be separately installed/loaded before exact tool/root grants can
-work; canonical installed dependencies remain unchanged. See [the Goal contract](docs/goal.md)
+work; this phase preserves installed assets without negating the earlier offline installed-root repair. See [the Goal contract](docs/goal.md)
 for schema adaptations, transaction/privacy boundaries, conservative fork limits,
 commands and isolated tests. Source completion is not live or human acceptance.
 
@@ -136,8 +138,9 @@ verified execution or Goal completion. Handoff is reference-only, without Goal
 mutation, automatic collection, source indexing or reminders.
 
 Missing explicit private project configuration is disabled. The Root-owned native guard requires exact tool/root grants and fixed-argv Git authorization through
-the existing guards and public permission owner. The old installed owner stays
-unchanged and denied; offline positive fixtures stage the existing authored patch.
+the existing guards and public permission owner. Any service lacking winning-surface attestation stays denied; offline positive
+fixtures stage the existing authored patch. Earlier installed-root repair is
+separate history, not a change by this documentation phase.
 See [the Evidence contract](docs/evidence.md) for Git storage/config-execution,
 private FD/CAS, native fork limits and verification boundaries. No live config,
 install, grant, reload or human acceptance is implied.
@@ -154,7 +157,7 @@ artifacts or mutate Goal/Evidence; no executor or design engine is added.
 
 Missing explicit canonical project configuration is disabled. Exact actual-owner
 tool/root grants, current native primary context, private whole-envelope CAS and
-stable-ID tickets are required; old installed owners stay unchanged and denied.
+stable-ID tickets are required; any service lacking winning-surface attestation stays denied.
 No state import, automatic session attachment/move, force unlock, new installer,
 profile apply or live reload exists. See [the UX contract](docs/ux-workflow.md) for
 semantics, deliberate native adaptations, storage/UI limits and offline evidence.
@@ -173,7 +176,7 @@ Default is disabled without explicit private canonical project configuration and
 actual-owner exact tool/root grants. Private CAS/tickets and public-UI-confirmed
 nonterminal abandon/terminal clear freeze exact ID/revision/session assignment;
 there is no wrong-ID fallback, move, force unlock or native worker discovery.
-The old installed owner remains unchanged and denied. See
+An old permission service without winning-surface attestation remains denied. See
 [the Execution Run contract](docs/execution-run.md) for original FSM semantics,
 native session-ref adaptation, persistence limits and offline evidence. No real
 Run, profile apply, install/reload, independent QA or human acceptance is implied.

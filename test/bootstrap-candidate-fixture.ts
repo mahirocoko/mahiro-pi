@@ -5,7 +5,6 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   productRoot,
-  publicModules,
   stagePermissionFixture,
 } from "../lib/guards/test/permission-patch-fixture.mjs";
 
@@ -53,5 +52,9 @@ export async function stageBootstrapCandidate(
       .pi.extensions.length,
     10,
   );
-  return { ...stage, bootstrap, modules: publicModules };
+  return {
+    ...stage,
+    bootstrap,
+    modules: path.join(stage.primary, "node_modules"),
+  };
 }

@@ -38,7 +38,7 @@ fs.writeFileSync(
     version: 1,
     agentDir: profile,
     sources: { pi: cli.primary },
-    dependencyModules: publicModules,
+    dependencyModules: path.join(cli.primary, "node_modules"),
     components: { packages: true },
   }),
   { mode: 0o600 },
@@ -71,6 +71,8 @@ const files = [
   "ux-workflow-patch-test.mjs",
   "execution-run-patch-test.mjs",
   "subagents-patch-test.mjs",
+  "subagents-owner-test.mjs",
+  "worker-activity-sdk-test.mjs",
   "preferences-patch-test.mjs",
   "candidate-patch-test.mjs",
 ];

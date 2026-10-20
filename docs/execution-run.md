@@ -53,12 +53,12 @@ project, monotonic sequence and native-session-keyed runs. Native Run identity u
 `profile`/`sessionId`, not fabricated Letta agent/conversation IDs. New sessions
 never attach a sole existing run. Tree navigation does not rewind canonical state;
 start/shutdown/before-switch/fork/tree invalidate retained read/UI tickets.
-Canonical Mods conservatively rejects native children and parent-linked human
+Root `lib/guards/index.ts` conservatively rejects native children and parent-linked human
 forks; an unsupported fork needs a fresh primary session, not an auto-move.
 
 ## Canonical authority
 
-Canonical Mods alone exposes `executionRun: {version:1, generation, assertAccess,
+Root `lib/guards/index.ts` alone exposes the candidate ABI `executionRun: {version:1, generation, assertAccess,
 authorize}` on its healthy-node registry. Both outer dispatch and execute/direct,
 hook-free and nested execution require a healthy current primary manager/header,
 matching node/generation, uncancelled context, canonical configured project and
@@ -74,7 +74,9 @@ foreign copies all deny. Applicable `read`/`path_read` denials on root/state/loc
 also gate mutations; writes additionally honor `path_write`. No second permission
 parser, owner, factory or generic framework is introduced. The existing authored
 40.2.2 patch is used only in disposable offline fixtures; canonical installed
-dependencies remain unchanged and the old owner continues to fail closed.
+assets remain unchanged in this phase; any old service lacking winning-surface
+attestation continues to fail closed. Earlier installed-root repair is separate
+history, not new runtime activation.
 
 ## Model contract and bounds
 
@@ -160,8 +162,8 @@ network storage support or automatic lock recovery.
 closed schemas/native refs, private modes/UTF-8/bounds, ABA, foreign cleanup,
 FD/inode/bytes attacks, higher-ancestor identity, cancellation, two real
 processes/same-ticket race and different-session fresh-CAS retry without lost state.
-Canonical Mods `pnpm test:execution-run` (also in required `pnpm test`) runs
-`execution-run-patch-test.mjs` / `execution-run-test.mjs` against isolated actual
+Root `pnpm check` includes `check-public-sdk.mjs`, which runs
+`lib/guards/test/execution-run-patch-test.mjs` / `execution-run-test.mjs` against isolated actual
 patched and old public permission owners with public SDK/Faux dispatch. It covers
 ordinary valid metadata without universal UI, write/read ownership and required
 refs/reports, provenance/grant/path matrices, direct/nested/hook-free execution,
@@ -169,7 +171,10 @@ UI wrong-ID/revision/no-UI/decline/pending ABA/revocation/config/navigation/
 generation/cancel, Core/raw user text/valid-PNG preservation and opaque-state traps.
 Public `session_shutdown` precedes disposal to close the owner UI poller.
 
-Evidence belongs only under ignored `.agent-state/runtime/execution-run-port/`.
+Run `pnpm check` then `pnpm check:format` serially; no Mods checkout or adapter
+command is required. Current SDK receipts are unique directories under ignored
+`.agent-state/runtime/candidate-isolation/required-sdk-*/`; earlier
+`.agent-state/runtime/execution-run-port/` receipts retain dated provenance only.
 No real Run, Goal, UX, Evidence, profile config/grant, role/model/Core/auth,
 installed dependency, provider/network/browser or Herdr state is created or changed
 by this port. Source checks are not full typechecking, independent final QA,

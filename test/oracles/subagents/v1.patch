@@ -1,0 +1,160 @@
+diff --git a/dist/public.d.ts b/dist/public.d.ts
+index 738b79ec79ddd01fa5a4dd4c04df77fcb6daccea..b1d828551defdadef2ac95084f8b3c83c8a2a4e7 100644
+--- a/dist/public.d.ts
++++ b/dist/public.d.ts
+@@ -239,9 +239,31 @@ interface SpawnOptions {
+     inheritContext?: boolean;
+     foreground?: boolean;
+     bypassQueue?: boolean;
++    /**
++     * Declare that the caller will deliver the initial outcome, suppressing its
++     * completion nudge. Claimed before creation events or queue admission; does
++     * not change scheduling. Omitted or false preserves ordinary announcements.
++     * Like ResumeOptions.claimOutcome, this applies only to this run.
++     */
++    claimOutcome?: boolean;
++}
++/** Immutable current role configuration; absent toolNames means the native built-in default. */
++interface AgentTypeDescriptor {
++    readonly name: string;
++    readonly toolNames?: readonly string[];
++    readonly model?: string;
++    readonly thinking?: string;
++    readonly runInBackground?: boolean;
++    readonly inheritContext?: boolean;
++    readonly promptMode: "replace" | "append";
++    readonly locked?: true | readonly string[];
+ }
+ /** The public service contract for cross-extension subagent access. */
+ interface SubagentsService {
++    /** Runtime capability: initial claims are taken before publication or scheduling. */
++    readonly supportsInitialOutcomeClaim: true;
++    /** Current enabled role only; unknown/disabled names never fall back. */
++    getAgentType(name: string): AgentTypeDescriptor | undefined;
+     /** Spawn an agent. Returns the agent ID immediately. */
+     spawn(type: string, prompt: string, options?: SpawnOptions): string;
+     /** Get a snapshot of an agent's current state. */
+@@ -292,4 +314,4 @@ declare function getSubagentsService(): SubagentsService | undefined;
+ declare function unpublishSubagentsService(): void;
+ 
+ export { SUBAGENT_EVENTS, getSubagentsService, publishSubagentsService, unpublishSubagentsService };
+-export type { LifetimeUsage, ResumeOptions, ResumeRefusal, ResumeRefusalReason, ResumeResult, SpawnOptions, SubagentRecord, SubagentStatus, SubagentsService, TurnBudget, TurnBudgetPhase, Workspace, WorkspaceDisposeOutcome, WorkspaceDisposeResult, WorkspacePrepareContext, WorkspaceProvider };
++export type { AgentTypeDescriptor, LifetimeUsage, ResumeOptions, ResumeRefusal, ResumeRefusalReason, ResumeResult, SpawnOptions, SubagentRecord, SubagentStatus, SubagentsService, TurnBudget, TurnBudgetPhase, Workspace, WorkspaceDisposeOutcome, WorkspaceDisposeResult, WorkspacePrepareContext, WorkspaceProvider };
+diff --git a/src/lifecycle/subagent-manager.ts b/src/lifecycle/subagent-manager.ts
+index 1e7b5087ac0dc3fcd74e67c353a5e2cdddd8fd2a..2ecd6f6c7e4985a9a756a46484bb2f1ad002fcc8 100644
+--- a/src/lifecycle/subagent-manager.ts
++++ b/src/lifecycle/subagent-manager.ts
+@@ -201,6 +201,8 @@ export interface AgentSpawnConfig {
+    * callers (e.g. cross-extension RPC) that must not be deferred by the queue.
+    */
+   bypassQueue?: boolean;
++  /** The caller carries the initial outcome; claim before publishing or scheduling. */
++  claimOutcome?: boolean;
+   /** Parent abort signal - when aborted, the subagent is also stopped. */
+   signal?: AbortSignal;
+   /** Per-subagent lifecycle observer — replaces onSessionCreated callback. */
+@@ -210,6 +212,23 @@ export interface AgentSpawnConfig {
+ }
+ 
+ export class SubagentManager {
++  /** Query the existing registry without spawn's unknown-role fallback. */
++  getAgentType(name: string): import("#src/service/service").AgentTypeDescriptor | undefined {
++    const type = this.registry.resolveType(name);
++    if (type === undefined || !this.registry.isValidType(type)) return undefined;
++    const config = this.registry.resolveAgentConfig(type);
++    return Object.freeze({
++      name: type,
++      toolNames: config.toolNames === undefined ? undefined : Object.freeze([...config.toolNames]),
++      model: config.model,
++      thinking: config.thinking,
++      runInBackground: config.runInBackground,
++      inheritContext: config.inheritContext,
++      promptMode: config.promptMode,
++      locked: Array.isArray(config.locked) ? Object.freeze([...config.locked]) : config.locked,
++    });
++  }
++
+   private agents = new Map<string, Subagent>();
+   private sweepInterval: ReturnType<typeof setInterval>;
+   private readonly observer?: SubagentManagerObserver;
+@@ -383,6 +402,9 @@ export class SubagentManager {
+         signal: options.signal,
+       },
+     });
++    // Use the existing per-run carrier claim before any observer can cancel or
++    // announce the record, and before the limiter can admit a fast run.
++    if (options.claimOutcome) record.claim();
+     this.agents.set(id, record);
+ 
+     if (isBackground) {
+diff --git a/src/service/service-adapter.ts b/src/service/service-adapter.ts
+index e72fcf152e5a3ae49b374d6083575600c04d04df..03403b4b3617658542b24a0248726e9d45cc3599 100644
+--- a/src/service/service-adapter.ts
++++ b/src/service/service-adapter.ts
+@@ -22,6 +22,7 @@ import type { SessionContext, Subagent, ThinkingLevel } from "#src/types";
+ 
+ /** Narrow interface for the SubagentManager — avoids coupling to the concrete class. */
+ export interface SubagentManagerLike {
++  getAgentType(name: string): import("#src/service/service").AgentTypeDescriptor | undefined;
+   spawn(snapshot: ParentSnapshot, type: string, prompt: string, options: AgentSpawnConfig): string;
+   getRecord(id: string): Subagent | undefined;
+   listAgents(): Subagent[];
+@@ -45,6 +46,12 @@ export interface ServiceRuntimeLike {
+ 
+ /** Adapter that wraps SubagentManager to satisfy SubagentsService. */
+ export class SubagentsServiceAdapter implements SubagentsService {
++  readonly supportsInitialOutcomeClaim = true as const;
++
++  getAgentType(name: string): import("#src/service/service").AgentTypeDescriptor | undefined {
++    return this.manager.getAgentType(name);
++  }
++
+   constructor(
+     private readonly manager: SubagentManagerLike,
+     private readonly resolveModel: (input: string, registry: ModelRegistry) => Model<any> | string,
+@@ -71,6 +78,7 @@ export class SubagentsServiceAdapter implements SubagentsService {
+       thinkingLevel: this.resolveThinkingLevel(options?.thinkingLevel),
+       inheritContext: options?.inheritContext,
+       bypassQueue: options?.bypassQueue,
++      claimOutcome: options?.claimOutcome,
+       // A caller that names `foreground` has committed; one that omits it has
+       // not, so the agent's own frontmatter decides and background is the
+       // SDK-door default.
+diff --git a/src/service/service.ts b/src/service/service.ts
+index 71151535b2dc886e7e4b343060593d82860cdb33..1a493615df63b07763a08d94951a83f6b72c77ff 100644
+--- a/src/service/service.ts
++++ b/src/service/service.ts
+@@ -126,10 +126,33 @@ export interface SpawnOptions {
+   inheritContext?: boolean;
+   foreground?: boolean;
+   bypassQueue?: boolean;
++  /**
++   * Declare that the caller will deliver the initial outcome, suppressing its
++   * completion nudge. Claimed before creation events or queue admission; does
++   * not change scheduling. Omitted or false preserves ordinary announcements.
++   * Like ResumeOptions.claimOutcome, this applies only to this run.
++   */
++  claimOutcome?: boolean;
++}
++
++/** Immutable current role configuration; absent toolNames means the native built-in default. */
++export interface AgentTypeDescriptor {
++  readonly name: string;
++  readonly toolNames?: readonly string[];
++  readonly model?: string;
++  readonly thinking?: string;
++  readonly runInBackground?: boolean;
++  readonly inheritContext?: boolean;
++  readonly promptMode: "replace" | "append";
++  readonly locked?: true | readonly string[];
+ }
+ 
+ /** The public service contract for cross-extension subagent access. */
+ export interface SubagentsService {
++  /** Runtime capability: initial claims are taken before publication or scheduling. */
++  readonly supportsInitialOutcomeClaim: true;
++  /** Current enabled role only; unknown/disabled names never fall back. */
++  getAgentType(name: string): AgentTypeDescriptor | undefined;
+   /** Spawn an agent. Returns the agent ID immediately. */
+   spawn(type: string, prompt: string, options?: SpawnOptions): string;
+ 

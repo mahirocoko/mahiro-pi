@@ -127,7 +127,11 @@ proof of truth. Use filesystem and Git bounds for enforceable guarantees.
 Implementation owners are `lib/agent-memory/store.ts`, `runtime.ts`,
 `extensions/mahiro-agent-memory.ts` and the package-owned writer role. There is no
 runtime import from Mods, installed host internals, or a separate SDK LLM driver.
-The canonical adapter exposes a separate `managedMemory` ABI1 on healthy nodes.
+Root `lib/guards/index.ts` authors the candidate's separate `managedMemory`
+ABI1 on healthy nodes; public subagents alone runs children and the public
+permission service alone resolves policy. The approved private memory activation
+is distinct from the still-pending Root guard cutover: the current live
+compatibility profile still uses the legacy guard package.
 
 The private root defaults to `~/.pi/agent/memory`; `MAHIRO_AGENT_MEMORY_ROOT` is an
 explicit controlled-store override, not authority. `config.json` is private,

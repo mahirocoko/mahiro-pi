@@ -57,8 +57,9 @@ A workspace child selects that already-authorized root; it cannot widen a config
 subproject into a parent/sibling repository. Aliased workspace paths reject.
 Unconfigured, missing-config and authorized-empty reads/startup/registration do not
 mkdir, initialize, import or run Git. No installer/bootstrap subsystem was added:
-the existing explicit bootstrap already recursively binds extension/lib/adapter
-source. No bootstrap apply provisions this config or its grants.
+the existing explicit bootstrap recursively binds Root extension/lib/guard
+source. The actual active10 checkout remains held before new guarded profile writes;
+see [`bootstrap.md`](bootstrap.md#current-compatibility-hold). No bootstrap apply provisions this config or its grants.
 
 State is derived only as `<profile>/workflow/evidence/<sha256(project UTF8)>/` with
 `state.json` and `state.lock`. Native identity is profile + project + actual native
@@ -69,7 +70,7 @@ and invalidate fresh tickets. The canonical guard currently permits only primary
 unparented native sessions and excludes known children; this conservatively limits
 human forks too.
 
-Canonical Mods owns the narrow ABI `evidence: {version:1,generation,assertAccess,
+Root `lib/guards/index.ts` owns the candidate narrow ABI `evidence: {version:1,generation,assertAccess,
 authorize,authorizeGit,assertSources}`. Both exact `mh_code_evidence` and exact
 `code_evidence_state_<sha256(derived state-root UTF8)>` must be actual public-service
 winning allows: source tool, non-yolo origin, toolName and matchedSurface exactly
@@ -79,8 +80,9 @@ or old-owner results deny. Applicable explicit root/state/lock path denials rema
 Actual canonical Pi package 0.2.0, exact entry and manifest provenance, actual
 SessionManager, primary context and cancellation are checked in outer dispatch,
 nested/direct execution and publication. The existing authored permission-owner
-patch is reused **only in offline staged-owner fixtures**. Canonical installed
-40.2.2 remains old and fails closed; no install, grant or reload occurred.
+patch is reused **only in offline staged-owner fixtures**. An old service without winning-surface attestation fails closed. The earlier
+installed-root offline repair is separate history; this phase changes no installed
+assets, grants or runtime load.
 
 ## Git boundary and conservative freshness
 
@@ -106,7 +108,7 @@ executable external diff/textconv/fsmonitor fixtures are suppressed by fixed fla
 proven clean/process helpers are rejected before execution. No network is tested
 or attempted.
 
-Mods `authorizeGit` accepts only the fixed executable/prefix/tail grammar. It sends
+Root `lib/guards/index.ts` `authorizeGit` accepts only the fixed executable/prefix/tail grammar. It sends
 the fully quoted representation through the **existing** canonical
 `host.finalArgs('bash', {command}, ctx)`, rejects any transformation, applies public
 existing Bash/read/path decisions, then rechecks authority. Execution still uses
@@ -188,20 +190,22 @@ This is cooperative integrity, not same-UID tamper containment or cross-owner at
 
 ## Offline evidence and deferred gates
 
-`node --test --test-concurrency=1 test/evidence-*.test.ts` exercises the first child-root
+`node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/evidence-*.test.ts` exercises the first child-root
 falsifier, original executable differential (normalizing host IDs/time and declared
 native wording only), four lanes, content/HEAD/base changes, record/stale bounds,
 secret non-persistence, whole-envelope/two-process races and local private-FD
 adversarial patterns including same-mode parent replacement. Real owned Git
 cancellation/revocation/overflow tests observe PIDs and check reap.
 
-`pnpm test:evidence` in Mods' adapter stages actual patched and old permission
-owners, uses actual public SDK/Faux direct+nested+hook-free execution, exact grant
-negatives/provenance, real Git/helper controls, UI/CAS/navigation and unchanged raw
-text/images/Core, with zero external inference. It is wired into required adapter
-`pnpm test` alongside all prior tests. `pnpm check`, `pnpm check:format`, adapter
-`pnpm test` and canonical Mods `pnpm check` are separate serial gates. Receipts stay
-under ignored `.agent-state/runtime/evidence-port/`; previous Goal/CodeMap proofs
-are untouched. Source tests do not establish installed/live readiness, daily
+Root `pnpm check` includes `check-public-sdk.mjs`, which runs
+`lib/guards/test/evidence-patch-test.mjs` and its `evidence-test.mjs` fixture
+against copied patched and old public permission owners. Actual public SDK/Faux
+direct+nested+hook-free dispatch covers exact grant negatives/provenance, real
+Git/helper controls, UI/CAS/navigation and unchanged raw text/images/Core, with
+zero external inference. Run `pnpm check` then `pnpm check:format` serially; no
+Mods command or checkout is a prerequisite, and no duplicate SDK run is needed.
+Earlier adapter receipts under ignored `.agent-state/runtime/evidence-port/`
+retain dated provenance only; current candidate receipts use unique
+`.agent-state/runtime/candidate-isolation/required-sdk-*/` directories. Source tests do not establish installed/live readiness, daily
 human acceptance, provider behavior, linked-worktree support or full Letta parity.
 Fresh independent QA remains a separate gate.

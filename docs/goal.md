@@ -59,8 +59,9 @@ state at 2 MiB; invalid JSON, invalid UTF-8, unknown schema fields, oversized da
 unsafe types/ownership/modes, symlinks, hardlinks and noncanonical paths reject.
 Config changes invalidate retained tickets rather than silently rebinding them.
 
-This is a private canonical-sibling integration, not portable cold-machine
-readiness. No dependency is installed or fetched by preview, registration or tests.
+This is a private Root/public-dependency integration, not portable cold-machine
+readiness. No Mods checkout is required; the active10 bootstrap hold is documented
+in [`bootstrap.md`](bootstrap.md#current-compatibility-hold). No dependency is installed or fetched by preview, registration or tests.
 
 ## Storage, native identity and state machine
 
@@ -144,7 +145,7 @@ stolen. Owner recovery needs a separately reviewed offline procedure.
 
 ## Permission and primary-session boundary
 
-The healthy canonical Mods node exposes only `goal: {version: 1, generation,
+The healthy Root `lib/guards/index.ts` candidate node exposes only `goal: {version: 1, generation,
 assertAccess, authorize}` for this slice. Outer dispatch and every execute body
 independently check current actual ToolInfo, session-manager identity, primary
 ownership and generation. The trust algorithm accepts only the exact four names,
@@ -173,8 +174,9 @@ subagent or that unavailable header ancestry can be authenticated. Workers never
 receive the primary Goal projection. No new worker role or model route is added.
 
 The existing authored permission-owner `matchedSurface` patch is reused, not
-installed here. Canonical installed dependencies remain unchanged and the old
-owner intentionally remains fail-closed. Separate installation, fresh load,
+installed by this documentation phase. Current installed assets are preserved;
+earlier installed-root offline repair is separate history. A service without
+winning-surface attestation intentionally remains fail-closed. Separate installation, fresh load,
 configuration and exact grants require their own scope approval.
 
 ## Transactions and limits of filesystem protection
@@ -221,8 +223,9 @@ Root `pnpm check:public-sdk` (also required by `pnpm check`) stages the real pat
 old owners under fixture-canonical roots, exercises public SDK direct/nested/
 hook-free execute, commands, lifecycle, reminder and strict image assertions with
 Faux transport, and uses public shutdown before disposal. All fixture state is
-under ignored `.agent-state/runtime/goal-port/`; original failures and independent
-QA controls remain retained. A valid PNG fixes the original invalid-IDAT fixture;
+under ignored runtime state; current SDK receipts use unique
+`.agent-state/runtime/candidate-isolation/required-sdk-*/` directories. Earlier
+`.agent-state/runtime/goal-port/` failures and independent QA controls retain their dates. A valid PNG fixes the original invalid-IDAT fixture;
 no product image behavior or preservation assertion was relaxed.
 
 These are source and offline public-host proofs, not provider requests, live

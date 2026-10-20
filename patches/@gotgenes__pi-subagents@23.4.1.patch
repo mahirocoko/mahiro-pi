@@ -1,8 +1,7 @@
 diff --git a/dist/public.d.ts b/dist/public.d.ts
-index 738b79ec79ddd01fa5a4dd4c04df77fcb6daccea..b1d828551defdadef2ac95084f8b3c83c8a2a4e7 100644
 --- a/dist/public.d.ts
 +++ b/dist/public.d.ts
-@@ -239,9 +239,31 @@ interface SpawnOptions {
+@@ -239,9 +239,31 @@
      inheritContext?: boolean;
      foreground?: boolean;
      bypassQueue?: boolean;
@@ -13,7 +12,7 @@ index 738b79ec79ddd01fa5a4dd4c04df77fcb6daccea..b1d828551defdadef2ac95084f8b3c83
 +     * Like ResumeOptions.claimOutcome, this applies only to this run.
 +     */
 +    claimOutcome?: boolean;
-+}
+ }
 +/** Immutable current role configuration; absent toolNames means the native built-in default. */
 +interface AgentTypeDescriptor {
 +    readonly name: string;
@@ -24,7 +23,7 @@ index 738b79ec79ddd01fa5a4dd4c04df77fcb6daccea..b1d828551defdadef2ac95084f8b3c83
 +    readonly inheritContext?: boolean;
 +    readonly promptMode: "replace" | "append";
 +    readonly locked?: true | readonly string[];
- }
++}
  /** The public service contract for cross-extension subagent access. */
  interface SubagentsService {
 +    /** Runtime capability: initial claims are taken before publication or scheduling. */
@@ -34,17 +33,61 @@ index 738b79ec79ddd01fa5a4dd4c04df77fcb6daccea..b1d828551defdadef2ac95084f8b3c83
      /** Spawn an agent. Returns the agent ID immediately. */
      spawn(type: string, prompt: string, options?: SpawnOptions): string;
      /** Get a snapshot of an agent's current state. */
-@@ -292,4 +314,4 @@ declare function getSubagentsService(): SubagentsService | undefined;
+@@ -288,8 +310,10 @@
+ declare function publishSubagentsService(service: SubagentsService): void;
+ /** Retrieve the published SubagentsService, or undefined if not yet published. */
+ declare function getSubagentsService(): SubagentsService | undefined;
++/** Exact SDK SessionManager identity; no global fallback. */
++declare function getSubagentsServiceForSession(owner: object): SubagentsService | undefined;
+ /** Remove the SubagentsService from globalThis (call on shutdown/reload). */
  declare function unpublishSubagentsService(): void;
  
- export { SUBAGENT_EVENTS, getSubagentsService, publishSubagentsService, unpublishSubagentsService };
+-export { SUBAGENT_EVENTS, getSubagentsService, publishSubagentsService, unpublishSubagentsService };
 -export type { LifetimeUsage, ResumeOptions, ResumeRefusal, ResumeRefusalReason, ResumeResult, SpawnOptions, SubagentRecord, SubagentStatus, SubagentsService, TurnBudget, TurnBudgetPhase, Workspace, WorkspaceDisposeOutcome, WorkspaceDisposeResult, WorkspacePrepareContext, WorkspaceProvider };
++export { SUBAGENT_EVENTS, getSubagentsServiceForSession, getSubagentsService, publishSubagentsService, unpublishSubagentsService };
 +export type { AgentTypeDescriptor, LifetimeUsage, ResumeOptions, ResumeRefusal, ResumeRefusalReason, ResumeResult, SpawnOptions, SubagentRecord, SubagentStatus, SubagentsService, TurnBudget, TurnBudgetPhase, Workspace, WorkspaceDisposeOutcome, WorkspaceDisposeResult, WorkspacePrepareContext, WorkspaceProvider };
+diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -41,6 +41,7 @@
+ import { createSubagentRuntime } from "#src/runtime";
+ import { publishSubagentsService, unpublishSubagentsService } from "#src/service/service";
+ import { SubagentsServiceAdapter } from "#src/service/service-adapter";
++import { createSessionServiceBinding } from "#src/service/session-owner";
+ import { detectEnv } from "#src/session/env";
+ import { resolveModel } from "#src/session/model-resolver";
+ import { createExcludedPackagesStorage } from "#src/session/package-exclusions";
+@@ -202,6 +203,7 @@
+   // Consumers: const { getSubagentsService } = await import("@gotgenes/pi-subagents");
+   const service = new SubagentsServiceAdapter(manager, resolveModel, runtime);
+   publishSubagentsService(service);
++  const sessionBinding = createSessionServiceBinding(service);
+ 
+   const lifecycle = new SessionLifecycleHandler(
+     runtime,
+@@ -220,10 +222,16 @@
+   // registrations rather than sharing a lambda with an unrelated concern.
+   const widgetEvents = new WidgetEventsHandler(widget);
+ 
+-  pi.on("session_start", (event, ctx) => lifecycle.handleSessionStart(event, ctx));
++  pi.on("session_start", (event, ctx) => {
++    sessionBinding.start(ctx.sessionManager);
++    return lifecycle.handleSessionStart(event, ctx);
++  });
+   pi.on("session_start", (event, ctx) => widgetEvents.handleSessionStart(event, ctx));
+   pi.on("session_before_switch", () => lifecycle.handleSessionBeforeSwitch());
+-  pi.on("session_shutdown", () => lifecycle.handleSessionShutdown());
++  pi.on("session_shutdown", () => {
++    sessionBinding.shutdown();
++    return lifecycle.handleSessionShutdown();
++  });
+   // Registered after the lifecycle handler on purpose. Pi awaits an extension's
+   // handlers for an event in registration order, so the widget is torn down once
+   // `abortAll()` and the awaited `manager.dispose()` have finished — no terminal
 diff --git a/src/lifecycle/subagent-manager.ts b/src/lifecycle/subagent-manager.ts
-index 1e7b5087ac0dc3fcd74e67c353a5e2cdddd8fd2a..2ecd6f6c7e4985a9a756a46484bb2f1ad002fcc8 100644
 --- a/src/lifecycle/subagent-manager.ts
 +++ b/src/lifecycle/subagent-manager.ts
-@@ -201,6 +201,8 @@ export interface AgentSpawnConfig {
+@@ -201,6 +201,8 @@
     * callers (e.g. cross-extension RPC) that must not be deferred by the queue.
     */
    bypassQueue?: boolean;
@@ -53,7 +96,7 @@ index 1e7b5087ac0dc3fcd74e67c353a5e2cdddd8fd2a..2ecd6f6c7e4985a9a756a46484bb2f1a
    /** Parent abort signal - when aborted, the subagent is also stopped. */
    signal?: AbortSignal;
    /** Per-subagent lifecycle observer — replaces onSessionCreated callback. */
-@@ -210,6 +212,23 @@ export interface AgentSpawnConfig {
+@@ -210,6 +212,23 @@
  }
  
  export class SubagentManager {
@@ -77,7 +120,7 @@ index 1e7b5087ac0dc3fcd74e67c353a5e2cdddd8fd2a..2ecd6f6c7e4985a9a756a46484bb2f1a
    private agents = new Map<string, Subagent>();
    private sweepInterval: ReturnType<typeof setInterval>;
    private readonly observer?: SubagentManagerObserver;
-@@ -383,6 +402,9 @@ export class SubagentManager {
+@@ -383,6 +402,9 @@
          signal: options.signal,
        },
      });
@@ -88,10 +131,9 @@ index 1e7b5087ac0dc3fcd74e67c353a5e2cdddd8fd2a..2ecd6f6c7e4985a9a756a46484bb2f1a
  
      if (isBackground) {
 diff --git a/src/service/service-adapter.ts b/src/service/service-adapter.ts
-index e72fcf152e5a3ae49b374d6083575600c04d04df..03403b4b3617658542b24a0248726e9d45cc3599 100644
 --- a/src/service/service-adapter.ts
 +++ b/src/service/service-adapter.ts
-@@ -22,6 +22,7 @@ import type { SessionContext, Subagent, ThinkingLevel } from "#src/types";
+@@ -22,6 +22,7 @@
  
  /** Narrow interface for the SubagentManager — avoids coupling to the concrete class. */
  export interface SubagentManagerLike {
@@ -99,7 +141,7 @@ index e72fcf152e5a3ae49b374d6083575600c04d04df..03403b4b3617658542b24a0248726e9d
    spawn(snapshot: ParentSnapshot, type: string, prompt: string, options: AgentSpawnConfig): string;
    getRecord(id: string): Subagent | undefined;
    listAgents(): Subagent[];
-@@ -45,6 +46,12 @@ export interface ServiceRuntimeLike {
+@@ -45,6 +46,12 @@
  
  /** Adapter that wraps SubagentManager to satisfy SubagentsService. */
  export class SubagentsServiceAdapter implements SubagentsService {
@@ -112,7 +154,7 @@ index e72fcf152e5a3ae49b374d6083575600c04d04df..03403b4b3617658542b24a0248726e9d
    constructor(
      private readonly manager: SubagentManagerLike,
      private readonly resolveModel: (input: string, registry: ModelRegistry) => Model<any> | string,
-@@ -71,6 +78,7 @@ export class SubagentsServiceAdapter implements SubagentsService {
+@@ -71,6 +78,7 @@
        thinkingLevel: this.resolveThinkingLevel(options?.thinkingLevel),
        inheritContext: options?.inheritContext,
        bypassQueue: options?.bypassQueue,
@@ -121,10 +163,9 @@ index e72fcf152e5a3ae49b374d6083575600c04d04df..03403b4b3617658542b24a0248726e9d
        // not, so the agent's own frontmatter decides and background is the
        // SDK-door default.
 diff --git a/src/service/service.ts b/src/service/service.ts
-index 71151535b2dc886e7e4b343060593d82860cdb33..1a493615df63b07763a08d94951a83f6b72c77ff 100644
 --- a/src/service/service.ts
 +++ b/src/service/service.ts
-@@ -126,10 +126,33 @@ export interface SpawnOptions {
+@@ -126,10 +126,33 @@
    inheritContext?: boolean;
    foreground?: boolean;
    bypassQueue?: boolean;
@@ -135,8 +176,8 @@ index 71151535b2dc886e7e4b343060593d82860cdb33..1a493615df63b07763a08d94951a83f6
 +   * Like ResumeOptions.claimOutcome, this applies only to this run.
 +   */
 +  claimOutcome?: boolean;
-+}
-+
+ }
+ 
 +/** Immutable current role configuration; absent toolNames means the native built-in default. */
 +export interface AgentTypeDescriptor {
 +  readonly name: string;
@@ -147,8 +188,8 @@ index 71151535b2dc886e7e4b343060593d82860cdb33..1a493615df63b07763a08d94951a83f6
 +  readonly inheritContext?: boolean;
 +  readonly promptMode: "replace" | "append";
 +  readonly locked?: true | readonly string[];
- }
- 
++}
++
  /** The public service contract for cross-extension subagent access. */
  export interface SubagentsService {
 +  /** Runtime capability: initial claims are taken before publication or scheduling. */
@@ -158,3 +199,87 @@ index 71151535b2dc886e7e4b343060593d82860cdb33..1a493615df63b07763a08d94951a83f6
    /** Spawn an agent. Returns the agent ID immediately. */
    spawn(type: string, prompt: string, options?: SpawnOptions): string;
  
+@@ -203,3 +226,5 @@
+   // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- Symbol-keyed global property; Map.delete() is not applicable
+   delete (globalThis as Record<symbol, unknown>)[SERVICE_KEY];
+ }
++
++export { getSubagentsServiceForSession } from "./session-owner";
+diff --git a/src/service/session-owner.ts b/src/service/session-owner.ts
+new file mode 100644
+--- /dev/null
++++ b/src/service/session-owner.ts
+@@ -0,0 +1,73 @@
++import type { SubagentsService } from "./service";
++
++// Private metadata index, never a queue, policy resolver or session-id registry.
++// Pi loads extensions with moduleCache:false. Share the registry across loader
++// instances, while retaining the WeakMap in a private closure. This is metadata
++// isolation among trusted extensions, not an in-process authorization boundary.
++const key = Symbol.for("pi-subagents.session-owner-registry.v1");
++interface Registry {
++  readonly protocol: "pi-subagents.session-owner";
++  readonly version: 1;
++  get(owner: object): SubagentsService | undefined;
++  set(owner: object, service: SubagentsService): void;
++  deleteIf(owner: object, service: SubagentsService): void;
++}
++const host = globalThis as typeof globalThis & { [key]?: unknown };
++const services: Registry | undefined = (() => {
++  try {
++    if (key in host) {
++      const existing = host[key] as Partial<Registry> | null;
++      // Compatibility only, not authentication against hostile extensions.
++      return existing !== null && typeof existing === "object" &&
++        existing.protocol === "pi-subagents.session-owner" && existing.version === 1 &&
++        typeof existing.get === "function" && typeof existing.set === "function" &&
++        typeof existing.deleteIf === "function" ? existing as Registry : undefined;
++    }
++    const entries = new WeakMap<object, SubagentsService>();
++    const registry: Registry = Object.freeze({
++      protocol: "pi-subagents.session-owner",
++      version: 1,
++      get: (owner: object) => entries.get(owner),
++      set: (owner: object, service: SubagentsService) => { entries.set(owner, service); },
++      deleteIf: (owner: object, service: SubagentsService) => {
++        if (entries.get(owner) === service) entries.delete(owner);
++      },
++    });
++    host[key] = registry;
++    return registry;
++  } catch {
++    // An inaccessible/unsupported slot must not break the native global runner.
++    return undefined;
++  }
++})();
++
++/** Exact SDK SessionManager identity only; no global or session-id fallback. */
++export function getSubagentsServiceForSession(owner: object): SubagentsService | undefined {
++  return services?.get(owner);
++}
++
++// Internal factory capability. Not exported from the package's public root.
++export function createSessionServiceBinding(service: SubagentsService) {
++  let owner: object | undefined;
++  let disabled = false;
++  const clear = () => {
++    if (owner) services?.deleteIf(owner, service);
++  };
++  return {
++    start(next: object) {
++      if (disabled) return;
++      if (owner && owner !== next) {
++        // A manager's queue must never silently migrate to another SDK owner.
++        clear();
++        disabled = true;
++        return;
++      }
++      owner = next;
++      services?.set(owner, service);
++    },
++    shutdown() {
++      clear();
++      disabled = true;
++    },
++  };
++}
