@@ -10,20 +10,16 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
-import {
-  applyBootstrap,
-  inspectBootstrap,
-  type BootstrapRequest,
-} from "../lib/bootstrap.ts";
+import type { BootstrapRequest } from "../lib/bootstrap.ts";
+import { stageBootstrapCandidate } from "./bootstrap-candidate-fixture.ts";
+const candidate = await stageBootstrapCandidate();
+const { applyBootstrap, inspectBootstrap } = candidate.bootstrap;
 
-const product = resolve(import.meta.dirname, "..");
+const product = candidate.primary;
 const available = existsSync(
-  join(
-    process.env.MAHIRO_PI_TEST_MODULES ?? join(product, "node_modules"),
-    "@earendil-works/pi-coding-agent/package.json",
-  ),
+  join(candidate.modules, "@earendil-works/pi-coding-agent/package.json"),
 );
 
 test("native seed preflight requires exact 0600 before loading public SDK", () => {
@@ -67,7 +63,7 @@ syncBuiltinESMExports();`;
               agentDir: join(fixture, "agent"),
               root: join(fixture, "memory"),
               seedFile,
-              dependencyModules: process.env.MAHIRO_PI_TEST_MODULES,
+              dependencyModules: candidate.modules,
               seedHash: createHash("sha256").update(seed).digest("hex"),
             }),
           },
@@ -103,11 +99,10 @@ test("guarded native initialization hook failure reports partial progress and in
   );
   const request: BootstrapRequest = {
     version: 1,
-    dependencyModules: process.env.MAHIRO_PI_TEST_MODULES,
+    dependencyModules: candidate.modules,
     agentDir: join(fixture, "agent"),
     sources: {
       pi: product,
-      skills: resolve(product, "../mahiro-skills"),
     },
     components: {
       packages: true,

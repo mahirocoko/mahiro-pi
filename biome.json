@@ -36,6 +36,8 @@
       "lib/bootstrap-native.mjs",
       "bootstrap.mjs",
       "test/bootstrap*.test.ts",
+      "test/bootstrap-candidate-fixture.ts",
+      "test/candidate-isolation.test.ts",
       "lib/continuity/**",
       "lib/agent-memory/**",
       "test/agent-memory*.ts",

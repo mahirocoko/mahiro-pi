@@ -72,6 +72,7 @@ const files = [
   "execution-run-patch-test.mjs",
   "subagents-patch-test.mjs",
   "preferences-patch-test.mjs",
+  "candidate-patch-test.mjs",
 ];
 const result = spawnSync(
   process.execPath,
@@ -98,11 +99,13 @@ const receipt = {
   actualPublicSDK: true,
   liveInstall: false,
 };
-const proof = path.join(
+const evidenceParent = path.join(
   productRoot,
-  ".agent-state/runtime/pi-ownership-repair",
+  ".agent-state/runtime/candidate-isolation",
 );
-fs.mkdirSync(proof, { recursive: true });
+fs.mkdirSync(evidenceParent, { recursive: true });
+const proof = fs.mkdtempSync(path.join(evidenceParent, "required-sdk-"));
+console.log(`Public SDK receipts: ${proof}`);
 fs.writeFileSync(
   path.join(proof, "required-sdk.log"),
   result.stdout + result.stderr,

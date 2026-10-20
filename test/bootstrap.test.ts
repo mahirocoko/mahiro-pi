@@ -17,26 +17,47 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import {
+import type { BootstrapRequest } from "../lib/bootstrap.ts";
+import { inspectBootstrap as inspectActiveBootstrap } from "../lib/bootstrap.ts";
+import { stageBootstrapCandidate } from "./bootstrap-candidate-fixture.ts";
+const candidate = await stageBootstrapCandidate({
+  skillsSupply: resolve(import.meta.dirname, "../../mahiro-skills"),
+});
+const {
   applyBootstrap,
-  assertBootstrapNativeContract as assertBootstrapModsContract,
+  assertBootstrapNativeContract: assertBootstrapModsContract,
   bootstrapSummary,
   hashBootstrapNativePayload,
   inspectBootstrap,
   readBootstrapFile,
   readBootstrapRequest,
-  type BootstrapRequest,
-} from "../lib/bootstrap.ts";
+} = candidate.bootstrap;
 import { setupTarget } from "../lib/setup.ts";
 
-const product = resolve(import.meta.dirname, "..");
+const activeProduct = resolve(import.meta.dirname, "..");
+const product = candidate.primary;
+test("active10 recovery source cannot bootstrap a new guarded profile", () => {
+  const agentDir = join(candidate.root, "rejected-active-profile");
+  assert.throws(
+    () =>
+      inspectActiveBootstrap({
+        version: 1,
+        dependencyModules: candidate.modules,
+        agentDir,
+        sources: { pi: activeProduct },
+        components: { packages: true },
+      }),
+    /Canonical Pi pins\/ordered guards mismatch/,
+  );
+  assert.equal(existsSync(agentDir), false);
+});
 const fixtures = join(product, ".agent-state/runtime/bootstrap-tests");
 mkdirSync(fixtures, { recursive: true, mode: 0o700 });
 const fixture = (run: (root: string, request: BootstrapRequest) => void) => {
   const root = mkdtempSync(join(fixtures, "case-"));
   const request: BootstrapRequest = {
     version: 1,
-    dependencyModules: process.env.MAHIRO_PI_TEST_MODULES,
+    dependencyModules: candidate.modules,
     agentDir: join(root, "agent"),
     sources: {
       pi: product,

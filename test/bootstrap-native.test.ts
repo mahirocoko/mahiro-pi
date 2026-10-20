@@ -11,18 +11,18 @@ import {
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
-import {
-  applyBootstrap,
-  bootstrapSummary,
-  inspectBootstrap,
-  type BootstrapRequest,
-} from "../lib/bootstrap.ts";
+import type { BootstrapRequest } from "../lib/bootstrap.ts";
+import { stageBootstrapCandidate } from "./bootstrap-candidate-fixture.ts";
+const candidate = await stageBootstrapCandidate({
+  skillsSupply: resolve(import.meta.dirname, "../../mahiro-skills"),
+});
+const { applyBootstrap, bootstrapSummary, inspectBootstrap } =
+  candidate.bootstrap;
 import { setupTarget } from "../lib/setup.ts";
 import { createMemoryStore } from "../lib/agent-memory/store.ts";
 
-const product = resolve(import.meta.dirname, "..");
-const modules =
-  process.env.MAHIRO_PI_TEST_MODULES ?? join(product, "node_modules");
+const product = candidate.primary;
+const modules = candidate.modules;
 const available = existsSync(
   join(modules, "@earendil-works/pi-coding-agent/package.json"),
 );

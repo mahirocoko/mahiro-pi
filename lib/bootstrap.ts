@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { assertPrivatePath } from "./continuity/store.ts";
 import { createMemoryStore } from "./agent-memory/store.ts";
@@ -789,9 +790,56 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       );
     for (const entry of packages) {
       const source = typeof entry === "string" ? entry : entry.source;
-      const absolute = source.startsWith(".")
-        ? resolve(r.agentDir, source)
+      // Public Pi package contract: local paths are based on the containing
+      // settings directory. Inspect only bounded JSON metadata, never package JS.
+      const local = !/^(?:npm:|git:|https?:|ssh:|git@)/.test(source);
+      const absolute = local
+        ? resolve(
+            r.agentDir,
+            source.startsWith("~/") ? join(homedir(), source.slice(2)) : source,
+          )
         : source;
+      let packageName: unknown;
+      if (local && !required.includes(absolute)) {
+        const metadataPath = join(absolute, "package.json");
+        let fd: number | undefined;
+        try {
+          fd = openSync(
+            metadataPath,
+            constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+          );
+          const stat = fstatSync(fd);
+          if (!stat.isFile() || stat.size > 1024 * 1024)
+            throw new Error("Unsupported local package metadata");
+          const buffer = Buffer.alloc(1024 * 1024 + 1);
+          let length = 0;
+          while (length < buffer.length) {
+            const count = readSync(
+              fd,
+              buffer,
+              length,
+              buffer.length - length,
+              null,
+            );
+            if (!count) break;
+            length += count;
+          }
+          if (length > 1024 * 1024)
+            throw new Error("Unsupported local package metadata");
+          packageName = JSON.parse(
+            buffer.subarray(0, length).toString("utf8"),
+          )?.name;
+        } catch (error) {
+          if (
+            !["ENOENT", "ENOTDIR"].includes(
+              (error as NodeJS.ErrnoException).code ?? "",
+            )
+          )
+            throw error;
+        } finally {
+          if (fd !== undefined) closeSync(fd);
+        }
+      }
       if (
         required.includes(absolute) &&
         (typeof entry !== "string" || source !== absolute)
@@ -801,7 +849,11 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
         );
       if (
         !required.includes(absolute) &&
-        /pi-(?:guards|subagents|permission-system)|mahiro-pi/.test(source)
+        (/pi-(?:guards|subagents|permission-system)|mahiro-pi/.test(source) ||
+          (typeof packageName === "string" &&
+            /^(?:@[^/]+\/)?(?:pi-guards|pi-subagents|pi-permission-system|mahiro-pi)$/.test(
+              packageName,
+            )))
       )
         throw new Error("Conflicting package source");
     }
