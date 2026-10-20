@@ -6,7 +6,7 @@ import {
 } from "./lib/bootstrap.ts";
 
 const help =
-  "Usage: pnpm run bootstrap --manifest /absolute/private/bootstrap.json --plan\n       pnpm run bootstrap --manifest /absolute/private/bootstrap.json --apply --expect-plan <sha256>\nPrivate canonical sibling bootstrap only. No network/dependency-install/auth/default-provider changes. Preview writes nothing.";
+  "Usage: pnpm run bootstrap --manifest /absolute/private/bootstrap.json --plan\n       pnpm run bootstrap --manifest /absolute/private/bootstrap.json --apply --expect-plan <sha256>\nExplicit canonical Pi-owner bootstrap; no Mods checkout prerequisite. No network/dependency-install/auth/default-provider changes. Preview writes nothing.";
 try {
   const args = process.argv.slice(2);
   if (args.length === 1 && ["--help", "-h"].includes(args[0]))

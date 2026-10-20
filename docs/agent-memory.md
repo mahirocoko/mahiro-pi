@@ -19,7 +19,7 @@ human acceptance. Source basis: Letta Code `7be3c81`, the 2320 source study.
 | --- | --- |
 | Managed private knowledge, projection, maintenance and writer orchestration | This package's agent-memory implementation |
 | Native sessions, LLM execution, tools and subagent scheduling | Public Pi SDK and registered native subagent service |
-| Operation/path permissions and healthy-session identity | Canonical Mods Pi guard adapter, through a public capability |
+| Operation/path permissions and healthy-session identity | Root-owned `lib/guards/index.ts` narrow ABI; public permission-system is the sole policy resolver |
 | Screened historical evidence and existing quote lifecycle | Existing continuity library/store/controller |
 | Native bootstrap | Thin native global AGENTS; the seven confirmed facts now live in managed Core, with original snapshots retained |
 | Status/footer, auth/model defaults and unrelated workflows | Existing owners; unchanged by this work |
@@ -266,7 +266,7 @@ knowledge. Rollback removes the new grant/role activation and restores the prese
 bootstrap; do not silently overwrite an existing root or alter real data in tests.
 
 Offline commands: `node --test --test-concurrency=1 test/agent-memory-*.test.ts`;
-from the canonical adapter, `pnpm test:managed-memory`. The latter uses actual public
+from this repository, `pnpm check:public-sdk` (also required by `pnpm check`). The latter uses actual public
 SDK/native subagent dispatch and project fixtures, with injected Faux transport and
 zero external inference. It does not use a fake HOME or real credentials, and keeps
 receipts only under this project's ignored runtime directory.
@@ -466,9 +466,7 @@ owned by the current activation section in `docs/integrations.md`.
 
 ## Boundaries for this run
 
-Implement in this repository. Minimal support changes belong in the owned Mods
-Pi adapter if its public authority capability must expand; do not modify Letta
-Code upstream, installed dependency internals or unrelated Mods entries. Keep
+Implement all Pi source and narrow authority capabilities in this repository's `lib/guards/`. Do not require or modify the historical Mods Pi adapter, original Letta entries, upstream host internals or installed dependencies. Keep
 one writer across these source boundaries and serialize heavy checks.
 
 Keep experiments and receipts under ignored project runtime state. Reuse the

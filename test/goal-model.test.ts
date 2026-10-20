@@ -39,7 +39,7 @@ test("differential traces against actual canonical Letta source: create/replace/
   };
   process.env.MAHIRO_GOAL_STATE_PATH = join(fixture, "original.state.json");
   process.env.MAHIRO_GOAL_DISABLE_PATH = join(fixture, "original.disabled");
-  const original = resolve("../mods/mods/mahiro-goal.ts");
+  const original = resolve(import.meta.dirname, "oracles/letta/mahiro-goal.ts");
   const tools = new Map<string, any>();
   let command: any;
   let dispose: any;

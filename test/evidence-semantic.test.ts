@@ -42,7 +42,10 @@ test("actual original differential: four lanes, revisions, content freshness, re
       f.root,
       "original-disabled",
     );
-    const originalSource = path.resolve("../mods/mods/mahiro-code-evidence.ts"),
+    const originalSource = path.resolve(
+        import.meta.dirname,
+        "oracles/letta/mahiro-code-evidence.ts",
+      ),
       copied = path.join(f.root, "original.ts");
     fs.copyFileSync(originalSource, copied);
     const original = await import(pathToFileURL(copied).href);

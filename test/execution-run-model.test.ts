@@ -80,7 +80,7 @@ test("executable original Letta differential: all ten actions, legal/illegal tra
   let dispose: any;
   try {
     const upstream = await import(
-      `${pathToFileURL(path.resolve("../mods/mods/mahiro-execution-run.ts")).href}?execution-run=${Date.now()}`
+      `${pathToFileURL(path.resolve(import.meta.dirname, "oracles/letta/mahiro-execution-run.ts")).href}?execution-run=${Date.now()}`
     );
     let tool: any;
     dispose = upstream.default({

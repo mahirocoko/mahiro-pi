@@ -19,7 +19,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import {
   applyBootstrap,
-  assertBootstrapModsContract,
+  assertBootstrapNativeContract as assertBootstrapModsContract,
   bootstrapSummary,
   hashBootstrapNativePayload,
   inspectBootstrap,
@@ -36,10 +36,10 @@ const fixture = (run: (root: string, request: BootstrapRequest) => void) => {
   const root = mkdtempSync(join(fixtures, "case-"));
   const request: BootstrapRequest = {
     version: 1,
+    dependencyModules: process.env.MAHIRO_PI_TEST_MODULES,
     agentDir: join(root, "agent"),
     sources: {
       pi: product,
-      mods: resolve(product, "../mods"),
       skills: resolve(product, "../mahiro-skills"),
     },
     components: {
@@ -66,7 +66,10 @@ const put = (path: string, value: unknown) => {
 const parse = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 const prerequisites =
   existsSync(
-    resolve(product, "../mods/adapters/pi/node_modules/@gotgenes/pi-subagents"),
+    join(
+      process.env.MAHIRO_PI_TEST_MODULES ?? join(product, "node_modules"),
+      "@gotgenes/pi-subagents",
+    ),
   ) && spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 const localTest = (name: string, fn: () => void) =>
   test(
@@ -93,7 +96,6 @@ localTest(
       assert.deepEqual(settings.packages, [
         plan.dependencies.permissions,
         plan.dependencies.subagents,
-        join(r.sources.mods, "adapters/pi"),
         product,
       ]);
       assert.deepEqual(
@@ -340,10 +342,7 @@ localTest(
         put(join(r.agentDir, "settings.json"), { packages });
         assert.throws(() => inspectBootstrap(r));
       });
-    for (const exclusion of [
-      join(resolve(product, "../mods"), "adapters/pi"),
-      "/stale/pi-subagents",
-    ])
+    for (const exclusion of [product, "/stale/pi-subagents"])
       fixture((_root, r) => {
         put(join(r.agentDir, "extensions/pi-subagents/config.json"), {
           excludedExtensionPackages: [exclusion],
@@ -359,7 +358,7 @@ test("bootstrap Mods preflight rejects wrong dependency pins, missing patch owne
       "@gotgenes/pi-subagents": "23.4.1",
       "@gotgenes/pi-permission-system": "40.2.2",
     },
-    pi: { extensions: ["./bootstrap.mjs", "./index.ts"] },
+    pi: { extensions: ["./lib/guards/bootstrap.mjs", "./lib/guards/index.ts"] },
   };
   const permissionHash = "c".repeat(64);
   const permissionMapping =
@@ -508,7 +507,10 @@ test("bootstrap strict manifest and bounded safe reader reject unsafe/private pa
     assert.throws(() => readBootstrapFile(target));
     assert.throws(() => inspectBootstrap({ ...r, components: {} }));
     assert.throws(() =>
-      inspectBootstrap({ ...r, sources: { ...r.sources, mods: product } }),
+      inspectBootstrap({
+        ...r,
+        sources: { ...r.sources, pi: resolve(product, "..") },
+      }),
     );
     for (const projectId of [undefined, null, 123, {}, true])
       assert.throws(

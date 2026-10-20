@@ -10,7 +10,7 @@ assert.equal(manifest.version, "0.2.0");
 assert.equal(manifest.private, true);
 assert.equal(manifest.packageManager, "pnpm@10.33.0");
 assert.equal(manifest.engines.node, ">=22.19.0");
-assert.deepEqual(manifest.pi.extensions, ["./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-agent-memory.ts", "./extensions/mahiro-continuity.ts", "./extensions/mahiro-native-utilities.ts", "./extensions/mahiro-code-map.ts", "./extensions/mahiro-goal.ts", "./extensions/mahiro-code-evidence.ts", "./extensions/mahiro-ux-workflow.ts", "./extensions/mahiro-execution-run.ts"]);
+assert.deepEqual(manifest.pi.extensions, ["./lib/guards/bootstrap.mjs", "./lib/guards/index.ts", "./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-agent-memory.ts", "./extensions/mahiro-continuity.ts", "./extensions/mahiro-native-utilities.ts", "./extensions/mahiro-code-map.ts", "./extensions/mahiro-goal.ts", "./extensions/mahiro-code-evidence.ts", "./extensions/mahiro-ux-workflow.ts", "./extensions/mahiro-execution-run.ts", "./extensions/mahiro-model-profiles.ts"]);
 assert.equal(manifest.devDependencies["@biomejs/biome"], "2.5.14");
 assert.equal(manifest.letta, undefined);
 assert.equal(manifest.scripts.setup, "node setup.mjs");
@@ -36,6 +36,7 @@ async function inspect(directory = "") {
   for (const item of await readdir(resolve(root, directory), { withFileTypes: true })) {
     if (item.isSymbolicLink()) continue;
     if (!directory && !(item.isDirectory() ? roots.has(item.name) : files.has(item.name))) continue;
+    if (directory === "test" && item.name === "oracles") continue; // frozen originals retain their dated bytes
     if (item.name.startsWith(".") || /(?:auth|credential|secret|token|settings|mcp)(?:[.-]|$)/i.test(item.name)) continue;
     const name = directory ? `${directory}/${item.name}` : item.name;
     if (item.isDirectory()) { await inspect(name); continue; }
@@ -48,7 +49,7 @@ async function inspect(directory = "") {
       for (const match of source.matchAll(/(?:from\s*|import\s*\()\s*["']([^"']+)["']/g)) {
         const specifier = match[1];
         assert.ok(specifier.startsWith("node:") || /^\.\.?\//.test(specifier)
-          || ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"].includes(specifier), `${name}: unexpected import ${specifier}`);
+          || ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@gotgenes/pi-permission-system", "@gotgenes/pi-subagents", ...(name.startsWith("lib/guards/test/") ? ["@earendil-works/pi-ai", "esbuild"] : [])].includes(specifier), `${name}: unexpected import ${specifier}`);
         if (specifier.startsWith(".")) assert.ok(resolve(root, name, "..", specifier).startsWith(root), `${name}: import escapes package`);
       }
     }

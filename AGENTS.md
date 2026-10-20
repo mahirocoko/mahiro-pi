@@ -7,10 +7,8 @@ The local runtime reference was switched and reloaded on 2026-10-17 without
 changing the authored footer, model or native usage. Historical rollback material
 is ignored runtime evidence, not another authoring copy.
 
-- Use pnpm 10.33.0 and Node >=22.19.0. No install is needed for source tests.
-- Use public Pi APIs only: runtime extension SDK imports are type-only; public Pi
-  TUI geometry is deferred until interactive startup. No host internals or sibling
-  runtime imports in extensions. The explicit offline-bootstrap subprocess may
+- Use pnpm 10.33.0 and Node >=22.19.0. All Pi implementation, guard ABI, patches and dependency contracts are authored here; no Mods checkout is a prerequisite. Required offline SDK checks use declared public packages, installed explicitly or supplied as reviewed public copies via MAHIRO_PI_TEST_MODULES. Tests never harvest sibling runtime state.
+- Use public Pi APIs only: static extension SDK imports are type-only; native guards defer loading public native-tool factories. Public Pi TUI geometry is deferred until interactive startup. No host internals or sibling runtime imports in extensions. The explicit offline-bootstrap subprocess may
   runtime-import the installed SDK's declared public entry solely for guarded
   initialization; its deterministic Faux transport is not provider inference.
 - Preserve authored colors, spacing, footer cells and native usage semantics.
@@ -22,6 +20,7 @@ is ignored runtime evidence, not another authoring copy.
   owners. This extension publishes display metadata, not completion truth.
 - Keep credentials, caches, installed copies and runtime evidence out of source.
   Project evidence belongs only under ignored `.agent-state/runtime/`.
+- `lib/guards/` owns Pi-only final-execution enforcement and pure secret/commit guard ports; original Letta entries remain unchanged. The public permission service is the sole policy resolver. Native model presets persist by private profile, not session UUID; context windows are hints only. RTK defaults off and must authorize original and rewritten final arguments before spawn.
 - Run `pnpm check` after changes. Run the explicit host geometry smoke when geometry
   changes; synthetic tests are not rendered/human acceptance.
 - System memory roles `memory-reflector` (C1 quotes) and `managed-memory-writer`
@@ -46,7 +45,7 @@ is ignored runtime evidence, not another authoring copy.
 - Repository-local dev-only Biome 2.5.14 includes voice source/tests, role tests,
   continuity, managed-memory and bootstrap source/tests/extensions, config and manifest: two
   spaces, double quotes and semicolons. Explicit format scripts include the new
-  managed roots and prior voice/role/config/manifest set; check continuity separately.
+  managed roots, guards/SDK fixtures, Models/RTK and prior voice/role/config/manifest set; check continuity separately.
   Do not mass-reformat the six legacy files. Checks are not full typechecking.
 - No commits, publication, pushes, runtime/profile/auth changes or live probes
   without explicit authorization.

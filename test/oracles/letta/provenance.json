@@ -1,0 +1,47 @@
+{
+  "role": "Frozen test-only original Letta behavioral oracles; not runtime entrypoints or instructions",
+  "date": "2026-10-20",
+  "sourceRevision": "2b54c639a196c0b59352ed26d82a55c4c7a050a3",
+  "files": [
+    {
+      "path": "mahiro-goal.ts",
+      "sha256": "a23f60293ed174150f42adff276295ccc999a28112532637b2116ecec3551fd7",
+      "original": "mods/mahiro-goal.ts"
+    },
+    {
+      "path": "mahiro-code-evidence.ts",
+      "sha256": "b29332231c6ee11cf9d4e58131b3c966a9bf3ec5a2ddb2de089e1fc636f5cf08",
+      "original": "mods/mahiro-code-evidence.ts"
+    },
+    {
+      "path": "mahiro-ux-workflow.ts",
+      "sha256": "9f510ce5b8511945891617d2d1abac9ed2b270f140c3d82e22e8f925428e1438",
+      "original": "mods/mahiro-ux-workflow.ts"
+    },
+    {
+      "path": "mahiro-execution-run.ts",
+      "sha256": "6718c057ac0936c9f1283638cd4e8460d0ead54e242e724afb8a1d6163f1d4cc",
+      "original": "mods/mahiro-execution-run.ts"
+    },
+    {
+      "path": "mahiro-model-profiles.ts",
+      "sha256": "7b90b2fb3362510aeeee91e1908945571bc9f33f6590e5ce7d5c63f72f8e5c7e",
+      "original": "mods/mahiro-model-profiles.ts"
+    },
+    {
+      "path": "rtk-control.ts",
+      "sha256": "64410a9fba68147a52712eaa2fff0ce6bf92e370c021e8944b46c49cc5ee8642",
+      "original": "mods/rtk-control.ts"
+    },
+    {
+      "path": "mahiro-secret-read-guard.js",
+      "sha256": "2016ff8719318f55fe0242c0a294aef49805f51e35897daee293929ec29d6804",
+      "original": "mods/mahiro-secret-read-guard.js"
+    },
+    {
+      "path": "mahiro-commit-attribution-guard.js",
+      "sha256": "c09cad3bfea844a7db9243d8871e52be1d8ddbeb9dd80dfa48eb0d7d84c19d38",
+      "original": "mods/mahiro-commit-attribution-guard.js"
+    }
+  ]
+}

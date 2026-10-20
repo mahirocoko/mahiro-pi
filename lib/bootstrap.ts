@@ -290,7 +290,9 @@ const sourceState = (root: string, names: string[]) => {
 export interface BootstrapRequest {
   version: 1;
   agentDir: string;
-  sources: { pi: string; mods: string; skills: string };
+  sources: { pi: string; skills?: string };
+  /** Explicit public-package supply; defaults to this package's node_modules. */
+  dependencyModules?: string;
   components: {
     packages?: true;
     roles?: true;
@@ -331,10 +333,18 @@ const validateRequest = (value: unknown): BootstrapRequest => {
     !object(value) ||
     value.version !== 1 ||
     Object.keys(value).some(
-      (key) => !["version", "agentDir", "sources", "components"].includes(key),
+      (key) =>
+        ![
+          "version",
+          "agentDir",
+          "sources",
+          "components",
+          "dependencyModules",
+        ].includes(key),
     ) ||
     !object(value.sources) ||
-    Object.keys(value.sources).sort().join() !== "mods,pi,skills" ||
+    Object.keys(value.sources).some((key) => !["pi", "skills"].includes(key)) ||
+    typeof value.sources.pi !== "string" ||
     !object(value.components)
   )
     throw new Error("Unsupported bootstrap manifest");
@@ -348,10 +358,10 @@ const validateRequest = (value: unknown): BootstrapRequest => {
   for (const root of Object.values(r.sources)) canonical(root, true);
   if (
     r.sources.pi !== product ||
-    r.sources.mods !== join(dirname(product), "mods") ||
-    r.sources.skills !== join(dirname(product), "mahiro-skills")
+    (r.sources.skills !== undefined &&
+      r.sources.skills !== join(dirname(product), "mahiro-skills"))
   )
-    throw new Error("Private canonical sibling topology required");
+    throw new Error("Canonical Pi owner and optional skill owner required");
   for (const root of Object.values(r.sources))
     if (
       (inside(root, r.agentDir) &&
@@ -359,7 +369,10 @@ const validateRequest = (value: unknown): BootstrapRequest => {
       inside(r.agentDir, root)
     )
       throw new Error("Profile/source overlap rejected");
+  if (r.dependencyModules !== undefined) canonical(r.dependencyModules, true);
   const c = r.components;
+  if (c.skills && !r.sources.skills)
+    throw new Error("Explicit skill owner required");
   if (
     !Object.keys(c).length ||
     Object.keys(c).some(
@@ -593,7 +606,7 @@ const skillsInspect = (r: BootstrapRequest) => {
   };
 };
 
-export const assertBootstrapModsContract = (
+export const assertBootstrapNativeContract = (
   metadata: unknown,
   workspace: string,
   lock: string,
@@ -604,10 +617,10 @@ export const assertBootstrapModsContract = (
     !object(metadata) ||
     metadata.dependencies?.["@gotgenes/pi-subagents"] !== "23.4.1" ||
     metadata.dependencies?.["@gotgenes/pi-permission-system"] !== "40.2.2" ||
-    JSON.stringify(metadata.pi?.extensions) !==
-      JSON.stringify(["./bootstrap.mjs", "./index.ts"])
+    JSON.stringify(metadata.pi?.extensions?.slice(0, 2)) !==
+      JSON.stringify(["./lib/guards/bootstrap.mjs", "./lib/guards/index.ts"])
   )
-    throw new Error("Canonical Mods pins/ordered guards mismatch");
+    throw new Error("Canonical Pi pins/ordered guards mismatch");
   if (
     !/^[a-f0-9]{64}$/.test(patchHash) ||
     !workspace.includes(
@@ -628,7 +641,8 @@ export const assertBootstrapModsContract = (
 
 export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
   const r = validateRequest(input);
-  const adapter = join(r.sources.mods, "adapters/pi");
+  const adapter = product;
+  const modules = r.dependencyModules ?? join(product, "node_modules");
   const meta = readJson(join(adapter, "package.json"));
   const patch = readBootstrapFile(
     join(adapter, "patches/@gotgenes__pi-subagents@23.4.1.patch"),
@@ -640,7 +654,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
   const workspace = readBootstrapFile(join(adapter, "pnpm-workspace.yaml"));
   if (!patch || !permissionPatch || !lock || !workspace)
     throw new Error("Canonical patch provenance missing");
-  assertBootstrapModsContract(
+  assertBootstrapNativeContract(
     meta,
     workspace.text,
     lock.text,
@@ -659,16 +673,12 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     ["@gotgenes/pi-subagents", "23.4.1", "subagents"],
     ["@gotgenes/pi-permission-system", "40.2.2", "permissions"],
   ] as const) {
-    const link = join(adapter, "node_modules", name);
+    const link = join(modules, name);
     if (!existsSync(link))
       throw new Error(
-        `Missing owner prerequisite: cd ${adapter} && pnpm install --frozen-lockfile`,
+        `Missing declared public dependency: ${name}; explicitly install this Pi package or supply reviewed public packages`,
       );
     const root = realpathSync(link);
-    if (!inside(join(adapter, "node_modules/.pnpm"), root))
-      throw new Error(
-        "Dependency must resolve through canonical Mods workspace",
-      );
     const installed = readJson(join(root, "package.json"));
     if (
       installed?.name !== name ||
@@ -686,8 +696,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
         !declarations.includes("supportsInitialOutcomeClaim: true") ||
         !declarations.includes("getAgentType(") ||
         !declarations.includes("claimOutcome?: boolean") ||
-        !service.includes("supportsInitialOutcomeClaim") ||
-        !root.includes(`patch_hash=${patch.hash.slice(0, 16)}`)
+        !service.includes("supportsInitialOutcomeClaim")
       )
         throw new Error("Installed public patch capability missing");
     }
@@ -701,6 +710,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
           join(adapter, "patches/@gotgenes__pi-subagents@23.4.1.patch"),
         ],
         root,
+        { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) },
       );
     dependencies[key] = root;
   }
@@ -710,7 +720,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       "@earendil-works/pi-coding-agent",
       "@earendil-works/pi-ai",
     ]) {
-      const link = join(adapter, "node_modules", name);
+      const link = join(modules, name);
       if (!existsSync(link))
         throw new Error(
           `Missing native owner prerequisite: cd ${adapter} && pnpm install --frozen-lockfile`,
@@ -719,7 +729,6 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
         metadata = readJson(join(root, "package.json"));
       const entry = metadata?.exports?.["."]?.import;
       if (
-        !inside(join(adapter, "node_modules/.pnpm"), root) ||
         metadata?.name !== name ||
         metadata.version !== "1.3.0" ||
         typeof entry !== "string" ||
@@ -758,7 +767,6 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     const required = [
       dependencies.permissions,
       dependencies.subagents,
-      adapter,
       product,
     ];
     const explicitExtensions = settings.extensions ?? [];
@@ -903,23 +911,16 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       "extensions",
       "lib",
     ]),
-    sourceState(r.sources.mods, [
-      "adapters/pi/package.json",
-      "adapters/pi/bootstrap.mjs",
-      "adapters/pi/index.ts",
-      "adapters/pi/host.mjs",
-      "adapters/pi/provenance.mjs",
-      "adapters/pi/pnpm-workspace.yaml",
-      "adapters/pi/pnpm-lock.yaml",
-      "adapters/pi/patches",
-      "mods/mahiro-secret-read-guard.js",
-      "mods/mahiro-commit-attribution-guard.js",
-    ]),
-    sourceState(r.sources.skills, [
-      "package.json",
-      "src",
-      ".claude-plugin/marketplace.json",
-    ]),
+    sourceState(product, ["pnpm-workspace.yaml", "pnpm-lock.yaml", "patches"]),
+    ...(r.components.skills
+      ? [
+          sourceState(r.sources.skills!, [
+            "package.json",
+            "src",
+            ".claude-plugin/marketplace.json",
+          ]),
+        ]
+      : []),
     {
       root: dependencies.subagents,
       metadata: treeHash(join(dependencies.subagents, "package.json")),
@@ -1212,10 +1213,10 @@ export const applyBootstrap = (
               seedFile: m.seedFile,
               seedHash: reviewed.memory!.seedHash,
               automatic: m.automatic === true,
+              dependencyModules: reviewed.request.dependencyModules,
               packages: [
                 reviewed.dependencies.permissions,
                 reviewed.dependencies.subagents,
-                join(reviewed.request.sources.mods, "adapters/pi"),
                 product,
               ],
             }),

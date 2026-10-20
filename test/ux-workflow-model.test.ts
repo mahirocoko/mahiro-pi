@@ -14,7 +14,10 @@ const base = path.resolve(".agent-state/runtime/ux-workflow-port/differential");
 fs.mkdirSync(base, { recursive: true, mode: 0o700 });
 const root = fs.mkdtempSync(path.join(base, "original-"));
 const original = path.join(root, "original.ts");
-fs.copyFileSync(path.resolve("../mods/mods/mahiro-ux-workflow.ts"), original);
+fs.copyFileSync(
+  path.resolve(import.meta.dirname, "oracles/letta/mahiro-ux-workflow.ts"),
+  original,
+);
 const statePath = path.join(root, "letta-state.json");
 process.env.MAHIRO_UX_WORKFLOW_STATE_PATH = statePath;
 process.env.MAHIRO_UX_WORKFLOW_DISABLE_PATH = path.join(root, "disabled");

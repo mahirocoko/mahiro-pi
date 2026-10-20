@@ -21,12 +21,13 @@ import { setupTarget } from "../lib/setup.ts";
 import { createMemoryStore } from "../lib/agent-memory/store.ts";
 
 const product = resolve(import.meta.dirname, "..");
-const adapter = resolve(product, "../mods/adapters/pi");
+const modules =
+  process.env.MAHIRO_PI_TEST_MODULES ?? join(product, "node_modules");
 const available = existsSync(
-  join(adapter, "node_modules/@earendil-works/pi-coding-agent/package.json"),
+  join(modules, "@earendil-works/pi-coding-agent/package.json"),
 );
 const publicImport = async (name: string) => {
-  const root = join(adapter, "node_modules", name);
+  const root = join(modules, name);
   const metadata = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   assert.equal(metadata.version, "1.3.0");
   return import(pathToFileURL(join(root, metadata.exports["."].import)).href);
@@ -48,10 +49,10 @@ test("private bootstrap native SDK/Faux smoke: guarded initialize, role/skill di
   writeFileSync(seedFile, seed, { mode: 0o600 });
   const request: BootstrapRequest = {
     version: 1,
+    dependencyModules: modules,
     agentDir,
     sources: {
       pi: product,
-      mods: resolve(product, "../mods"),
       skills: resolve(product, "../mahiro-skills"),
     },
     components: {

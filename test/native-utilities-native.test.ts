@@ -16,7 +16,8 @@ import {
 } from "../lib/native-utilities.ts";
 
 const product = resolve(import.meta.dirname, "..");
-const modules = resolve(product, "../mods/adapters/pi/node_modules");
+const modules =
+  process.env.MAHIRO_PI_TEST_MODULES ?? join(product, "node_modules");
 const available = existsSync(
   join(modules, "@earendil-works/pi-coding-agent/package.json"),
 );

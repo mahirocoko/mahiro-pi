@@ -7,10 +7,7 @@ profile. They are separate from the unchanged default-skill-only `setup` command
 package installation, extension startup and the real machine's activation state.
 There is no install hook or automatic global configuration write.
 
-This is a **private local flow, not a public portable installer**. The manifest
-must name the actual canonical `mahiro-pi` checkout, its sibling `mods` and sibling
-`mahiro-skills`. Mods' public provenance resolves this exact sibling Pi owner;
-a same-name copied checkout is not equivalent. No publication is required. Plans
+This is an explicit local flow, not automatic activation. The manifest names this canonical `mahiro-pi` checkout. No Mods checkout, runtime adapter or Letta source is required. `sources.skills` names the separate canonical `mahiro-skills` owner only when skill copying is selected; package-only preview needs no skill checkout. No publication is required. Plans
 bind current Git revisions plus payload hashes, including uncommitted source bytes,
 canonical factory files, lock/workspace/patch metadata and installed dependency
 source/declarations. Optional native initialization also binds SDK/AI package
@@ -22,26 +19,15 @@ closure. Hashes are cooperative freshness evidence, not signatures.
 | Surface | Authoring/installation owner |
 | --- | --- |
 | Package resource registration | Pi's documented user `settings.json` boundary |
-| Ordered guards, policy enforcement, pinned dependency/patch provenance | Canonical Mods `adapters/pi` |
+| Ordered native guards, narrow ABI, pinned dependency/patch provenance | This repository: `lib/guards/`, root manifest/workspace/lock and `patches/`; public permission-system alone resolves policy |
 | Three role source bodies | This repository's `agents/` |
 | Reusable skill payload transforms, copying and receipts | Canonical `mahiro-skills` plan/install CLI |
 | Default all-installed/future skill policy | Existing `inspectSetup` / `applySetup` |
 | Optional private maintained knowledge | Existing managed-memory owner and guarded native `agent_memory_manage` |
 
-There is no new dependency declaration or duplicate pin in this package. Mods
-must already have its frozen installed subagents **23.4.1** (workspace-owned patch)
-and permissions **40.2.2**. Missing dependencies fail closed and report only this
-operator prerequisite, never execute it:
+Root declares pinned subagents **23.4.1** and permissions **40.2.2**, with both authored patches bound by its workspace and lock. Public host packages are peers, with SDK/AI/TUI **1.3.0** pinned for development. Future dependency installation is an explicit operator action in this repository, never performed by bootstrap. `dependencyModules` may explicitly select a reviewed public-package supply; otherwise the plan uses this package's `node_modules`. There is no sibling lookup, credential copy or path fallback.
 
-```sh
-cd /absolute/canonical/mods/adapters/pi
-pnpm install --frozen-lockfile
-```
-
-The plan checks package identity, exact local resolution through the Mods pnpm
-workspace, ordered `bootstrap.mjs` then `index.ts`, canonical patch hash in the
-lock, public initial-outcome/role-query declarations and a read-only reverse-patch
-check of the installed patched files. Native initialization additionally checks
+The plan checks public package identity, ordered `lib/guards/bootstrap.mjs` then `lib/guards/index.ts`, canonical patch hashes in the lock, public initial-outcome/role-query declarations and a read-only reverse-patch check of supplied patched subagents. Native initialization additionally checks
 the actual healthy guard node, runtime patch marker and discovered role names.
 Bun must already be available for the skill owner's CLI; nothing installs it.
 
@@ -86,7 +72,6 @@ fixtures are the sole source-tree exception. No implicit default profile is used
   "agentDir": "/absolute/private/pi-agent",
   "sources": {
     "pi": "/absolute/canonical/mahiro-pi",
-    "mods": "/absolute/canonical/mods",
     "skills": "/absolute/canonical/mahiro-skills"
   },
   "components": {
@@ -119,7 +104,7 @@ itself: only an explicitly authorized operator should execute apply.
 ## Applied behavior and preservation
 
 - Append the exact installed permission and patched subagent roots, the complete
-  Mods adapter package and this Pi package to `settings.json`. Preserve unrelated
+  this complete Pi package to `settings.json`. Preserve unrelated
   settings and package entries. Filtered/aliased/conflicting required sources,
   direct required-extension overrides and broad exclusion globs block rather than
   being silently rewritten. No package manager or network is invoked.
@@ -176,9 +161,9 @@ write or C1 authority is added. When selected together, skill-policy and memory
 authority are composed into one validated config publication.
 
 The explicit `lib/bootstrap-native.mjs` subprocess loads only the public declared
-SDK/AI entries from the existing canonical Mods installation. It constructs an
+SDK/AI entries from the declared Root dependencies or explicitly reviewed public-package supply. It constructs an
 in-memory credential/model runtime, disables network/model refresh, loads the
-four required package sources with context/skills/MCP disabled, checks healthy
+three required package sources with context/skills/MCP disabled, checks healthy
 canonical guards and public patched service/role discovery, and enters Pi's
 normal native tool pipeline with exactly one `agent_memory_manage initialize`.
 The store's own validation, secret screening, private modes and Git hooks remain
@@ -234,9 +219,7 @@ pnpm check:format
 git diff --check
 ```
 
-Source tests use disposable profiles only under ignored runtime state. Private
-integration tests skip explicitly when canonical local prerequisites are absent;
-this does not establish bootstrap readiness on a public checkout. No dependency
+Source tests use disposable profiles only under ignored runtime state. The required Root-owned public SDK suite fails if its public-package supply is missing; it never treats absence of Mods as a successful skip. The standalone fixture executes CLI preview and public SDK dispatch without a Mods sibling. Canonical source checks run in the actual checkout, not a mirrored whole-repository topology. No dependency
 installation, global-profile change or provider inference occurs during tests.
 
 The native SDK/Faux fixture exercises actual bootstrap-created packages/roles,

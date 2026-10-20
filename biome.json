@@ -2,6 +2,13 @@
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
     "includes": [
+      "lib/guards/**",
+      "lib/model-profiles.ts",
+      "lib/rtk.ts",
+      "extensions/mahiro-model-profiles.ts",
+      "test/model-profiles*.test.ts",
+      "test/rtk*.test.ts",
+      "check-public-sdk.mjs",
       "lib/execution-run/**",
       "extensions/mahiro-execution-run.ts",
       "test/execution-run-*.test.ts",

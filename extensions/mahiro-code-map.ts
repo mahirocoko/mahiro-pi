@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { codeMapParameters, formatCodeMap } from "../lib/code-map.ts";
 
-// Versioned, Code-Map-only contract published by the canonical Mods guard.
+// Versioned, Code-Map-only contract published by the Root-owned native Pi guard.
 // This is not a policy copy or authority derived from caller metadata.
 const guardKey = Symbol.for("@mahirocoko/pi-guards:healthy-nodes");
 

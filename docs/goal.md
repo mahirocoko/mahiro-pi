@@ -6,7 +6,7 @@ This is the third source-only ALL-Mods slice, not live activation or human
 acceptance. `extensions/mahiro-goal.ts` is the **seventh** declared Pi resource,
 after the unchanged original six. `lib/goal/model.ts`, `store.ts` and `runtime.ts`
 own native state semantics, private persistence and public Pi lifecycle integration.
-Canonical Mods `adapters/pi` owns tool provenance and permission decisions.
+Root-owned `lib/guards/` owns Pi tool provenance and the narrow Goal ABI; public permission-system alone resolves policy.
 Letta's original `mods/mahiro-goal.ts` remains unchanged and independently owned.
 
 Source registration, skill loading, installation and session startup do not read
@@ -217,7 +217,7 @@ session-history truth or auto-Goal from skills is introduced.
 substitutions. Differential traces execute the actual unchanged original Letta
 source under isolated state paths, normalize generated IDs/times and explicit
 host identity adaptations, and compare elapsed clocks using deterministic time.
-`mods/adapters/pi`'s `pnpm test:goal` (also `pnpm test`) stages the real patched and
+Root `pnpm check:public-sdk` (also required by `pnpm check`) stages the real patched and
 old owners under fixture-canonical roots, exercises public SDK direct/nested/
 hook-free execute, commands, lifecycle, reminder and strict image assertions with
 Faux transport, and uses public shutdown before disposal. All fixture state is

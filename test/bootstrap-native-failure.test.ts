@@ -20,9 +20,9 @@ import {
 
 const product = resolve(import.meta.dirname, "..");
 const available = existsSync(
-  resolve(
-    product,
-    "../mods/adapters/pi/node_modules/@earendil-works/pi-coding-agent/package.json",
+  join(
+    process.env.MAHIRO_PI_TEST_MODULES ?? join(product, "node_modules"),
+    "@earendil-works/pi-coding-agent/package.json",
   ),
 );
 
@@ -67,6 +67,7 @@ syncBuiltinESMExports();`;
               agentDir: join(fixture, "agent"),
               root: join(fixture, "memory"),
               seedFile,
+              dependencyModules: process.env.MAHIRO_PI_TEST_MODULES,
               seedHash: createHash("sha256").update(seed).digest("hex"),
             }),
           },
@@ -102,10 +103,10 @@ test("guarded native initialization hook failure reports partial progress and in
   );
   const request: BootstrapRequest = {
     version: 1,
+    dependencyModules: process.env.MAHIRO_PI_TEST_MODULES,
     agentDir: join(fixture, "agent"),
     sources: {
       pi: product,
-      mods: resolve(product, "../mods"),
       skills: resolve(product, "../mahiro-skills"),
     },
     components: {

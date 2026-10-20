@@ -95,7 +95,7 @@ Source registration/startup provisions no profile, grants, config, seed or impor
 No extra preview/installer/top-level bootstrap option is needed: the existing
 bootstrap recursively binds the extension/library/Mods adapter source trees.
 
-Canonical Mods `adapters/pi/index.ts` owns the narrow healthy-node ABI:
+Root-owned `lib/guards/index.ts` owns the narrow healthy-node ABI:
 `uxWorkflow: {version:1, generation, assertAccess, authorize}`. Actual public
 `getAllTools` provenance must identify exactly one of the three tool names at the
 canonical `@mahirocoko/mahiro-pi` 0.2.0 root, exact declared
@@ -153,7 +153,7 @@ not `/mh-ux unlock --force`.
 `pnpm check` includes executable original-Letta differential tests (normalizing
 only generated IDs/times/native identity), native closed-schema tests, private-FD
 interference, read-no-init, bounds, queue/foreign lock, clear/recreate tickets and
-a real two-process CAS race. `mods/adapters/pi` required `pnpm test` also runs
+a real two-process CAS race. Root required `pnpm check:public-sdk` (also in `pnpm check`) also runs
 `ux-workflow-patch-test.mjs` / `ux-workflow-test.mjs`: actual public SDK/Faux with
 isolated patched and old owners, direct/nested/hook-free execution, permission/
 provenance denials, public UI gates/races/navigation/new-session isolation,

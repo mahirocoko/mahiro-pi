@@ -7,7 +7,7 @@ activates managed memory automatically. Mahiro explicitly approved the reversibl
 native-default cutover on 2026-10-19; current deployment and remaining provider/
 human gates belong to `docs/integrations.md`, not source availability alone.
 
-This repository owns the Pi package independently of the Letta mods repository.
+This repository owns **all Pi-specific implementation**, including native final-execution guards, ABI/provenance, bootstrap, authored public-owner patches, saved model presets and RTK control. No Mods checkout is a build, runtime, bootstrap or test prerequisite. The original Letta entries and historical adapter remain unchanged in their original repository. The root manifest loads both native guards first, preserves the original ten feature resources' relative order, then appends model profiles. [`docs/integrations.md`](docs/integrations.md#current-disposition-of-the-15-letta-entries) is the complete 15-entry owner map; feature ordinals below refer to that preserved ten-feature sequence, not guard-inclusive manifest slots.
 The existing local Pi session was switched and reloaded on 2026-10-17 with its
 authored footer and native metrics unchanged. This is not whole-workflow or human
 visual acceptance; see the integration document for remaining boundaries.
@@ -44,7 +44,7 @@ hashes and restriction counts, not policy contents. Unsupported config or unsafe
 filesystem targets fail closed. No policy is written at extension startup, and
 no install hook is added. This is **default skill activation configured**, not a
 complete machine bootstrap: no skills, roles, guards, grants, memory, packages or
-provider settings are installed/imported. Canonical Mods enforces guards;
+provider settings are installed/imported. Root-owned native guards enforce Pi execution through the sole public permission-policy owner;
 `mahiro-skills` owns copying reusable skill bodies. Active sessions still need
 Main's separately authorized reload. See the integration document for recovery
 and the remaining private deployment/provenance boundaries.
@@ -60,8 +60,7 @@ It preserves unrelated settings, personal roles, denies and existing `yoloMode`;
 it does not choose a provider or copy authentication. Existing memory is validated
 read-only and preserved, never reseeded or automatically enabled.
 
-This is **not a public portable installer**: reviewed canonical sibling checkouts
-and already-installed frozen Mods dependencies are required. It never installs
+This is explicit local composition, not automatic activation: only this checkout and declared public dependencies are required for package bootstrap. The separate skill owner is required only for explicitly selected skill copying. It never installs
 missing dependencies or runs at startup. Receipts describe sequential owner steps,
 not cross-owner atomicity. Optional initialization enters the actual guarded native
 tool pipeline using deterministic **Faux simulated transport**, with zero external
@@ -92,7 +91,7 @@ caller-input guidance formatter. It is **not** a search engine, indexer, scanner
 outline generator or Goal/Evidence integration. Opaque references and navigation
 entries remain caller metadata, never proof or permission.
 
-**Source-only permission-owner repair:** the versioned Mods permission-system
+**Source-only permission-owner repair:** the Root-authored permission-system
 40.2.2 patch exposes optional `matchedSurface` from the actual winning rule. The
 restored Code Map assertion requires that exact surface to be `mh_code_map`, an
 existing affirmative non-yolo tool-source grant, canonical provenance and healthy
@@ -136,8 +135,7 @@ executed**; `evidence_ready` means metadata ready for explicit selection, not
 verified execution or Goal completion. Handoff is reference-only, without Goal
 mutation, automatic collection, source indexing or reminders.
 
-Missing explicit private project configuration is disabled. The canonical Mods
-adapter requires exact tool/root grants and fixed-argv Git authorization through
+Missing explicit private project configuration is disabled. The Root-owned native guard requires exact tool/root grants and fixed-argv Git authorization through
 the existing guards and public permission owner. The old installed owner stays
 unchanged and denied; offline positive fixtures stage the existing authored patch.
 See [the Evidence contract](docs/evidence.md) for Git storage/config-execution,
@@ -180,13 +178,22 @@ The old installed owner remains unchanged and denied. See
 native session-ref adaptation, persistence limits and offline evidence. No real
 Run, profile apply, install/reload, independent QA or human acceptance is implied.
 
+## Saved native models and RTK (source only)
+
+`/mh-model-profile` lists, saves, removes and explicitly switches persistent private **profile-owned** presets across native sessions. `mh_list_model_profiles`, `mh_set_model_profile`, `mh_delete_model_profile` and `mh_switch_model_profile` require exact named tool/root grants and current primary-session identity. Writes/switches additionally require actual public UI confirmation and an exact fresh sequence. `/model`, native auth and modelRegistry remain authoritative. Context-window preferences are stored as **requested hints only**; no public per-conversation context override is claimed. No startup switch or provider/model/settings/role write occurs.
+
+`/mh-rtk` and `mh_rtk` expose off/suggest/rewrite-safe/rewrite-rtk, status/log/preview/doctor/guidance. RTK is off by default. Only bounded deterministic read-only command forms are rewritten, with original and final secret/attribution/public-permission checks before native spawn, including nested and hook-free dispatch. No rewrite helper, metadata probe, Letta settings, history DB, global hooks or token-saving claims are used. Both features require separate explicit private configuration and exact capabilities; see the integration contract for schema and deliberate public API limits. Source tests change only synthetic presets/models and use an owned fake RTK executable.
+
 ## Development
 
-Use Node >=22.19.0 and pnpm 10.33.0. No dependency installation is required:
+Use Node >=22.19.0 and pnpm 10.33.0. With explicitly installed declared dependencies:
 
 ```sh
 pnpm check
+pnpm check:format
 ```
+
+For offline source QA without changing canonical `node_modules`, explicitly supply reviewed **public package copies** via `MAHIRO_PI_TEST_MODULES=/absolute/public/node_modules pnpm check`. The test-only loader maps only canonical source imports; production has no supply harvesting or sibling fallback. `pnpm check` includes the required Root-owned SDK suite and Root-only CLI preview. Its isolated fixtures apply patches only to copied public owners; unpatched installed permission owners continue to deny unattested exact capabilities. Frozen dated Letta originals under `test/oracles/letta/` preserve behavior differentials without a checkout dependency. They are not runtime owners or instructions.
 
 The host provides the optional Pi SDK and public TUI peer. Peers are not
 implicitly installed by this repository. Tests use injected synthetic geometry;
@@ -214,8 +221,7 @@ are authored system/workflow roles; personal rosters stay in local Pi configurat
 the package/local ownership split, reflector registration and evidence boundaries.
 The paired `skills/git-commit/SKILL.md` loads through the native package skill
 resource as `/skill:git-commit`; no bare slash-command alias is generated.
-Execution-guard semantics remain owned by the separate canonical Mods adapter,
-not duplicated in this package or in the role prompts.
+Execution-guard semantics for Pi are owned by `lib/guards/` here, not role prompts. The public permission system remains the only policy resolver; original Letta factories stay owned by their original host.
 
 `docs/agent-memory.md` documents the private Markdown/Git layout, Main CAS tools,
 leased native writers, semantic episode evidence, committed-revision context bridge,
