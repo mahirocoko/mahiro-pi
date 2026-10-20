@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startWorkerActivity } from "../lib/worker-activity.ts";
 
-/** Inactive resource: explicitly add only in owned review fixtures. */
+/** Optional explicit resource, separate from active10/base candidate13. */
 export default function mahiroWorkerActivity(pi: ExtensionAPI) {
   const sessions = new WeakMap<
     object,
