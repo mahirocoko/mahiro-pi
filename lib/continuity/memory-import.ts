@@ -76,8 +76,7 @@ export const prepareMemoryDocuments = (
       bytes(document.text) > MAX_DOCUMENT_BYTES ||
       document.text.includes("\0") ||
       hasSecret(document.relativePath) ||
-      hasSecret(document.sourcePath) ||
-      document.projectId?.toLowerCase() === "onedee"
+      hasSecret(document.sourcePath)
     ) {
       result.quarantine.push({
         id: opaqueId,

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startWorkerActivity } from "../lib/worker-activity.ts";
 
-/** Optional explicit resource, separate from active10/base candidate13. */
+/** Optional explicit resource, separate from the guards-first12 manifest. */
 export default function mahiroWorkerActivity(pi: ExtensionAPI) {
   const sessions = new WeakMap<
     object,

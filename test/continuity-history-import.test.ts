@@ -90,7 +90,7 @@ test("native history adapter excludes tools, automation, failed output and overs
   );
 });
 
-test("native history adapter never emits credentials or excluded-project content", () => {
+test("native history adapter rejects credentials, retires name-only ban and retains explicit import exclusions", () => {
   const marker = "ghp_" + "Z".repeat(24);
   const secret = projectTranscriptEntry(
     entry("user", [{ type: "text", text: marker }]),
@@ -105,8 +105,16 @@ test("native history adapter never emits credentials or excluded-project content
       source,
       policy,
     );
-    assert.equal(excluded.records.length, 0);
-    assert.equal(excluded.excludeConversation, true);
+    assert.equal(excluded.records.length, 1);
+    assert.equal(excluded.excludeConversation, undefined);
+    assert.equal(
+      projectTranscriptEntry(
+        entry("user", [{ type: "text", text }]),
+        { ...source, projectId: "onedee" },
+        policy,
+      ).records.length,
+      0,
+    );
   }
 });
 

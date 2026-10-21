@@ -1,12 +1,22 @@
 # Explicit private local Pi bootstrap
 
-## Current compatibility hold
+## One-install composition (historical active10 hold retired)
 
-The actual `package.json` retains exactly ten feature entries. The separately approved 2026-10-20 private runtime now uses Root public permission/subagents packages and a single Root guard package, with explicit bootstrap-first and worker resources; it no longer registers the legacy guard. A **new** guarded bootstrap from this checkout intentionally rejects `Canonical Pi pins/ordered guards mismatch` before profile writes (`lib/bootstrap.ts#assertBootstrapNativeContract`). Guards-first candidate13 is declared only by `test/candidate-extensions.json` and staged into owned copied roots. The procedures below describe that gated candidate contract, not a usable live-apply route from active10 or authorization for cutover. `test/bootstrap.test.ts` directly checks this rejection; `test/candidate-isolation.test.ts` covers the copied candidate and optional skills boundary.
+The actual manifest is now guards-first12: bootstrap, one Root guard and the preserved ten features. Disposable candidates mirror this graph, not another live owner. The earlier active10 refusal is historical. Source changes do not reload the cached real profile.
+
+```sh
+pnpm install:profile [--agent-dir /absolute/canonical/profile] [--preview] [--remove-default-deny]
+```
+
+`install.mjs` explicitly composes required public packages, the three owned system roles, narrow `featureData` grants and RTK's rewrite-rtk default once. Preview is optional. Startup grants nothing. It never installs dependencies, copies auth, changes personal roles/models, reloads a session or grants generic filesystem/HOME/Bash authority. Existing role differences block; restrictions and explicit RTK off remain effective.
+
+Goal/Evidence/UX/Run derive separate canonical project leaves without per-repo config. Exact `<feature>_state_data_<sha256(canonical-namespace)>` public grants cover only structurally derived feature DATA, with exact named tools. Explicit legacy leaf/tool/path denials still reject; no alternate public-policy resolver exists. When any selected required exact tool/DATA grant is missing under retained universal scalar `permission["*"]: "deny"`, preview/apply refuses **before profile writes**, naming `--remove-default-deny`. If every selected exact grant already explicitly allows, that legitimate deny-by-default profile succeeds structurally without consent and preserves `*`; it is not a claim that cross-cutting runtime policy permits every call. That explicit consent (typed manifest `components.removeDefaultDeny: true`, requiring `featureData: true`) deletes only that exact key/value, never substitutes blanket allow. Absent `*` is idempotent; with the flag, any existing non-deny `*` rejects unchanged for separate review. Public PSS 40.2.2 owns resolution: unset fallback is `ask`; existing `yoloMode` is unchanged and can promote asks, never denies. Other uncertain top-level wildcard restrictions refuse insertion of missing grants as conservative unknown coverage; specific required tool/DATA restrictions refuse installation with named unprovisioned capabilities instead of silently skipping grants or reporting usable completion. Unrelated targeted and legacy leaf/path restrictions remain preserved and reported by surface name, not treated as denial of all features. No flag can override those restrictions. Runtime path/legacy-leaf denials and explicit feature offs remain effective; installation is not a claim that every operation is permitted. Safe 0755 profile parents are accepted, owned data remains0700/files0600 and unsafe ancestors reject.
+
+A truly fresh memory root gets only a neutral scaffold through guarded native SDK/Faux initialization (zero external inference); existing Core/config/ledger/views/conflicts/corpus are read-validated and never reseeded. Scoped subprocess Git metadata is not personal Git config; hooks remain active. A fresh accepted C1 archive is truthfully empty, not an empty fallback for corrupt/revoked data. Main shares relevant knowledge across canonical projects; actual workers remain lease-scoped. `test/install-ready.test.ts` owns the actual-root regression. Real profile activation, human acceptance and the old live recall/reflection/launcher cause remain separate boundaries.
 
 An explicit runtime cutover must align the public subagents factory's canonical source with the single guard owner's provenance resolver. Healthy read/bash/codemode alone do not establish that alignment: preflight actual meta-tool dispatch as well as secret denial, then verify a real child after the fresh load. A changed factory path with the legacy guard can correctly fail closed as an unsupported alias even while ordinary tools remain healthy. Never disable that check, forge ToolInfo or append a second guard to work around it.
 
-Earlier offline installed-root repair and the 2026-10-19 managed-memory activation are separate historical operations. The source-only audit preserved its 318 inventoried assets and settings. The separately approved 2026-10-20 runtime operation deliberately updated the pinned subagents package offline and changed only private resource registrations, retaining rollback evidence. That operator cutover does not make active10 a supported guarded-bootstrap input or change this command's refusal before writes.
+Earlier offline installed-root repair and the 2026-10-19 managed-memory activation are separate historical operations. The source-only audit preserved its 318 inventoried assets and settings. The separately approved 2026-10-20 runtime operation deliberately updated the pinned subagents package offline and changed only private resource registrations, retaining rollback evidence. That operator cutover alone did not establish install readiness. The subsequent source graph/installer repair is separate from those dated observations.
 
 ## Scope and owners
 
@@ -42,24 +52,27 @@ Bun must already be available for the skill owner's CLI **only when selected ski
 The source contract also checks the authored permission-system 40.2.2
 `matchedSurface` patch mapping/hash in the lock. The source snapshot already binds
 both patch artifacts and workspace/lock bytes. This does not claim that an older
-installed permission tree is patched merely because source declares it: bootstrap memory/skill operations do not
-need or grant Code Map/Goal authority, and their existing compatible runtime remains
-usable. Both independently reject missing winning-surface metadata at actual
-execution. Its separately approved frozen install/reload/grant is not performed
-by planning, applying a bootstrap manifest or source tests. Positive Code Map proof
+installed permission tree is patched merely because source declares it. Memory/skill-only
+bootstrap selections do not grant Code Map or Goal authority. Selecting `featureData`
+in an explicit apply intentionally composes named Goal tools and its canonical DATA
+namespace; Code Map authority remains separate. Actual execution still rejects
+missing winning-surface metadata. Planning and source tests do not activate the real
+profile, and a fresh load remains separately authorized. Positive Code Map proof
 uses an isolated patched-source mirror; an old service lacking attestation remains denied. Current installed-asset preservation is phase-specific, not a claim that earlier repair never occurred.
-Goal uses the same authored owner metadata and isolated-source proof boundary.
+Goal uses the same authored owner metadata; actual-root installation tests supplement the isolated-source historical proof boundary.
 
 ## Goal configuration preview is separate and read-only
 
-The package's seventh Goal resource does not add a bootstrap component, grant,
-seed or default skill-policy expansion. `pnpm goal:preview --project /canonical/project
---agent-dir /private/profile` validates and prints only an opt-in source config and
-derived state-root capability names. It has no apply option and writes nothing,
-even when the profile is absent. Review [`goal.md`](goal.md) for native
-profile/project/session schema adaptation and private modes. Actual configuration,
-exact tool/root grants, patched-owner installation and fresh load are separately
-scoped operator actions, not preview or bootstrap side effects.
+Goal is the seventh feature and ninth guard-inclusive manifest resource.
+`pnpm goal:preview --project /canonical/project --agent-dir /private/profile`
+validates and prints only an optional legacy config and derived capability names.
+It has no apply option and writes nothing, even when the profile is absent.
+Review [`goal.md`](goal.md) for native profile/project/session semantics and private
+modes. Preview and resource startup never grant authority or seed Goal state.
+By contrast, explicit `install:profile` or bootstrap apply with `featureData`
+intentionally composes named tool and canonical Goal DATA grants once, without
+per-project configuration. Dependencies must already be available; real profile
+activation/fresh load remains a separately authorized operator action.
 
 Bootstrap's existing source snapshot binds complete `lib`/`extensions` trees,
 manifest and both authored patch artifacts. It additionally binds
@@ -113,9 +126,19 @@ itself: only an explicitly authorized operator should execute apply.
 
 - Append the exact installed permission and patched subagent roots and
   this complete candidate Pi package to `settings.json`. Preserve unrelated
-  settings and package entries. Filtered/aliased/conflicting required sources,
-  direct required-extension overrides and broad exclusion globs block rather than
-  being silently rewritten. No package manager or network is invoked.
+  settings and package entries. The reviewed same-owner upgrade canonicalizes an
+  unfiltered local Root path only when it resolves lexically to the exact canonical
+  source (no symlink ancestors). Only the two declared public dependency links may
+  canonicalize through their already-verified exact realpath owners; arbitrary
+  symlink aliases are not accepted. Unrelated packages retain their order, followed
+  by exactly one permissions/subagents/Root sequence so public parent services
+  register before Root. It removes the exact canonical `Root/lib/guards`
+  package only after safe metadata/source checks prove its bootstrap/index pair is
+  already first in Root's manifest. Exact canonical direct bootstrap and optional
+  worker entries remain: public SDK resource identity deduplicates bootstrap and
+  worker stays additive. Filtered required sources, other aliases/conflicting
+  owners, direct required-extension overrides and broad exclusion globs still
+  block rather than being silently rewritten. No package manager or network is invoked.
 - Preserve subagent configuration and unrelated exclusions; add the **exact
   configured subagent source** to `excludedExtensionPackages`. Stale subagent
   exclusions or any guards/permissions/memory exclusion block. Children retain
@@ -128,6 +151,7 @@ itself: only an explicitly authorized operator should execute apply.
   Bootstrap never copies skill bodies or passes `--overwrite`. Existing selected
   targets require a current matching owner receipt; source/target drift blocks.
   Only missing selected skills are installed; no-op reruns retain owner receipts.
+- `featureData` installation provisions the nine ordinary Goal/Evidence/UX/Run tool names and four canonical DATA namespaces, plus the existing RTK, continuity and managed-memory capabilities. Registration/startup grants nothing; installed tool availability does not authorize human-owned workflow creation. Explicit `removeDefaultDeny` consent is included in reviewed digest/CAS checks and uses the same private backup/publication pipeline as other config edits. Without it a retained universal deny with missing selected exact grants refuses before writes; a fully explicitly provisioned profile keeps that deny. Specific required restrictions are never silently overridden. Preview/apply receipts report provisioned capabilities, retained restriction surface names, removal consent outcome and whether the existing RTK default (including off) was preserved; runtime permission service remains authoritative.
 - Compose existing setup behavior only when `skillPolicy` is selected. This is
   the approved default all-installed/future skill policy, retaining scalar and
   ordered named restrictions, deny reasons and unrelated surfaces. Readiness is

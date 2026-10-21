@@ -76,7 +76,7 @@ test("source-only Goal preview validates explicit native scope and writes no pro
   const saved = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = profile;
   try {
-    assert.equal(s.resolveGoalBinding(project), null);
+    assert.ok(s.resolveGoalBinding(project));
   } finally {
     if (saved === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = saved;

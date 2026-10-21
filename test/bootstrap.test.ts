@@ -15,10 +15,15 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { test } from "node:test";
 import type { BootstrapRequest } from "../lib/bootstrap.ts";
-import { inspectBootstrap as inspectActiveBootstrap } from "../lib/bootstrap.ts";
+import {
+  inspectBootstrap as inspectActiveBootstrap,
+  applyBootstrap as applyActiveBootstrap,
+  readBootstrapFile as readActiveBootstrapFile,
+} from "../lib/bootstrap.ts";
+import { CONTINUITY_FILE_MAX_BYTES } from "../lib/continuity/store.ts";
 import { stageBootstrapCandidate } from "./bootstrap-candidate-fixture.ts";
 const candidate = await stageBootstrapCandidate({
   skillsSupply: resolve(import.meta.dirname, "../../mahiro-skills"),
@@ -36,19 +41,16 @@ import { setupTarget } from "../lib/setup.ts";
 
 const activeProduct = resolve(import.meta.dirname, "..");
 const product = candidate.primary;
-test("active10 recovery source cannot bootstrap a new guarded profile", () => {
-  const agentDir = join(candidate.root, "rejected-active-profile");
-  assert.throws(
-    () =>
-      inspectActiveBootstrap({
-        version: 1,
-        dependencyModules: candidate.modules,
-        agentDir,
-        sources: { pi: activeProduct },
-        components: { packages: true },
-      }),
-    /Canonical Pi pins\/ordered guards mismatch/,
-  );
+test("actual authoring graph previews guarded installation without profile writes", () => {
+  const agentDir = join(candidate.root, "actual-root-preview");
+  const plan = inspectActiveBootstrap({
+    version: 1,
+    dependencyModules: candidate.modules,
+    agentDir,
+    sources: { pi: activeProduct },
+    components: { packages: true, roles: true, featureData: true },
+  });
+  assert.ok(plan.changes.some((c) => c.kind === "rtk-default"));
   assert.equal(existsSync(agentDir), false);
 });
 const fixtures = join(product, ".agent-state/runtime/bootstrap-tests");
@@ -373,6 +375,62 @@ localTest(
   },
 );
 
+test("owned upgrade rejects filtered/unsupported aliases, guard exclusions, symlink owners and dual legacy guards", () => {
+  fixture((root, r) => {
+    r.components = { packages: true };
+    const guard = join(product, "lib/guards");
+    const alias = join(root, "neutral-owner");
+    symlinkSync(product, alias);
+    const settings = join(r.agentDir, "settings.json");
+    for (const packages of [
+      [{ source: product }],
+      [{ source: product, extensions: [] }],
+      [{ source: guard, extensions: [] }],
+      [
+        {
+          source: join(candidate.modules, "@gotgenes/pi-subagents"),
+          extensions: [],
+        },
+      ],
+      [relative(r.agentDir, join(candidate.modules, "@gotgenes/pi-subagents"))],
+      [`${guard}/../guards`],
+      [alias],
+      [guard, "/unreviewed/legacy/pi-guards"],
+      ["npm:@mahirocoko/mahiro-pi"],
+    ]) {
+      put(settings, { packages });
+      assert.throws(
+        () => inspectBootstrap(r),
+        undefined,
+        JSON.stringify(packages),
+      );
+    }
+    for (const entry of [
+      `-${join(guard, "bootstrap.mjs")}`,
+      `+${join(guard, "bootstrap.mjs")}`,
+      join(guard, "index.ts"),
+      relative(r.agentDir, join(guard, "bootstrap.mjs")),
+      join(alias, "lib/guards/bootstrap.mjs"),
+      `${product}-alternate/extension.ts`,
+      "!**/guards/*",
+    ]) {
+      put(settings, { packages: [product, guard], extensions: [entry] });
+      assert.throws(() => inspectBootstrap(r), /overrides/);
+    }
+    // Same-owner metadata is still subject to the bounded safe reader. A hard
+    // link must not become an alternate proof of the reviewed guard package.
+    const metadata = join(guard, "package.json");
+    const hardlink = join(root, "guard-metadata-link");
+    linkSync(metadata, hardlink);
+    try {
+      put(settings, { packages: [product, guard] });
+      assert.throws(() => inspectBootstrap(r), /Unsafe/);
+    } finally {
+      fs.unlinkSync(hardlink);
+    }
+  });
+});
+
 test("bootstrap Mods preflight rejects wrong dependency pins, missing patch ownership and reversed guard order", () => {
   const metadata = {
     dependencies: {
@@ -500,7 +558,7 @@ test("bootstrap strict manifest and bounded safe reader reject unsafe/private pa
       "relative/path",
       `${r.agentDir}/../elsewhere`,
       "/",
-      `${root}/onedeex-profile`,
+      `${root}/unsafe\u0000profile`,
     ])
       assert.throws(() => inspectBootstrap({ ...r, agentDir }));
     const target = join(root, "safe.json");
@@ -791,3 +849,368 @@ localTest(
       );
     }),
 );
+
+// Actual authoring root, synthetic owned DATA only; no installed profile lookup.
+const continuityFixture = (
+  run: (r: BootstrapRequest, generation: string, bytes: string) => void,
+) => {
+  const evidence = join(
+    activeProduct,
+    ".agent-state/runtime/rtk-rewrite-models-retirement/continuity-preservation-fix",
+  );
+  mkdirSync(evidence, { recursive: true, mode: 0o700 });
+  const root = mkdtempSync(join(evidence, "owned-"));
+  const r: BootstrapRequest = {
+    version: 1,
+    dependencyModules: candidate.modules,
+    agentDir: join(root, "profile"),
+    sources: { pi: activeProduct },
+    components: { packages: true, roles: true, featureData: true },
+  };
+  const continuity = join(r.agentDir, "continuity");
+  const generation = join(continuity, "accepted-empty.json");
+  const bytes =
+    JSON.stringify({ archive: { records: [], quarantine: [] }, facts: [] }) +
+    " ".repeat(2 * 1024 * 1024);
+  put(join(continuity, "manifest.json"), { version: 1, projects: [] });
+  put(join(continuity, "state.json"), {
+    revision: 0,
+    lifecycle: { session: "installation", branch: "installation", epoch: 0 },
+    cursor: 0,
+    generation: "accepted-empty",
+    facts: [],
+    controls: { forgotten: [], corrections: {} },
+  });
+  put(generation, bytes);
+  try {
+    run(r, generation, bytes);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+};
+
+test("owned large continuity generation: preview/apply/rerun preserve bytes, mode and inode; generic bound stays 1MiB", () =>
+  continuityFixture((r, generation, bytes) => {
+    const before = lstatSync(generation);
+    const entries = readdirSync(resolve(generation, ".."));
+    const unchanged = () => {
+      assert.equal(readFileSync(generation, "utf8"), bytes);
+      const after = lstatSync(generation);
+      for (const key of [
+        "dev",
+        "ino",
+        "mode",
+        "size",
+        "mtimeMs",
+        "ctimeMs",
+      ] as const)
+        assert.equal(after[key], before[key], key);
+      assert.deepEqual(
+        readdirSync(resolve(generation, "..")),
+        entries,
+        "no backups or rewrites",
+      );
+    };
+    assert.throws(
+      () => readActiveBootstrapFile(generation),
+      /Unsafe bootstrap file/,
+    );
+    for (let i = 0; i < 2; i++) {
+      const plan = inspectActiveBootstrap(r);
+      unchanged();
+      const step = plan.changes.find(
+        (c) => c.kind === "continuity-generation-preserve",
+      )!;
+      assert.equal(step.before?.text, bytes);
+      assert.equal(step.next, bytes);
+      const receipt = applyActiveBootstrap(plan, plan.digest);
+      assert.equal(receipt.status, "completed");
+      assert.deepEqual(
+        receipt.steps.find((s: any) => s.kind === step.kind).result,
+        { changed: false, backup: null },
+      );
+      unchanged();
+    }
+  }));
+
+test("owned continuity generation rejects unsafe, invalid and over-owner-bound inputs", () => {
+  for (const unsafe of [
+    "mode",
+    "hardlink",
+    "symlink",
+    "oversize",
+    "invalid",
+  ] as const)
+    continuityFixture((r, generation, bytes) => {
+      if (unsafe === "mode") chmodSync(generation, 0o644);
+      if (unsafe === "hardlink") linkSync(generation, `${generation}.link`);
+      if (unsafe === "symlink") {
+        fs.renameSync(generation, `${generation}.original`);
+        symlinkSync(`${generation}.original`, generation);
+      }
+      if (unsafe === "oversize")
+        put(
+          generation,
+          bytes +
+            " ".repeat(
+              CONTINUITY_FILE_MAX_BYTES - Buffer.byteLength(bytes) + 1,
+            ),
+        );
+      if (unsafe === "invalid")
+        put(generation, " ".repeat(2 * 1024 * 1024) + "{}");
+      assert.throws(() => inspectActiveBootstrap(r), undefined, unsafe);
+    });
+});
+
+test("large continuity preservation rejects stale/tampered review and execution-time mutations", () => {
+  for (const mutation of [
+    "stale",
+    "tamper",
+    "content",
+    "inode",
+    "mode",
+    "hardlink",
+    "oversize",
+  ] as const)
+    continuityFixture((r, generation, bytes) => {
+      const plan = inspectActiveBootstrap(r);
+      if (mutation === "stale") put(generation, bytes + " ");
+      if (mutation === "tamper")
+        plan.changes.find(
+          (c) => c.kind === "continuity-generation-preserve",
+        )!.next += " ";
+      const mutate = () => {
+        if (mutation === "content") put(generation, bytes + " ");
+        if (mutation === "inode") {
+          fs.renameSync(generation, `${generation}.original`);
+          put(generation, bytes);
+        }
+        if (mutation === "mode") chmodSync(generation, 0o644);
+        if (mutation === "hardlink") linkSync(generation, `${generation}.link`);
+        if (mutation === "oversize")
+          put(
+            generation,
+            bytes +
+              " ".repeat(
+                CONTINUITY_FILE_MAX_BYTES - Buffer.byteLength(bytes) + 1,
+              ),
+          );
+      };
+      assert.throws(() =>
+        applyActiveBootstrap(plan, plan.digest, {
+          beforeStep: (kind) => {
+            if (kind === "continuity-generation-preserve") mutate();
+          },
+        }),
+      );
+      assert.ok(
+        !readdirSync(resolve(generation, "..")).some((name) =>
+          /mahiro-bootstrap/.test(name),
+        ),
+        "never backs up or publishes a preserved generation",
+      );
+    });
+});
+
+const policyFixture = (run: (r: BootstrapRequest, target: string) => void) => {
+  const root = join(
+    activeProduct,
+    ".agent-state/runtime/rtk-rewrite-models-retirement/no-blanket-deny-contract",
+  );
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const agentDir = join(mkdtempSync(join(root, "policy-")), "profile");
+  run(
+    {
+      version: 1,
+      agentDir,
+      sources: { pi: activeProduct },
+      dependencyModules: candidate.modules,
+      components: { packages: true, roles: true, featureData: true },
+    },
+    setupTarget(agentDir),
+  );
+};
+const policyTree = (root: string): unknown =>
+  existsSync(root)
+    ? readdirSync(root)
+        .sort()
+        .map((name) => {
+          const file = join(root, name),
+            stat = lstatSync(file);
+          return [
+            name,
+            stat.ino,
+            stat.mode,
+            stat.isDirectory() ? policyTree(file) : readFileSync(file, "utf8"),
+          ];
+        })
+    : null;
+
+test("explicit scalar default-deny consent is required before any writes and binds reviewed CAS", () => {
+  policyFixture((r, target) => {
+    const prior = {
+      yoloMode: true,
+      permission: {
+        "*": "deny",
+        read: "allow",
+        bash: { "git commit *": "deny" },
+        private_data: "deny",
+      },
+    };
+    put(target, prior);
+    const before = policyTree(r.agentDir);
+    assert.throws(() => inspectActiveBootstrap(r), /--remove-default-deny/);
+    assert.deepEqual(policyTree(r.agentDir), before);
+    r.components.removeDefaultDeny = true;
+    const plan = inspectActiveBootstrap(r);
+    assert.deepEqual(policyTree(r.agentDir), before, "preview is read-only");
+    const authority = plan.changes.find((c) => c.path === target)!;
+    const next = JSON.parse(authority.next);
+    assert.equal(Object.hasOwn(next.permission, "*"), false);
+    assert.equal(next.yoloMode, true);
+    for (const [key, value] of Object.entries(prior.permission))
+      if (key !== "*") assert.deepEqual(next.permission[key], value);
+    const tampered = structuredClone(plan);
+    tampered.changes.find((c) => c.path === target)!.next += " ";
+    assert.throws(
+      () => applyActiveBootstrap(tampered, tampered.digest),
+      /stale/,
+    );
+    assert.deepEqual(policyTree(r.agentDir), before);
+    const stale = structuredClone(plan);
+    delete stale.request.components.removeDefaultDeny;
+    assert.throws(
+      () => applyActiveBootstrap(stale, stale.digest),
+      /--remove-default-deny|stale/,
+    );
+    assert.deepEqual(policyTree(r.agentDir), before);
+    put(target, { ...prior, debugLog: false });
+    const mutated = readFileSync(target, "utf8");
+    assert.throws(() => applyActiveBootstrap(plan, plan.digest), /stale/);
+    assert.equal(readFileSync(target, "utf8"), mutated);
+    const reviewed = inspectActiveBootstrap(r);
+    applyActiveBootstrap(reviewed, reviewed.digest);
+    assert.deepEqual(parse(target), { ...next, debugLog: false });
+    assert.equal(lstatSync(target).mode & 0o777, 0o600);
+    assert.ok(
+      readdirSync(resolve(target, "..")).some((n) => n.endsWith(".bak")),
+      "normal reviewed private backup pipeline retained",
+    );
+    const bytes = readFileSync(target, "utf8"),
+      ino = lstatSync(target).ino;
+    const again = inspectActiveBootstrap(r);
+    applyActiveBootstrap(again, again.digest);
+    assert.equal(readFileSync(target, "utf8"), bytes);
+    assert.equal(lstatSync(target).ino, ino, "absent star is idempotent");
+  });
+});
+
+test("revocation cannot override required tool/DATA restrictions, ambiguous defaults or unsafe private files", () => {
+  for (const restriction of [
+    "tool",
+    "data",
+    "ask",
+    "allow",
+    "map",
+    "wildcard",
+    "mode",
+    "link",
+  ])
+    policyFixture((r, target) => {
+      r.components.removeDefaultDeny = true;
+      const permission: Record<string, unknown> = { "*": "deny" };
+      if (restriction === "tool") permission.mh_get_goal = "deny";
+      if (restriction === "data") {
+        // A genuine canonical required namespace, not a made-up capability.
+        const clean = inspectActiveBootstrap({
+          ...r,
+          components: { ...r.components, removeDefaultDeny: undefined },
+        });
+        const p = JSON.parse(
+          clean.changes.find((c) => c.path === target)!.next,
+        ).permission;
+        permission[
+          Object.keys(p).find((k) => k.startsWith("goal_state_data_"))!
+        ] = "deny";
+      }
+      if (["ask", "allow"].includes(restriction)) permission["*"] = restriction;
+      if (restriction === "map") permission["*"] = { "*": "deny" };
+      if (restriction === "wildcard") permission["mh_*"] = "deny";
+      put(target, { permission });
+      if (restriction === "mode") chmodSync(target, 0o666);
+      if (restriction === "link") linkSync(target, `${target}.linked`);
+      const before = policyTree(r.agentDir);
+      assert.throws(() => inspectActiveBootstrap(r));
+      assert.deepEqual(policyTree(r.agentDir), before, restriction);
+      assert.equal(existsSync(join(r.agentDir, "settings.json")), false);
+    });
+});
+
+test("already provisioned exact grants preserve legitimate default deny without revocation consent", () => {
+  policyFixture((r, target) => {
+    const clean = inspectActiveBootstrap(r);
+    const permission = JSON.parse(
+      clean.changes.find((c) => c.path === target)!.next,
+    ).permission;
+    put(target, {
+      permission: { "*": "deny", ...permission, unrelated_future_tool: "deny" },
+    });
+    const bytes = readFileSync(target, "utf8");
+    const plan = inspectActiveBootstrap(r);
+    assert.equal(
+      JSON.parse(plan.changes.find((c) => c.path === target)!.next).permission[
+        "*"
+      ],
+      "deny",
+    );
+    assert.equal(plan.featureInstallation!.removedDefaultDeny, false);
+    assert.ok(
+      plan.featureInstallation!.retainedRestrictionSurfaces.includes("*"),
+    );
+    applyActiveBootstrap(plan, plan.digest);
+    assert.equal(parse(target).permission["*"], "deny");
+    assert.equal(parse(target).permission.unrelated_future_tool, "deny");
+    // This is structural provisioning, not a claim cross-cutting runtime gates
+    // will permit every operation. The public service remains authoritative.
+    assert.deepEqual(parse(target), JSON.parse(bytes));
+  });
+});
+
+test("revocation preserves explicit RTK off and execution-time policy mutation without clobbering", () => {
+  policyFixture((r, target) => {
+    r.components.removeDefaultDeny = true;
+    put(target, { permission: { "*": "deny" } });
+    const off = join(r.agentDir, "preferences/rtk/default.json");
+    put(off, { version: 1, mode: "off" });
+    const before = readFileSync(off, "utf8"),
+      ino = lstatSync(off).ino;
+    const plan = inspectActiveBootstrap(r);
+    assert.equal(plan.featureInstallation!.rtkDefault, "existing-preserved");
+    const receipt = applyActiveBootstrap(plan, plan.digest);
+    assert.equal(receipt.featureInstallation.rtkDefault, "existing-preserved");
+    assert.equal(readFileSync(off, "utf8"), before);
+    assert.equal(lstatSync(off).ino, ino);
+    assert.equal(lstatSync(off).mode & 0o777, 0o600);
+  });
+  policyFixture((r, target) => {
+    r.components.removeDefaultDeny = true;
+    put(target, { permission: { "*": "deny" } });
+    const off = join(r.agentDir, "preferences/rtk/default.json");
+    put(off, { version: 1, mode: "off" });
+    const plan = inspectActiveBootstrap(r);
+    assert.ok(!plan.changes.some((c) => c.path === off));
+    const injected = JSON.stringify({ permission: { mh_get_goal: "deny" } });
+    assert.throws(() =>
+      applyActiveBootstrap(plan, plan.digest, {
+        beforeStep: (kind) => {
+          if (kind === "memory-authority") put(target, injected);
+        },
+      }),
+    );
+    assert.equal(readFileSync(target, "utf8"), injected);
+    assert.deepEqual(parse(off), { version: 1, mode: "off" });
+    assert.ok(
+      !readdirSync(resolve(target, "..")).some((n) => /\.bak$|\.tmp$/.test(n)),
+    );
+  });
+});

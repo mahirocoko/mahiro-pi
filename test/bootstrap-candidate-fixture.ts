@@ -1,4 +1,4 @@
-// Test-only candidate owner. Never alter the active recovery manifest.
+// Disposable installation topology; never activate a copied owner in a real profile.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -50,7 +50,7 @@ export async function stageBootstrapCandidate(
   assert.equal(
     JSON.parse(fs.readFileSync(path.join(productRoot, "package.json"), "utf8"))
       .pi.extensions.length,
-    10,
+    12,
   );
   return {
     ...stage,

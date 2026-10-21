@@ -49,7 +49,7 @@ checks with synthetic content and transport, **not real-provider learning proof*
 
 The implementation uses one private Markdown/Git root, immutable committed
 revisions, per-session drafts and per-job private views. Core/index are global;
-deferred knowledge is project-scoped and procedural knowledge separately named.
+deferred knowledge is shared for authenticated primary discovery/read/edit and project-scoped for leased workers; procedural knowledge is separately named. Shared views require an internal primary authority, never a model argument. Retained v1 views without a scope field remain project-scoped and readable/recoverable, never implicitly promoted.
 Main and native writers use the same authoring operations. Integration is filewise
 three-way CAS: disjoint edits merge automatically, overlapping edits preserve the
 view as a conflict. A tracked monotonic forget ledger filters rollback and stale
@@ -57,7 +57,7 @@ views. A public before_agent_start projection reads committed Core/discovery
 metadata on every primary request; private worker context never projects the
 primary corpus. Permission and structural checks are not semantic truth checks.
 
-Activation is explicit, default-off, and separate from C1 quote learning. The
+Installation consent is explicit and separate from resource startup and C1 quote learning. The one-install entry initializes only a truly absent root with a neutral scaffold through the guarded native SDK pipeline. It preserves existing config, ledger, views/conflicts, Core and corpus; it does not repeat the already-completed private migration. The
 separate reviewed private [`bootstrap`](bootstrap.md) command may initialize a
 new explicitly selected root only through guarded native `agent_memory_manage`
 with zero-external-inference Faux transport. Existing roots are read-validated and
@@ -69,8 +69,7 @@ The package registers managed memory before continuity, after the unchanged
 status/voice entries. Public SDK 1.3.0 package resolution preserves these declared
 file entries (including stable equal-precedence resource ordering); extension
 loading and event dispatch preserve that order and await each handler. Both memory
-owners use `agent_settled`, not `agent_end`. A qualifying managed automatic writer
-therefore claims the shared native service first and C1 defers on `hasRunning()`.
+owners use `agent_settled`, not `agent_end`. Both controllers use the exact public `getSubagentsServiceForSession(SessionManager)` owner and bounded native queue, not a mutable last-child singleton or a global `hasRunning()` veto.
 If managed memory is inactive, unavailable or configured `automatic: false`, it
 claims no automatic job and C1 can retain its legacy behavior. This does not disable
 C1 grants, roles, history, recall or forget controls, nor enable automatic policy.
@@ -109,7 +108,7 @@ explicit root/role/permission activation, separately from earlier controlled pro
 
 The existing continuity grant authorizes quoted-note learning, not curated Core
 writing. Add a separate, exact-root managed-memory capability at the canonical
-guard owner. Revocation, missing/obsolete guards, excluded projects, stale
+guard owner. Revocation, missing/obsolete guards, unsafe scopes, stale
 generations, malformed tool arguments and escaping paths must fail closed.
 
 The pinned public subagent `SpawnOptions` has no cwd override. Do not invent one
@@ -134,16 +133,15 @@ the separately approved 2026-10-20 Root guard cutover. The current private runti
 registers one Root guard owner and Root public packages, not the legacy guard.
 Neither cutover changes exact-root memory grants or establishes human acceptance.
 
-The private root defaults to `~/.pi/agent/memory`; `MAHIRO_AGENT_MEMORY_ROOT` is an
+The private root defaults to `<canonical-agent-dir>/memory` (`~/.pi/agent/memory` for the default profile); `MAHIRO_AGENT_MEMORY_ROOT` is an
 explicit controlled-store override, not authority. `config.json` is private,
 untracked configuration with exact canonical CWD/project mappings, budgets and
 `automatic`. Core/index are always-loaded global shared knowledge;
 `global/<name>.md` is selectively read shared detailed knowledge;
-`deferred/<project>/<name>.md` is scoped project knowledge;
+`deferred/<project>/<name>.md` has preserved project ownership, shared Main access and scoped worker access;
 `procedures/<name>.md` is shared procedural knowledge. Global detail and procedures
 use the same explicit shared scope as Core/index, not another project's scope.
-The initial identity must be supplied explicitly. No bootstrap or archives are
-imported automatically. Core supports persona, preferences and learned methods.
+A custom bootstrap can supply an explicit identity; one-install creates a neutral absent-root scaffold, never an invented human persona. Existing private migration/identity is preserved. No bootstrap corpus or archives are imported automatically. Core supports persona, preferences and learned methods.
 
 Tracked Markdown and `.memory.json` form a standalone private Git repository.
 HEAD is the publication boundary. Config, `.views`, `.episodes` and `.lock` are
@@ -189,7 +187,7 @@ unattended retention promise.
 
 Main tools:
 
-- `agent_memory_read`: list scoped files or page one Markdown file (Unicode
+- `agent_memory_read`: list primary-shared or worker-scoped files or page one Markdown file (Unicode
   offsets, max 4096 characters); returns whole-file hash and committed base revision.
 - `agent_memory_edit`: add/replace/remove in a private draft with exact file hash
   (`null` for a new file), text and episode source IDs. Core/index cannot be removed.
@@ -202,7 +200,7 @@ Main tools:
 - `agent_memory_reflect`: a bounded explicit assignment to the same native writer
   used by configured automatic reflection. No caller role/model/root/lease flag.
 
-Automatic reflection is opt-in (`automatic: true`). Observed interactive/RPC input
+Automatic reflection is controlled by private `automatic` policy; one-install selects true for a new neutral root and preserves existing policy. Startup never enables it. Observed interactive/RPC input
 must still match one newly appended native user entry; it is not authenticated
 human identity. Episodes retain bounded assistant text/tool names, selected local
 check outcomes/results, branch-linked entry hash and observation time. They omit
@@ -250,25 +248,18 @@ independently and never receive the primary projection automatically.
 
 Source installation registers tools, not write authority. Nothing in this source
 run modifies the real curated bootstrap, real corpus, runtime roles, profile,
-authentication, provider defaults or active apps. No default root is created.
+authentication, provider defaults or active apps. Resource loading creates no root; an explicitly consented installation may initialize only an absent neutral root.
 
 For a controlled proof, use a new ignored private store and a project-owned native
 fixture profile. The canonical node's `managedMemory.permission(root)` supplies
-`managed_memory_<sha256(exact canonical root UTF-8)>`; grant that scalar explicitly
-and grant only the five scoped tools. Do not grant arbitrary external writes or
+`managed_memory_<sha256(exact canonical root UTF-8)>`; explicit `install:profile` composes that capability and the five tools, preserving restrictions. Advanced controlled fixtures may grant these explicitly. Do not grant arbitrary external writes or
 reuse `continuity_learning_*`. Register the reviewed writer in that fixture's
 native agents directory, with the existing subagents package excluded from children
 but guards/permissions/memory extension retained. Initialize with a reviewed seed.
 Removing that permission immediately disables memory access/projection and cancels
 publication on subsequent guarded activity; no blanket external-write grant remains.
 
-Before real default activation, Main must preserve a private bootstrap snapshot,
-compare the full current identity/preferences, choose one canonical authoring copy,
-review project mappings, initialize a **new** root, explicitly register the role and
-grant its exact permission, then prove existing/fresh native context behavior.
-Only then may an explicitly approved bootstrap migration remove duplicate current
-knowledge. Rollback removes the new grant/role activation and restores the preserved
-bootstrap; do not silently overwrite an existing root or alter real data in tests.
+**Historical migration gate, completed 2026-10-19:** the operator preserved bootstrap identity/preferences, selected one owner, initialized the then-new private root and proved native context before removing duplicate current knowledge. This is provenance, NOT an instruction to initialize a new root now. Current one-install preserves the existing migrated root, ledger, config and views and never reimports/reseeds its corpus. Real activation/rollback still needs separate scoped approval; tests use owned disposable profiles only.
 
 Offline commands: `node --test --test-concurrency=1 test/agent-memory-*.test.ts`;
 from this repository, `pnpm check:public-sdk` (also required by `pnpm check`). The latter uses actual public

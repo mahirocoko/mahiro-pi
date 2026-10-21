@@ -85,10 +85,7 @@ export function createGoalRuntime(pi: ExtensionAPI) {
     signal?: AbortSignal,
   ) {
     const binding = resolveGoalBinding(ctx.cwd);
-    if (!binding)
-      throw new Error(
-        "Goal disabled: explicit canonical project configuration required",
-      );
+    if (!binding) throw new Error("Canonical Goal project binding unavailable");
     const sessionId = ctx.sessionManager.getSessionId();
     if (
       typeof sessionId !== "string" ||
@@ -270,7 +267,7 @@ export function createGoalRuntime(pi: ExtensionAPI) {
   async function command(input: string, ctx: ExtensionContext) {
     const text = input.trim();
     if (["help", "-h", "--help"].includes(text))
-      return "Mahiro Goal (opt-in): status | list | <objective> | revise <revision> <objective> | move <id> <revision> | pause | resume | next <text> | phase <text> | evidence <criterion> <text> | verify <criterion> [note] | resolve <blocker> | rule add/update/remove <revision> ... | complete [--force] | clear [<id> <revision>]. All human mutations require UI confirmation. Cross-project moves and force-unlock unsupported.";
+      return "Mahiro Goal: status | list | <objective> | revise <revision> <objective> | move <id> <revision> | pause | resume | next <text> | phase <text> | evidence <criterion> <text> | verify <criterion> [note] | resolve <blocker> | rule add/update/remove <revision> ... | complete [--force] | clear [<id> <revision>]. All human mutations require UI confirmation. Cross-project moves and force-unlock unsupported.";
     const view = await read(ctx, true);
     const current = goalAt(view.state, view.binding);
     if (!text || ["status", "show"].includes(text))

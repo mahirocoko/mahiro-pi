@@ -1,7 +1,7 @@
-# Native Execution Run — source-only, default disabled
+# Native Execution Run — canonical project metadata
 
-`extensions/mahiro-execution-run.ts` is the tenth manifest resource, after the
-accepted nine in unchanged order. It registers **one** `mh_execution_run` tool
+`extensions/mahiro-execution-run.ts` is the **tenth feature** and **twelfth
+manifest resource**, after the two guards and nine preserved features. It registers **one** `mh_execution_run` tool
 with `operation: get | create | update`, and `/mh-run`. The pure model is locally
 adapted from canonical Mods `mods/mahiro-execution-run.ts`; the Letta entry is
 unchanged. No legacy state is read, imported or synchronized.
@@ -27,7 +27,9 @@ handoff metadata only, never automatic Evidence ingestion or collected evidence.
 The public native profile convention is `PI_CODING_AGENT_DIR` (including `~/`
 expansion), otherwise `~/.pi/agent`, resolved by `lib/setup.ts#resolveAgentDir`.
 There is no SDK runtime import, cwd override, role or profile provisioning.
-An operator must separately author this canonical private file:
+Ordinary use needs no per-project config. Explicit profile installation composes
+the named tool and canonical Run DATA namespace authority once. A retained optional
+legacy configuration may exist at:
 
 ```text
 <profile>/extensions/mahiro-execution-run/config.json
@@ -38,14 +40,14 @@ An operator must separately author this canonical private file:
 ```
 
 Only these keys are accepted. Config is strict UTF-8/JSON, at most 16 KiB, owned
-single-link regular 0600; profile/config directories must be private 0700.
-Projects are explicit existing canonical directories (at most 32), separate from
-the private profile and excluded Letta/OneDee paths. The profile/state owner stays
+single-link regular0600; optional config/data directories stay0700 while safe host profile containers may be0755.
+Legacy project lists are validated freshness metadata, not whitelists. Canonical
+projects are separate from the private profile and legacy Letta storage paths. The profile/state owner stays
 separate from authored source owners and managed-memory/continuity roots. A tool's optional `workspace` selects only the authorized current
-project, never an arbitrary storage scope. Missing configuration is disabled:
+project, never an arbitrary storage scope. Missing config is supported:
 imports, registration, startup, status/get/list and empty clear initialize nothing.
-No new installer, grant command or bootstrap subsystem is added; the existing
-recursive source binding already includes these files.
+`install.mjs` composes the existing bootstrap/public permission owners. Legacy
+leaf/tool/path denials still reject with a namespace allow; no alternate resolver.
 
 State is `<profile>/workflow/execution-run/<sha256(project UTF8)>/state.json`,
 with sibling `state.lock`. The closed native v1 envelope binds canonical profile,
@@ -65,7 +67,7 @@ matching node/generation, uncancelled context, canonical configured project and
 actual public ToolInfo provenance: sole Pi source root, package
 `@mahirocoko/mahiro-pi@0.2.0`, exact declared extension and exact tool name.
 
-Both `mh_execution_run` and `execution_run_state_<sha256(stateRoot UTF8)>` need
+Both `mh_execution_run` and `execution_run_state_data_<sha256(canonical-Run-namespace UTF8)>` (or retained exact legacy leaf authority) need
 actual public permission-owner winning decisions with state `allow`, source
 `tool`, matching `toolName` and **exact** `matchedSurface`, not yolo origin.
 Family/default/session/yolo-only, old unpatched owner, absent/malformed metadata,

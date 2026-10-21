@@ -105,9 +105,7 @@ export function createEvidenceRuntime(pi: ExtensionAPI) {
   ) {
     const binding = resolveEvidenceBinding(ctx.cwd);
     if (!binding)
-      throw Error(
-        "Code Evidence disabled: explicit canonical project configuration required",
-      );
+      throw Error("Canonical Code Evidence project binding unavailable");
     const sessionId = ctx.sessionManager.getSessionId();
     if (
       typeof sessionId !== "string" ||
@@ -132,7 +130,7 @@ export function createEvidenceRuntime(pi: ExtensionAPI) {
       )
     )
       throw Error(
-        "Workspace must select this already configured canonical project; no widening or automatic moves",
+        "Workspace must select the current canonical project; no widening or automatic moves",
       );
     const node = (globalThis as any)[key]?.get(sessionId),
       abi = node?.evidence,

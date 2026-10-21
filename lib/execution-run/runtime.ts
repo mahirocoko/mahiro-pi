@@ -44,9 +44,7 @@ export function createRunRuntime(pi: ExtensionAPI) {
   ) {
     const binding = resolveRunBinding(ctx.cwd);
     if (!binding)
-      throw Error(
-        "Execution Run disabled: explicit canonical project configuration required",
-      );
+      throw Error("Canonical Execution Run project binding unavailable");
     const sessionId = ctx.sessionManager.getSessionId();
     if (
       typeof sessionId !== "string" ||

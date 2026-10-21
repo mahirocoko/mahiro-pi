@@ -1,5 +1,7 @@
 {
   "active": [
+    "./lib/guards/bootstrap.mjs",
+    "./lib/guards/index.ts",
     "./extensions/mahiro-status.ts",
     "./extensions/mahiro-finish-voice.ts",
     "./extensions/mahiro-agent-memory.ts",
@@ -23,7 +25,6 @@
     "./extensions/mahiro-goal.ts",
     "./extensions/mahiro-code-evidence.ts",
     "./extensions/mahiro-ux-workflow.ts",
-    "./extensions/mahiro-execution-run.ts",
-    "./extensions/mahiro-model-profiles.ts"
+    "./extensions/mahiro-execution-run.ts"
   ]
 }

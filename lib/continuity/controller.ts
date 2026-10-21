@@ -27,6 +27,7 @@ import {
   parseProjects,
 } from "./runtime.ts";
 import { assertPrivatePath, createStore, safeQuote } from "./store.ts";
+import { resolveAgentDir } from "../setup.ts";
 
 interface IService {
   supportsInitialOutcomeClaim: true;
@@ -50,7 +51,7 @@ interface IService {
   abort(id: string): boolean;
 }
 const policy = {
-  excludedProjectIds: ["onedee", "onedeex-frontend"],
+  excludedProjectIds: [],
   excludedPaths: [],
 };
 const key = Symbol.for("@mahirocoko/pi-guards:healthy-nodes");
@@ -160,7 +161,7 @@ export function createController(
     const root =
       config.root ??
       process.env.MAHIRO_CONTINUITY_ROOT ??
-      join(homedir(), ".pi/agent/continuity");
+      join(resolveAgentDir(), "continuity");
     abi.authorizeLearning(ctx, root, root);
     return { node, abi, root };
   };
@@ -169,8 +170,8 @@ export function createController(
     const token = epoch;
     const manifestPath = join(owner.root, "manifest.json");
     const raw = read(manifestPath, 65536);
-    const projectId = parseProjects(raw).projects.get(realpathSync(ctx.cwd));
-    if (!projectId) throw new Error("Unmapped scope");
+    const cwd = realpathSync(ctx.cwd);
+    const projectId = parseProjects(raw).projects.get(cwd) ?? digest(cwd);
     const current = (target = owner.root) => {
       const next = guard(ctx);
       if (
@@ -249,7 +250,6 @@ export function createController(
       const role = service?.getAgentType?.("memory-reflector");
       if (
         service?.supportsInitialOutcomeClaim !== true ||
-        service.hasRunning() ||
         !role ||
         role.name !== "memory-reflector" ||
         role.model !== "openai/gpt-6.1-sol" ||

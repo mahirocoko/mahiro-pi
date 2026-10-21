@@ -660,9 +660,10 @@ test("async authorization shutdown/generation replacement, ambiguous maps and sy
       }),
       { mode: 0o600 },
     );
-    await assert.rejects(
-      f.runtime.run("recall_read", { recordId: "late" }, f.tool, f.ctx),
-    );
+    assert.deepEqual(
+      await f.runtime.run("recall_read", { recordId: "late" }, f.tool, f.ctx),
+      { unavailable: true },
+    ); // A revoked project-name ban is not a guard failure; absent record is honest.
     rmSync(join(f.data, "manifest.json"));
     symlinkSync(join(f.root, "missing"), join(f.data, "manifest.json"));
     await assert.rejects(

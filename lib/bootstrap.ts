@@ -21,9 +21,15 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { assertPrivatePath } from "./continuity/store.ts";
+import {
+  assertPrivatePath,
+  CONTINUITY_FILE_MAX_BYTES,
+} from "./continuity/store.ts";
 import { createMemoryStore } from "./agent-memory/store.ts";
 import { hasSecret } from "./continuity/records.ts";
+import { assertSafeContainer, featureGrants } from "./feature-data.ts";
+import { createStore as createContinuityStore } from "./continuity/store.ts";
+import { parseProjects } from "./continuity/runtime.ts";
 import {
   applySetup,
   inspectSetup,
@@ -53,7 +59,7 @@ const canonical = (path: unknown, existing = false): string => {
     typeof path !== "string" ||
     !isAbsolute(path) ||
     resolve(path) !== path ||
-    /[\x00-\x1f]|one[-_ ]?deex?/i.test(path)
+    /[\x00-\x1f]/.test(path)
   )
     throw new Error("Canonical absolute nonexcluded path required");
   assertPrivatePath(path);
@@ -68,9 +74,26 @@ const canonical = (path: unknown, existing = false): string => {
     throw new Error("Existing canonical path required");
   return path;
 };
-export const readBootstrapFile = (
+// Only store-validated generation preservation uses the DATA owner's bound.
+// Public config/source reads cannot select a larger limit.
+const readOwnedBootstrapFile = (
   path: string,
-): { text: string; hash: string; mode: number } | null => {
+  continuityGeneration = false,
+): {
+  text: string;
+  hash: string;
+  mode: number;
+  identity?: {
+    dev: number;
+    ino: number;
+    size: number;
+    mtimeMs: number;
+    ctimeMs: number;
+  };
+} | null => {
+  const maxBytes = continuityGeneration
+    ? CONTINUITY_FILE_MAX_BYTES
+    : 1024 * 1024;
   canonical(path);
   let stat;
   try {
@@ -82,14 +105,14 @@ export const readBootstrapFile = (
   if (
     !stat.isFile() ||
     stat.nlink !== 1 ||
-    stat.size > 1024 * 1024 ||
+    stat.size > maxBytes ||
     stat.mode & 0o7022 ||
     (process.getuid && stat.uid !== process.getuid())
   )
     throw new Error("Unsafe bootstrap file");
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
-    const buffer = Buffer.alloc(1024 * 1024 + 1);
+    const buffer = Buffer.alloc(maxBytes + 1);
     let length = 0;
     while (length < buffer.length) {
       const count = readSync(
@@ -105,7 +128,7 @@ export const readBootstrapFile = (
     const bytes = buffer.subarray(0, length);
     const after = fstatSync(fd);
     if (
-      bytes.length > 1024 * 1024 ||
+      bytes.length > maxBytes ||
       after.ino !== stat.ino ||
       after.dev !== stat.dev ||
       after.size !== stat.size ||
@@ -120,11 +143,29 @@ export const readBootstrapFile = (
       throw new Error("File changed during bootstrap read");
     const text = bytes.toString("utf8");
     if (!Buffer.from(text).equals(bytes)) throw new Error("UTF-8 required");
-    return { text, hash: sha(bytes), mode: stat.mode & 0o777 };
+    return {
+      text,
+      hash: sha(bytes),
+      mode: stat.mode & 0o777,
+      ...(continuityGeneration
+        ? {
+            identity: {
+              dev: stat.dev,
+              ino: stat.ino,
+              size: stat.size,
+              mtimeMs: stat.mtimeMs,
+              ctimeMs: stat.ctimeMs,
+            },
+          }
+        : {}),
+    };
   } finally {
     closeSync(fd);
   }
 };
+export const readBootstrapFile = (path: string) => readOwnedBootstrapFile(path);
+const readContinuityGeneration = (path: string) =>
+  readOwnedBootstrapFile(path, true);
 const readJson = (path: string) => {
   const file = readBootstrapFile(path);
   if (!file) return null;
@@ -299,6 +340,10 @@ export interface BootstrapRequest {
     roles?: true;
     skills?: string[];
     skillPolicy?: true;
+    /** Explicit one-time consent for narrowly owned feature data, not arbitrary paths. */
+    featureData?: true;
+    /** Explicit consent to delete only the scalar universal deny; never an allow. */
+    removeDefaultDeny?: true;
     memory?: {
       root: string;
       project: string;
@@ -321,6 +366,13 @@ export interface BootstrapPlan {
   dependencies: { subagents: string; permissions: string; patchHash: string };
   changes: Change[];
   skillPolicy: ReturnType<typeof inspectSetup> | null;
+  featureInstallation: {
+    capabilities: string[];
+    removedDefaultDeny: boolean;
+    retainedRestrictionSurfaces: string[];
+    rtkDefault: "rewrite-rtk-created" | "existing-preserved";
+    runtimePolicy: "public-service-authoritative";
+  } | null;
   skills: any;
   memory: {
     action: "initialize" | "preserve-existing";
@@ -351,11 +403,9 @@ const validateRequest = (value: unknown): BootstrapRequest => {
     throw new Error("Unsupported bootstrap manifest");
   const r = value as BootstrapRequest;
   canonical(r.agentDir);
-  if (
-    existsSync(r.agentDir) &&
-    (!lstatSync(r.agentDir).isDirectory() || lstatSync(r.agentDir).mode & 0o077)
-  )
-    throw new Error("Existing agent directory must be private 0700");
+  // Pi's standard shared profile containers need not be chmodded to 0700.
+  // Only our private data roots/files require 0700/0600; unsafe ancestors reject.
+  assertSafeContainer(r.agentDir);
   for (const root of Object.values(r.sources)) canonical(root, true);
   if (
     r.sources.pi !== product ||
@@ -378,13 +428,29 @@ const validateRequest = (value: unknown): BootstrapRequest => {
     !Object.keys(c).length ||
     Object.keys(c).some(
       (key) =>
-        !["packages", "roles", "skills", "skillPolicy", "memory"].includes(key),
+        ![
+          "packages",
+          "roles",
+          "skills",
+          "skillPolicy",
+          "featureData",
+          "removeDefaultDeny",
+          "memory",
+        ].includes(key),
     )
   )
     throw new Error("Explicit components required");
-  for (const key of ["packages", "roles", "skillPolicy"] as const)
+  for (const key of [
+    "packages",
+    "roles",
+    "skillPolicy",
+    "featureData",
+    "removeDefaultDeny",
+  ] as const)
     if (c[key] !== undefined && c[key] !== true)
       throw new Error("Unsupported component selection");
+  if (c.removeDefaultDeny && !c.featureData)
+    throw Error("removeDefaultDeny requires explicit featureData installation");
   if (
     c.skills !== undefined &&
     (!Array.isArray(c.skills) ||
@@ -748,7 +814,10 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     kind: string,
     createOnly = false,
   ) => {
-    const before = readBootstrapFile(path);
+    const before =
+      kind === "continuity-generation-preserve"
+        ? readContinuityGeneration(path)
+        : readBootstrapFile(path);
     if (createOnly && before && before.text !== next)
       throw new Error("Existing role differs; explicit owner review required");
     changes.push({ path, before, next, kind });
@@ -776,18 +845,33 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       explicitExtensions.some((entry: any) => typeof entry !== "string")
     )
       throw new Error("Unsupported extension settings");
-    // Do not silently override direct-entry loading or exclusion filters. Package
-    // resource enable/disable migration needs review through its existing owner.
+    // The reviewed Root cutover used these two direct entries. Keep them exact:
+    // SDK resource identity deduplicates bootstrap; worker remains additive.
+    const ownedEntries = [
+      join(product, "lib/guards/bootstrap.mjs"),
+      join(product, "extensions/mahiro-worker-activity.ts"),
+    ];
+    for (const entry of explicitExtensions)
+      if (ownedEntries.includes(entry) && !readBootstrapFile(entry))
+        throw new Error("Missing owned extension source");
+    // Every other direct entry/filter affecting a required owner needs review.
     if (
-      explicitExtensions.some(
-        (entry: string) =>
-          /^[!-].*[*?\[]/.test(entry) ||
-          required.some((root) => entry.replace(/^[+!-]/, "").startsWith(root)),
-      )
+      explicitExtensions.some((entry: string) => {
+        if (/^[!-].*[*?\[]/.test(entry)) return true;
+        if (ownedEntries.includes(entry)) return false;
+        const raw = entry.replace(/^[+!-]/, "");
+        const path = resolve(r.agentDir, raw);
+        const paths = [raw, path];
+        if (existsSync(path)) paths.push(realpathSync(path));
+        return paths.some((value) =>
+          required.some((root) => value.startsWith(root)),
+        );
+      })
     )
       throw new Error(
         "Required package has explicit extension overrides; review first",
       );
+    const next: any[] = [];
     for (const entry of packages) {
       const source = typeof entry === "string" ? entry : entry.source;
       // Public Pi package contract: local paths are based on the containing
@@ -799,6 +883,41 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
             source.startsWith("~/") ? join(homedir(), source.slice(2)) : source,
           )
         : source;
+      // Only unfiltered lexical paths to this exact canonical Root can upgrade.
+      // canonical() rejects symlink ancestors; no name/prefix/inode inference.
+      if (absolute === product && typeof entry === "string") {
+        canonical(absolute, true);
+        continue;
+      }
+      const declaredDependency = [
+        [join(modules, "@gotgenes/pi-subagents"), dependencies.subagents],
+        [
+          join(modules, "@gotgenes/pi-permission-system"),
+          dependencies.permissions,
+        ],
+      ].find(([link]) => source === link);
+      if (declaredDependency && typeof entry === "string") {
+        const [link, owner] = declaredDependency;
+        if (realpathSync(link) !== owner)
+          throw new Error("Declared dependency owner changed");
+        continue;
+      }
+      if (absolute === join(product, "lib/guards")) {
+        if (typeof entry !== "string" || source !== absolute)
+          throw new Error("Filtered or aliased guard package; review required");
+        canonical(absolute, true);
+        const guard = readJson(join(absolute, "package.json"));
+        if (
+          guard?.name !== "@mahirocoko/pi-guards" ||
+          JSON.stringify(guard.pi?.extensions) !==
+            JSON.stringify(["./bootstrap.mjs", "./index.ts"]) ||
+          !readBootstrapFile(join(absolute, "bootstrap.mjs")) ||
+          !readBootstrapFile(join(absolute, "index.ts"))
+        )
+          throw new Error("Unreviewed redundant guard package");
+        // Root's already-validated manifest owns these exact same source files.
+        continue;
+      }
       let packageName: unknown;
       if (local && !required.includes(absolute)) {
         const metadataPath = join(absolute, "package.json");
@@ -856,13 +975,15 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
             )))
       )
         throw new Error("Conflicting package source");
+      if (!required.includes(absolute)) next.push(entry);
     }
-    const next = [...packages];
+    // Public services must register before Root captures the native parent.
+    // Preserve unrelated declarations, then one permissions/subagents/Root graph.
     for (const source of required)
       if (!next.includes(source)) next.push(source);
     change(
       path,
-      next.length === packages.length
+      JSON.stringify(next) === JSON.stringify(packages)
         ? readBootstrapFile(path)!.text
         : json({ ...settings, packages: next }),
       "packages",
@@ -908,6 +1029,33 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
   const skillPolicy = r.components.skillPolicy
     ? inspectSetup(r.agentDir)
     : null;
+  // Structural installation preconditions, not a policy resolver. Runtime queries
+  // remain exclusively with the public Root permission service. PSS 40.2.2's
+  // documented unset universal fallback is ask (yolo may promote ask, never deny).
+  let installationPolicy: string | undefined;
+  let removedDefaultDeny = false;
+  let featureInstallation: BootstrapPlan["featureInstallation"] = null;
+  if (r.components.featureData) {
+    const previous =
+      skillPolicy?.next ??
+      readBootstrapFile(setupTarget(r.agentDir))?.text ??
+      "{}";
+    planSetup(previous);
+    const config = JSON.parse(previous);
+    const permission = config.permission ?? {};
+    if (permission["*"] === "deny" && r.components.removeDefaultDeny) {
+      delete permission["*"];
+      removedDefaultDeny = true;
+    } else if (
+      r.components.removeDefaultDeny &&
+      permission["*"] !== undefined
+    ) {
+      throw Error(
+        'Cannot remove non-deny permission["*"]; restriction preserved; review config separately',
+      );
+    }
+    installationPolicy = json({ ...config, permission });
+  }
   let memory: BootstrapPlan["memory"] = null;
   if (r.components.memory) {
     const m = r.components.memory;
@@ -938,11 +1086,25 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       const path = setupTarget(r.agentDir);
       const previous = readBootstrapFile(path);
       planSetup(previous?.text ?? null); // Validate without silently repairing malformed prior permission.
-      const config = JSON.parse(skillPolicy?.next ?? previous?.text ?? "{}");
+      const config = JSON.parse(
+        installationPolicy ?? skillPolicy?.next ?? previous?.text ?? "{}",
+      );
       const permission = config.permission ?? {};
       for (const key of [...tools, `managed_memory_${sha(m.root)}`]) {
+        if (
+          !r.components.featureData &&
+          permission[key] === undefined &&
+          Object.entries(permission).some(
+            ([surface, value]) => /[*?\[]/.test(surface) && value !== "allow",
+          )
+        )
+          throw Error(
+            "Memory grant conflicts with retained wildcard restriction",
+          );
         if (permission[key] !== undefined && permission[key] !== "allow")
-          throw new Error("Memory grant conflicts with existing restriction");
+          throw new Error(
+            `Memory grant conflicts with existing restriction: ${key}; required tool/DATA capability unprovisioned; --remove-default-deny cannot override specific policy`,
+          );
         permission[key] = "allow";
       }
       // Reuse setup validation without adding skill activation unless selected.
@@ -951,13 +1113,162 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       change(path, next, "memory-authority");
     }
   }
+  const featureStateBindings: unknown[] = [];
+  if (r.components.featureData) {
+    if (!r.components.packages || !r.components.roles)
+      throw Error(
+        "Feature installation requires guarded packages and owned roles",
+      );
+    const path = setupTarget(r.agentDir);
+    const priorChange = changes.find((c) => c.path === path);
+    const previous =
+      priorChange?.next ??
+      installationPolicy ??
+      skillPolicy?.next ??
+      readBootstrapFile(path)?.text ??
+      "{}";
+    planSetup(previous); // Strict public config schema, no alternate policy resolver.
+    const config = JSON.parse(previous);
+    const permission = config.permission ?? {};
+    const grants = featureGrants(r.agentDir);
+    if (r.components.memory)
+      grants.push(...tools, `managed_memory_${sha(r.components.memory.root)}`);
+    const memoryRoot = join(r.agentDir, "memory");
+    if (existsSync(memoryRoot)) {
+      featureStateBindings.push({
+        root: memoryRoot,
+        stateHash: existingMemoryState(memoryRoot),
+      }); // Never seed, repair or rewrite existing data/config/ledger.
+      grants.push(...tools, `managed_memory_${sha(memoryRoot)}`);
+    }
+    const continuityRoot = join(r.agentDir, "continuity");
+    if (existsSync(continuityRoot)) {
+      if ((lstatSync(continuityRoot).mode & 0o7777) !== 0o700)
+        throw Error("Private continuity data root required");
+      const manifest = readBootstrapFile(join(continuityRoot, "manifest.json"));
+      if (!manifest)
+        throw Error(
+          "Existing continuity manifest required; no repair or reset",
+        );
+      parseProjects(manifest.text);
+      const state = createContinuityStore(
+        continuityRoot,
+        { excludedProjectIds: [], excludedPaths: [] },
+        { readOnly: true },
+      ).inspect();
+      for (const name of [
+        "manifest.json",
+        "state.json",
+        `${state.generation}.json`,
+      ]) {
+        const file = join(continuityRoot, name);
+        const generation = name === `${state.generation}.json`;
+        const existing = generation
+          ? readContinuityGeneration(file)
+          : readBootstrapFile(file);
+        if (!existing || existing.mode !== 0o600)
+          throw Error("Private continuity data file required");
+        change(
+          file,
+          existing.text,
+          generation ? "continuity-generation-preserve" : "continuity-preserve",
+        );
+      }
+    } else {
+      // Explicit installation only. This is a genuine empty accepted archive,
+      // not a catch-all empty result for missing/corrupt/revoked existing data.
+      change(
+        join(continuityRoot, "manifest.json"),
+        json({ version: 1, projects: [] }),
+        "continuity-manifest",
+      );
+      change(
+        join(continuityRoot, "install-empty-v1.json"),
+        json({ archive: { records: [], quarantine: [] }, facts: [] }),
+        "continuity-generation",
+      );
+      change(
+        join(continuityRoot, "state.json"),
+        json({
+          revision: 0,
+          lifecycle: {
+            session: "installation",
+            branch: "installation",
+            epoch: 0,
+          },
+          cursor: 0,
+          generation: "install-empty-v1",
+          facts: [],
+          controls: { forgotten: [], corrections: {} },
+        }),
+        "continuity-state",
+      );
+    }
+    grants.push(
+      "recall_search",
+      "recall_read",
+      `continuity_learning_${sha(continuityRoot)}`,
+      `continuity_data_${sha(continuityRoot)}`,
+    );
+    // Exact capabilities must be provisionable, not silently omitted while a
+    // successful receipt implies usability. Preserve all specific restrictions.
+    const restricted = grants.filter(
+      (key) => permission[key] !== undefined && permission[key] !== "allow",
+    );
+    if (restricted.length)
+      throw Error(
+        `Feature installation not ready: retained required tool/DATA restrictions: ${restricted.join(", ")}; required capabilities unprovisioned; --remove-default-deny cannot override specific policy`,
+      );
+    const originalPermission = JSON.parse(installationPolicy!).permission;
+    const missing = [...new Set(grants)].filter(
+      (key) => originalPermission[key] === undefined,
+    );
+    const uncertainWildcards = Object.entries(originalPermission)
+      .filter(([key, value]) => /[*?\[]/.test(key) && value !== "allow")
+      .map(([key]) => key);
+    // Exact-grant presence only, not a policy matcher. An already provisioned
+    // deny-by-default profile is legitimate. Never loosen future restrictions
+    // by inserting missing allows under an uncertain retained wildcard.
+    if (missing.length && uncertainWildcards.length)
+      throw Error(
+        `Feature installation not ready: retained wildcard restrictions: ${uncertainWildcards.join(", ")}; unprovisioned required tool/DATA capabilities: ${missing.join(", ")}; ${originalPermission["*"] === "deny" ? "review and explicitly pass --remove-default-deny (components.removeDefaultDeny: true)" : "conservative unknown wildcard coverage; review policy separately"}`,
+      );
+    for (const key of grants)
+      if (permission[key] === undefined) permission[key] = "allow";
+    const next = json({ ...config, permission });
+    planSetup(next);
+    if (priorChange) priorChange.next = next;
+    else change(path, next, "memory-authority");
+    const defaults = join(r.agentDir, "preferences/rtk/default.json");
+    const existing = readBootstrapFile(defaults);
+    for (const dir of [join(r.agentDir, "preferences"), dirname(defaults)])
+      if (existsSync(dir) && (lstatSync(dir).mode & 0o7777) !== 0o700)
+        throw Error("Private RTK data directory required");
+    if (!existing)
+      change(
+        defaults,
+        json({ version: 1, mode: "rewrite-rtk" }),
+        "rtk-default",
+      );
+    featureInstallation = {
+      capabilities: [...new Set(grants)],
+      removedDefaultDeny,
+      retainedRestrictionSurfaces: Object.entries(permission)
+        .filter(([, value]) => value !== "allow")
+        .map(([key]) => key),
+      rtkDefault: existing ? "existing-preserved" : "rewrite-rtk-created",
+      runtimePolicy: "public-service-authoritative",
+    };
+  }
   const sources = [
+    ...featureStateBindings,
     ...nativePrerequisites,
     sourceState(product, [
       "package.json",
       "bootstrap.mjs",
       "setup.mjs",
       "goal-preview.mjs",
+      "install.mjs",
       "agents",
       "skills",
       "extensions",
@@ -992,6 +1303,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     dependencies,
     changes,
     skillPolicy,
+    featureInstallation,
     skills: skillsInspect(r),
     memory,
   };
@@ -1011,6 +1323,7 @@ export const bootstrapSummary = (plan: BootstrapPlan) => ({
     afterHash: sha(c.next),
   })),
   skillPolicy: plan.skillPolicy ? setupSummary(plan.skillPolicy) : null,
+  featureInstallation: plan.featureInstallation,
   skills: plan.skills,
   memory: plan.memory,
   atomicAcrossOwners: false,
@@ -1023,9 +1336,19 @@ const mkdirPrivate = (path: string) => {
   }
 };
 const publish = (change: Change) => {
-  const current = readBootstrapFile(change.path);
+  const preservingGeneration = change.kind === "continuity-generation-preserve";
+  const current = preservingGeneration
+    ? readContinuityGeneration(change.path)
+    : readBootstrapFile(change.path);
   if (JSON.stringify(current) !== JSON.stringify(change.before))
     throw new Error("Target changed after review");
+  if (
+    preservingGeneration &&
+    (!current || current.mode !== 0o600 || current.text !== change.next)
+  )
+    throw new Error(
+      "Continuity generation preservation cannot publish changes",
+    );
   if (current?.text === change.next) return { changed: false, backup: null };
   mkdirPrivate(dirname(change.path));
   const backup = current
@@ -1170,6 +1493,7 @@ export const applyBootstrap = (
     digest: expected,
     status: "running",
     atomicAcrossOwners: false,
+    featureInstallation: reviewed.featureInstallation,
     steps: plannedSteps.map((step) => ({ ...step, status: "not-attempted" })),
     receiptPath: join(
       reviewed.request.agentDir,
@@ -1255,6 +1579,17 @@ export const applyBootstrap = (
           m.project,
           {
             ...process.env,
+            // Owned managed-repository commit metadata only, never git config/defaults.
+            GIT_AUTHOR_NAME:
+              process.env.GIT_AUTHOR_NAME ?? "Mahiro managed memory",
+            GIT_AUTHOR_EMAIL:
+              process.env.GIT_AUTHOR_EMAIL ??
+              "managed-memory@mahiro-pi.invalid",
+            GIT_COMMITTER_NAME:
+              process.env.GIT_COMMITTER_NAME ?? "Mahiro managed memory",
+            GIT_COMMITTER_EMAIL:
+              process.env.GIT_COMMITTER_EMAIL ??
+              "managed-memory@mahiro-pi.invalid",
             PI_CODING_AGENT_DIR: reviewed.request.agentDir,
             MAHIRO_AGENT_MEMORY_ROOT: m.root,
             MAHIRO_BOOTSTRAP_REQUEST: JSON.stringify({

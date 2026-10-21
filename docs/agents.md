@@ -80,7 +80,7 @@ not a requirement to package the user's specialists here.
 
 ## Goal primary-session boundary
 
-The opt-in native Goal source slice adds no role, worker, provider or model route.
+The canonical native Goal feature adds no role, worker, provider or model route. One explicit `install:profile` command composes only the three package-owned system roles; it never rewrites personal roles. Normal children may use installed RTK execution policy under their own public Bash decisions; mode mutation remains primary-only.
 Root `lib/guards/index.ts` checks actual primary SessionManager/header and native-child
 ownership. Known children receive neither primary Goal tools' authority nor its
 reminder. Public parentSession also conservatively rejects human forks; absence

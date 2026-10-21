@@ -14,8 +14,10 @@ import { isAbsolute, relative, resolve, join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { evidenceGitCommand } from "./evidence-git.mjs";
-import { preferenceBinding } from "../model-profiles.ts";
+import { rtkBinding } from "../rtk-state.ts";
 import { registerRTK } from "../rtk.ts";
+import { resolveRunBinding } from "../execution-run/store.ts";
+import { featureCapability } from "../feature-data.ts";
 
 const registryKey = Symbol.for("@mahirocoko/pi-guards:healthy-nodes");
 const nodes = (globalThis[registryKey] ??= new Map());
@@ -52,80 +54,6 @@ const resolveGoalProfile = () => {
   )
     throw new Error("Canonical Goal profile required");
   return value;
-};
-
-// Execution Run's outer dispatch also requires explicit native configuration.
-// This is not a permission parser or grant: the public policy owner remains sole authority.
-const assertExecutionRunConfigured = (profile, project) => {
-  const file = join(profile, "extensions/mahiro-execution-run/config.json");
-  for (const dir of [
-    profile,
-    join(profile, "extensions"),
-    join(profile, "extensions/mahiro-execution-run"),
-  ]) {
-    const stat = lstatSync(dir);
-    if (
-      !stat.isDirectory() ||
-      realpathSync(dir) !== dir ||
-      (stat.mode & 0o7777) !== 0o700 ||
-      (process.getuid && stat.uid !== process.getuid())
-    )
-      throw Error("Execution Run private configuration required");
-  }
-  const before = lstatSync(file);
-  if (
-    !before.isFile() ||
-    before.nlink !== 1 ||
-    before.size > 16384 ||
-    (before.mode & 0o7777) !== 0o600 ||
-    (process.getuid && before.uid !== process.getuid())
-  )
-    throw Error("Execution Run private configuration required");
-  const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const buffer = Buffer.alloc(16385);
-    let size = 0,
-      count;
-    do {
-      count = readSync(fd, buffer, size, buffer.length - size, size);
-      size += count;
-    } while (count && size < buffer.length);
-    const bytes = buffer.subarray(0, size),
-      after = fstatSync(fd),
-      pathStat = lstatSync(file);
-    if (
-      bytes.length > 16384 ||
-      after.dev !== before.dev ||
-      after.ino !== before.ino ||
-      after.nlink !== 1 ||
-      after.mode !== before.mode ||
-      after.uid !== before.uid ||
-      after.mtimeMs !== before.mtimeMs ||
-      after.ctimeMs !== before.ctimeMs ||
-      pathStat.ino !== after.ino ||
-      pathStat.dev !== after.dev
-    )
-      throw Error("Execution Run configuration changed");
-    const text = bytes.toString("utf8");
-    if (!Buffer.from(text).equals(bytes))
-      throw Error("Execution Run configuration UTF8 required");
-    const config = JSON.parse(text);
-    if (
-      !config ||
-      config.version !== 1 ||
-      config.profile !== profile ||
-      Object.keys(config).some(
-        (k) => !["version", "profile", "projects"].includes(k),
-      ) ||
-      !Array.isArray(config.projects) ||
-      config.projects.length > 32 ||
-      new Set(config.projects).size !== config.projects.length ||
-      !config.projects.includes(project)
-    )
-      throw Error("Execution Run explicit project configuration required");
-  } finally {
-    closeSync(fd);
-  }
 };
 
 // Load this exact local package root, alongside the exact local upstream roots.
@@ -200,7 +128,7 @@ export default async function activate(pi) {
     }
     return;
   }
-  const { getSubagentsService, SUBAGENT_EVENTS } = await import(
+  const { getSubagentsServiceForSession, SUBAGENT_EVENTS } = await import(
     "@gotgenes/pi-subagents"
   );
   const { getPermissionsService } = await import(
@@ -217,7 +145,7 @@ export default async function activate(pi) {
     uxWorkflowToolNames,
     trustedUXWorkflowTool,
     trustedExecutionRunTool,
-    trustedPreferenceTool,
+    trustedRTKTool,
   } = await import("./provenance.mjs");
   const host = createGuardHost();
   let sessionId,
@@ -252,22 +180,53 @@ export default async function activate(pi) {
   };
   const abortOwned = () => {
     latched = true;
-    if (!parentService) return;
+    const service =
+      parentService ?? getSubagentsServiceForSession(sessionManager);
+    if (!service) return;
     // Conservative cancellation includes healthy siblings and queued work.
-    for (const record of parentService.listAgents()) {
+    for (const record of service.listAgents()) {
       if (["running", "queued"].includes(record.status))
-        parentService.abort(record.id);
+        service.abort(record.id);
     }
   };
-  const preferenceAccess = (feature, tool, ctx, root, operation = "read") => {
+  const getParentService = () => {
+    // Root can start before the public owner. Resolve lazily by the exact SDK
+    // manager, never by the mutable last-child singleton or a session-id alias.
+    const service =
+      sessionManager && getSubagentsServiceForSession(sessionManager);
+    if (latched) return undefined;
+    if (!service) {
+      if (parentService) abortOwned();
+      return undefined;
+    }
+    if (parentService && service !== parentService) {
+      abortOwned();
+      return undefined;
+    }
+    parentService = service;
+    return service;
+  };
+  // Public policy remains the sole resolver. Exact legacy leaf restrictions win;
+  // a one-time canonical namespace grant covers only the checked derived leaves.
+  const stateCapability = (service, prefix, root) => {
+    const leaf = `${prefix}_${createHash("sha256").update(root).digest("hex")}`;
+    const decision = service?.checkPermission(leaf);
+    if (
+      decision?.matchedSurface === leaf ||
+      (decision?.source === "tool" && decision.state !== "allow")
+    )
+      return leaf;
+    return featureCapability(prefix, root);
+  };
+  const rtkAccess = (tool, ctx, root, operation = "read") => {
     const actual = pi.getAllTools().find((item) => item.name === tool?.name);
-    const binding = preferenceBinding(ctx.cwd, feature);
+    const binding = rtkBinding(ctx.cwd);
     if (
       !isPrimarySession(ctx) ||
       !binding ||
       root !== binding.root ||
-      !trustedPreferenceTool(actual, feature) ||
-      !trustedPreferenceTool(tool, feature) ||
+      !trustedRTKTool(actual) ||
+      !trustedRTKTool(tool) ||
       tool.sourceInfo.path !== actual.sourceInfo.path ||
       tool.sourceInfo.baseDir !== actual.sourceInfo.baseDir ||
       !["read", "write"].includes(operation)
@@ -276,7 +235,7 @@ export default async function activate(pi) {
     const service = getPermissionsService(sessionId);
     for (const surface of [
       tool.name,
-      `${feature.replaceAll("-", "_")}_state_${createHash("sha256").update(root).digest("hex")}`,
+      stateCapability(service, "rtk_state", root),
     ]) {
       const d = service?.checkPermission(surface);
       if (
@@ -305,8 +264,7 @@ export default async function activate(pi) {
   };
   const rtk = registerRTK(pi, {
     access: (ctx, root, operation) =>
-      preferenceAccess(
-        "rtk",
+      rtkAccess(
         pi.getAllTools().find((t) => t.name === "mh_rtk"),
         ctx,
         root,
@@ -318,6 +276,38 @@ export default async function activate(pi) {
         ? getPermissionsService(sessionId)?.checkPermission(surface, value)
         : undefined,
     current: isPrimarySession,
+    executionCurrent: (ctx) =>
+      ownsContext(ctx) && ctx.sessionManager === sessionManager,
+    executionAccess(ctx, root) {
+      const binding = rtkBinding(ctx.cwd);
+      if (
+        !ownsContext(ctx) ||
+        ctx.sessionManager !== sessionManager ||
+        ctx.signal?.aborted ||
+        binding?.root !== root
+      )
+        throw Error("RTK execution owner unavailable");
+      const service = getPermissionsService(sessionId);
+      const surface = stateCapability(service, "rtk_state", root);
+      const grant = service?.checkPermission(surface);
+      if (
+        grant?.state !== "allow" ||
+        grant.source !== "tool" ||
+        grant.matchedSurface !== surface ||
+        grant.origin === "yolo"
+      )
+        throw Error("RTK installed data authority required");
+      for (const target of [
+        root,
+        join(root, "state.json"),
+        join(root, "default.json"),
+      ])
+        for (const name of ["read", "path_read"]) {
+          const d = service.checkPermission(name, target);
+          if (d.matchedPattern !== undefined && d.state !== "allow")
+            throw Error("RTK execution data path denied");
+        }
+    },
   });
   const names = [
     "read",
@@ -362,8 +352,15 @@ export default async function activate(pi) {
           )?.state !== "allow"
         )
           throw Error("Native final Bash permission denied");
-        const args = await host.finalArgs(classifierName, input, ctx);
-        const final = name === "bash" ? await rtk.transform(args, ctx) : args;
+        if (signal?.aborted) throw new Error("Pi guard execution cancelled");
+        const executionContext = { ...ctx, signal: signal ?? ctx.signal };
+        const args = await host.finalArgs(
+          classifierName,
+          input,
+          executionContext,
+        );
+        const final =
+          name === "bash" ? await rtk.transform(args, executionContext) : args;
         if (signal?.aborted || !ownsContext(ctx))
           throw new Error("Pi guard node unavailable; execution blocked");
         if (
@@ -408,30 +405,12 @@ export default async function activate(pi) {
       const tool = pi
         .getAllTools()
         .find((tool) => tool.name === event.toolName);
-      if (
-        [
-          "mh_list_model_profiles",
-          "mh_set_model_profile",
-          "mh_delete_model_profile",
-          "mh_switch_model_profile",
-          "mh_rtk",
-        ].includes(event.toolName)
-      ) {
+      if (event.toolName === "mh_rtk") {
         try {
-          const feature =
-            event.toolName === "mh_rtk" ? "rtk" : "model-profiles";
-          const binding = preferenceBinding(ctx.cwd, feature);
-          if (!binding) throw Error("Preference feature disabled");
-          const read =
-            event.toolName === "mh_list_model_profiles" ||
-            (event.toolName === "mh_rtk" && event.input?.operation !== "mode");
-          preferenceAccess(
-            feature,
-            tool,
-            ctx,
-            binding.root,
-            read ? "read" : "write",
-          );
+          const binding = rtkBinding(ctx.cwd);
+          if (!binding) throw Error("RTK disabled");
+          const read = event.input?.operation !== "mode";
+          rtkAccess(tool, ctx, binding.root, read ? "read" : "write");
         } catch {
           return {
             block: true,
@@ -568,12 +547,17 @@ export default async function activate(pi) {
   unsubscribes.push(
     pi.on("session_start", (_event, ctx) => {
       const id = ctx.sessionManager.getSessionId();
-      if (sessionId && sessionId !== id)
+      if (
+        (sessionId && sessionId !== id) ||
+        (sessionManager && sessionManager !== ctx.sessionManager)
+      ) {
+        abortOwned();
         throw new Error("Pi guard session ownership changed; reload required");
+      }
       sessionId = id;
       sessionManager = ctx.sessionManager;
-      // Capture once. A child's singleton publication must not replace this service.
-      parentService ??= getSubagentsService();
+      // Repeated starts must validate, never reset, the already pinned owner.
+      getParentService();
       if (!registered) return;
       // Pi may reject a conflicting tool after its factory has returned while
       // retaining the extension's event handlers. Confirm actual public tool
@@ -599,12 +583,6 @@ export default async function activate(pi) {
       nodes.set(id, {
         generation,
         host,
-        modelProfiles: {
-          version: 1,
-          generation,
-          assertAccess: (tool, ctx, root, operation) =>
-            preferenceAccess("model-profiles", tool, ctx, root, operation),
-        },
         codeMap: {
           version: 1,
           generation,
@@ -660,13 +638,12 @@ export default async function activate(pi) {
               !isAbsolute(ctx.cwd) ||
               ctx.cwd !== resolve(ctx.cwd) ||
               realpathSync(ctx.cwd) !== ctx.cwd ||
-              /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(ctx.cwd) ||
               root !== expected ||
               !["read", "write"].includes(operation)
             )
               throw new Error("Goal guard unavailable");
             const service = getPermissionsService(sessionId);
-            const capability = `goal_state_${createHash("sha256").update(root).digest("hex")}`;
+            const capability = stateCapability(service, "goal_state", root);
             for (const surface of [tool.name, capability]) {
               const grant = service?.checkPermission(surface);
               if (
@@ -726,13 +703,12 @@ export default async function activate(pi) {
               !isAbsolute(ctx.cwd) ||
               ctx.cwd !== resolve(ctx.cwd) ||
               realpathSync(ctx.cwd) !== ctx.cwd ||
-              /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(ctx.cwd) ||
               root !== expected ||
               !["read", "write"].includes(operation)
             )
               throw Error("UX workflow guard unavailable");
             const service = getPermissionsService(sessionId),
-              capability = `ux_workflow_state_${createHash("sha256").update(root).digest("hex")}`;
+              capability = stateCapability(service, "ux_workflow_state", root);
             for (const surface of [tool.name, capability]) {
               const grant = service?.checkPermission(surface);
               if (
@@ -797,14 +773,17 @@ export default async function activate(pi) {
               !isAbsolute(ctx.cwd) ||
               ctx.cwd !== resolve(ctx.cwd) ||
               realpathSync(ctx.cwd) !== ctx.cwd ||
-              /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(ctx.cwd) ||
               root !== expected ||
-              !["read", "write"].includes(operation)
+              !["read", "write"].includes(operation) ||
+              resolveRunBinding(ctx.cwd)?.root !== root
             )
               throw Error("Execution Run guard unavailable");
-            assertExecutionRunConfigured(profile, ctx.cwd);
             const service = getPermissionsService(sessionId),
-              capability = `execution_run_state_${createHash("sha256").update(root).digest("hex")}`;
+              capability = stateCapability(
+                service,
+                "execution_run_state",
+                root,
+              );
             for (const surface of ["mh_execution_run", capability]) {
               const grant = service?.checkPermission(surface);
               if (
@@ -867,13 +846,16 @@ export default async function activate(pi) {
               !isAbsolute(ctx.cwd) ||
               ctx.cwd !== resolve(ctx.cwd) ||
               realpathSync(ctx.cwd) !== ctx.cwd ||
-              /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(ctx.cwd) ||
               root !== expected ||
               !["read", "write"].includes(operation)
             )
               throw Error("Evidence guard unavailable");
             const service = getPermissionsService(sessionId),
-              capability = `code_evidence_state_${createHash("sha256").update(root).digest("hex")}`;
+              capability = stateCapability(
+                service,
+                "code_evidence_state",
+                root,
+              );
             for (const surface of ["mh_code_evidence", capability]) {
               const grant = service?.checkPermission(surface);
               if (
@@ -1013,12 +995,12 @@ export default async function activate(pi) {
           isPrimarySession,
           parentService: () =>
             isPrimarySession({ sessionManager, cwd: process.cwd() })
-              ? parentService
+              ? getParentService()
               : undefined,
           assertAccess(tool, ctx, root, operation = "read", target = root) {
             const expected =
               process.env.MAHIRO_AGENT_MEMORY_ROOT ??
-              join(homedir(), ".pi/agent/memory");
+              join(resolveGoalProfile(), "memory");
             if (
               !ownsContext(ctx) ||
               ctx.sessionManager !== sessionManager ||
@@ -1030,8 +1012,7 @@ export default async function activate(pi) {
               !isAbsolute(expected) ||
               root !== resolve(expected) ||
               !isAbsolute(ctx.cwd) ||
-              ctx.cwd !== resolve(ctx.cwd) ||
-              /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(ctx.cwd)
+              ctx.cwd !== resolve(ctx.cwd)
             )
               throw new Error("Managed memory unavailable");
             if (
@@ -1120,6 +1101,7 @@ export default async function activate(pi) {
             return access;
           },
           bindWorker(tool, ctx, root, jobId, value, active) {
+            const parentService = getParentService();
             nodes
               .get(sessionId)
               .managedMemory.assertAccess(tool, ctx, root, "write");
@@ -1178,7 +1160,7 @@ export default async function activate(pi) {
           authorizeLearning(ctx, root, target = root) {
             const expected =
               process.env.MAHIRO_CONTINUITY_ROOT ??
-              join(homedir(), ".pi/agent/continuity");
+              join(resolveGoalProfile(), "continuity");
             if (
               !isPrimarySession(ctx) ||
               !isAbsolute(root) ||
@@ -1189,8 +1171,7 @@ export default async function activate(pi) {
               target !== resolve(target) ||
               (target !== root && !target.startsWith(`${root}/`)) ||
               !isAbsolute(ctx.cwd) ||
-              ctx.cwd !== resolve(ctx.cwd) ||
-              /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(ctx.cwd)
+              ctx.cwd !== resolve(ctx.cwd)
             )
               throw new Error("Continuity learning unavailable");
             const service = getPermissionsService(sessionId);
@@ -1225,6 +1206,36 @@ export default async function activate(pi) {
               throw new Error("Continuity read blocked");
             const service = getPermissionsService(sessionId);
             const outside = relative(ctx.cwd, path);
+            const root =
+              process.env.MAHIRO_CONTINUITY_ROOT ??
+              join(resolveGoalProfile(), "continuity");
+            const capability = `continuity_data_${createHash("sha256").update(root).digest("hex")}`;
+            const dataGrant = service?.checkPermission(capability);
+            const ownedData =
+              (path === root || path.startsWith(`${root}/`)) &&
+              dataGrant?.state === "allow" &&
+              dataGrant.source === "tool" &&
+              dataGrant.matchedSurface === capability &&
+              dataGrant.origin !== "yolo";
+            if (ownedData) {
+              for (const surface of [
+                "read",
+                "path_read",
+                "external_directory_read",
+              ]) {
+                const d = service.checkPermission(surface, path);
+                if (d.matchedPattern !== undefined && d.state !== "allow")
+                  throw Error("Continuity data path denied");
+              }
+              const t = service.checkPermission(tool.name);
+              if (
+                t.state !== "allow" ||
+                t.matchedSurface !== tool.name ||
+                t.origin === "yolo"
+              )
+                throw Error("Continuity named tool authority required");
+              return;
+            }
             const pathRead = service?.checkPermission("path_read", path);
             if (
               !service ||
@@ -1241,10 +1252,10 @@ export default async function activate(pi) {
             )
               throw new Error("Continuity read requires existing permission");
           },
-          // Future orchestrators may only obtain this node's captured service while healthy.
+          // Only the exact current owner may supply this healthy node's service.
           parentService: () =>
             ownsContext({ sessionManager: { getSessionId: () => id } })
-              ? parentService
+              ? getParentService()
               : undefined,
         },
         healthy: () =>
@@ -1272,7 +1283,8 @@ export default async function activate(pi) {
         nativeChildren.add(event.sessionId);
       if (event.parentSessionId !== sessionId) return;
       children.add(event.sessionId);
-      if (!parentService || !healthy(event.sessionId) || latched) abortOwned();
+      if (!getParentService() || !healthy(event.sessionId) || latched)
+        abortOwned();
     }),
   );
   unsubscribes.push(
@@ -1282,7 +1294,7 @@ export default async function activate(pi) {
   );
   unsubscribes.push(
     pi.events.on(SUBAGENT_EVENTS.RESUMING, (event) => {
-      if (!parentService?.getRecord(event.id)) return;
+      if (!getParentService()?.getRecord(event.id)) return;
       if ([...children].some((id) => !healthy(id))) latched = true;
       if (latched) abortOwned();
     }),

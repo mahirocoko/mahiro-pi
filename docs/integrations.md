@@ -1,29 +1,33 @@
 # Pi integrations and ownership
 
-## Native ownership repair — source candidate, 2026-10-20
+## Native ownership and one-install repair — source, 2026-10-20
 
 This repository is the sole authoring owner of every Pi-specific implementation: `lib/guards/` owns the native bridge, narrow app ABIs, provenance and pure secret/commit guard ports; root `patches/`, workspace, lock and package manifest own the declared public dependency contracts. No Mods checkout is a runtime/build/bootstrap/test prerequisite. Its original Letta entries and historical Pi adapter remain unchanged; their cleanup or activation is separate scope. Dated deployment/provider/QA records below retain their original owners and evidence dates, not current source instructions.
 
-**Current runtime, separately approved 2026-10-20:** actual `package.json` still declares the exact ordered ten feature entries. The private profile now explicitly registers Root public permission/subagents packages and a single `lib/guards/` package, with `lib/guards/bootstrap.mjs` first and the optional worker resource added outside the manifest. The legacy guard registration was removed, not duplicated. Only `test/candidate-extensions.json` and owned copied test roots declare `lib/guards/bootstrap.mjs` then `lib/guards/index.ts`, the unchanged ten features, and saved Models last (candidate13). New guarded bootstrap from actual active10 intentionally rejects the ordered-guard mismatch before profile writes; see [`bootstrap.md`](bootstrap.md#current-compatibility-hold). Earlier managed-memory/native deployment dates below did not authorize this cutover; the 20 October human decision did. RTK control is inside the final native guard boundary, not a late `tool_start` rewrite hook. The public permission system alone resolves policy. Positive candidate QA stages both authored owner patches in isolated public-package copies; any service without winning-surface attestation still denies. An earlier installed-root offline repair already occurred and must not be erased by a blanket 'never installed' claim. The prior source-only phase preserved its 318 scoped installed assets and settings. The separately approved runtime operation updated only the pinned public subagents dependency offline and private resource registrations, with exact rollback evidence; grants, auth, roles, Core and model defaults were not changed. Public subagents is the sole child runner; Root supplies narrow identity/guard bindings, not another executor.
+**Current source:** actual `package.json` is guards-first12: bootstrap, one Root native guard, preserved ten features. Disposable candidate declarations mirror this graph. `pnpm install:profile` composes pinned public permission/subagents packages, the three owned system roles and narrow feature DATA authority once with explicit consent; see [`bootstrap.md`](bootstrap.md). Ordinary canonical projects require no whitelist/config. Goal/Evidence/UX/Run state remains separate by project, private and CAS-protected; empty reads create nothing. Main shares relevant managed knowledge across canonical projects; actual workers and retained v1 views remain scoped. A new root gets only a neutral scaffold through guarded native SDK/Faux, never a private corpus import; an existing migrated root/config/ledger/Core is preserved. Future project/import filtering has no OneDee-only ban; old quarantine/forget history is not restored.
 
-### Saved Models and RTK native adaptation
+**Dated runtime evidence, not new activation:** the separately approved 2026-10-20 private cutover used Root public packages and one explicit Root guard, bootstrap first, plus the optional worker resource. Earlier installed-root repair, migration and its 318-asset preservation are retained historical evidence. This source repair does not apply/reload the actual profile or claim its cached process adopted new behavior. Public policy remains the sole resolver; public subagents remains the sole child runner. The previous recall/reflection errors and rejected nohup launch have no newly established live root cause. In particular, the rejected controller was never armed and is not retried through another channel.
 
-`lib/model-profiles.ts` and `extensions/mahiro-model-profiles.ts` own private profile-persistent presets at `<profile>/preferences/model-profiles/state.json`. Storage identity is deliberately **not** a session UUID: aliases/preferences survive native sessions. Authorization separately requires the exact current primary SessionManager, project, generation, declared ToolInfo, explicit private project config and exact tool/root winning surfaces. The capability is `model_profiles_state_<sha256(canonical-root)>`; RTK's separate root/capability are `<profile>/preferences/rtk` and `rtk_state_<sha256(canonical-root)>`. Memory/Core/C1 authority cannot substitute for either.
+### RTK resolver and Saved Models retirement — 2026-10-20
 
-Each feature requires an existing private 0700 `<profile>/extensions/mahiro-<feature>/` directory and 0600 `config.json`: `{ "version": 1, "profile": "/canonical/private/profile", "projects": ["/canonical/project"] }`, where feature is `model-profiles` or `rtk`. Missing configuration is disabled; reads/startup never initialize state. No config builder grants capabilities or provisions settings. State is bounded closed JSON, 0700/0600, symlink/hardlink-rejecting, revision/CAS guarded and never auto-repaired or force-unlocked.
+Saved Model Profiles is **RETIRED/removed by the current human decision on 20 October 2026**. No packaged Models extension, library, command, tools, guard ABI or provenance allowance remains. Native `/model`, public native registry/auth, model defaults and personal roles are unchanged. Frozen Letta originals/provenance remain dated historical references only; they are not executable compatibility stubs. This source retirement does not edit the live profile or claim its cached runtime has reloaded.
 
-Models commands: `/mh-model-profile list`; `set <sequence> <provider/model> <context-hint> <thinking|-> [alias...]`; `remove|switch <sequence> <handle-or-alias...>`. Four namespaced tools expose the same list/save/delete/switch operations. All mutations require actual public UI confirmation with operation/target/sequence/session/project/profile, then fresh authority/config/CAS checks. Only public registry lookup, `setModel` and `setThinkingLevel` select an explicitly saved model; native auth/availability and `/model` remain authoritative. Requested context windows are hints: **per-conversation context-window override is unsupported by public API**, and reported native effective capacity is never overwritten. Thinking reports requested versus native effective values. No automatic startup switch, provider inference, defaults/credentials/roles/settings write or Letta state import exists.
+`lib/rtk.ts` owns `/mh-rtk` and `mh_rtk`; `lib/rtk-state.ts` owns only RTK's private binding and CAS publication. Storage is `<profile>/preferences/rtk/state.json`. One-install grants `rtk_state_data_<sha256(canonical-rtk-root)>` and named `mh_rtk`, and installs an absent-state `default.json` of rewrite-rtk. Existing explicit off wins. Optional legacy config remains validated/CAS-bound, not a project whitelist. Primary SessionManager/provenance/generation and exact named tool/data authority gate mode control; normal native children may read installed execution policy under their own public original/candidate/final Bash decisions, never mutate primary mode. Explicit legacy leaf/tool/path denials remain effective. Memory/Core/C1 grants cannot substitute. Private preferences/data directories remain0700/files0600, while safe standard host profile parents may be0755. Canonical separation, unsafe ancestors, symlink/hardlink rejection, closed JSON and CAS remain mandatory. Startup grants nothing; no automatic repair/force unlock exists.
 
-`lib/rtk.ts` owns `/mh-rtk` and `mh_rtk`: off/suggest/rewrite-safe/rewrite-rtk, status/log/preview/doctor/guidance. Mode writes need exact fresh sequence, native capability and public UI confirmation. Off's execution fast path does no RTK filesystem/probe/helper/log work; configured mode is read-only restored at session start only if authorized. Suggest executes the original. Both rewrite modes use a bounded deterministic grammar, no shell evaluation or `rtk rewrite` subprocess. Safe supports git status/diff and ls; broader supports additionally git log/show and cat→rtk read. Shell controls, quotes, env assignments, substitutions, write/commit and unsafe options never qualify. Arbitrary upstream RTK rewrite parity is deliberately unsupported. Binary syntax/version is not probed or claimed verified.
+Modes are off/suggest/rewrite-safe/rewrite-rtk. `mode <mode> <sequence>` requires the exact fresh sequence, existing capability, actual public RPC/TUI confirmation and fresh post-await session/config/authority checks. Off's execution fast path touches no RTK filesystem, helper, permission collaborator or log. Authorized startup may read-only restore installed/default mode; only the explicit installer selects the absent-state default, never resource loading. Suggest previews the real helper but executes the guarded original. Rewrite-safe keeps a separate conservative grammar (git status/diff and ls, with operand read-denial checks). **Rewrite-rtk uses the installed `rtk rewrite` resolver**, not that grammar: Node `execFile("rtk", ["rewrite", "--", original])`, `shell: false`, `ctx.cwd` and the operation abort signal. Direct `git commit` remains native/raw after host sanitization and never reaches the helper. No skip-permission environment flags or late tool hook are used.
 
-The final native wrapper checks original secret/attribution and public Bash permission, then RTK checks original/final decisions and operand read denials, then reruns final secret/attribution and public permission before spawn. No late hook bypass or denied-input laundering is allowed, including direct/nested/hook-free execution. No Letta settings, RTK history DB/global hooks or verified token-reduction claim is added. Recent bounded in-memory command hashes are metadata, never native usage/quota.
+The resolver bounds input to 4096 UTF-8 bytes, stdout/stderr each to 16384 bytes, duration to 1500 ms with SIGKILL, and concurrent helpers to four. Output is a nonempty UTF-8 single command line (one trailing newline allowed); embedded controls/multiline/invalid output is rejected. Exit **0** proposes a candidate; **3** proposes a candidate requiring host approval, never an RTK grant; **1** means unchanged; **2** blocks execution regardless of stdout/stderr (its message is never executable). Unavailable binary, unknown exit, timeout, oversize and malformed output preserve the guarded original. Partial stdout and all stderr are never candidates. Abort, stale epoch/session/binding/config/CAS or lost authority fail closed after awaits. Quotes, pipelines, npm/cargo and mixed chains such as `pnpm test && rtk git status --short` are not restricted by a hidden local DSL; the host still decides whether they are allowed.
+
+The native factory wrapper checks the original public Bash policy and original secret/attribution guards **before** any helper. RTK checks the sanitized original policy, proposed candidate policy, final sanitizer/secret/attribution transform, then all original/proposed/final permissions again before actual native spawn; the wrapper also checks final public Bash policy. Final RTK read/proxy/nested wrapper projections cannot hide sensitive reads or environment dumps. Direct, nested and hook-free dispatch use this same final boundary, not an event-only rewrite. Helper exit 0 or 3 never substitutes for policy or UI authority.
+
+`status`, `doctor`, `guidance`, `gain` and `projects` report configured/current-generation state and resolver bounds, not binary/version availability or RTK history. Explicit `rewrite <command>` uses the same real resolver after original host authorization, reports its outcome with `executed: false` and `hostApprovalRequired: true`, and never executes the candidate. `log` exposes only at most 20 in-memory action/command-hash records, no raw command history or RTK database. Savings stay unverified; native usage/quota, Letta settings, RTK global hooks and history DBs remain untouched. Required source and actual SDK fixtures use owned fake executable transports, not live RTK/profile probes. Main owns separately approved setup, reload and runtime acceptance after independent QA.
 
 Required verification is canonical `pnpm check` then `pnpm check:format` serially. `pnpm check` already includes Root-owned `check-public-sdk.mjs`; no duplicate SDK run is needed. With no installed dev SDK, explicitly supply reviewed public package copies via `MAHIRO_PI_TEST_MODULES`; there is no runtime harvesting or Mods fallback. The required suite executes Root-only CLI preview and actual public SDK/Faux tools with no Mods sibling. Frozen dated test-only Letta oracles retain source hashes under `test/oracles/letta/`; they are neither runtime entries nor a second owner. Source QA is not independent final QA, live activation, human/RAM acceptance, full typechecking or full Letta parity.
 
 ## Pi worker activity — explicit optional metadata resource
 
 `extensions/mahiro-worker-activity.ts` and `lib/worker-activity.ts` remain outside
-active10 and base candidate13. The owned public-SDK fixture adds a fourteenth
+the actual guards-first12 graph and its disposable mirror. The owned public-SDK fixture adds a thirteenth
 resource; the separately approved 2026-10-20 private runtime now explicitly adds
 this same worker resource alongside bootstrap-first Root guard/public owners.
 Neither installation nor source startup provisions that profile automatically.
@@ -114,12 +118,13 @@ source-only QA and the failed first controller remain preserved, not relabeled.
 
 ## Native Execution Run — source-only sixth ALL-Mods slice
 
-The tenth resource, `extensions/mahiro-execution-run.ts`, appends one
-`mh_execution_run` get/create/update tool and `/mh-run` after the accepted nine in
+The tenth feature (twelfth guard-inclusive resource),
+`extensions/mahiro-execution-run.ts`, appends one `mh_execution_run`
+get/create/update tool and `/mh-run` after the accepted nine features in
 unchanged order. [`execution-run.md`](execution-run.md) owns the bounded native
 metadata FSM, private persistent state/CAS, exact canonical tool/root authority,
 public-UI-confirmed exact-target abandon/terminal clear and explicit session-ref
-adaptation. Default is disabled. Runs are optional coordination metadata, not a
+adaptation. Ordinary canonical bindings need no project config after explicit installation; empty reads create nothing. Runs are optional coordination metadata, not a
 competing task board: live TSK owns tasks/outcomes/evidence/human acceptance.
 No executor, artifact reader, worker discovery, Goal/UX/Evidence mutation or intake
 collection is added. The original Letta model and accepted owners stay frozen.
@@ -129,50 +134,54 @@ is not live activation, independent final QA, human/RAM acceptance or full parit
 
 ## Native UX Workflow — source-only fifth ALL-Mods slice
 
-The ninth resource, `extensions/mahiro-ux-workflow.ts`, appends exactly
+The ninth feature (eleventh guard-inclusive resource),
+`extensions/mahiro-ux-workflow.ts`, appends exactly
 `mh_get_ux_workflow`, `mh_create_ux_workflow`, `mh_update_ux_workflow` and `/mh-ux`
-after the accepted eight in unchanged order. [`ux-workflow.md`](ux-workflow.md)
+after the accepted eight features in unchanged order. [`ux-workflow.md`](ux-workflow.md)
 owns its bounded metadata FSM, optional research, opaque references, public UI
 human direction/review/reopen/clear gates and native private CAS/tickets. This is
 not a design/research engine, artifact reader, Goal/Evidence mutation or executor.
 
-Default is disabled without explicit private canonical project config. Root-owned native guards expose only the narrow `uxWorkflow` version-1 ABI, requiring the actual
+Canonical projects require no private feature config after one explicit installation. Root-owned native guards expose only the narrow `uxWorkflow` version-1 ABI, requiring the actual
 public owner's exact invoked-tool and exact hashed UX-state-root winning surfaces,
 canonical provenance/current primary manager/generation and applicable path denies.
 The existing source patch is reused in isolated fixtures, not installed. New
 sessions never attach a sole workflow; navigation invalidates pending tickets but
-does not rewind state. No moves, force unlock, new installer or grant provisioning
-is added. Source/offline SDK evidence is not live activation, independent QA,
+does not rewind state. No moves or force unlock are added. Resource startup grants
+nothing; explicit profile installation reuses bootstrap's shared `featureData`
+composition, not a separate UX installer. Source/offline SDK evidence is not live activation, independent QA,
 visual/human/RAM acceptance or complete ALL-Mods/Letta parity. The separate
 Execution Run source slice is above; existing bootstrap recursive source binding
 needs no UX-specific option.
 
 ## Native Code Evidence — source-only fourth ALL-Mods slice
 
-The eighth resource, `extensions/mahiro-code-evidence.ts`, appends opt-in
-`mh_code_evidence` and `/mh-evidence` after the accepted seven. It collects four
+The eighth feature (tenth guard-inclusive resource),
+`extensions/mahiro-code-evidence.ts`, appends `mh_code_evidence` and
+`/mh-evidence` after the accepted seven features. It collects four
 bounded Git lanes, persists native profile/project/session reports with private
 whole-envelope CAS, and records descriptive external-check metadata. It never runs
 caller command strings, mutates Goal state or injects automatic reminders.
 [`evidence.md`](evidence.md) owns configuration, exact tool/root permission ABI,
 Git fixed-argv/config-execution boundary, conservative freshness, confirmed clear,
-private FD integrity and unsupported storage/fork limits. Default is disabled;
-source and actual offline patched-owner SDK tests do not install the owner patch,
-apply grants/config, activate a profile or establish independent/human acceptance.
+private FD integrity and unsupported storage/fork limits. Canonical empty reads require no per-project config;
+owned native SDK fixtures may compose fixture grants, but do not install or
+activate the real profile or establish human acceptance.
 
 ## Native Goal — source-only third ALL-Mods slice
 
-The seventh resource is `extensions/mahiro-goal.ts`, appended after the existing
-six without changing managed-memory/C1 ordering. [`goal.md`](goal.md) owns the
+The seventh feature (ninth guard-inclusive resource) is
+`extensions/mahiro-goal.ts`, after the existing six features without changing
+managed-memory/C1 ordering. [`goal.md`](goal.md) owns the
 native schema, four model-callable tools, confirmed human commands, scoped private
 persistence/CAS and bounded subordinate reminder. Native profile/project/session
 identity deliberately adapts Letta's agent/conversation schema; no old state is
-imported. Missing config is disabled, startup initializes nothing, and new sessions
+imported. Missing config is supported, startup initializes nothing, and new sessions
 need an explicit same-profile/project move into an empty destination.
 
-Root-owned `lib/guards/index.ts` owns the narrow version-1 Goal ABI. Both exact tool and exact
-hashed project-state-root scalar decisions require actual `matchedSurface`
-attestation; memory/C1 capabilities, wildcard winners, yolo-only and old owners
+Root-owned `lib/guards/index.ts` owns the narrow version-1 Goal ABI. Exact tool and canonical feature DATA namespace decisions (or retained legacy
+leaf grants) require actual `matchedSurface` attestation; explicit legacy
+leaf/tool/path denials remain effective; memory/C1 capabilities, wildcard winners, yolo-only and old owners
 deny. The existing source patch is reused, **not installed**. Human clear and all
 command mutations require public UI confirmation, while ordinary model updates
 and audited completion do not acquire universal approval. Request guidance is not
@@ -203,9 +212,9 @@ restored adapter assertion requires exact `mh_code_map` attestation. An old serv
 phase preservation does not negate the earlier installed-root offline repair;
 no install, grant or profile reload is implied by isolated source-fixture success.
 
-The Pi package's sixth declared resource is
-`./extensions/mahiro-code-map.ts`, after the original five in their unchanged
-order (managed memory before C1, accepted utilities fifth). The native owner is
+The Pi package's sixth feature (eighth guard-inclusive manifest resource) is
+`./extensions/mahiro-code-map.ts`, after the two guards and original five features
+in unchanged feature order (managed memory before C1, accepted utilities fifth). The native owner is
 `lib/code-map.ts`; canonical `mods/mods/mahiro-code-map.ts` remains unchanged for
 Letta. This source slice does not activate a running profile or complete ALL-Mods.
 
@@ -375,6 +384,8 @@ reviewed public auth-prose/placeholder formatting adaptations; no real credentia
 was imported or encoded to evade the unchanged scanner. Complete detail, links,
 persona, identity and all seven former native continuity facts survive. This is
 an operator migration, not model learning or live cross-host synchronization.
+
+Historical 2026-10-19 migration scope only; the later explicit installation/default-deny revocation contract is owned by [`bootstrap.md`](bootstrap.md#one-install-composition-historical-active10-hold-retired), not this retained receipt.
 
 The new canonical managed writer is registered. Permission changes are exactly
 the default root's hashed capability plus five named managed-memory tool allows;
@@ -837,13 +848,13 @@ that source installation alone enables the whole workflow.
 | Footer, Git/activity and Pi Herdr display tokens | This repository; Herdr remains sidebar renderer and Pi lifecycle producer. |
 | Skills | `mahiro-skills` copies reusable cross-host skill bodies; this package owns explicit default skill-policy setup separately from source installation. Root-owned native guards enforce Pi execution, not these grants. This package additionally owns the native git-commit skill/agent pair. Invoke native `/skill:git-commit`, `/skill:recap`, `/skill:rrr`, `/skill:forward`, `/skill:mahiro-style` and `/skill:working-tasks`; no redundant command aliases are generated. Other hosts retain their own command contracts. |
 | Timestamps / realign | Native source utilities here; run-start metadata and generated custom guidance differ deliberately from Letta input rewriting. No live activation claimed; see the utility contract above. |
-| Model profiles | Native private profile-persistent preset port here; exact current-session authorization, confirmed save/remove/switch, public native selection; context override unsupported (hint only). |
+| Saved Model Profiles | RETIRED/removed by the current human decision, 2026-10-20. Native `/model` and registry/auth remain unchanged; no compatibility runtime surface. |
 | Code Map | Pure native formatter/schema port here; model-callable resource requires the authored permission-owner winning-surface patch and exact named grant; services lacking winning-surface attestation fail closed. Old/unpatched-owner fixtures do not diagnose today's installed or live owner. No new live activation or workflow state is claimed. |
-| Goal | Opt-in seventh native source resource; private project/session state, four guarded tools, confirmed human commands and subordinate reminder. Source-only, no state import or live activation; `goal.md` owns the contract. |
-| Code Evidence | Opt-in eighth native source resource; four bounded Git lanes, scoped persistent reports, descriptive records and reference-only Goal handoff. Default disabled; `evidence.md` owns the contract. No live activation claimed. |
-| UX Workflow | Opt-in ninth native source resource; bounded metadata coordinator, exact tool/root authority, private CAS and confirmed human direction/review gates. Default disabled; `ux-workflow.md` owns the contract. No live activation or Goal/Evidence mutation. |
-| Execution Run | Opt-in tenth native source resource; one operation tool and confirmed exact-target operator commands, private CAS and caller-only coordination refs. Default disabled; `execution-run.md` owns the contract. No execution, proof, live activation or competing TSK ledger. |
-| Secret/commit guards, RTK, MCP | Root-owned pure guard ports/final ABI and opt-in bounded RTK control; native Pi owns MCP. Letta is unchanged; dated runtime deployment below is not new activation. |
+| Goal | Seventh feature/ninth manifest resource, available after explicit profile installation; private project/session state, four guarded tools, confirmed human commands and subordinate reminder. Source-only, no state import or live activation; `goal.md` owns the contract. |
+| Code Evidence | Eighth feature/tenth manifest resource, available after explicit profile installation; four bounded Git lanes, scoped persistent reports, descriptive records and reference-only Goal handoff. Canonical bindings; `evidence.md` owns the contract. No live activation claimed. |
+| UX Workflow | Ninth feature/eleventh manifest resource, available after explicit profile installation; bounded metadata coordinator, exact tool/root authority, private CAS and confirmed human direction/review gates. Canonical bindings; `ux-workflow.md` owns the contract. No live activation or Goal/Evidence mutation. |
+| Execution Run | Tenth feature/twelfth manifest resource, available after explicit profile installation; one operation tool and confirmed exact-target operator commands, private CAS and caller-only coordination refs. Canonical bindings; `execution-run.md` owns the contract. No execution, proof, live activation or competing TSK ledger. |
+| Secret/commit guards, RTK, MCP | Root-owned pure guard ports/final ABI and bounded RTK control; explicit profile installation selects rewrite-rtk default while preserving explicit off; native Pi owns MCP. Letta is unchanged; dated runtime deployment below is not new activation. |
 | Tasks | Existing tsk board, no competing session ledger. |
 | Subagents | Public subagents alone owns execution and public permissions alone resolves policy. Root authors the guard bridge and, after the separately approved 2026-10-20 cutover, is the single live guard owner. This package authors memory-reflector, managed-memory-writer and the explicitly approved git-commit exception; the other personal workflow roles/model bindings remain local. Earlier personal-role runtime checks below are historical evidence, not package ownership. |
 | Memory, recall, reflection | The private native managed-memory root owns maintained Core/persona/preferences and scoped details, separately from the curated bootstrap and C1's untrusted archives/quoted notes. Exact-root authority and locked native writers remain required. Current cutover evidence is above and `agent-memory.md` owns the contract; utility metadata grants no identity or write authority. Human daily-work acceptance remains open. |
@@ -869,17 +880,17 @@ provider/rendered/all-Space acceptance cannot be inferred from source tests.
 
 | Original entry / capability | Native equivalent or port / current owner | Meaningful source or SDK proof | Active-runtime / acceptance limit |
 | --- | --- | --- | --- |
-| `mahiro-user-timestamps` — clock context | Adapted port: `lib/native-utilities.ts`, `extensions/mahiro-native-utilities.ts`; host-local run-start metadata, not user-text rewriting or fixed Bangkok time | `test/native-utilities.test.ts`, `test/native-utilities-native.test.ts`: input/attachment immutability, clock skips and public SDK lifecycle | In active10 source list; current live utility behavior not re-probed. No human identity or memory authority. |
+| `mahiro-user-timestamps` — clock context | Adapted port: `lib/native-utilities.ts`, `extensions/mahiro-native-utilities.ts`; host-local run-start metadata, not user-text rewriting or fixed Bangkok time | `test/native-utilities.test.ts`, `test/native-utilities-native.test.ts`: input/attachment immutability, clock skips and public SDK lifecycle | In the guards-first12 source list; current live utility behavior not re-probed. No human identity or memory authority. |
 | `mahiro-realign` — correction guidance | Adapted port in the same native utility owners; bounded literal focus, public custom message and fresh idle delivery | Same source/native fixtures: busy/stale/child rejection and fresh-loader boundary | No live activation inferred; not a user message, cancellation guarantee or permission. `/skill:recap` is separate. |
-| `mahiro-model-profiles` — saved presets | Adapted port: `lib/model-profiles.ts`, `extensions/mahiro-model-profiles.ts`; private profile-persistent aliases, public `setModel` / `setThinkingLevel` | `test/model-profiles.test.ts`, `lib/guards/test/preferences-patch-test.mjs` → `preferences-test.mjs`: actual SDK/Faux public switch plus UI/CAS/authority negatives | Candidate13 only, not active10. Context-window preference is a hint, **not effective capacity override**. No real preset/default/provider changes or live switching acceptance. |
+| `mahiro-model-profiles` — saved presets | **RETIRED/removed by current human decision, 20 October 2026**; no Pi Models runtime owner or compatibility stub | `test/rtk-contract.test.ts`: executable/manifest/ABI retirement; RTK storage/security coverage retained separately in `test/rtk-state.test.ts` and `lib/guards/test/rtk-patch-test.mjs` | Native `/model`, native registry/auth, defaults and personal roles unchanged. Frozen dated Letta oracle/provenance retained as history only; no live profile cleanup or reload claimed. |
 | `mahiro-herdr-lifecycle` — host activity | Native Pi owns raw lifecycle; `lib/status.ts` owns existing display metadata and `lib/worker-activity.ts` / `extensions/mahiro-worker-activity.ts` own separate exact-service worker counts. `mahiro-herdr/src/agent-renderer.mjs` owns the derived Space status-cell overlay | `test/status.test.ts`, `test/worker-activity.test.ts`, `lib/guards/test/worker-activity-sdk-test.mjs`: PID/generation/sequence controls and actual print-mode automatic children; Herdr `test/agent-renderer.test.mjs` checks strict tuple parsing and unchanged raw state | **Producer, consumer and approved Root-only runtime active.** Fresh Pi TUI/owned updater and independent live child established raw settled Main plus positive worker counts and real published spinner tokens, then terminal `0/0`. This is resolved runtime-token evidence, not rendered all-Space/human/daily/RAM acceptance. |
-| `mahiro-goal` — objective metadata | Default-disabled port: `lib/goal/`, `extensions/mahiro-goal.ts`; Root guard `goal` ABI, public permission decisions | `test/goal-*.test.ts`, `lib/guards/test/goal-patch-test.mjs` → `goal-test.mjs`: schema/CAS, exact tool/root and UI/direct/nested gates | Active10 declaration is not config/grant/activation. No import, automatic Goal, executor or TSK replacement; metadata is not completion truth. `goal.md` owns semantics. |
-| `mahiro-code-evidence` — bounded Git evidence metadata | Default-disabled port: `lib/evidence/`, `extensions/mahiro-code-evidence.ts`; Root guard `evidence` ABI | `test/evidence-*.test.ts`, `lib/guards/test/evidence-patch-test.mjs` → `evidence-test.mjs`: four Git lanes, authorization/helper controls, CAS and direct/nested dispatch | No live enablement; recorded commands are never executed, `evidence_ready` is metadata, not verified Goal completion. `evidence.md` owns semantics. |
-| `mahiro-ux-workflow` — design coordination | Default-disabled port: `lib/ux-workflow/`, `extensions/mahiro-ux-workflow.ts`; Root guard `uxWorkflow` ABI | `test/ux-workflow-*.test.ts`, `lib/guards/test/ux-workflow-patch-test.mjs` → `ux-workflow-test.mjs`: FSM, exact authority, public UI gates/CAS | No design engine, artifact reader, executor or live/human direction acceptance. Metadata does not mutate Goal/Evidence. `ux-workflow.md` owns semantics. |
+| `mahiro-goal` — objective metadata | Canonical installed feature: `lib/goal/`, `extensions/mahiro-goal.ts`; Root guard `goal` ABI, public permission decisions | `test/goal-*.test.ts`, `lib/guards/test/goal-patch-test.mjs` → `goal-test.mjs`: schema/CAS, exact tool/root and UI/direct/nested gates | Resource declaration/startup is not installation consent or live activation. No import, automatic Goal, executor or TSK replacement; metadata is not completion truth. `goal.md` owns semantics. |
+| `mahiro-code-evidence` — bounded Git evidence metadata | Canonical installed feature: `lib/evidence/`, `extensions/mahiro-code-evidence.ts`; Root guard `evidence` ABI | `test/evidence-*.test.ts`, `lib/guards/test/evidence-patch-test.mjs` → `evidence-test.mjs`: four Git lanes, authorization/helper controls, CAS and direct/nested dispatch | No live enablement; recorded commands are never executed, `evidence_ready` is metadata, not verified Goal completion. `evidence.md` owns semantics. |
+| `mahiro-ux-workflow` — design coordination | Canonical installed feature: `lib/ux-workflow/`, `extensions/mahiro-ux-workflow.ts`; Root guard `uxWorkflow` ABI | `test/ux-workflow-*.test.ts`, `lib/guards/test/ux-workflow-patch-test.mjs` → `ux-workflow-test.mjs`: FSM, exact authority, public UI gates/CAS | No design engine, artifact reader, executor or live/human direction acceptance. Metadata does not mutate Goal/Evidence. `ux-workflow.md` owns semantics. |
 | `mahiro-code-map` — bounded navigation formatter | Pure port: `lib/code-map.ts`, `extensions/mahiro-code-map.ts`; Root guard exact `mh_code_map` winning-surface assertion | `test/code-map.test.ts`, `lib/guards/test/permission-patch-test.mjs` → `code-map-test.mjs`, plus `code-map-blocked-test.mjs`: exact vs later wildcard and old-owner negatives | Caller metadata only, not search/index/outline generation. Actual winning `matchedSurface` is required, not merely an existing exact grant. No live parity inferred. |
-| `mahiro-execution-run` — lane/run coordination | Default-disabled port: `lib/execution-run/`, `extensions/mahiro-execution-run.ts`; Root `executionRun` ABI | `test/execution-run-*.test.ts`, `lib/guards/test/execution-run-patch-test.mjs` → `execution-run-test.mjs`: FSM/private CAS and exact-target UI controls | No executor, worker discovery, artifact reading or competing TSK board. Reports/refs are metadata, not proof/acceptance. `execution-run.md` owns semantics. |
+| `mahiro-execution-run` — lane/run coordination | Canonical installed feature: `lib/execution-run/`, `extensions/mahiro-execution-run.ts`; Root `executionRun` ABI | `test/execution-run-*.test.ts`, `lib/guards/test/execution-run-patch-test.mjs` → `execution-run-test.mjs`: FSM/private CAS and exact-target UI controls | No executor, worker discovery, artifact reading or competing TSK board. Reports/refs are metadata, not proof/acceptance. `execution-run.md` owns semantics. |
 | `mahiro-commit-attribution-guard` — commit final-argument enforcement | Pure local port `lib/guards/mahiro-commit-attribution-guard.js`; `host.mjs` / `index.ts` final native boundary | `lib/guards/test/test.mjs`, `bootstrap-test.mjs`, `candidate-patch-test.mjs`: guard/final dispatch and single-vs-dual owner coverage | Root-only cutover separately approved and loaded on 2026-10-20; one guard owner, no legacy duplicate. Native Core is not Letta MemFS. No original entry or real commit changed; not an OS sandbox. |
-| `rtk-control` — command rewriting | Bounded adaptation: `lib/rtk.ts`, Root native guard before final spawn | `test/rtk.test.ts`, `lib/guards/test/preferences-patch-test.mjs` → `preferences-test.mjs`: off path, bounded grammar, original **and final** permission/secret/attribution checks with fake RTK executable | Default off; Root guard owns the final boundary, without enabling configured rewrite modes. No upstream arbitrary rewrite parity, real binary version/syntax acceptance, history DB/global hook or verified token reduction. |
+| `rtk-control` — command rewriting | Real installed `rtk rewrite -- <original>` resolver in `lib/rtk.ts`, private RTK-only storage in `lib/rtk-state.ts`, Root native guard before final spawn | `test/rtk.test.ts`, `test/rtk-state.test.ts`, `lib/guards/test/rtk-patch-test.mjs` → `rtk-sdk-test.mjs`: exit 0–3/error/timeout/bounds, off no-op, original/final policy, secret/attribution, abort/stale and actual native transform | Explicit profile installation selects absent-state rewrite-rtk and preserves existing explicit off; without an installed default or explicit selection, mode stays off. Off remains a no-op fast path. Exit 3 is a host-authorized candidate, exit 2 blocks. No helper before original guard/policy allowance. Main owns private setup/reload; no new live activation, history access, global hooks or verified savings. |
 | `statusline` — presentation/native metrics | Native equivalent plus authored port: `extensions/mahiro-status.ts`, `lib/footer.ts`, `lib/status.ts`, `lib/quota.ts`; Pi owns native usage | `test/footer.test.ts`, `test/status.test.ts`: native usage, geometry, PID/generation/sequence/stale protections | Authored palette/spacing/native usage unchanged. Direct OpenAI quota omitted; synthetic tests are not rendered/default-provider or human acceptance. |
 | `mahiro-mcp-proxy` — tool transport | Native Pi MCP equivalent; HiroHiro owns browser transport, not a cloned Root proxy | Dated 2026-10-17 actual native model/MCP schema + one Chrome transaction below; **no new source test of that external transport in this phase** | Existing registration/proof is bounded historical evidence, not all authenticated browser workflows or current provider acceptance. No new browser/live probe. |
 | `mahiro-secret-read-guard` — sensitive read enforcement | Pure local port `lib/guards/mahiro-secret-read-guard.js`; Root host/final ABI plus four filtered helpers | `lib/guards/test/test.mjs`, `bootstrap-test.mjs`, `candidate-patch-test.mjs`: final direct/nested guards, secret-denied read and dual-owner fail-closed | Root-only cutover separately approved and loaded on 2026-10-20; legacy registration removed. Ordered bootstrap required; unsupported aliases/PowerShell denied. Not hostile-extension/OS isolation. |
@@ -1115,17 +1126,23 @@ branch notifications. No extra model calls or invented backend statuses occur.
 
 ## Pi completion voice
 
-The actual package manifest loads the ten feature entries, from
-`extensions/mahiro-status.ts` through `extensions/mahiro-execution-run.ts`, in
-preserved order. It does not load Root guards or saved Models. The guards-first
-candidate13 list belongs only to `test/candidate-extensions.json` and owned copied
-roots, not the current live profile. The single status-only CLI route above does
-not enable voice, memory, utilities or Code Map/Goal/Evidence/UX/Run. No reload or
-Root-only cutover is authorized by this source contract.
-Code Map/Goal/Evidence/UX/Run execution still requires separately activated patched dependencies and
-exact named grants; Goal/Evidence/UX/Run also need explicit project configuration. Recall requires accepted data and healthy canonical guards;
-managed memory additionally needs its separate exact-root capability and explicit
-new-store/role activation. Source development performs no runtime reload.
+The actual package manifest is guards-first12: bootstrap and one Root native guard,
+then the ten feature entries from `extensions/mahiro-status.ts` through
+`extensions/mahiro-execution-run.ts` in preserved feature order. The disposable
+candidate declaration mirrors that graph. Saved Models is retired. The single
+status-only CLI route above does not compose the full package or grant feature
+authority. Source development itself authorizes no real reload or cutover.
+
+One explicit `install:profile` composes required public packages, owned system
+roles, named tools and canonical feature DATA grants. Goal/Evidence/UX/Run then
+bind ordinary canonical projects without per-repo configuration; explicit
+restrictions remain effective. Code Map authority remains separate. Recall needs
+healthy canonical guards and valid accepted data; a known fresh archive is empty,
+not a fallback for corrupt data. Managed memory additionally requires its separate
+exact-root capability; the installer scaffolds only an absent root and preserves
+existing Core/config/ledger/corpus. Actual profile activation/fresh load remains
+separately authorized. These installation boundaries do not change voice's
+independent lifecycle below.
 
 Voice uses only public `agent_start`, `agent_before_settle` and `agent_settled`:
 latest whole-run outcome must be completed and final settled must not be aborted.

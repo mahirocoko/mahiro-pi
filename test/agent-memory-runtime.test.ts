@@ -307,10 +307,12 @@ test("project management preserves other projects now and through future source 
       );
     publish("other", bPath, "# B\nOriginal\n", ["b-source"]);
     const originalB = f.store.snapshot().files[bPath];
-    await assert.rejects(
-      () => f.runtime.run("agent_memory_read", { path: bPath }, f.ctx),
-      /scope/,
+    const shared: any = await f.runtime.run(
+      "agent_memory_read",
+      { path: bPath },
+      f.ctx,
     );
+    assert.equal(shared.text, originalB.text);
     await manage(f.ctx, "rollback", { target: initial });
     assert.deepEqual(f.store.snapshot().files[bPath], originalB);
     await manage(f.ctx, "forget", {

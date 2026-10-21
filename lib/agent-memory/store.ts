@@ -52,6 +52,8 @@ export interface Snapshot {
 export interface View {
   id: string;
   project: string;
+  /** Absent on retained v1 views means project-scoped, NEVER shared. */
+  scope?: "primary";
   configHash: string;
   base: Snapshot;
   files: Record<string, MemoryFile>;
@@ -164,8 +166,7 @@ export function parseConfig(raw: string): MemoryConfig {
       resolve(p.cwd) !== p.cwd ||
       typeof p.id !== "string" ||
       !name.test(p.id) ||
-      seen.has(p.cwd) ||
-      /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(`${p.cwd}/${p.id}`)
+      seen.has(p.cwd)
     )
       throw new Error("Invalid memory project");
     assertPrivatePath(p.cwd);
@@ -176,6 +177,7 @@ export function parseConfig(raw: string): MemoryConfig {
 export function createMemoryStore(
   root: string,
   current: (path?: string) => void = () => {},
+  authority: "scoped" | "primary" = "scoped",
 ) {
   if (!isAbsolute(root) || resolve(root) !== root)
     throw new Error("Canonical memory root required");
@@ -393,7 +395,11 @@ export function createMemoryStore(
     const projects = config().projects;
     const selected =
       project ?? (projects.length === 1 ? projects[0].id : undefined);
-    if (!selected || !projects.some((p) => p.id === selected))
+    if (
+      !selected ||
+      !name.test(selected) ||
+      (authority !== "primary" && !projects.some((p) => p.id === selected))
+    )
       throw new Error("Explicit mapped management scope required");
     return selected;
   };
@@ -571,13 +577,16 @@ export function createMemoryStore(
       !objectShape(v, [
         "id",
         "project",
+        "scope",
         "configHash",
         "base",
         "files",
         "state",
         "deadline",
       ]) ||
-      Object.keys(v).length !== 7 ||
+      ![7, 8].includes(Object.keys(v).length) ||
+      (v.scope !== undefined &&
+        (v.scope !== "primary" || authority !== "primary")) ||
       typeof v.id !== "string" ||
       !/^[a-f0-9-]{36}$/.test(v.id) ||
       typeof v.project !== "string" ||
@@ -609,7 +618,11 @@ export function createMemoryStore(
       if (!files || typeof files !== "object" || Array.isArray(files))
         throw new Error("Invalid private view files");
       validate(files, ceiling);
-      if (Object.keys(files).some((p) => !allowedPath(p, v.project)))
+      if (
+        Object.keys(files).some(
+          (p) => !allowedPath(p, v.scope === "primary" ? undefined : v.project),
+        )
+      )
         throw new Error("Invalid private view scope");
       parseLedger(
         JSON.stringify({
@@ -632,6 +645,7 @@ export function createMemoryStore(
       project: v.project,
       state: v.state,
       deadline: v.deadline,
+      ...(v.scope === "primary" ? { scope: v.scope } : {}),
       configHash: v.configHash,
       base: v.base,
       files: v.files,
@@ -679,7 +693,7 @@ export function createMemoryStore(
       )
         throw new Error("Memory view changed externally");
   };
-  const filter = (s: Snapshot, project: string) =>
+  const filter = (s: Snapshot, project?: string) =>
     Object.fromEntries(
       Object.entries(s.files).filter(([p]) => allowedPath(p, project)),
     );
@@ -741,7 +755,7 @@ export function createMemoryStore(
       )
         throw new Error("Invalid selected result");
     const raw = JSON.stringify(value);
-    if (bytes(raw) > 16384 || hasSecret(raw) || /one[-_ ]?deex?/i.test(raw))
+    if (bytes(raw) > 16384 || hasSecret(raw))
       throw new Error("Episode rejected");
     return value;
   };
@@ -756,24 +770,27 @@ export function createMemoryStore(
     if (names.length > 64) throw new Error("Private view capacity exceeded");
     // Only bounded headers are retained. Older serialization falls back to one
     // full validated view at a time; no proposal is dropped for a format change.
-    return names.map((p) => {
-      const path = join(folder, p);
-      current(path);
-      const prefix = privateRead(path, memoryLimits.viewBytes, 1024);
-      const match =
-        /^(\{"id":"[a-f0-9-]{36}","project":"[a-z0-9][a-z0-9-]{0,63}","state":"(?:open|committed|conflict|cancelled)","deadline":[0-9]+),"configHash":"[a-f0-9]{64}","base":/.exec(
-          prefix,
-        );
-      const v = match ? JSON.parse(`${match[1]}}`) : readView(p.slice(0, -5));
-      if (v.id !== p.slice(0, -5) || !Number.isSafeInteger(v.deadline))
-        throw new Error("Invalid private view metadata");
-      return {
-        id: v.id as string,
-        project: v.project as string,
-        state: v.state as View["state"],
-        deadline: v.deadline as number,
-      };
-    });
+    return names
+      .map((p) => {
+        const path = join(folder, p);
+        current(path);
+        const prefix = privateRead(path, memoryLimits.viewBytes, 1024);
+        const match =
+          /^(\{"id":"[a-f0-9-]{36}","project":"[a-z0-9][a-z0-9-]{0,63}","state":"(?:open|committed|conflict|cancelled)","deadline":[0-9]+(?:,"scope":"primary")?),"configHash":"[a-f0-9]{64}","base":/.exec(
+            prefix,
+          );
+        const v = match ? JSON.parse(`${match[1]}}`) : readView(p.slice(0, -5));
+        if (v.id !== p.slice(0, -5) || !Number.isSafeInteger(v.deadline))
+          throw new Error("Invalid private view metadata");
+        return {
+          id: v.id as string,
+          project: v.project as string,
+          scope: v.scope as View["scope"],
+          state: v.state as View["state"],
+          deadline: v.deadline as number,
+        };
+      })
+      .filter((v) => authority === "primary" || v.scope !== "primary");
   };
   return {
     root,
@@ -812,10 +829,10 @@ export function createMemoryStore(
         ),
       );
     },
-    createView(project: string, ttlMs = 120000): View {
+    createView(project: string, ttlMs = 120000, shared = false): View {
       if (
         !name.test(project) ||
-        !config().projects.some((p) => p.id === project) ||
+        (shared && authority !== "primary") ||
         !Number.isSafeInteger(ttlMs) ||
         ttlMs < 1000 ||
         ttlMs > 600000
@@ -856,8 +873,9 @@ export function createMemoryStore(
         id: randomUUID(),
         project,
         configHash: digest(JSON.stringify(config())),
-        base: { ...base, files: filter(base, project) },
-        files: copy(filter(base, project)),
+        ...(shared ? { scope: "primary" as const } : {}),
+        base: { ...base, files: filter(base, shared ? undefined : project) },
+        files: copy(filter(base, shared ? undefined : project)),
         state: "open",
         deadline: Date.now() + ttlMs,
       };
@@ -866,7 +884,7 @@ export function createMemoryStore(
     },
     read(v: View, path: string) {
       checkView(v);
-      if (!allowedPath(path, v.project))
+      if (!allowedPath(path, v.scope === "primary" ? undefined : v.project))
         throw new Error("Memory path outside scope");
       const f = v.files[path];
       return f
@@ -882,7 +900,7 @@ export function createMemoryStore(
     ) {
       checkView(v);
       if (
-        !allowedPath(path, v.project) ||
+        !allowedPath(path, v.scope === "primary" ? undefined : v.project) ||
         (v.files[path] ? digest(v.files[path].text) : null) !== expectedHash
       )
         throw new Error("Stale file or path outside scope");
@@ -921,7 +939,7 @@ export function createMemoryStore(
         }
         const conflicts = changed.filter(
           (p) =>
-            !allowedPath(p, v.project) ||
+            !allowedPath(p, v.scope === "primary" ? undefined : v.project) ||
             (v.files[p]
               ? suppressed(now, p, v.files[p])
               : now.forgottenPaths.includes(p)) ||
@@ -1066,10 +1084,12 @@ export function createMemoryStore(
         return {
           id,
           files: Object.keys(v.files)
-            .filter((p) => allowedPath(p, project))
+            .filter((p) =>
+              allowedPath(p, v.scope === "primary" ? undefined : project),
+            )
             .sort(),
         };
-      if (!allowedPath(path, project))
+      if (!allowedPath(path, v.scope === "primary" ? undefined : project))
         throw new Error("Path outside conflict scope");
       const now = load();
       const file = v.files[path];
@@ -1103,14 +1123,21 @@ export function createMemoryStore(
       return { discarded: id };
     },
     project(cwd: string) {
-      return config().projects.find((p) => p.cwd === cwd)?.id;
+      assertPrivatePath(cwd);
+      if (!lstatSync(cwd).isDirectory())
+        throw Error("Canonical memory project required");
+      const c = config();
+      const mapped = c.projects.find((p) => p.cwd === cwd)?.id;
+      if (mapped) return mapped;
+      // Full 256-bit path identity; retain every existing mapped ID unchanged.
+      const id = digest(cwd);
+      if (c.projects.some((p) => p.id === id && p.cwd !== cwd))
+        throw Error("Derived memory project identity collision");
+      return id;
     },
-    projection(project: string) {
-      if (
-        !name.test(project) ||
-        !config().projects.some((p) => p.id === project)
-      )
-        throw new Error("Unmapped memory project");
+    projection(project: string, shared = false) {
+      if (!name.test(project) || (shared && authority !== "primary"))
+        throw new Error("Invalid memory project authority");
       const revision = head();
       const state = ledger(revision);
       const c = config();
@@ -1130,7 +1157,9 @@ export function createMemoryStore(
         deferred: Object.keys(state.sources)
           .filter(
             (p) =>
-              allowedPath(p, project) && p !== "Core.md" && p !== "index.md",
+              allowedPath(p, shared ? undefined : project) &&
+              p !== "Core.md" &&
+              p !== "index.md",
           )
           .sort(),
       };
@@ -1162,7 +1191,7 @@ export function createMemoryStore(
     },
     recordEpisode(id: string, value: unknown) {
       const e = episode(value);
-      if (e.id !== id || !config().projects.some((p) => p.id === e.project))
+      if (e.id !== id || !name.test(e.project as string))
         throw new Error("Invalid episode scope");
       const raw = JSON.stringify(e);
       const target = join(root, ".episodes", `${id}.json`);

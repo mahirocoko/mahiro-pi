@@ -78,16 +78,8 @@ export const projectTranscriptEntry = (
     const result = normalize([input], policy);
     if (!result.records.length)
       return skipped(result.quarantine[0]?.reason ?? "no-visible-record");
-    if (
-      result.records.some((record) =>
-        /\b(?:one[-_ ]?dee|onedeex[-_ ]?frontend)\b/i.test(record.text),
-      )
-    )
-      return {
-        records: [],
-        reason: "excluded-project-marker",
-        excludeConversation: true,
-      };
+    // Future imports have no project-name ban. This does not restore previously
+    // quarantined conversations or forgotten records.
     // Return only screened records, never the original wrapped text input.
     return { records: result.records, reason: "accepted-visible-text" };
   } catch {

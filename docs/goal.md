@@ -1,22 +1,24 @@
-# Native Goal — opt-in source contract
+# Native Goal — canonical project state
 
 ## Status and owners
 
 This is the third source-only ALL-Mods slice, not live activation or human
-acceptance. `extensions/mahiro-goal.ts` is the **seventh** declared Pi resource,
-after the unchanged original six. `lib/goal/model.ts`, `store.ts` and `runtime.ts`
+acceptance. `extensions/mahiro-goal.ts` is the **seventh feature** and **ninth
+manifest resource**, after the two guards and unchanged original six features. `lib/goal/model.ts`, `store.ts` and `runtime.ts`
 own native state semantics, private persistence and public Pi lifecycle integration.
 Root-owned `lib/guards/` owns Pi tool provenance and the narrow Goal ABI; public permission-system alone resolves policy.
 Letta's original `mods/mahiro-goal.ts` remains unchanged and independently owned.
 
-Source registration, skill loading, installation and session startup do not read
-or initialize Goal state, enable projects, import Letta/MemFS state, grant access
-or create an actual Goal. Missing configuration means disabled. An authorized
-read of a configured scope with no state returns empty without creating anything.
+Source registration, skill loading and session startup do not grant access,
+initialize Goal state, import Letta/MemFS state or create an actual Goal.
+Explicit profile installation composes only named tool and canonical Goal DATA
+namespace grants; it does not create Goal state. Canonical projects then bind
+without a whitelist/config. An authorized scope with no state returns empty
+without creating anything. Legacy leaf/tool/path denials remain effective.
 No Goal state is written to Core, maintained memory, C1, session tool details as a
 competing owner, source files or a caller-selected storage path.
 
-## Explicit configuration preview only
+## Legacy configuration preview (optional, not required for use)
 
 ```sh
 pnpm goal:preview --project /canonical/project \
@@ -48,20 +50,20 @@ A separately authorized operator may review a private strict JSON configuration 
 }
 ```
 
-The profile, Goal config directory and existing workflow directories must be
-owned, canonical, nonsymlink directories exactly 0700. Config/state/lock files
+Safe host-owned profile containers may use standard 0755. Optional legacy config
+and feature data directories must be owned, canonical and nonsymlink0700. Config/state/lock files
 must be regular, singly linked, current-user owned and exactly 0600. Ancestors
 must not be symlinks or group/other-writable; trusted system-owned ancestors are
 allowed. Profiles cannot overlap the project or this package's source root.
-Letta and excluded OneDee paths reject. Goal roots are derived beneath the private
+Legacy Letta storage paths reject; ordinary OneDee-named canonical projects are no longer banned. Goal roots are derived beneath the private
 profile, separate from maintained memory and C1. Config is capped at 16 KiB and
 state at 2 MiB; invalid JSON, invalid UTF-8, unknown schema fields, oversized data,
 unsafe types/ownership/modes, symlinks, hardlinks and noncanonical paths reject.
 Config changes invalidate retained tickets rather than silently rebinding them.
 
 This is a private Root/public-dependency integration, not portable cold-machine
-readiness. No Mods checkout is required; the active10 bootstrap hold is documented
-in [`bootstrap.md`](bootstrap.md#current-compatibility-hold). No dependency is installed or fetched by preview, registration or tests.
+acceptance. No Mods checkout is required; the current explicit one-install route is documented
+in [`bootstrap.md`](bootstrap.md#one-install-composition-historical-active10-hold-retired). No dependency is installed or fetched by preview, registration or tests.
 
 ## Storage, native identity and state machine
 
@@ -103,7 +105,7 @@ Bounds retain the original foundation: objective 4000 code units; 20 criteria,
 trimming/truncation where applicable. Direct execution additionally validates the
 closed tool input schema, a bounded nesting depth and 4096-code-unit transport
 strings unless a smaller bound is declared. No Evidence/UX/Execution Run API,
-RTK/model profile integration, busy panel, footer geometry or Herdr publication
+RTK integration, busy panel, footer geometry or Herdr publication
 is added.
 
 ## Tools, commands and human authority
@@ -155,7 +157,7 @@ Aliases, copied/foreign/inline tools and stale/missing metadata fail closed.
 The actual public permission owner must return an existing scalar allow for:
 
 1. The **exact queried tool name**; and
-2. `goal_state_<sha256(canonical-project-state-root-UTF8)>`.
+2. `goal_state_data_<sha256(canonical-Goal-namespace-UTF8)>`, or retained exact legacy project-leaf authority. Explicit legacy leaf/tool/path denials remain effective with namespace allow.
 
 Both require `source: tool`, non-yolo origin and `matchedSurface` exactly equal
 to the queried surface. Root-only, tool-only, memory/C1 authority, default/session,

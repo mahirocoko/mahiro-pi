@@ -8,7 +8,7 @@ import {
 } from "../lib/ux-workflow/model.ts";
 import { createUXRuntime, uxTools } from "../lib/ux-workflow/runtime.ts";
 
-/** Source-only opt-in. Registration never seeds state, policy, profile or grants. */
+/** Ordinary installed tools; workflow creation needs human direction. Registration never seeds state, policy, profile or grants. */
 export default function mahiroUXWorkflow(pi: ExtensionAPI) {
   const runtime = createUXRuntime(pi);
   for (const name of uxTools)
@@ -17,7 +17,7 @@ export default function mahiroUXWorkflow(pi: ExtensionAPI) {
       label: name,
       description:
         name === "mh_get_ux_workflow"
-          ? "Read the current native session UX workflow/open blockers and coordinator boundary. Read before mutation; default disabled, exact tool/root permissions required."
+          ? "Read the current native session UX workflow/open blockers and coordinator boundary. Read before mutation; canonical binding and installed tool/feature-data authority required; empty reads never create a workflow."
           : name === "mh_create_ux_workflow"
             ? "Create frame-stage UX metadata only after an explicit actual human request. This is guidance, not mechanical requester proof. No research, executors, Goal/Evidence mutation or owner invocation."
             : "Revision-guarded UX metadata updates, always actor agent. Cannot approve human gates. Brief/owner/research/finding/evidence/Goal refs are opaque caller metadata, never proof or file reads. Ordinary metadata and eligible completion need no UI dialog.",

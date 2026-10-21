@@ -36,8 +36,7 @@ export const evidenceHash = (value: string | Buffer) =>
 const missing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT";
 const uid = () => process.getuid?.();
-const excluded = (path: string) =>
-  /(?:^|\/)\.letta(?:\/|$)|one[-_ ]?deex?/i.test(path);
+const excluded = (path: string) => /(?:^|\/)\.letta(?:\/|$)/i.test(path);
 function canonical(path: string) {
   if (
     typeof path !== "string" ||
@@ -134,7 +133,7 @@ export interface EvidenceBinding extends Scope {
   root: string;
   configHash: string;
 }
-/** Read-only validation/preview. Missing config disables; never mkdir, seed or import. */
+/** Read-only canonical binding. Legacy config is optional, never a project whitelist. */
 export function resolveEvidenceBinding(
   project: string,
 ): EvidenceBinding | null {
@@ -143,7 +142,10 @@ export function resolveEvidenceBinding(
   canonical(project);
   if (
     sourceRoots.some(
-      (source) => inside(source, profile) || inside(profile, source),
+      (source) =>
+        (inside(source, profile) &&
+          !inside(join(source, ".agent-state/runtime"), profile)) ||
+        inside(profile, source),
     ) ||
     inside(profile, project) ||
     inside(project, profile) ||
@@ -151,25 +153,24 @@ export function resolveEvidenceBinding(
     inside(join(profile, "continuity"), project)
   )
     throw new Error("Evidence profile/project/source separation required");
-  // Missing config means disabled, including a profile that does not exist.
+  // Retain legacy config validation and CAS freshness, without requiring setup.
   const configPath = join(
     profile,
     "extensions/mahiro-code-evidence/config.json",
   );
   const text = readPrivate(configPath, 16384);
-  if (text === null) return null;
-  privateDirectory(profile);
-  privateDirectory(dirname(configPath));
+  if (text !== null) privateDirectory(dirname(configPath));
   if (realpathSync(project) !== project || !lstatSync(project).isDirectory())
     throw new Error("Existing canonical project required");
   let config: any;
   try {
-    config = JSON.parse(text);
+    config =
+      text === null ? { version: 1, profile, projects: [] } : JSON.parse(text);
   } catch {
     throw new Error("Invalid Evidence configuration JSON");
   }
   validateEvidenceConfiguration(config, profile);
-  if (!config.projects.includes(project)) return null;
+  // Every canonical project derives a separate bounded private leaf.
   const root = join(profile, "workflow/evidence", evidenceHash(project));
   for (const dir of [
     join(profile, "workflow"),
@@ -181,16 +182,19 @@ export function resolveEvidenceBinding(
     profile,
     project,
     root,
-    configHash: evidenceHash(text),
+    configHash: evidenceHash(text ?? `canonical-evidence-v2:${profile}`),
     sessionId: "",
   };
 }
 function validateEvidenceConfiguration(config: any, profile: string): void {
   canonical(profile);
-  privateDirectory(profile, true);
+  // Profile is a host-owned container; canonical() rejects unsafe ancestors.
   if (
     sourceRoots.some(
-      (source) => inside(source, profile) || inside(profile, source),
+      (source) =>
+        (inside(source, profile) &&
+          !inside(join(source, ".agent-state/runtime"), profile)) ||
+        inside(profile, source),
     ) ||
     !config ||
     typeof config !== "object" ||
@@ -406,7 +410,8 @@ export async function transactEvidence<T>(
         if (stateTicket(fresh).digest !== ticket.digest)
           throw new Error("Evidence state changed before commit");
         for (const parent of parents) {
-          privateDirectory(parent.path);
+          if (parent.path === binding.profile) canonical(parent.path);
+          else privateDirectory(parent.path);
           const current = lstatSync(parent.path);
           if (
             current.dev !== parent.stat.dev ||

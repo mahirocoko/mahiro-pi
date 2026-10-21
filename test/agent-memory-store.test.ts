@@ -48,6 +48,65 @@ function fixture() {
     close: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
+test("primary shared authority is explicit; retained v1 views/conflicts stay scoped and cannot be promoted by omission or worker arguments", () => {
+  const f = fixture();
+  try {
+    const primary = createMemoryStore(f.root, () => {}, "primary");
+    const other = join(f.dir, "onedeex-frontend");
+    mkdirSync(other);
+    const id = primary.project(other);
+    assert.equal(id, digest(other));
+    assert.equal(primary.project(f.cwd), "project", "preserve mapped IDs");
+    const config = readFileSync(join(f.root, "config.json"));
+    const base = f.store.createView("project");
+    assert.equal(base.scope, undefined, "v1 absent scope is project-scoped");
+    f.store.edit(base, "deferred/project/legacy.md", null, "# Legacy\n", []);
+    const winner = f.store.createView("project");
+    f.store.edit(winner, "deferred/project/legacy.md", null, "# Winner\n", []);
+    f.store.integrate(winner);
+    assert.ok("conflict" in f.store.integrate(base));
+    const shared = primary.createView(id, 120000, true);
+    primary.edit(
+      shared,
+      "deferred/other/relevant.md",
+      null,
+      "# Shared detail\n",
+      [],
+    );
+    primary.integrate(shared);
+    const draft = primary.createView("project", 120000, true);
+    assert.equal(
+      primary.read(draft, "deferred/other/relevant.md").text,
+      "# Shared detail\n",
+    );
+    assert.throws(
+      () => f.store.read(draft, "deferred/other/relevant.md"),
+      /metadata|scope/,
+    );
+    assert.throws(() => f.store.createView("project", 120000, true), /scope/);
+    const legacy = f.store.createView("project");
+    assert.throws(
+      () => primary.read(legacy, "deferred/other/relevant.md"),
+      /scope/,
+    );
+    assert.equal(
+      f.store.conflicts("project", base.id, "deferred/project/legacy.md").text,
+      "# Legacy\n",
+    );
+    assert.deepEqual(
+      readFileSync(join(f.root, "config.json")),
+      config,
+      "identity derivation never mutates the existing map",
+    );
+    assert.equal(
+      primary.snapshot().files["Core.md"].text,
+      "# Core\nEstablished companion identity.\n",
+    );
+  } finally {
+    f.close();
+  }
+});
+
 test("shared deferred knowledge preserves full-size preferences, project isolation and global forgetting", () => {
   const f = fixture();
   try {

@@ -30,6 +30,8 @@ import {
   validId,
 } from "./records.ts";
 
+export const CONTINUITY_FILE_MAX_BYTES = 16 * 1024 * 1024;
+
 export interface ILifecycle {
   session: string;
   branch: string;
@@ -206,7 +208,7 @@ export function createStore(
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const text = readFileSync(fd, "utf8");
-      if (bytes(text) > 16 * 1024 * 1024)
+      if (bytes(text) > CONTINUITY_FILE_MAX_BYTES)
         throw new Error("State bound exceeded");
       try {
         return JSON.parse(text);

@@ -1,21 +1,108 @@
-// Native, opt-in RTK control. No Letta settings, history DB, probes or rewrite subprocess.
-// Deterministic bounded command grammar; authorization remains the public policy owner.
+// Native RTK control. Explicit installation selects defaults; startup grants nothing.
+// No settings hooks, history DB, permission bypass or native usage mutation.
+import { execFile } from "node:child_process";
 import { join, resolve } from "node:path";
 import {
-  assertPreferenceBinding,
-  preferenceBinding,
-  preferenceHash,
-  publishPreference,
-  readPreferenceFile,
-} from "./model-profiles.ts";
+  assertRTKBinding,
+  rtkBinding,
+  rtkHash,
+  publishRTKState,
+  readRTKFile,
+  rtkModes,
+  validateRTKState,
+  type RTKMode,
+} from "./rtk-state.ts";
+export { rtkModes, validateRTKState } from "./rtk-state.ts";
 
-export const rtkModes = [
-  "off",
-  "suggest",
-  "rewrite-safe",
-  "rewrite-rtk",
-] as const;
-export type RTKMode = (typeof rtkModes)[number];
+export const RTK_HELPER_BOUNDS = Object.freeze({
+  inputBytes: 4096,
+  outputBytes: 16384,
+  timeoutMs: 1500,
+  concurrent: 4,
+});
+let helpersInFlight = 0;
+export type RTKRewriteResult = {
+  status:
+    | "candidate"
+    | "approval-required"
+    | "unchanged"
+    | "denied"
+    | "unavailable"
+    | "timeout"
+    | "oversize"
+    | "malformed";
+  command: string | null;
+};
+// No shell interprets the original here, including flag-looking input. stdout is
+// data until ALL host checks have accepted the proposed and final native args.
+export async function resolveRTKRewrite(
+  command: unknown,
+  ctx: { cwd: string; signal?: AbortSignal },
+): Promise<RTKRewriteResult> {
+  if (ctx.signal?.aborted) throw Error("RTK cancelled");
+  if (
+    typeof command !== "string" ||
+    !command.trim() ||
+    Buffer.byteLength(command) > RTK_HELPER_BOUNDS.inputBytes ||
+    /[\x00-\x1f\x7f]/.test(command)
+  )
+    return { status: "malformed", command: null };
+  if (helpersInFlight >= RTK_HELPER_BOUNDS.concurrent)
+    return { status: "unavailable", command: null };
+  helpersInFlight++;
+  return new Promise((resolve, reject) => {
+    execFile(
+      "rtk",
+      ["rewrite", "--", command],
+      {
+        cwd: ctx.cwd,
+        signal: ctx.signal,
+        timeout: RTK_HELPER_BOUNDS.timeoutMs,
+        maxBuffer: RTK_HELPER_BOUNDS.outputBytes,
+        encoding: "buffer",
+        shell: false,
+        windowsHide: true,
+        killSignal: "SIGKILL",
+      },
+      (error, stdout) => {
+        helpersInFlight--;
+        if (ctx.signal?.aborted) return reject(Error("RTK cancelled"));
+        const code = error ? (error as any).code : 0;
+        if (code === 2) return resolve({ status: "denied", command: null });
+        if (code === 1) return resolve({ status: "unchanged", command: null });
+        if (code !== 0 && code !== 3)
+          return resolve({
+            status:
+              code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+                ? "oversize"
+                : (error as any)?.killed
+                  ? "timeout"
+                  : "unavailable",
+            command: null,
+          });
+        let output: string;
+        try {
+          output = new TextDecoder("utf-8", { fatal: true }).decode(stdout);
+        } catch {
+          return resolve({ status: "malformed", command: null });
+        }
+        // One shell command line, with at most the helper's trailing line ending.
+        output = output.replace(/\r?\n$/, "");
+        if (
+          !output.trim() ||
+          output !== output.trim() ||
+          /[\x00-\x1f\x7f]/.test(output)
+        )
+          return resolve({ status: "malformed", command: null });
+        resolve({
+          status: code === 3 ? "approval-required" : "candidate",
+          command: output,
+        });
+      },
+    );
+  });
+}
+
 export function rtkCandidate(command: unknown, mode: RTKMode) {
   if (
     mode === "off" ||
@@ -32,10 +119,7 @@ export function rtkCandidate(command: unknown, mode: RTKMode) {
   let paths: string[] = [],
     rewritten: string;
   if (executable === "git") {
-    const commands =
-      mode === "rewrite-rtk"
-        ? ["status", "diff", "log", "show"]
-        : ["status", "diff"];
+    const commands = ["status", "diff"];
     if (!commands.includes(sub)) return null;
     const flags = new Set([
       "--short",
@@ -62,25 +146,9 @@ export function rtkCandidate(command: unknown, mode: RTKMode) {
       return null;
     paths = args.filter((w) => !w.startsWith("-"));
     rewritten = `rtk ${words.join(" ")}`;
-  } else if (executable === "cat" && mode === "rewrite-rtk") {
-    const args = words.slice(1);
-    if (!args.length || args.some((w) => w.startsWith("-"))) return null;
-    paths = args;
-    rewritten = `rtk read ${args.join(" ")}`;
   } else return null;
   return { command: rewritten, paths };
 }
-const validate = (s: any) => {
-  if (
-    !s ||
-    s.version !== 1 ||
-    !Number.isSafeInteger(s.sequence) ||
-    s.sequence < 0 ||
-    !rtkModes.includes(s.mode) ||
-    Object.keys(s).some((k) => !["version", "sequence", "mode"].includes(k))
-  )
-    throw Error("Invalid private RTK state");
-};
 export function registerRTK(
   pi: any,
   owner: {
@@ -88,28 +156,40 @@ export function registerRTK(
     finalArgs: (name: string, args: any, ctx: any) => Promise<any>;
     permission: (ctx: any, surface: string, value?: string) => any;
     current: (ctx: any) => boolean;
+    executionCurrent?: (ctx: any) => boolean;
+    executionAccess?: (ctx: any, root: string) => void;
   },
 ) {
   let mode: RTKMode = "off",
-    binding: ReturnType<typeof preferenceBinding> = null,
+    binding: ReturnType<typeof rtkBinding> = null,
     epoch = 0,
     alive = true;
   const recent: any[] = [];
-  const read = (ctx: any, operation = "read") => {
-    const b = preferenceBinding(ctx.cwd, "rtk");
-    if (!b)
-      throw Error(
-        "RTK disabled; explicit private project configuration required",
-      );
-    owner.access(ctx, b.root, operation);
-    assertPreferenceBinding(b);
-    const text = readPreferenceFile(join(b.root, "state.json"));
+  const read = (ctx: any, operation = "read", execution = false) => {
+    const b = rtkBinding(ctx.cwd);
+    if (!b) throw Error("Canonical RTK profile/project binding unavailable");
+    if (execution && owner.executionAccess) owner.executionAccess(ctx, b.root);
+    else owner.access(ctx, b.root, operation);
+    assertRTKBinding(b);
+    const text = readRTKFile(join(b.root, "state.json"));
+    const defaultsText =
+      text === null ? readRTKFile(join(b.root, "default.json")) : null;
+    const defaults =
+      defaultsText === null
+        ? { version: 1, mode: "off" }
+        : JSON.parse(defaultsText);
+    if (
+      defaults.version !== 1 ||
+      !rtkModes.includes(defaults.mode) ||
+      Object.keys(defaults).some((k) => !["version", "mode"].includes(k))
+    )
+      throw Error("Invalid installed RTK default");
     const state =
       text === null
-        ? { version: 1, sequence: 0, mode: "off" }
+        ? { version: 1, sequence: 0, mode: defaults.mode }
         : JSON.parse(text);
-    validate(state);
-    return { b, state, ticket: preferenceHash(text ?? "<absent>") };
+    validateRTKState(state);
+    return { b, state, ticket: rtkHash(text ?? "<absent>") };
   };
   pi.on("session_shutdown", () => {
     alive = false;
@@ -118,6 +198,31 @@ export function registerRTK(
     binding = null;
     recent.length = 0;
   });
+  const authorize = (ctx: any, command: string) => {
+    const d = owner.permission(ctx, "bash", command);
+    if (d?.state !== "allow" || d.origin === "yolo")
+      throw Error("RTK original/final Bash permission required");
+  };
+  const assertPreview = (
+    ctx: any,
+    captured: number,
+    b: NonNullable<ReturnType<typeof rtkBinding>>,
+    ticket: string,
+  ) => {
+    if (
+      !alive ||
+      captured !== epoch ||
+      !owner.current(ctx) ||
+      ctx.signal?.aborted
+    )
+      throw Error("RTK stale/cancelled");
+    const current = read(ctx);
+    if (
+      JSON.stringify(current.b) !== JSON.stringify(b) ||
+      current.ticket !== ticket
+    )
+      throw Error("RTK binding changed");
+  };
   const run = async (args: any, ctx: any) => {
     if (
       !args ||
@@ -148,7 +253,7 @@ export function registerRTK(
       if (
         !(await ctx.ui.confirm(
           "Mahiro RTK mode",
-          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nNo settings hooks, history access or binary probe. Final original and rewritten authorization required.`,
+          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nNo settings hooks or history access. Suggest/rewrite-rtk call the installed bounded rewrite helper; helper output is never a host grant. Original and final authorization required.`,
         ))
       )
         throw Error("RTK mode declined");
@@ -158,11 +263,12 @@ export function registerRTK(
           captured !== epoch ||
           ctx.sessionManager !== manager ||
           manager.getSessionId() !== session ||
-          !owner.current(ctx)
+          !owner.current(ctx) ||
+          ctx.signal?.aborted
         )
           throw Error("RTK session replaced");
         owner.access(ctx, b.root, "write");
-        assertPreferenceBinding(b);
+        assertRTKBinding(b);
       };
       assert();
       const next = {
@@ -170,7 +276,7 @@ export function registerRTK(
         sequence: state.sequence + 1,
         mode: args.mode,
       };
-      publishPreference(b, ticket, next, assert, validate);
+      publishRTKState(b, ticket, next, assert);
       mode = next.mode;
       binding = b;
       epoch++;
@@ -188,12 +294,24 @@ export function registerRTK(
       ].includes(args.operation)
     )
       throw Error("Unknown RTK operation");
-    if (args.operation === "rewrite")
-      return {
-        candidate: rtkCandidate(args.command, "rewrite-rtk")?.command ?? null,
-        executed: false,
-        binarySyntaxVerified: false,
-      };
+    if (args.operation === "rewrite") {
+      const captured = epoch;
+      const original = await owner.finalArgs(
+        "bash",
+        { command: args.command },
+        ctx,
+      );
+      authorize(ctx, args.command);
+      authorize(ctx, original.command);
+      assertPreview(ctx, captured, b, ticket);
+      const result: RTKRewriteResult = /^\s*git\s+commit(?:\s|$)/.test(
+        original.command,
+      )
+        ? { status: "unchanged", command: null }
+        : await resolveRTKRewrite(original.command, ctx);
+      assertPreview(ctx, captured, b, ticket);
+      return { ...result, executed: false, hostApprovalRequired: true };
+    }
     return {
       mode: state.mode,
       sequence: state.sequence,
@@ -201,15 +319,21 @@ export function registerRTK(
       recent: args.operation === "log" ? structuredClone(recent) : undefined,
       savings: "unverified; no history reads or native usage/quota changes",
       binaryProbe: false,
+      resolver:
+        "installed rtk rewrite -- <original>; exit 0/3 are candidates, 1 unchanged, 2 denied; errors fall back to guarded original",
+      helperBounds: RTK_HELPER_BOUNDS,
       supported:
-        "bounded git status/diff; rewrite-rtk additionally git log/show and cat->rtk read; no arbitrary RTK helper evaluation",
+        "rewrite-safe: conservative git status/diff and ls; suggest/rewrite-rtk: real helper, no local command DSL",
+      doctor:
+        "No availability/version probe or history access; rewrite explicitly invokes the resolver",
+      projects: args.operation === "projects" ? [b.project] : undefined,
     };
   };
   pi.registerTool({
     name: "mh_rtk",
     label: "Mahiro RTK",
     description:
-      "Native opt-in RTK control and preview. Off by default; no probes/history or savings claims. Mode writes require exact sequence and actual UI.",
+      "Native RTK control and real helper preview. Explicit installation defaults to rewrite-rtk; explicit off is preserved. No history or savings claims. Mode writes require exact sequence and actual UI.",
     parameters: {
       type: "object",
       properties: {
@@ -282,7 +406,7 @@ export function registerRTK(
       mode = "off";
       binding = null;
       try {
-        const current = read(ctx);
+        const current = read(ctx, "read", true);
         mode = current.state.mode;
         binding = current.b;
       } catch {
@@ -293,34 +417,44 @@ export function registerRTK(
       // The disabled fast path performs no filesystem read, probe, helper or log work.
       if (mode === "off") return input;
       const captured = epoch;
+      let revision: string | undefined;
       const assert = () => {
         if (
           !alive ||
           captured !== epoch ||
-          !owner.current(ctx) ||
+          !(owner.executionCurrent ?? owner.current)(ctx) ||
           ctx.signal?.aborted ||
           !binding ||
           binding.project !== ctx.cwd
         )
           throw Error("RTK stale/cancelled");
-        const current = read(ctx);
-        if (current.state.mode !== mode)
+        const current = read(ctx, "read", true);
+        if (
+          current.state.mode !== mode ||
+          JSON.stringify(current.b) !== JSON.stringify(binding) ||
+          (revision !== undefined && revision !== current.ticket)
+        )
           throw Error("RTK configuration changed");
+        revision = current.ticket;
       };
       assert();
       // Always inspect the original BEFORE considering any rewrite, even unsupported syntax.
       const original = await owner.finalArgs("bash", input, ctx);
       assert();
-      const candidate = rtkCandidate(original.command, mode);
-      if (!candidate) return original;
-      const authorize = (command: string) => {
-        const d = owner.permission(ctx, "bash", command);
-        if (d?.state !== "allow" || d.origin === "yolo")
-          throw Error("RTK original/final Bash permission required");
-      };
-      authorize(input.command);
-      authorize(original.command);
-      for (const operand of candidate.paths.length ? candidate.paths : ["."]) {
+      authorize(ctx, input.command);
+      authorize(ctx, original.command);
+      // Preserve direct native commits: never send them through RTK (including
+      // already sanitized attribution). The host still checks/spawns the raw git.
+      if (/^\s*git\s+commit(?:\s|$)/.test(original.command)) return original;
+      const candidate =
+        mode === "rewrite-safe"
+          ? rtkCandidate(original.command, mode)
+          : await resolveRTKRewrite(original.command, ctx);
+      assert();
+      if (candidate && "status" in candidate && candidate.status === "denied")
+        throw Error("RTK rewrite denied (exit 2); no command executed");
+      if (!candidate?.command) return original;
+      for (const operand of "paths" in candidate ? candidate.paths : []) {
         const path = resolve(ctx.cwd, operand);
         if (path !== ctx.cwd && !path.startsWith(`${ctx.cwd}/`))
           throw Error("RTK external operand unsupported");
@@ -330,20 +464,21 @@ export function registerRTK(
             throw Error("RTK operand read denied");
         }
       }
+      authorize(ctx, candidate.command);
       const final = await owner.finalArgs(
         "bash",
         { ...original, command: candidate.command },
         ctx,
       );
       assert();
-      if (final.command !== candidate.command)
-        throw Error("RTK final transformation changed");
-      authorize(input.command);
-      authorize(final.command);
+      authorize(ctx, input.command);
+      authorize(ctx, original.command);
+      authorize(ctx, candidate.command);
+      authorize(ctx, final.command);
       assert();
       recent.unshift({
         action: mode === "suggest" ? "suggested" : "rewritten",
-        commandHash: preferenceHash(input.command),
+        commandHash: rtkHash(input.command),
         savingsVerified: false,
       });
       recent.length = Math.min(recent.length, 20);

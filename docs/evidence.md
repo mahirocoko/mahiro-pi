@@ -1,7 +1,7 @@
-# Native Code Evidence — opt-in source slice
+# Native Code Evidence — canonical project reports
 
-`extensions/mahiro-code-evidence.ts` is the **eighth** declared resource, after
-all seven accepted entries in unchanged order. Pi owns `lib/evidence/`; canonical
+`extensions/mahiro-code-evidence.ts` is the **eighth feature** and **tenth
+manifest resource**, after the two guards and seven preserved features. Pi owns `lib/evidence/`; canonical
 Letta `mods/mahiro-code-evidence.ts` remains unchanged. This is source availability,
 not installed dependency repair, profile activation, final independent QA, human
 acceptance or complete ALL-Mods parity.
@@ -39,9 +39,9 @@ revocation, navigation and stale approval never write. Ordinary collect/record d
 not have a universal UI gate. Force-unlock and automatic cross-project/session moves
 are unsupported.
 
-## Explicit configuration and authority
+## Canonical binding and authority
 
-Default is disabled. A separately reviewed private file at
+Explicit `install:profile` composes tool and canonical feature DATA namespace authority once, without a per-project whitelist. Authorized empty reads initialize nothing. Optional retained legacy configuration at
 `<profile>/extensions/mahiro-code-evidence/config.json` has exactly:
 
 ```json
@@ -49,17 +49,16 @@ Default is disabled. A separately reviewed private file at
 ```
 
 Profile binding uses native `PI_CODING_AGENT_DIR`, otherwise `~/.pi/agent`, never
-a tool-supplied state path. The profile/config directory must be private 0700,
+a tool-supplied state path. Safe host profile parents may be0755; optional config/data directories must be0700,
 config 0600; canonical roots must exist, be non-symlinked and separate from profile,
-source, memory, C1 and excluded projects. First slice requires **native cwd to equal
-an explicitly configured project and that project to equal Git worktree top-level**.
+source, memory and C1. Git collection requires **native cwd to equal
+the canonical project and that project to equal Git worktree top-level**.
 A workspace child selects that already-authorized root; it cannot widen a configured
 subproject into a parent/sibling repository. Aliased workspace paths reject.
-Unconfigured, missing-config and authorized-empty reads/startup/registration do not
-mkdir, initialize, import or run Git. No installer/bootstrap subsystem was added:
-the existing explicit bootstrap recursively binds Root extension/lib/guard
-source. The actual active10 checkout remains held before new guarded profile writes;
-see [`bootstrap.md`](bootstrap.md#current-compatibility-hold). No bootstrap apply provisions this config or its grants.
+Missing-config and authorized-empty reads/startup/registration do not mkdir,
+initialize, import or run Git. `install.mjs` composes existing bootstrap owners;
+see [`bootstrap.md`](bootstrap.md). No ordinary per-project setup is required.
+Legacy exact leaf/tool/path denials remain effective even with namespace allow.
 
 State is derived only as `<profile>/workflow/evidence/<sha256(project UTF8)>/` with
 `state.json` and `state.lock`. Native identity is profile + project + actual native
@@ -72,7 +71,7 @@ human forks too.
 
 Root `lib/guards/index.ts` owns the candidate narrow ABI `evidence: {version:1,generation,assertAccess,
 authorize,authorizeGit,assertSources}`. Both exact `mh_code_evidence` and exact
-`code_evidence_state_<sha256(derived state-root UTF8)>` must be actual public-service
+`code_evidence_state_data_<sha256(canonical-Evidence-namespace UTF8)>` (or retained exact legacy leaf authority) must be actual public-service
 winning allows: source tool, non-yolo origin, toolName and matchedSurface exactly
 equal the queried surface. Family/default/wildcard winners, memory-only,
 root-only/tool-only, aliases, foreign copies, stale/unhealthy generations, malformed

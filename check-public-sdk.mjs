@@ -73,7 +73,7 @@ const files = [
   "subagents-patch-test.mjs",
   "subagents-owner-test.mjs",
   "worker-activity-sdk-test.mjs",
-  "preferences-patch-test.mjs",
+  "rtk-patch-test.mjs",
   "candidate-patch-test.mjs",
 ];
 const result = spawnSync(

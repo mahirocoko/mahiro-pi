@@ -11,9 +11,9 @@ assert.equal(manifest.private, true);
 assert.equal(manifest.packageManager, "pnpm@10.33.0");
 assert.equal(manifest.engines.node, ">=22.19.0");
 const extensions = JSON.parse(await readFile(resolve(root, "test/candidate-extensions.json"), "utf8"));
-assert.deepEqual(extensions.active, ["./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-agent-memory.ts", "./extensions/mahiro-continuity.ts", "./extensions/mahiro-native-utilities.ts", "./extensions/mahiro-code-map.ts", "./extensions/mahiro-goal.ts", "./extensions/mahiro-code-evidence.ts", "./extensions/mahiro-ux-workflow.ts", "./extensions/mahiro-execution-run.ts"]);
-assert.deepEqual(manifest.pi.extensions, extensions.active, "Live recovery manifest must remain active10");
-assert.deepEqual(extensions.candidate, ["./lib/guards/bootstrap.mjs", "./lib/guards/index.ts", ...extensions.active, "./extensions/mahiro-model-profiles.ts"], "Candidate13 is an explicit test-only contract");
+assert.deepEqual(extensions.active, ["./lib/guards/bootstrap.mjs", "./lib/guards/index.ts", "./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-agent-memory.ts", "./extensions/mahiro-continuity.ts", "./extensions/mahiro-native-utilities.ts", "./extensions/mahiro-code-map.ts", "./extensions/mahiro-goal.ts", "./extensions/mahiro-code-evidence.ts", "./extensions/mahiro-ux-workflow.ts", "./extensions/mahiro-execution-run.ts"]);
+assert.deepEqual(manifest.pi.extensions, extensions.active, "Actual resource graph must be guards-first");
+assert.deepEqual(extensions.candidate, extensions.active, "Disposable fixtures use the actual authoring graph, not another runtime owner");
 assert.equal(manifest.devDependencies["@biomejs/biome"], "2.5.14");
 assert.equal(manifest.letta, undefined);
 assert.equal(manifest.scripts.setup, "node setup.mjs");
@@ -33,7 +33,7 @@ const args = process.argv.slice(2);
 assert.ok(args.length === 0 || args.length === 2 && args[0] === "--compare-source", "Expected --compare-source <old-pi-root>");
 const original = args.length ? resolve(args[1]) : undefined;
 const roots = new Set(["extensions", "lib", "test", "docs", "agents", "skills"]);
-const files = new Set(["package.json", "AGENTS.md", "README.md", "check-package.mjs", "setup.mjs", "bootstrap.mjs", "goal-preview.mjs", "check-geometry.ts", ".gitignore"]);
+const files = new Set(["package.json", "AGENTS.md", "README.md", "check-package.mjs", "setup.mjs", "bootstrap.mjs", "install.mjs", "goal-preview.mjs", "check-geometry.ts", ".gitignore"]);
 let compared = 0;
 async function inspect(directory = "") {
   for (const item of await readdir(resolve(root, directory), { withFileTypes: true })) {

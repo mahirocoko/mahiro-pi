@@ -23,9 +23,10 @@ import {
   validId,
 } from "./records.ts";
 import { assertPrivatePath, createStore } from "./store.ts";
+import { resolveAgentDir } from "../setup.ts";
 
-export const excludedCwd = (cwd: string) =>
-  /(?:^|[^a-z0-9])one[-_ ]?deex?(?:$|[^a-z0-9])/i.test(cwd);
+// No project-name ban. Canonical/private path and accepted-data checks remain.
+export const excludedCwd = (_cwd: string) => false;
 
 export function parseProjects(raw: string) {
   const manifest = JSON.parse(raw);
@@ -94,7 +95,7 @@ export interface IRecallArgs {
   crossProject?: boolean;
 }
 const registryKey = Symbol.for("@mahirocoko/pi-guards:healthy-nodes");
-const EXCLUDED_PROJECT_IDS = ["onedee", "onedeex-frontend"];
+const EXCLUDED_PROJECT_IDS: string[] = [];
 const deniedProject = (id: string) =>
   EXCLUDED_PROJECT_IDS.includes(id.toLowerCase());
 export function closedArgs(name: string, value: unknown): IRecallArgs {
@@ -168,7 +169,7 @@ export function createRuntime(config: IRuntimeConfig = {}) {
         const root =
           config.root ??
           process.env.MAHIRO_CONTINUITY_ROOT ??
-          join(homedir(), ".pi/agent/continuity");
+          join(resolveAgentDir(), "continuity");
         const allowed = new Set<string>();
         const authorize = async (path: string) => {
           current();
@@ -208,8 +209,7 @@ export function createRuntime(config: IRuntimeConfig = {}) {
         const manifest = parseProjects(manifestRaw);
         const cwd = realpathSync(ctx.cwd);
         const projects = manifest.projects;
-        const projectId = projects.get(cwd);
-        if (!projectId) throw new Error("Continuity unavailable");
+        const projectId = projects.get(cwd) ?? digest(cwd);
         const pointer = join(root, "state.json");
         await authorize(pointer);
         const original = read(pointer, 16 * 1024 * 1024);

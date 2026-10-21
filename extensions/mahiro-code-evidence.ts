@@ -8,7 +8,7 @@ export default function mahiroCodeEvidence(pi: ExtensionAPI) {
     name: "mh_code_evidence",
     label: "Code Evidence",
     description:
-      "Opt-in Code Evidence: get exact native-session report, collect four bounded read-only Git lanes, or record metadata about an already-performed external check. command is descriptive and NEVER executed. evidence_ready means metadata ready for explicit selection, not verified execution or Goal completion. No automatic Goal attachment, human verification, import or collection. Requires separate exact tool and derived project-state-root permissions.",
+      "Code Evidence: get exact native-session report, collect four bounded read-only Git lanes, or record metadata about an already-performed external check. command is descriptive and NEVER executed. evidence_ready means metadata ready for explicit selection, not verified execution or Goal completion. No automatic Goal attachment, human verification, import or collection. Requires exact tool and canonical feature-data authority from explicit profile installation; legacy leaf/path/tool denials remain effective.",
     parameters: CODE_EVIDENCE_PARAMETERS,
     executionMode: "sequential",
     annotations: {

@@ -32,7 +32,8 @@ async function fixture() {
     profile,
     "extensions/mahiro-execution-run/config.json",
   );
-  assert.equal(s.resolveRunBinding(project), null);
+  assert.ok(s.resolveRunBinding(project));
+  assert.equal(fs.existsSync(path.join(profile, "workflow")), false);
   assert.equal(fs.existsSync(path.join(profile, "workflow")), false);
   fs.mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
   const configBytes = JSON.stringify({
@@ -84,7 +85,7 @@ test.afterEach(() => {
   else process.env.PI_CODING_AGENT_DIR = saved;
 });
 
-test("disabled/read-no-init, private modes, monotonic clear/recreate ABA and stale whole-state tickets", async () => {
+test("canonical/read-no-init, private modes, monotonic clear/recreate ABA and stale whole-state tickets", async () => {
   const { s, m, b, profile } = await fixture();
   const empty = s.readRunState(b);
   assert.equal(empty.sequence, 0);

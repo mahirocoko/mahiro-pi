@@ -1,7 +1,7 @@
-# Native UX Workflow — source-only, default disabled
+# Native UX Workflow — canonical project metadata
 
-`extensions/mahiro-ux-workflow.ts` is the **ninth** package resource, appended after
-the accepted eight without changing their order. Its focused owners are
+`extensions/mahiro-ux-workflow.ts` is the **ninth feature** and **eleventh
+manifest resource**, after the two guards and eight preserved features. Its focused owners are
 `lib/ux-workflow/{model,store,runtime}.ts`. Canonical Letta semantics come from
 `mods/mods/mahiro-ux-workflow.ts`; that original entry remains unchanged. This is
 a bounded metadata coordinator, not a design/research engine, executor, artifact
@@ -78,9 +78,12 @@ canonical state. Command text or model booleans alone never record a human actor
 Ordinary agent metadata/create/eligible complete do **not** require confirmation.
 This is public-host UI attestation, not protection against a malicious host UI.
 
-## Opt-in configuration and guard ownership
+## Canonical binding and guard ownership
 
-Missing config disables, without initializing storage. Configuration is strict
+One explicit profile installation composes named tools and the canonical UX DATA
+namespace capability; no per-repo whitelist/config is required. Empty reads create
+nothing. Legacy leaf/tool/path denials remain effective with namespace allow.
+A retained optional legacy configuration is strict
 UTF-8, at most 16 KiB, owner-private and exactly:
 
 ```json
@@ -92,10 +95,9 @@ resolution reuses `resolveAgentDir`: `PI_CODING_AGENT_DIR` with `~/` expansion,
 otherwise `~/.pi/agent`; no runtime SDK import is needed. Existing canonical
 projects are explicit, profile/project/source/protected-memory overlap rejects.
 Source registration/startup provisions no profile, grants, config, seed or import.
-No extra preview/installer/top-level bootstrap option is needed: the existing
-bootstrap recursively binds the Root extension/library/guard source trees.
-New guarded bootstrap from actual active10 is held before profile writes; see
-[`bootstrap.md`](bootstrap.md#current-compatibility-hold).
+The explicit one-install entry composes the existing bootstrap/public owners;
+see [`bootstrap.md`](bootstrap.md). Optional legacy lists are not whitelists.
+Safe host profile containers may be0755; private data/config directories stay0700.
 
 Root-owned `lib/guards/index.ts` owns the narrow healthy-node ABI:
 `uxWorkflow: {version:1, generation, assertAccess, authorize}`. Actual public
@@ -108,12 +110,12 @@ Parent-linked **human forks conservatively reject too**.
 
 The actual public permission owner must return non-yolo-origin `allow`,
 `source: tool`, `toolName` and winning `matchedSurface` exactly equal to **both**
-the invoked tool and `ux_workflow_state_<sha256(stateRoot UTF8)>`. Wildcard winners,
+the invoked tool and `ux_workflow_state_data_<sha256(canonical-namespace UTF8)>` (or retained exact legacy leaf authority). Wildcard winners,
 old/malformed/missing owner metadata, default/session/yolo-only authority,
 memory/Goal/Evidence-only, tool-only or root-only grants deny. Applicable read /
 path-read denials on root/state/lock gate every operation; writes also retain
 path-write denials. No second policy parser, security-factory copy, generic auth
-framework, fallback approval or new permission provisioning exists. The existing
+framework or fallback approval exists; the explicit installer alone composes narrow grants. The existing
 authored 40.2.2 owner patch is reused only in isolated offline positive fixtures;
 any public service without winning-surface attestation fails closed. Current
 phase preservation does not negate the earlier installed-root offline repair.

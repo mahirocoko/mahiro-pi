@@ -5,14 +5,14 @@ import {
 } from "../lib/execution-run/model.ts";
 import { createRunRuntime } from "../lib/execution-run/runtime.ts";
 
-/** Source-only opt-in metadata record; registration never seeds state or grants. */
+/** Ordinary installed tool for optional human-directed metadata; registration never seeds state or grants. */
 export default function mahiroExecutionRun(pi: ExtensionAPI) {
   const runtime = createRunRuntime(pi);
   pi.registerTool({
     name: "mh_execution_run",
     label: "mh_execution_run",
     description:
-      "Read/create/update optional bounded execution coordination metadata. Never executes workers, CLI, Git or worktrees; never reads artifacts or other workflows. Reports/checks/paths/session refs are caller metadata, never proof, acceptance or Goal completion. Live TSK owns tasks/outcomes/evidence/human acceptance. Read get before mutation; default disabled, exact tool/root grants required. Operation get/create/update only; human abandon/terminal clear use public-UI-confirmed /mh-run.",
+      "Read/create/update optional bounded execution coordination metadata. Never executes workers, CLI, Git or worktrees; never reads artifacts or other workflows. Reports/checks/paths/session refs are caller metadata, never proof, acceptance or Goal completion. Live TSK owns tasks/outcomes/evidence/human acceptance. Read get before mutation; canonical binding and explicitly installed tool/feature-data authority required; empty reads never create a Run. Operation get/create/update only; human abandon/terminal clear use public-UI-confirmed /mh-run.",
     parameters: EXECUTION_RUN_PARAMETERS as any,
     executionMode: "sequential",
     annotations: {

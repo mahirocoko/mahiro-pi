@@ -87,7 +87,7 @@ test("package-only candidate preview needs no skills supply and rejects opaque o
   }
 });
 
-test("candidate13 is staged only in owned copies; copied patch owner supports both supply states", () => {
+test("candidate12 is staged only in owned copies; copied patch owner supports both supply states", () => {
   const manifest = path.join(productRoot, "package.json");
   const before = fs.readFileSync(manifest);
   const declaration = JSON.parse(

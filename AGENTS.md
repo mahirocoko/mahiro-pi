@@ -20,8 +20,8 @@ is ignored runtime evidence, not another authoring copy.
   owners. This extension publishes display metadata, not completion truth.
 - Keep credentials, caches, installed copies and runtime evidence out of source.
   Project evidence belongs only under ignored `.agent-state/runtime/`.
-- Source ownership is not activation: actual `package.json` retains exact active10; guards-first candidate13 is test-only in `test/candidate-extensions.json` and owned copied roots. The separately approved 2026-10-20 private runtime uses Root public permission/subagents packages, one `lib/guards/` owner, bootstrap first and an explicit additional worker resource. Legacy guard registration was removed, not duplicated. New guarded bootstrap from actual active10 must still reject before profile writes; installation/startup never provisions this profile. Further runtime changes require their own approval.
-- `lib/guards/` owns Pi-only final-execution enforcement and pure secret/commit guard ports; original Letta entries remain unchanged. The public permission service is the sole policy resolver. Native model presets persist by private profile, not session UUID; context windows are hints only. RTK defaults off and must authorize original and rewritten final arguments before spawn.
+- Actual `package.json` is guards-first12: bootstrap then one Root native guard, followed by the preserved ten features. Disposable candidate declarations mirror this graph, never another live authoring owner. `install.mjs` composes required public packages/owned roles/narrow feature DATA grants once by explicit consent. Source loading/startup grants nothing. `install:profile --remove-default-deny` (typed bootstrap `components.removeDefaultDeny: true` with `featureData`) is explicit consent to delete only scalar top-level `permission["*"]: "deny"`, never set blanket allow; unset fallback belongs to public PSS (`ask`, with existing yolo unchanged). Without consent retained broad deny with missing selected exact grants refuses before writes; already explicitly provisioned profiles retain their default deny. Other wildcard restrictions conservatively block missing-grant insertion; specific required tool/DATA restrictions refuse truthfully rather than silently omitting grants. Receipts report retained restriction surfaces; runtime public policy remains authoritative. Specific restrictions and explicit offs stay intact. The separately approved prior private runtime remains historical activation evidence; no new real-profile apply/reload is implied.
+- `lib/guards/` owns Pi-only final-execution enforcement and pure secret/commit guard ports; original Letta entries remain unchanged. The public permission service is the sole policy resolver. Saved Model Profiles is retired by the 2026-10-20 human decision; native `/model`, registry/auth, defaults and personal roles remain untouched. RTK-only private storage preserves exact authority/CAS/0700/0600 checks. Explicit profile installation defaults RTK to rewrite-rtk without overwriting an existing off state; uninstalled scopes remain off. Primary-only control is separate from native child execution under each child's own policy. Rewrite-rtk calls the bounded installed resolver with argv, never shell/helper auto-grants, and must authorize original, candidate and sanitizer-transformed final arguments before native spawn. Direct git commit bypasses the helper.
 - Run `pnpm check` after changes. Run the explicit host geometry smoke when geometry
   changes; synthetic tests are not rendered/human acceptance.
 - System memory roles `memory-reflector` (C1 quotes) and `managed-memory-writer`
@@ -37,16 +37,15 @@ is ignored runtime evidence, not another authoring copy.
   separate exact-root canonical capability is mandatory; C1/read grants do not
   permit managed writes. Native workers use identity-bound private views and public
   per-run prompt replacement, never cwd overrides, shell tools or inherited corpus.
-  Source registration alone must not migrate Core, install roles or enable policy.
+  Authenticated primary views share relevant deferred knowledge across canonical projects; workers and retained v1 views remain scoped. New unmapped projects derive collision-checked path identities without rewriting the map. Source registration alone must not migrate Core, install roles or enable policy. Explicit installation may initialize only an absent root with a neutral scaffold via the guarded native pipeline; existing config/ledger/Core/data are preserved.
 - `lib/setup.ts` and `setup.mjs` own explicit default skill-policy preview/apply only.
   Separate `bootstrap.mjs` / `lib/bootstrap.ts` compose an explicitly reviewed
-  private local profile manifest; `docs/bootstrap.md` owns its gates. Neither source
-  installation nor startup provisions a profile, roles or grants. Bootstrap tests
+  private local profile manifest; `install.mjs` selects the coherent one-install composition and optional preview. `docs/bootstrap.md` owns the gates. Resource loading/startup never provisions a profile, roles or grants. Bootstrap tests
   use disposable ignored profiles, never the real profile or existing private Core.
 - Repository-local dev-only Biome 2.5.14 includes voice source/tests, role tests,
   continuity, managed-memory and bootstrap source/tests/extensions, config and manifest: two
   spaces, double quotes and semicolons. Explicit format scripts include the new
-  managed roots, guards/SDK fixtures, Models/RTK and prior voice/role/config/manifest set; check continuity separately.
+  managed roots, guards/SDK fixtures, RTK state/resolver and prior voice/role/config/manifest set; check continuity separately.
   Do not mass-reformat the six legacy files. Checks are not full typechecking.
 - No commits, publication, pushes, runtime/profile/auth changes or live probes
   without explicit authorization.

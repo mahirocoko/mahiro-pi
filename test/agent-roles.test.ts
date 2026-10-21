@@ -37,13 +37,15 @@ test("the commit skill is a native package resource with explicit permission bou
   assert.ok(!source.includes("Agent tool"));
 });
 
-test("managed automatic learning registers before C1 can claim the shared native service", () => {
+test("guards register first and managed/C1 retain their feature registration order", () => {
   const manifest = JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
   );
   // SDK 1.3.0 preserves declared entry order and awaits each settled handler.
-  // Keep status/voice order and both memory owners; do not disable C1 authority.
+  // Keep status/voice order and both memory owners; each uses the parent queue.
   assert.deepEqual(manifest.pi.extensions, [
+    "./lib/guards/bootstrap.mjs",
+    "./lib/guards/index.ts",
     "./extensions/mahiro-status.ts",
     "./extensions/mahiro-finish-voice.ts",
     "./extensions/mahiro-agent-memory.ts",

@@ -37,10 +37,7 @@ export function createUXRuntime(pi: ExtensionAPI) {
     pi.on(event, invalidate);
   function capture(name: Tool, ctx: ExtensionContext, signal?: AbortSignal) {
     const binding = resolveUXBinding(ctx.cwd);
-    if (!binding)
-      throw Error(
-        "UX disabled: explicit canonical project configuration required",
-      );
+    if (!binding) throw Error("Canonical UX project binding unavailable");
     const sessionId = ctx.sessionManager.getSessionId();
     if (
       typeof sessionId !== "string" ||

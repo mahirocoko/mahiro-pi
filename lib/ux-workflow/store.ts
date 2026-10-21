@@ -36,8 +36,7 @@ export const uxWorkflowHash = (value: string | Buffer) =>
 const missing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT";
 const uid = () => process.getuid?.();
-const excluded = (path: string) =>
-  /(?:^|\/)\.letta(?:\/|$)|one[-_ ]?deex?/i.test(path);
+const excluded = (path: string) => /(?:^|\/)\.letta(?:\/|$)/i.test(path);
 function canonical(path: string) {
   if (
     typeof path !== "string" ||
@@ -135,14 +134,17 @@ export interface UXBinding extends Scope {
   configHash: string;
   configIdentity: string;
 }
-/** Read-only validation/preview. Missing config disables; never mkdir, seed or import. */
+/** Canonical read-only binding; optional legacy configs bind freshness, not availability. */
 export function resolveUXBinding(project: string): UXBinding | null {
   const profile = resolveAgentDir();
   canonical(profile);
   canonical(project);
   if (
     sourceRoots.some(
-      (source) => inside(source, profile) || inside(profile, source),
+      (source) =>
+        (inside(source, profile) &&
+          !inside(join(source, ".agent-state/runtime"), profile)) ||
+        inside(profile, source),
     ) ||
     inside(profile, project) ||
     inside(project, profile) ||
@@ -150,23 +152,21 @@ export function resolveUXBinding(project: string): UXBinding | null {
     inside(join(profile, "continuity"), project)
   )
     throw new Error("UX profile/project/source separation required");
-  // Missing config means disabled, including a profile that does not exist.
+  // No project whitelist or read-time initialization.
   const configPath = join(profile, "extensions/mahiro-ux-workflow/config.json");
   const text = readPrivate(configPath, 16384);
-  if (text === null) return null;
-  privateDirectory(profile);
-  privateDirectory(join(profile, "extensions"));
-  privateDirectory(dirname(configPath));
+  if (text !== null) privateDirectory(dirname(configPath));
   if (realpathSync(project) !== project || !lstatSync(project).isDirectory())
     throw new Error("Existing canonical project required");
   let config: any;
   try {
-    config = JSON.parse(text);
+    config =
+      text === null ? { version: 1, profile, projects: [] } : JSON.parse(text);
   } catch {
     throw new Error("Invalid UX configuration JSON");
   }
   validateUXConfiguration(config, profile);
-  if (!config.projects.includes(project)) return null;
+  // Each canonical project has its own derived state leaf.
   const root = join(profile, "workflow/ux-workflow", uxWorkflowHash(project));
   for (const dir of [
     join(profile, "workflow"),
@@ -178,19 +178,23 @@ export function resolveUXBinding(project: string): UXBinding | null {
     profile,
     project,
     root,
-    configHash: uxWorkflowHash(text),
-    configIdentity: [lstatSync(configPath).dev, lstatSync(configPath).ino].join(
-      ":",
-    ),
+    configHash: uxWorkflowHash(text ?? `canonical-ux-v2:${profile}`),
+    configIdentity:
+      text === null
+        ? "canonical-v2"
+        : [lstatSync(configPath).dev, lstatSync(configPath).ino].join(":"),
     sessionId: "",
   };
 }
 function validateUXConfiguration(config: any, profile: string): void {
   canonical(profile);
-  privateDirectory(profile, true);
+  // Host profile containers may be safe 0755; data leaves remain 0700.
   if (
     sourceRoots.some(
-      (source) => inside(source, profile) || inside(profile, source),
+      (source) =>
+        (inside(source, profile) &&
+          !inside(join(source, ".agent-state/runtime"), profile)) ||
+        inside(profile, source),
     ) ||
     !config ||
     typeof config !== "object" ||
@@ -382,7 +386,8 @@ export async function transactUX<T>(
         if (stateTicket(fresh).digest !== ticket.digest)
           throw new Error("UX state changed before commit");
         for (const parent of parents) {
-          privateDirectory(parent.path);
+          if (parent.path === binding.profile) canonical(parent.path);
+          else privateDirectory(parent.path);
           const current = lstatSync(parent.path);
           if (
             current.dev !== parent.stat.dev ||

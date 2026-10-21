@@ -409,14 +409,20 @@ test("generation replacement and actual pointer-target denial prevent publish", 
   }
 });
 
-test("excluded CWD and extension input cannot touch the configured store", () => {
+test("extension input cannot admit learning; ordinary OneDee-named scopes are no longer name-banned", () => {
   const f = fixture();
   try {
-    f.ctx.cwd = "/nonexistent/OneDee/project";
-    f.input();
+    f.ctx.cwd = join(f.root, "OneDee");
+    mkdirSync(f.ctx.cwd, { mode: 0o700 });
+    f.input("Synthetic extension text", "extension");
     f.settle();
-    assert.equal(f.targets.length, 0);
     assert.equal(f.spawned, 0);
+    assert.equal(f.store.snapshot().cursor, 0);
+    f.input("Concrete ordinary project choice");
+    f.settle();
+    assert.equal(f.spawned, 1);
+    f.complete([]);
+    assert.ok(f.store.snapshot().cursor > 0);
   } finally {
     f.clean();
   }
@@ -505,16 +511,16 @@ test("new runtime shows latest multi-notes and corrections, and cannot revive fo
   }
 });
 
-test("busy root waits for a later qualifying turn; lifecycle controls use retained current-project citations", async () => {
+test("unrelated native queue activity does not veto bounded learning; lifecycle controls retain current-project citations", async () => {
   const f = fixture();
   try {
     f.busy(true);
-    f.input();
-    f.settle();
-    assert.equal(f.spawned, 0);
-    f.busy(false);
     f.input("Second concrete choice");
     f.settle();
+    assert.equal(f.spawned, 1);
+    f.settle();
+    assert.equal(f.spawned, 1, "own in-flight job stays single-flight");
+    f.busy(false);
     const source = f.sent.prompt.records[0];
     f.complete([{ recordId: source.id, quote: "Second concrete choice" }]);
     const note = f.store.inspect().facts[0];
