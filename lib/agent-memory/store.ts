@@ -28,6 +28,7 @@ import {
   validId,
 } from "../continuity/records.ts";
 import { assertPrivatePath } from "../continuity/store.ts";
+import { discoveryVersion, topicMetadata } from "./retrieval.ts";
 
 export interface MemoryConfig {
   version: 1;
@@ -231,8 +232,16 @@ export function createMemoryStore(
       }
     }
   };
-  const git = (args: string[], input?: string, deadline?: number) => {
+  const git = (
+    args: string[],
+    input?: string,
+    deadline?: number,
+    finalRootCheck = false,
+  ) => {
     safe(deadline);
+    // Return fences revalidate root authority after Git metadata/path checks,
+    // immediately before the HEAD read. Never defer this callback past spawn.
+    if (finalRootCheck) current();
     return execFileSync("git", ["--no-pager", ...args], {
       cwd: root,
       shell: false,
@@ -305,11 +314,12 @@ export function createMemoryStore(
     }
     if (total > c.totalBytes) throw new Error("Memory total budget exceeded");
   };
-  const head = (deadline?: number) => {
+  const head = (deadline?: number, returnFence = false) => {
     const rev = git(
       ["rev-parse", "--verify", "HEAD"],
       undefined,
       deadline,
+      returnFence,
     ).trim();
     if (!hash.test(rev)) throw new Error("Invalid revision");
     return rev;
@@ -693,6 +703,56 @@ export function createMemoryStore(
       )
         throw new Error("Memory view changed externally");
   };
+  // Reads, unlike integration, must not expose a retained proposal after another
+  // view forgets its path/source. Inspect current ledger without hydrating HEAD
+  // bodies; preserve the proposal and its CAS base for explicit conflict recovery.
+  const inspect = <T extends object>(
+    v: View,
+    select: (files: Readonly<Record<string, MemoryFile>>) => T,
+  ) => {
+    checkView(v);
+    const revision = head();
+    const state = ledger(revision);
+    const tombstones = { ...state, revision, files: {} } as Snapshot;
+    if (
+      Object.entries(v.files).some(([path, file]) =>
+        suppressed(tombstones, path, file),
+      )
+    )
+      throw new Error(
+        "Memory read unavailable: current forgotten knowledge; proposal retained",
+      );
+    for (const path of Object.keys(v.files)) current(join(root, path));
+    const result = select(v.files);
+    checkView(v);
+    for (const path of Object.keys(v.files)) current(join(root, path));
+    if (
+      digest(JSON.stringify(config())) !== v.configHash ||
+      Date.now() >= v.deadline
+    )
+      throw new Error("Memory view inactive");
+    current();
+    // Final HEAD observation is the read's publication fence. Even head()'s
+    // own safe/authority I/O precedes its rev-parse; no validation I/O follows.
+    if (head(undefined, true) !== revision)
+      throw new Error(
+        "Memory read unavailable: current revision changed; retry with retained proposal",
+      );
+    if (Date.now() >= v.deadline) throw new Error("Memory view inactive");
+    return {
+      ...result,
+      revision: v.base.revision,
+      baseRevision: v.base.revision,
+      currentRevision: revision,
+      basis: equal(v.files, v.base.files)
+        ? ("view-snapshot" as const)
+        : ("private-draft" as const),
+      freshness:
+        revision === v.base.revision
+          ? ("current" as const)
+          : ("stale" as const),
+    };
+  };
   const filter = (s: Snapshot, project?: string) =>
     Object.fromEntries(
       Object.entries(s.files).filter(([p]) => allowedPath(p, project)),
@@ -882,14 +942,16 @@ export function createMemoryStore(
       saveView(v);
       return v;
     },
+    inspect,
     read(v: View, path: string) {
-      checkView(v);
-      if (!allowedPath(path, v.scope === "primary" ? undefined : v.project))
-        throw new Error("Memory path outside scope");
-      const f = v.files[path];
-      return f
-        ? { ...copy(f), hash: digest(f.text) }
-        : { missing: true, hash: null };
+      return inspect(v, (files) => {
+        if (!allowedPath(path, v.scope === "primary" ? undefined : v.project))
+          throw new Error("Memory path outside scope");
+        const f = files[path];
+        return f
+          ? { ...copy(f), hash: digest(f.text) }
+          : { missing: true, hash: null };
+      });
     },
     edit(
       v: View,
@@ -1150,18 +1212,45 @@ export function createMemoryStore(
         };
       }
       validate(selected, c);
+      if (
+        Object.entries(selected).some(([path, file]) =>
+          suppressed({ ...state, revision, files: {} }, path, file),
+        )
+      )
+        throw new Error("Memory projection unavailable: current forgetting");
       return {
         revision,
         core: selected["Core.md"].text,
         index: selected["index.md"].text,
-        deferred: Object.keys(state.sources)
-          .filter(
+        discovery: (() => {
+          const paths = Object.keys(state.sources).filter(
             (p) =>
               allowedPath(p, shared ? undefined : project) &&
-              p !== "Core.md" &&
-              p !== "index.md",
-          )
-          .sort(),
+              !suppressed({ ...state, revision, files: {} }, p, {
+                text: "",
+                sources: state.sources[p],
+              }),
+          );
+          for (const path of paths) current(join(root, path));
+          const topics = topicMetadata(paths);
+          // Config and all authority I/O (including head's safe()) must finish
+          // before the final HEAD observation, just as for inspect above.
+          if (!equal(config(), c) || head(undefined, true) !== revision)
+            throw new Error(
+              "Memory projection unavailable: current state changed",
+            );
+          return {
+            version: discoveryVersion,
+            topics: topics.slice(0, 8),
+            totalTopics: topics.length,
+            ...(topics.length > 8 ? { nextOffset: 8 } : {}),
+            routes: {
+              namespaces: { topic: "" },
+              allFiles: { topic: "*" },
+              lexical: "agent_memory_read query",
+            },
+          };
+        })(),
       };
     },
     pendingEpisodes(project: string) {

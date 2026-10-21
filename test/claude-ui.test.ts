@@ -1,0 +1,799 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
+import {
+  createEditToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
+  ToolExecutionComponent,
+} from "@earendil-works/pi-coding-agent";
+import mahiroClaudeUI from "../extensions/mahiro-claude-ui.ts";
+import {
+  createToolPresentation,
+  renderStartupHeader,
+  storedDiff,
+} from "../lib/claude-ui.ts";
+import {
+  fixture,
+  geometry,
+  native,
+  renderContext,
+  theme,
+  themeFrom,
+} from "./claude-ui-fixture.ts";
+
+const plain = (lines: string[]) =>
+  lines.map(geometry.stripTerminalSequences).join("\n");
+const freeze = <T>(value: T): T => {
+  if (value && typeof value === "object") {
+    Object.values(value).forEach(freeze);
+    Object.freeze(value);
+  }
+  return value;
+};
+function row(
+  name = "read",
+  base = createReadToolDefinition("/fixture"),
+  nativeAPI = native,
+) {
+  return createToolPresentation(
+    name,
+    base,
+    geometry,
+    nativeAPI,
+    (host) => host,
+  );
+}
+const result = (text = "", details: unknown = undefined) => ({
+  content: [{ type: "text" as const, text }],
+  details,
+});
+const options = { expanded: false, isPartial: false };
+function render(
+  renderer: ToolRenderers,
+  text = "",
+  ctx = renderContext(),
+  details: unknown = undefined,
+  expanded = false,
+) {
+  return plain(
+    renderer.renderResult!(
+      result(text, details),
+      { expanded, isPartial: ctx.isPartial },
+      theme,
+      ctx,
+    ).render(80),
+  );
+}
+
+test("rendering is context/result/args neutral; missing/streaming args are safe", () => {
+  const renderer = row();
+  const ctx = freeze(
+    renderContext({ args: undefined, argsComplete: false, isPartial: true }),
+  );
+  const value = freeze(result("streaming text"));
+  const before = JSON.stringify({ ctx, value });
+  assert.match(
+    plain(renderer.renderCall!(undefined, theme, ctx).render(40)),
+    /Read …/,
+  );
+  assert.match(
+    plain(
+      renderer.renderResult!(
+        value,
+        { expanded: true, isPartial: true },
+        theme,
+        ctx,
+      ).render(40),
+    ),
+    /Running…/,
+  );
+  assert.equal(JSON.stringify({ ctx, value }), before);
+});
+
+test("partial with output is never successful; errors/empty output retain native expansion", () => {
+  assert.match(
+    render(row("bash"), "progress", renderContext({ isPartial: true })),
+    /Running…[\s\S]*progress/,
+  );
+  assert.doesNotMatch(
+    render(
+      row("write"),
+      "progress",
+      renderContext({ isPartial: true, args: { content: "not yet written" } }),
+    ),
+    /Wrote|preview|Done/,
+  );
+  const errorCtx = renderContext({ isError: true });
+  const output = "failure\nline2\nline3\nline4\nLAST ERROR";
+  assert.match(render(row("edit"), output, errorCtx), /Error[\s\S]*more rows/);
+  assert.match(
+    render(row("edit"), output, errorCtx, { diff: "+1 fake" }, true),
+    /LAST ERROR/,
+  );
+  assert.doesNotMatch(
+    render(row("edit"), output, errorCtx, { diff: "+1 fake" }),
+    /fake/,
+  );
+  assert.match(render(row("bash")), /Done[\s\S]*no text output/);
+});
+
+test("truncation and captured-output path are visible collapsed; expansion retains all captured text", () => {
+  const output = Array.from({ length: 20 }, (_, index) => `line ${index}`).join(
+    "\n",
+  );
+  const details = {
+    truncation: { truncated: true, totalLines: 200 },
+    fullOutputPath: "/captured/output.txt",
+  };
+  const collapsed = render(row("bash"), output, renderContext(), details);
+  assert.match(collapsed, /more rows.*f6 to expand/);
+  assert.match(collapsed, /Native output truncated/);
+  assert.match(collapsed, /Full output: \/captured\/output.txt/);
+  assert.match(
+    render(row("bash"), output, renderContext(), details, true),
+    /line 19/,
+  );
+});
+
+test("successful write previews only submitted content, not fabricated old/new diff; preserves native status", () => {
+  const ctx = renderContext({
+    args: {
+      path: "/path/that/does/not/exist",
+      content: "\ufefffirst\r\nsecond\r\n",
+    },
+  });
+  const output = render(
+    row("write"),
+    "Successfully wrote 19 bytes",
+    ctx,
+    undefined,
+    true,
+  );
+  assert.match(output, /Wrote 2 lines/);
+  assert.match(output, /not an overwrite diff/);
+  assert.match(output, /1 .*first[\s\S]*2 second/);
+  assert.match(output, /Successfully wrote 19 bytes/);
+  assert.doesNotMatch(
+    render(row("write"), "failure", { ...ctx, isError: true }),
+    /preview|first/,
+  );
+});
+
+test("split diff consumes stored results only; optional native mode uses the public renderer", () => {
+  const calls: string[] = [];
+  const renderer = row("edit", createEditToolDefinition("/missing"), {
+    ...native,
+    renderDiff(diff) {
+      calls.push(diff);
+      return native.renderDiff(diff);
+    },
+  });
+  const ctx = freeze(
+    renderContext({
+      args: {
+        path: "/missing/file",
+        oldText: "untrusted old",
+        newText: "untrusted new",
+      },
+    }),
+  );
+  const diff = "-1 old\r\n+1 new\r\n 2 \ufeffcontext";
+  assert.match(
+    render(renderer, "applied", ctx, freeze({ diff }), true),
+    /old[\s\S]*new/,
+  );
+  assert.deepEqual(calls, []);
+  const nativeRenderer = createToolPresentation(
+    "edit",
+    createEditToolDefinition("/missing"),
+    geometry,
+    {
+      ...native,
+      renderDiff(diff) {
+        calls.push(diff);
+        return native.renderDiff(diff);
+      },
+    },
+    (host) => host,
+    () => ({
+      toolStyle: "transparent",
+      diffView: "native",
+      extraDetail: false,
+    }),
+  );
+  assert.match(
+    render(nativeRenderer, "applied", ctx, { diff }, true),
+    /native\/plain fallback/,
+  );
+  assert.deepEqual(calls, [diff.replace(/\r\n/g, "\n")]);
+  const patch =
+    "--- a/file\n+++ b/file\n@@ -5,2 +5,2 @@\n-old\n+new\n context\n@@ -15 +15 @@\n-last\n+final\n";
+  assert.match(storedDiff({ patch })!, /-5 old\n\+5 new\n 6 context/);
+  assert.match(storedDiff({ patch })!, /-15 last\n\+15 final/);
+  assert.match(render(renderer, "applied", ctx, { patch }, true), /final/);
+  assert.doesNotMatch(
+    render(renderer, "applied", ctx, undefined, true),
+    /untrusted/,
+  );
+  assert.equal(storedDiff(undefined), undefined);
+});
+
+test("historical edit/write without preview data retain native text once without unnecessary expansion", () => {
+  for (const name of ["edit", "write"]) {
+    const renderer = row(name);
+    const ctx = renderContext({ args: { path: "/historical/file" } });
+    const text = "Native operation succeeded\nHistorical status retained";
+    for (const expanded of [false, true]) {
+      const output = render(renderer, text, ctx, undefined, expanded);
+      assert.equal(output.match(/Native operation succeeded/g)?.length, 1);
+      assert.equal(output.match(/Historical status retained/g)?.length, 1);
+      assert.doesNotMatch(output, /more rows|to expand/);
+      assert.doesNotMatch(output, /stored edit diff|submitted content preview/);
+    }
+  }
+});
+
+test("image/specialized results and image-path calls delegate to next, irrespective of inline image capability", () => {
+  const seen: string[] = [];
+  const base = {
+    renderCall() {
+      seen.push("call");
+      return { render: () => ["native image call"], invalidate() {} };
+    },
+    renderResult(value: unknown) {
+      seen.push("result");
+      assert.ok(value);
+      return { render: () => ["native image result"], invalidate() {} };
+    },
+  };
+  const renderer = createToolPresentation(
+    "read",
+    base,
+    geometry,
+    native,
+    (host) => host,
+  );
+  for (const showImages of [true, false]) {
+    const ctx = freeze(
+      renderContext({ args: { path: "image.png" }, showImages }),
+    );
+    assert.match(
+      plain(renderer.renderCall!(ctx.args, theme, ctx).render(60)),
+      /native image call/,
+    );
+    const value = freeze({
+      content: [
+        { type: "image" as const, data: "fixture", mimeType: "image/png" },
+      ],
+      details: undefined,
+    });
+    assert.match(
+      plain(renderer.renderResult!(value, options, theme, ctx).render(60)),
+      /native image result/,
+    );
+  }
+  assert.deepEqual(seen, ["call", "result", "call", "result"]);
+  // No guessed extension: content inspection must still delegate.
+  const value = {
+    content: [
+      { type: "image" as const, data: "fixture", mimeType: "image/png" },
+    ],
+    details: undefined,
+  };
+  assert.match(
+    plain(
+      renderer.renderResult!(value, options, theme, renderContext()).render(60),
+    ),
+    /native image result/,
+  );
+});
+
+test("public TUI geometry: width/outputPad, ANSI, Thai/CJK/ZWJ/combining, long lines and resize", () => {
+  const content =
+    "\u001b[31mภาษาไทย 中文 👩🏽‍💻 é\u001b[0m " + "long".repeat(30);
+  for (const width of [1, 2, 5, 12, 24, 40, 76, 110]) {
+    for (const outputPad of [0, 1]) {
+      const renderer = row("bash");
+      const ctx = renderContext({ outputPad, args: { command: content } });
+      for (const lines of [
+        renderer.renderCall!(ctx.args, theme, ctx).render(width),
+        renderer.renderResult!(
+          result(content),
+          { expanded: true, isPartial: false },
+          theme,
+          ctx,
+        ).render(width),
+        fixture(width),
+      ]) {
+        for (const line of lines)
+          assert.ok(geometry.visibleWidth(line) <= width, `${width}: ${line}`);
+      }
+    }
+  }
+  const rendered = render(
+    row("bash"),
+    content,
+    renderContext(),
+    undefined,
+    true,
+  );
+  assert.match(rendered, /ภาษาไทย 中文 👩🏽‍💻 é/);
+  assert.equal(rendered.includes(String.fromCharCode(27)), false);
+});
+
+function harness() {
+  const handlers = new Map<string, (event: any, ctx: any) => any>();
+  let resolver: any;
+  let command: any;
+  let header: any;
+  let renders = 0;
+  let fixedAvailable = true;
+  let panel: any;
+  const notifications: string[] = [];
+  const ui = {
+    theme: themeFrom("host-theme"),
+    getTheme() {
+      return fixedAvailable ? theme : undefined;
+    },
+    setHeader(value: any) {
+      header = value?.(
+        {
+          requestRender() {
+            renders++;
+          },
+        },
+        ui.theme,
+      );
+    },
+    notify(value: string) {
+      notifications.push(value);
+    },
+    async custom(factory: any) {
+      panel = factory(
+        {
+          requestRender() {
+            renders++;
+          },
+        },
+        ui.theme,
+        geometry.getKeybindings(),
+        () => {},
+      );
+    },
+  };
+  const pi = {
+    on(name: string, handler: any) {
+      handlers.set(name, handler);
+    },
+    registerToolRenderer(value: any) {
+      resolver = value;
+    },
+    registerCommand(name: string, value: any) {
+      assert.equal(name, "mh-ui");
+      command = value;
+    },
+    getActiveTools: () => ["read", "write"],
+    getAllTools: () => ["read", "write", "codemode"],
+    getCommands: () => [{ name: "mh-ui" }],
+    getMcpServers: () => [],
+    getThinkingLevel: () => "low",
+  };
+  const ctx = {
+    mode: "tui",
+    cwd: "/fixture/current",
+    model: { provider: "test", id: "actual-model" },
+    thinkingLevel: "high",
+    ui,
+  };
+  mahiroClaudeUI(pi as never);
+  return {
+    pi,
+    ui,
+    ctx,
+    handlers,
+    notifications,
+    resolve: (name: string, base: any) => resolver(name, () => base),
+    command: (args: string) => command.handler(args, ctx),
+    header: () => header,
+    panel: () => panel,
+    renders: () => renders,
+    missingTheme: () => {
+      fixedAvailable = false;
+    },
+  };
+}
+
+test("resolver is native outside TUI; custom/specialized/codemode stay native; public builtins adapt", async () => {
+  const h = harness();
+  const read = createReadToolDefinition("/fixture");
+  const beforeStartup = h.resolve("read", read);
+  assert.equal(beforeStartup.renderResult, read.renderResult);
+  await h.handlers.get("session_start")!({}, h.ctx);
+  assert.equal(beforeStartup.renderShell, "self");
+  const custom = { renderCall() {}, renderResult() {}, renderShell: "self" };
+  assert.equal(h.resolve("codemode", custom), custom);
+  assert.equal(h.resolve("custom-tool", custom), custom);
+  assert.equal(h.resolve("read", custom).renderResult, custom.renderResult);
+  assert.equal(h.resolve("read", undefined), undefined);
+  assert.equal(
+    h.resolve("write", createWriteToolDefinition("/fixture")).renderShell,
+    "self",
+  );
+  await h.handlers.get("session_shutdown")!({}, h.ctx);
+  assert.equal(beforeStartup.renderResult, read.renderResult);
+  assert.equal(h.header(), undefined);
+});
+
+test("non-TUI events cannot displace an existing TUI presentation; late startup cannot resurrect shutdown", async () => {
+  const h = harness();
+  await h.handlers.get("session_start")!({}, h.ctx);
+  const header = h.header();
+  const renderer = h.resolve("read", createReadToolDefinition("/fixture"));
+  const child = {
+    mode: "rpc",
+    ui: new Proxy(
+      {},
+      {
+        get() {
+          throw Error("child UI accessed");
+        },
+      },
+    ),
+  };
+  for (const event of [
+    "session_start",
+    "model_select",
+    "thinking_level_select",
+    "session_shutdown",
+  ]) {
+    await h.handlers.get(event)!({}, child);
+  }
+  assert.equal(h.header(), header);
+  assert.equal(renderer.renderShell, "self");
+  const next = harness();
+  const pending = next.handlers.get("session_start")!({}, next.ctx);
+  await next.handlers.get("session_shutdown")!({}, next.ctx);
+  await pending;
+  assert.equal(next.header(), undefined);
+});
+
+test("runtime palette controls follow/fixed, missing theme, invalid args, redraw and no host theme mutation", async () => {
+  const h = harness();
+  await h.handlers.get("session_start")!({}, h.ctx);
+  const original = h.ui.theme;
+  await h.command("theme status");
+  assert.match(h.notifications.at(-1)!, /follow · host-theme/);
+  await h.command("theme claude");
+  assert.match(h.notifications.at(-1)!, /claude · mahiro-claude-dark/);
+  assert.match(h.notifications.at(-1)!, /native diff still follows Pi/);
+  assert.equal(h.ui.theme, original);
+  await h.command("theme follow");
+  h.missingTheme();
+  await h.command("theme claude");
+  assert.match(h.notifications.at(-1)!, /unavailable; keeping follow/);
+  await h.command("theme on");
+  assert.match(h.notifications.at(-1)!, /Usage:/);
+  assert.ok(h.renders() >= 3);
+  const renderer = h.resolve("read", createReadToolDefinition("/fixture"));
+  const component = renderer.renderCall(
+    { path: "file.ts" },
+    original,
+    renderContext(),
+  );
+  const first = component.render(80).join("\n");
+  h.ui.theme = themeFrom("different-host");
+  // Palette is derived at render time, not cached as colored application state.
+  assert.ok(first.includes("file.ts"));
+  await h.handlers.get("model_select")!(
+    {},
+    { ...h.ctx, model: { provider: "new", id: "current" } },
+  );
+  assert.match(plain(h.header().render(110)), /new\/current/);
+});
+
+test("settings command integrates live preview, cancel, missing theme and generation/CAS without native defaults", async () => {
+  const h = harness();
+  await h.handlers.get("session_start")!({}, h.ctx);
+  await h.command("settings");
+  const first = h.panel();
+  assert.match(plain(first.render(110)), /Not persisted/);
+  first.handleInput("\r");
+  await h.command("theme status");
+  assert.match(h.notifications.at(-1)!, /claude · mahiro-claude-dark/);
+  first.handleInput("\x1b");
+  await h.command("theme status");
+  assert.match(h.notifications.at(-1)!, /follow · host-theme/);
+  await h.command(""); // default command opens panel
+  const stale = h.panel();
+  await h.command("theme claude"); // another runtime owner wins CAS
+  stale.handleInput("\x1b");
+  await h.command("theme status");
+  assert.match(h.notifications.at(-1)!, /claude · mahiro-claude-dark/);
+  await h.command("theme follow");
+  h.missingTheme();
+  await h.command("settings");
+  h.panel().handleInput("\r");
+  assert.match(plain(h.panel().render(110)), /Choice unavailable/);
+  await h.command("theme status");
+  assert.match(h.notifications.at(-1)!, /follow · host-theme/);
+  await h.command("settings");
+  const shutdownPanel = h.panel();
+  await h.handlers.get("session_shutdown")!({}, h.ctx);
+  shutdownPanel.handleInput("\r");
+  shutdownPanel.dispose();
+  assert.equal(h.header(), undefined);
+});
+
+test("startup header uses actual public model/effort/cwd and counts, never fabricated skills/extensions/totals", async () => {
+  const h = harness();
+  await h.handlers.get("session_start")!({}, h.ctx);
+  const wide = plain(h.header().render(150));
+  for (const value of [
+    "Mahiro",
+    " ▄██▄    ▄██▄   ",
+    "test/actual-model",
+    "high effort",
+    "/fixture/current",
+    "2 active / 3 registered tools",
+    "1 resource commands",
+    "0 extension MCP registrations",
+  ])
+    assert.ok(wide.includes(value), value);
+  assert.match(
+    wide,
+    /Skills \/ extensions \/ global-project totals unavailable/,
+  );
+  assert.ok(wide.includes("│"));
+  assert.match(plain(h.header().render(40)), /Getting started/);
+  const noModel = renderStartupHeader(
+    {
+      version: "1.3.0",
+      model: "Model unavailable",
+      effort: "unavailable",
+      cwd: "/fixture",
+      activeTools: 0,
+      registeredTools: 0,
+      commands: 0,
+      mcpServers: 0,
+      paletteMode: "follow",
+    },
+    60,
+    theme,
+    geometry,
+  );
+  assert.match(plain(noModel), /Model unavailable/);
+});
+
+test("selected Argon 02 Neko-Stack retains six exact 16-cell rows; narrow headers crop without overflow", () => {
+  const logo = [
+    " ▄██▄    ▄██▄   ",
+    " ████████████   ",
+    "-██▄██████▄██-  ",
+    " ████████████  ▄",
+    " ████████████▄█▀",
+    " ▀▀████████▀▀▀  ",
+  ];
+  const data = {
+    version: "1.3.0",
+    model: "模型/ภาษาไทย/👩🏽‍💻/é",
+    effort: "low",
+    cwd: "/ภาษาไทย/界/👩🏽‍💻/é",
+    activeTools: 4,
+    registeredTools: 8,
+    commands: 3,
+    mcpServers: 0,
+    paletteMode: "follow" as const,
+  };
+  assert.deepEqual(logo.map(geometry.visibleWidth), [16, 16, 16, 16, 16, 16]);
+  for (const width of [0, 1, 2, 5, 6, 10, 19, 20, 40, 75, 76, 110]) {
+    const rows = renderStartupHeader(data, width, theme, geometry).map(
+      geometry.stripTerminalSequences,
+    );
+    assert.ok(
+      rows.every((line) => geometry.visibleWidth(line) <= width),
+      `width ${width}`,
+    );
+    if (width === 0) assert.deepEqual(rows, []);
+    else if (width < 6) {
+      assert.equal(rows.length, 1);
+      assert.equal(
+        rows[0],
+        geometry.stripTerminalSequences(
+          geometry.truncateToWidth("Mahiro", width),
+        ),
+      );
+    } else {
+      // Branding may wrap; the following six art rows never do.
+      const logoStart =
+        width >= 76
+          ? 2
+          : 1 + geometry.wrapTextWithAnsi("Mahiro", width - 4).length;
+      assert.deepEqual(
+        rows
+          .slice(logoStart, logoStart + 6)
+          .map((line) => line.slice(2, 2 + Math.min(16, width - 4))),
+        logo.map((line) =>
+          geometry.stripTerminalSequences(
+            geometry.truncateToWidth(line, Math.min(16, width - 4), ""),
+          ),
+        ),
+      );
+      assert.doesNotMatch(rows.join("\n"), /undefined/);
+    }
+  }
+});
+
+test("non-TUI startup imports no runtime SDK/TUI, publishes nothing and handles shutdown", () => {
+  const source = `import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier.startsWith('@earendil-works/')) throw Error('unexpected runtime import '+specifier);
+      return next(specifier, context);
+    }});
+    const extension = (await import('./extensions/mahiro-claude-ui.ts')).default;
+    for (const mode of ['rpc','json','print']) {
+      const handlers = new Map(); let command;
+      const pi = { on(n,h){handlers.set(n,h)}, registerToolRenderer(){}, registerCommand(n,c){command=c} };
+      extension(pi);
+      const ctx = {mode, ui: new Proxy({}, {get(){throw Error('non-TUI UI access')}})};
+      await handlers.get('session_start')({},ctx);
+      await command.handler('theme claude',ctx);
+      await command.handler('settings',ctx);
+      await handlers.get('session_shutdown')({},ctx);
+    }`;
+  const child = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", source],
+    { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 15000 },
+  );
+  assert.equal(child.status, 0, child.stderr);
+});
+
+test("public native tool component preserves partial/error/expansion, without executing tools or reading edited paths", async () => {
+  const h = harness();
+  await h.handlers.get("session_start")!({}, h.ctx);
+  for (const outputPad of [0, 1]) {
+    const renderer = h.resolve(
+      "edit",
+      createEditToolDefinition("/does-not-exist"),
+    );
+    const component = new ToolExecutionComponent(
+      "edit",
+      "native-fixture",
+      {
+        path: "/does-not-exist/file",
+        edits: [
+          { oldText: "old", newText: "new" },
+          { oldText: "second old", newText: "second new" },
+        ],
+      },
+      { outputPad, showImages: false },
+      renderer,
+      { requestRender() {} } as never,
+      "/does-not-exist",
+    );
+    component.setArgsComplete();
+    component.markExecutionStarted();
+    component.updateResult(
+      { ...result("streaming output"), isError: false },
+      true,
+    );
+    assert.match(plain(component.render(80)), /Running…/);
+    component.updateResult(
+      { ...result("Applied", { diff: "-1 old\n+1 new" }), isError: false },
+      false,
+    );
+    assert.match(
+      plain(component.render(80)),
+      /stored edit diff[\s\S]*old[\s\S]*new/,
+    );
+    const longError = Array.from(
+      { length: 20 },
+      (_, index) => `error ${index}`,
+    ).join("\n");
+    component.updateResult({ ...result(longError), isError: true }, false);
+    assert.match(plain(component.render(80)), /Error[\s\S]*more rows/);
+    component.setExpanded(true);
+    assert.match(plain(component.render(80)), /error 19/);
+    for (const width of [20, 80]) {
+      for (const line of component.render(width))
+        assert.ok(geometry.visibleWidth(line) <= width);
+    }
+  }
+  await h.handlers.get("session_shutdown")!({}, h.ctx);
+});
+
+test("existing components rebuild palette output on runtime mode change and invalidate, not cached ANSI", () => {
+  const other = {
+    ...theme,
+    fg: (_token: string, text: string) => `<fixed>${text}</fixed>`,
+    bold: (text: string) => text,
+  } as never;
+  let fixed = false;
+  const renderer = createToolPresentation(
+    "read",
+    createReadToolDefinition("/fixture"),
+    geometry,
+    native,
+    (host) => (fixed ? other : host),
+  );
+  const call = renderer.renderCall!(
+    { path: "file.ts" },
+    theme,
+    renderContext(),
+  );
+  const output = renderer.renderResult!(
+    result("captured"),
+    options,
+    theme,
+    renderContext(),
+  );
+  assert.doesNotMatch(call.render(120).join("\n"), /<fixed>/);
+  fixed = true;
+  call.invalidate();
+  output.invalidate();
+  assert.match(call.render(120).join("\n"), /<fixed>/);
+  assert.match(output.render(120).join("\n"), /<fixed>/);
+  fixed = false;
+  assert.doesNotMatch(output.render(120).join("\n"), /<fixed>/);
+});
+
+test("source contract: no execution/context/history/private hooks, settings writes, footer or rendering filesystem", () => {
+  const source = [
+    "../extensions/mahiro-claude-ui.ts",
+    "../lib/claude-ui.ts",
+    "../lib/claude-ui-diff.ts",
+    "../lib/claude-ui-settings.ts",
+  ]
+    .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+    .join("\n");
+  assert.doesNotMatch(
+    source,
+    /from ["'](?:node:)?fs|readFile|writeFile|\/dist\/|\.prototype|Object\.defineProperty/,
+  );
+  assert.doesNotMatch(
+    source,
+    /pi\.(?:registerTool\(|setActiveTools|sendMessage|sendUserMessage|appendEntry|setModel|setThinkingLevel|exec\()|\.execute\(/,
+  );
+  assert.doesNotMatch(
+    source,
+    /\.setTheme\(|\.setFooter\(|\.setStatus\(|onTerminalInput|registerShortcut|setInterval|setTimeout|setWorking/,
+  );
+  assert.doesNotMatch(
+    source,
+    /pi\.on\("(?:context|tool_call|tool_result|before_agent_start|input)"/,
+  );
+  const pkg = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(pkg.pi.themes, ["./themes/mahiro-claude-dark.json"]);
+  assert.equal(pkg.pi.extensions.at(-1), "./extensions/mahiro-claude-ui.ts");
+  assert.equal(pkg.pi.extensions.length, 13);
+  const bootstrap = readFileSync(
+    new URL("../lib/bootstrap.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    bootstrap,
+    /sourceState\(product, \[[\s\S]*?"themes",\s*"THIRD_PARTY_NOTICES.md"/,
+  );
+  const fixtureSource = readFileSync(
+    new URL("../lib/guards/test/permission-patch-fixture.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(fixtureSource, /"themes",\s*"THIRD_PARTY_NOTICES.md"/);
+  const notices = readFileSync(
+    new URL("../THIRD_PARTY_NOTICES.md", import.meta.url),
+    "utf8",
+  );
+  for (const text of [
+    "6746292ff4359b2bdca987109ff49c8da055bb23",
+    "FammasMaz",
+    "Tim van den Hoorn",
+    "Permission is hereby granted",
+    "THE SOFTWARE IS PROVIDED",
+  ])
+    assert.ok(notices.includes(text));
+});

@@ -1,5 +1,10 @@
 # Native UX Workflow — canonical project metadata
 
+[← Feature guide](README.md) · [Installation](getting-started.md)
+
+Use `/mh-ux` for human controls. Model tools read/create/update bounded workflow
+metadata; creation needs an actual human request and human gates stay human-owned.
+
 `extensions/mahiro-ux-workflow.ts` is the **ninth feature** and **eleventh
 manifest resource**, after the two guards and eight preserved features. Its focused owners are
 `lib/ux-workflow/{model,store,runtime}.ts`. Canonical Letta semantics come from
@@ -102,7 +107,7 @@ Safe host profile containers may be0755; private data/config directories stay070
 Root-owned `lib/guards/index.ts` owns the narrow healthy-node ABI:
 `uxWorkflow: {version:1, generation, assertAccess, authorize}`. Actual public
 `getAllTools` provenance must identify exactly one of the three tool names at the
-canonical `@mahirocoko/mahiro-pi` 0.2.0 root, exact declared
+canonical `@mahirocoko/mahiro-pi` 0.3.0 root, exact declared
 `extensions/mahiro-ux-workflow.ts` entry and manifest membership. Both the outer
 dispatch and execute body enforce the captured native SessionManager, matching
 primary header, healthy generation, native-child exclusion and cancellation.

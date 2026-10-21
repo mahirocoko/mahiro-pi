@@ -1,5 +1,10 @@
 # Native Pi agent ownership
 
+[← Feature guide](README.md) · [Installation](getting-started.md)
+
+The package owns three roles and the native commit skill; personal workflow
+rosters/models remain local. Source loading alone does not install role bodies.
+
 ## Package-owned roles
 
 `agents/memory-reflector.md` is the continuity-owned role. The

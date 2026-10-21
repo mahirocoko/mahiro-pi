@@ -21,6 +21,13 @@ export const RTK_HELPER_BOUNDS = Object.freeze({
   concurrent: 4,
 });
 let helpersInFlight = 0;
+// The public UI object owns the presentation sink, not the session manager:
+// multiple healthy managers can share one UI during session replacement.
+// Reloaded factories share leases; independent UIs remain isolated.
+const statusOwnersKey = Symbol.for("@mahirocoko/pi-rtk:status-owners");
+const statusOwners: WeakMap<object, object> = ((globalThis as any)[
+  statusOwnersKey
+] ??= new WeakMap());
 export type RTKRewriteResult = {
   status:
     | "candidate"
@@ -165,6 +172,26 @@ export function registerRTK(
     epoch = 0,
     alive = true;
   const recent: any[] = [];
+  const statusOwner = {};
+  let statusContext: any;
+  const isCurrent = (ctx: any) =>
+    (owner.executionCurrent ?? owner.current)(ctx);
+  const clearStatus = () => {
+    const ctx = statusContext;
+    statusContext = undefined;
+    if (!ctx || statusOwners.get(ctx.ui) !== statusOwner) return;
+    statusOwners.delete(ctx.ui);
+    if (isCurrent(ctx)) ctx.ui.setStatus("mahiro-rtk", undefined);
+  };
+  const publishStatus = (ctx: any, available: boolean) => {
+    if (!alive || ctx.mode !== "tui" || !ctx.hasUI || !isCurrent(ctx)) return;
+    if (statusContext?.ui !== ctx.ui) clearStatus();
+    statusOwners.set(ctx.ui, statusOwner);
+    statusContext = ctx;
+    // Plain text inherits the existing footer's colors and geometry. This is
+    // the active control mode, never a helper availability or savings claim.
+    ctx.ui.setStatus("mahiro-rtk", `RTK ${available ? mode : "unavailable"}`);
+  };
   const read = (ctx: any, operation = "read", execution = false) => {
     const b = rtkBinding(ctx.cwd);
     if (!b) throw Error("Canonical RTK profile/project binding unavailable");
@@ -192,6 +219,7 @@ export function registerRTK(
     return { b, state, ticket: rtkHash(text ?? "<absent>") };
   };
   pi.on("session_shutdown", () => {
+    clearStatus();
     alive = false;
     epoch++;
     mode = "off";
@@ -280,6 +308,7 @@ export function registerRTK(
       mode = next.mode;
       binding = b;
       epoch++;
+      publishStatus(ctx, true);
       return { mode, sequence: next.sequence, hooksChanged: false };
     }
     if (
@@ -377,11 +406,16 @@ export function registerRTK(
       "Native RTK status | mode <off|suggest|rewrite-safe|rewrite-rtk> <sequence> | rewrite <command> | log | doctor | guidance",
     handler: async (input: string, ctx: any) => {
       try {
-        if (input.length > 8192 || /[\x00-\x1f\x7f]/.test(input))
+        if (
+          input.length > 8192 ||
+          // Only a blank spaces/tabs command bypasses the control guard.
+          // Newlines and other controls remain rejected, including alone.
+          (!/^[ \t]*$/.test(input) && /[\x00-\x1f\x7f]/.test(input))
+        )
           throw Error("Bounded RTK command required");
-        const [operation = "status", requested, sequence] = input
-          .trim()
-          .split(/\s+/);
+        const [operation, requested, sequence] = (
+          input.trim() || "status"
+        ).split(/\s+/);
         const args =
           operation === "mode"
             ? {
@@ -402,6 +436,7 @@ export function registerRTK(
   });
   return {
     initialize(ctx: any) {
+      if (!alive || !isCurrent(ctx)) return;
       epoch++;
       mode = "off";
       binding = null;
@@ -412,6 +447,7 @@ export function registerRTK(
       } catch {
         /* Unconfigured/unattested is disabled, never a grant. */
       }
+      publishStatus(ctx, binding !== null);
     },
     async transform(input: any, ctx: any) {
       // The disabled fast path performs no filesystem read, probe, helper or log work.

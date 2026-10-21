@@ -56,6 +56,7 @@ test("guards register first and managed/C1 retain their feature registration ord
     "./extensions/mahiro-code-evidence.ts",
     "./extensions/mahiro-ux-workflow.ts",
     "./extensions/mahiro-execution-run.ts",
+    "./extensions/mahiro-claude-ui.ts",
   ]);
 });
 

@@ -1,9 +1,15 @@
-# Native Goal — canonical project state
+# Goals — explicit canonical project state
+
+[← Feature guide](README.md) · [Evidence](evidence.md) · [Installation](getting-started.md)
+
+Use `/mh-goal` for help/status and human controls. Model tools are `mh_get_goal`,
+`mh_create_goal`, `mh_update_goal`, `mh_clear_goal`; read before mutation and create
+only for an explicit human request. Publication/installation never creates a Goal.
 
 ## Status and owners
 
-This is the third source-only ALL-Mods slice, not live activation or human
-acceptance. `extensions/mahiro-goal.ts` is the **seventh feature** and **ninth
+This release implements native Goal state; its original third ALL-Mods slice is
+migration history, not proof of the current session's loaded source or human acceptance. `extensions/mahiro-goal.ts` is the **seventh feature** and **ninth
 manifest resource**, after the two guards and unchanged original six features. `lib/goal/model.ts`, `store.ts` and `runtime.ts`
 own native state semantics, private persistence and public Pi lifecycle integration.
 Root-owned `lib/guards/` owns Pi tool provenance and the narrow Goal ABI; public permission-system alone resolves policy.
@@ -151,7 +157,7 @@ The healthy Root `lib/guards/index.ts` candidate node exposes only `goal: {versi
 assertAccess, authorize}` for this slice. Outer dispatch and every execute body
 independently check current actual ToolInfo, session-manager identity, primary
 ownership and generation. The trust algorithm accepts only the exact four names,
-canonical Pi root, package identity/version 0.2.0 and exact declared Goal entry.
+canonical Pi root, package identity/version 0.3.0 and exact declared Goal entry.
 Aliases, copied/foreign/inline tools and stale/missing metadata fail closed.
 
 The actual public permission owner must return an existing scalar allow for:

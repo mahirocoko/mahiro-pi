@@ -1,5 +1,10 @@
 # Native Execution Run — canonical project metadata
 
+[← Feature guide](README.md) · [Installation](getting-started.md)
+
+Use `/mh-run` for help/status and human controls. `mh_execution_run` manages
+optional coordination metadata; it never executes workers or replaces the live board.
+
 `extensions/mahiro-execution-run.ts` is the **tenth feature** and **twelfth
 manifest resource**, after the two guards and nine preserved features. It registers **one** `mh_execution_run` tool
 with `operation: get | create | update`, and `/mh-run`. The pure model is locally
@@ -65,7 +70,7 @@ authorize}` on its healthy-node registry. Both outer dispatch and execute/direct
 hook-free and nested execution require a healthy current primary manager/header,
 matching node/generation, uncancelled context, canonical configured project and
 actual public ToolInfo provenance: sole Pi source root, package
-`@mahirocoko/mahiro-pi@0.2.0`, exact declared extension and exact tool name.
+`@mahirocoko/mahiro-pi@0.3.0`, exact declared extension and exact tool name.
 
 Both `mh_execution_run` and `execution_run_state_data_<sha256(canonical-Run-namespace UTF8)>` (or retained exact legacy leaf authority) need
 actual public permission-owner winning decisions with state `allow`, source

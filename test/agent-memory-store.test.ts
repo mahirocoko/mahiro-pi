@@ -147,8 +147,11 @@ test("shared deferred knowledge preserves full-size preferences, project isolati
     );
     assert.throws(() => f.store.read(stale, "deferred/other/private.md"));
     const projection = f.store.projection("project");
-    assert.ok(projection.deferred.includes("global/human-coding.md"));
-    assert.ok(!projection.deferred.includes("deferred/other/private.md"));
+    assert.ok(projection.discovery.topics.some((t) => t.topic === "global"));
+    assert.ok(
+      !projection.discovery.topics.some((t) => t.topic === "deferred/other"),
+    );
+    assert.ok(!JSON.stringify(projection).includes("human-coding.md"));
     assert.ok(
       !`${projection.core}${projection.index}`.includes(
         "Use the current project owner.",
@@ -181,6 +184,36 @@ test("shared deferred knowledge preserves full-size preferences, project isolati
     assert.ok("revision" in f.store.integrate(futureB));
     assert.equal(allowedPath("global/../other.md", "project"), false);
     assert.equal(allowedPath("global/nested/other.md", "project"), false);
+  } finally {
+    f.close();
+  }
+});
+
+test("old views cannot read knowledge independently forgotten at current HEAD; proposals remain retained", () => {
+  const f = fixture();
+  try {
+    const seed = f.store.createView("project");
+    f.store.edit(
+      seed,
+      "global/fictional-compass.md",
+      null,
+      "# Fictional\nThe compass is violet.\n",
+      ["fictional-source"],
+    );
+    f.store.integrate(seed);
+    const a = f.store.createView("project");
+    const b = f.store.createView("project");
+    f.store.forget(b.base.revision, [], ["fictional-source"], "project");
+    const before = readFileSync(join(f.root, ".views", `${a.id}.json`));
+    assert.throws(
+      () => f.store.read(a, "global/fictional-compass.md"),
+      /unavailable.*forgotten/i,
+    );
+    assert.deepEqual(
+      readFileSync(join(f.root, ".views", `${a.id}.json`)),
+      before,
+    );
+    assert.equal(a.state, "open");
   } finally {
     f.close();
   }
@@ -294,9 +327,9 @@ test("managed Core/deferred/procedure files share one CAS authoring owner and co
     const result = f.store.integrate(v, ["episode-1"]);
     assert.ok("revision" in result && result.revision !== before.revision);
     assert.ok(f.store.projection("project").core.includes("concise"));
-    assert.deepEqual(f.store.projection("project").deferred, [
-      "deferred/project/build.md",
-      "procedures/checks.md",
+    assert.deepEqual(f.store.projection("project").discovery.topics, [
+      { topic: "deferred/project", files: 1 },
+      { topic: "procedures", files: 1 },
     ]);
     assert.ok(
       !JSON.stringify(f.store.projection("project")).includes(
@@ -666,12 +699,19 @@ test("Core/index/deferred/total budgets apply and projection never reads deferre
       "# Deferred detail\nNot automatically read.\n",
     );
     f.store.integrate(v);
-    const projected = createMemoryStore(f.root, (path) => {
-      if (path?.includes("/deferred/"))
-        throw new Error("Deferred body unexpectedly read");
-    }).projection("project");
-    assert.ok(projected.deferred.includes("deferred/project/detail.md"));
+    // Authority callbacks include metadata paths, not just body I/O. Removing
+    // the deferred blob in this owned malformed fixture detects hydration:
+    // snapshot/createView would fail, whereas metadata projection still works.
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: f.root, encoding: "utf8" });
+    git("rm", "--", "deferred/project/detail.md");
+    git("commit", "-m", "Fictional missing deferred blob projection probe");
+    const projected = createMemoryStore(f.root).projection("project");
+    assert.ok(
+      projected.discovery.topics.some((t) => t.topic === "deferred/project"),
+    );
     assert.doesNotMatch(JSON.stringify(projected), /Not automatically read/);
+    git("revert", "--no-edit", "HEAD");
     writeFileSync(
       join(f.root, "config.json"),
       JSON.stringify({ ...f.config, totalBytes: 256 }),

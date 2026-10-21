@@ -110,6 +110,9 @@ interface Options {
   load?: () => Promise<WorkerAPI>;
   now?: () => number;
   every?: (callback: () => void, ms: number) => () => void;
+  // Optional explicitly enabled consumer. Same scoped service/poll/generation,
+  // never a second registry or a caller-supplied substitute service.
+  observe?: (read: () => unknown, current: () => boolean) => void;
 }
 
 /** Optional display metadata only. No UI, task, completion or provider mutation. */
@@ -226,6 +229,17 @@ export function startWorkerActivity(ctx: Context, options: Options = {}) {
       desired = undefined;
     }
     flush();
+    try {
+      if (service && valid()) {
+        options.observe?.(() => {
+          if (!valid()) return undefined;
+          const snapshot = service?.listAgents();
+          return valid() ? snapshot : undefined;
+        }, valid);
+      }
+    } catch {
+      // An optional display consumer cannot break the native count publisher.
+    }
     if (!api && !loading && !invalidated) {
       loading = true;
       const load = options.load ?? (() => import("@gotgenes/pi-subagents"));

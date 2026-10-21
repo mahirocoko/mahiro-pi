@@ -6,12 +6,12 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 assert.equal(manifest.name, "@mahirocoko/mahiro-pi");
-assert.equal(manifest.version, "0.2.0");
+assert.equal(manifest.version, "0.3.0");
 assert.equal(manifest.private, true);
 assert.equal(manifest.packageManager, "pnpm@10.33.0");
 assert.equal(manifest.engines.node, ">=22.19.0");
 const extensions = JSON.parse(await readFile(resolve(root, "test/candidate-extensions.json"), "utf8"));
-assert.deepEqual(extensions.active, ["./lib/guards/bootstrap.mjs", "./lib/guards/index.ts", "./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-agent-memory.ts", "./extensions/mahiro-continuity.ts", "./extensions/mahiro-native-utilities.ts", "./extensions/mahiro-code-map.ts", "./extensions/mahiro-goal.ts", "./extensions/mahiro-code-evidence.ts", "./extensions/mahiro-ux-workflow.ts", "./extensions/mahiro-execution-run.ts"]);
+assert.deepEqual(extensions.active, ["./lib/guards/bootstrap.mjs", "./lib/guards/index.ts", "./extensions/mahiro-status.ts", "./extensions/mahiro-finish-voice.ts", "./extensions/mahiro-agent-memory.ts", "./extensions/mahiro-continuity.ts", "./extensions/mahiro-native-utilities.ts", "./extensions/mahiro-code-map.ts", "./extensions/mahiro-goal.ts", "./extensions/mahiro-code-evidence.ts", "./extensions/mahiro-ux-workflow.ts", "./extensions/mahiro-execution-run.ts", "./extensions/mahiro-claude-ui.ts"]);
 assert.deepEqual(manifest.pi.extensions, extensions.active, "Actual resource graph must be guards-first");
 assert.deepEqual(extensions.candidate, extensions.active, "Disposable fixtures use the actual authoring graph, not another runtime owner");
 assert.equal(manifest.devDependencies["@biomejs/biome"], "2.5.14");
@@ -24,6 +24,7 @@ assert.ok((await readFile(resolve(root, "lib/bootstrap-native.mjs"), "utf8")).in
 assert.ok((await readFile(resolve(root, "setup.mjs"), "utf8")).includes('from "./lib/setup.ts"'));
 assert.ok((await readFile(resolve(root, "lib/setup.ts"), "utf8")).includes("export const planSetup"));
 assert.deepEqual(manifest.pi.skills, ["./skills"]);
+assert.deepEqual(manifest.pi.themes, ["./themes/mahiro-claude-dark.json"]);
 for (const peer of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
   assert.equal(manifest.peerDependencies[peer], ">=1.3.0");
   assert.equal(manifest.peerDependenciesMeta[peer].optional, true);
@@ -32,7 +33,7 @@ assert.equal((await readFile(resolve(root, ".npmrc"), "utf8")).trim(), "auto-ins
 const args = process.argv.slice(2);
 assert.ok(args.length === 0 || args.length === 2 && args[0] === "--compare-source", "Expected --compare-source <old-pi-root>");
 const original = args.length ? resolve(args[1]) : undefined;
-const roots = new Set(["extensions", "lib", "test", "docs", "agents", "skills"]);
+const roots = new Set(["extensions", "lib", "test", "docs", "agents", "skills", "themes"]);
 const files = new Set(["package.json", "AGENTS.md", "README.md", "check-package.mjs", "setup.mjs", "bootstrap.mjs", "install.mjs", "goal-preview.mjs", "check-geometry.ts", ".gitignore"]);
 let compared = 0;
 async function inspect(directory = "") {

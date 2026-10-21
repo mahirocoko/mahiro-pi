@@ -201,12 +201,198 @@ function fixture(twoProjects = false) {
     setVersion(v: number) {
       abi.version = v;
     },
+    get abi() {
+      return abi;
+    },
     close() {
       runtime.cancel();
       rmSync(dir, { recursive: true, force: true });
     },
   };
 }
+
+test("registered query/topic and legacy paths describe the same private draft and reject old-view current forgetting", async () => {
+  const f = fixture(true);
+  try {
+    const seed = f.store.createView("project");
+    f.store.edit(
+      seed,
+      "global/fictional.md",
+      null,
+      "# Fictional\nA violet compass.\n",
+      ["fictional-source"],
+    );
+    f.store.integrate(seed);
+    await f.emit("session_start");
+    const read = (args: any) => f.runtime.run("agent_memory_read", args, f.ctx);
+    const first = await read({ query: "violet" });
+    await f.runtime.run(
+      "agent_memory_edit",
+      {
+        path: "global/fictional.md",
+        expectedHash: first.results[0].hash,
+        text: "# Fictional draft\nA silver compass.\n",
+        sources: ["fictional-source"],
+      },
+      f.ctx,
+    );
+    const queried = await read({ query: "silver" });
+    const path = await read({ path: "global/fictional.md" });
+    assert.equal(queried.basis, "private-draft");
+    assert.equal(queried.results[0].hash, path.hash);
+    assert.equal(queried.results[0].text, path.text);
+    assert.deepEqual(queried.results[0].sources, path.sources);
+    const foreign = f.store.createView("project");
+    f.store.forget(foreign.base.revision, [], ["fictional-source"], "project");
+    const definition = f.tools.find((t) => t.name === "agent_memory_read");
+    for (const args of [
+      { query: "silver" },
+      { topic: "*" },
+      { topic: "" },
+      {},
+      { path: "global/fictional.md" },
+    ]) {
+      await assert.rejects(read(args), /unavailable.*forgotten/);
+      await assert.rejects(
+        definition.execute("fictional-read", args, undefined, undefined, f.ctx),
+        /current forgetting.*proposal preserved/,
+      );
+    }
+    assert.equal(f.runtime.status().draft, "open");
+  } finally {
+    f.close();
+  }
+});
+
+test("registered read execution rejects all six null paging inputs as its integer schema requires", async () => {
+  const f = fixture();
+  try {
+    await f.emit("session_start");
+    const definition = f.tools.find((t) => t.name === "agent_memory_read");
+    for (const selector of [
+      { path: "Core.md" },
+      { query: "identity" },
+      { topic: "*" },
+    ]) {
+      for (const key of ["offset", "limit"]) {
+        assert.equal(definition.parameters.properties[key].type, "integer");
+        const args = { ...selector, [key]: null };
+        await assert.rejects(
+          f.runtime.run("agent_memory_read", args, f.ctx),
+          /Invalid memory read paging/,
+        );
+        await assert.rejects(
+          definition.execute("null-paging", args, undefined, undefined, f.ctx),
+          /Managed memory unavailable/,
+        );
+      }
+    }
+  } finally {
+    f.close();
+  }
+});
+
+test("runtime and registered read return fail closed on source-forget in final authority validation", async () => {
+  for (const registered of [false, true]) {
+    const f = fixture();
+    try {
+      const seed = f.store.createView("project");
+      f.store.edit(
+        seed,
+        "global/fictional.md",
+        null,
+        "# Fictional\nA violet compass.\n",
+        ["fictional-source"],
+      );
+      const base = f.store.integrate(seed).revision!;
+      await f.emit("session_start");
+      let count = 0,
+        target = -1,
+        armed = false,
+        mutating = false,
+        changed = false;
+      const original = f.abi.assertAccess;
+      f.abi.assertAccess = (...args: any[]) => {
+        const access = original(...args);
+        if (!mutating && armed && count++ === target) {
+          mutating = true;
+          try {
+            f.store.forget(base, [], ["fictional-source"], "project");
+            changed = true;
+          } finally {
+            mutating = false;
+          }
+        } else if (!armed) count++;
+        return access;
+      };
+      const definition = f.tools.find((t) => t.name === "agent_memory_read");
+      const call = () =>
+        registered
+          ? definition.execute(
+              "return-fence",
+              { query: "violet" },
+              undefined,
+              undefined,
+              f.ctx,
+            )
+          : f.runtime.run("agent_memory_read", { query: "violet" }, f.ctx);
+      // Warm the same draft and then calibrate only a retained-view read.
+      await call();
+      count = 0;
+      await call();
+      target = count - 1;
+      assert.ok(target >= 0);
+      count = 0;
+      armed = true;
+      await assert.rejects(
+        call(),
+        registered
+          ? /current revision changed.*proposal preserved/
+          : /unavailable.*revision changed/,
+      );
+      assert.equal(changed, true);
+      assert.notEqual(f.store.snapshot().revision, base);
+      assert.equal(f.runtime.status().draft, "open");
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test("query/topic reject cancellation, unhealthy/obsolete bindings and scope revocation", async () => {
+  const f = fixture();
+  try {
+    await f.emit("session_start");
+    for (const args of [{ query: "identity" }, { topic: "*" }]) {
+      const controller = new AbortController();
+      controller.abort();
+      await assert.rejects(
+        f.runtime.run("agent_memory_read", args, f.ctx, controller.signal),
+        /unavailable/,
+      );
+      f.setHealthy(false);
+      await assert.rejects(
+        f.runtime.run("agent_memory_read", args, f.ctx),
+        /unavailable/,
+      );
+      f.setHealthy(true);
+      f.setVersion(0);
+      await assert.rejects(
+        f.runtime.run("agent_memory_read", args, f.ctx),
+        /unavailable/,
+      );
+      f.setVersion(1);
+      f.setGranted(false);
+      await assert.rejects(
+        f.runtime.run("agent_memory_read", args, f.ctx),
+        /permission/,
+      );
+      f.setGranted(true);
+    }
+  } finally {
+    f.close();
+  }
+});
 
 test("large Unicode detail is completely paged by code point with stable whole-file hashes after restart", async () => {
   const f = fixture();

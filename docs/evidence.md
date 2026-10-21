@@ -1,10 +1,16 @@
-# Native Code Evidence — canonical project reports
+# Code Evidence — canonical project reports
+
+[← Feature guide](README.md) · [Goals](goal.md) · [Installation](getting-started.md)
+
+Use `/mh-evidence` for help/status/report and explicit collect/clear controls.
+The model tool is `mh_code_evidence`; recorded external checks are metadata,
+never commands to execute or automatic Goal evidence.
 
 `extensions/mahiro-code-evidence.ts` is the **eighth feature** and **tenth
 manifest resource**, after the two guards and seven preserved features. Pi owns `lib/evidence/`; canonical
-Letta `mods/mahiro-code-evidence.ts` remains unchanged. This is source availability,
-not installed dependency repair, profile activation, final independent QA, human
-acceptance or complete ALL-Mods parity.
+Letta `mods/mahiro-code-evidence.ts` remains unchanged. Source publication is not
+profile activation, verification of recorded external checks, human acceptance
+or complete cross-host parity.
 
 ## Product contract
 
@@ -76,7 +82,7 @@ winning allows: source tool, non-yolo origin, toolName and matchedSurface exactl
 equal the queried surface. Family/default/wildcard winners, memory-only,
 root-only/tool-only, aliases, foreign copies, stale/unhealthy generations, malformed
 or old-owner results deny. Applicable explicit root/state/lock path denials remain.
-Actual canonical Pi package 0.2.0, exact entry and manifest provenance, actual
+Actual canonical Pi package 0.3.0, exact entry and manifest provenance, actual
 SessionManager, primary context and cancellation are checked in outer dispatch,
 nested/direct execution and publication. The existing authored permission-owner
 patch is reused **only in offline staged-owner fixtures**. An old service without winning-surface attestation fails closed. The earlier

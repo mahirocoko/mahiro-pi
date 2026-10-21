@@ -11,7 +11,8 @@
     "./extensions/mahiro-goal.ts",
     "./extensions/mahiro-code-evidence.ts",
     "./extensions/mahiro-ux-workflow.ts",
-    "./extensions/mahiro-execution-run.ts"
+    "./extensions/mahiro-execution-run.ts",
+    "./extensions/mahiro-claude-ui.ts"
   ],
   "candidate": [
     "./lib/guards/bootstrap.mjs",
@@ -25,6 +26,7 @@
     "./extensions/mahiro-goal.ts",
     "./extensions/mahiro-code-evidence.ts",
     "./extensions/mahiro-ux-workflow.ts",
-    "./extensions/mahiro-execution-run.ts"
+    "./extensions/mahiro-execution-run.ts",
+    "./extensions/mahiro-claude-ui.ts"
   ]
 }

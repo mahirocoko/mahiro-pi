@@ -1272,6 +1272,8 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       "agents",
       "skills",
       "extensions",
+      "themes",
+      "THIRD_PARTY_NOTICES.md",
       "lib",
     ]),
     sourceState(product, ["pnpm-workspace.yaml", "pnpm-lock.yaml", "patches"]),

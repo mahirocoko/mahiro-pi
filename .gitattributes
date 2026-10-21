@@ -1,0 +1,3 @@
+# Source archives must never include local agent state, even older tracked notes.
+.agent-state export-ignore
+.pi export-ignore

@@ -1,8 +1,13 @@
-# Explicit private local Pi bootstrap
+# Profile installation contract
+
+[← Feature guide](README.md) · [Installation](getting-started.md)
+
+This is the detailed profile installation/policy contract. For the shortest
+setup and upgrade path, start with [getting started](getting-started.md).
 
 ## One-install composition (historical active10 hold retired)
 
-The actual manifest is now guards-first12: bootstrap, one Root guard and the preserved ten features. Disposable candidates mirror this graph, not another live owner. The earlier active10 refusal is historical. Source changes do not reload the cached real profile.
+The actual manifest is now guards-first13: bootstrap, one Root guard, the preserved ten features and the rendering-only [Claude UI adapter](claude-ui.md). Its optional theme is not auto-activated. Disposable candidates mirror this graph, not another live owner. The earlier active10 refusal is historical. Source changes do not reload the cached real profile.
 
 ```sh
 pnpm install:profile [--agent-dir /absolute/canonical/profile] [--preview] [--remove-default-deny]

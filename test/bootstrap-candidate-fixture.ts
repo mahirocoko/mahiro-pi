@@ -50,7 +50,7 @@ export async function stageBootstrapCandidate(
   assert.equal(
     JSON.parse(fs.readFileSync(path.join(productRoot, "package.json"), "utf8"))
       .pi.extensions.length,
-    12,
+    13,
   );
   return {
     ...stage,

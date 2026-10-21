@@ -1,10 +1,21 @@
-# Pi integrations and ownership
+# Integration and deployment reference
+
+[← Feature guide](README.md) · [Installation](getting-started.md) · [Release notes](releases/0.3.0.md)
+
+This page preserves **dated integration/migration records** and detailed transport
+contracts. Historical source-only/pending/private-release wording below describes
+its named checkpoint, not the current release or today's profile. Current source
+ships through GitHub releases in a public repository; private runtime data stays
+private. Use the feature guides for current defaults and setup. The requested UI
+scope was human-closed on 2026-10-21; newer memory retrieval and Web observation
+have separate activation/acceptance boundaries. Herdr Web's compatible consumer is
+[v0.11.0](https://github.com/mahirocoko/herdr-web/releases/tag/v0.11.0).
 
 ## Native ownership and one-install repair — source, 2026-10-20
 
 This repository is the sole authoring owner of every Pi-specific implementation: `lib/guards/` owns the native bridge, narrow app ABIs, provenance and pure secret/commit guard ports; root `patches/`, workspace, lock and package manifest own the declared public dependency contracts. No Mods checkout is a runtime/build/bootstrap/test prerequisite. Its original Letta entries and historical Pi adapter remain unchanged; their cleanup or activation is separate scope. Dated deployment/provider/QA records below retain their original owners and evidence dates, not current source instructions.
 
-**Current source:** actual `package.json` is guards-first12: bootstrap, one Root native guard, preserved ten features. Disposable candidate declarations mirror this graph. `pnpm install:profile` composes pinned public permission/subagents packages, the three owned system roles and narrow feature DATA authority once with explicit consent; see [`bootstrap.md`](bootstrap.md). Ordinary canonical projects require no whitelist/config. Goal/Evidence/UX/Run state remains separate by project, private and CAS-protected; empty reads create nothing. Main shares relevant managed knowledge across canonical projects; actual workers and retained v1 views remain scoped. A new root gets only a neutral scaffold through guarded native SDK/Faux, never a private corpus import; an existing migrated root/config/ledger/Core is preserved. Future project/import filtering has no OneDee-only ban; old quarantine/forget history is not restored.
+**Current source:** actual `package.json` is guards-first13: bootstrap, one Root native guard, preserved ten features, then the rendering-only [Claude UI candidate](claude-ui.md). The optional theme never auto-activates; visual acceptance and runtime activation remain separate gates. Disposable candidate declarations mirror this graph. `pnpm install:profile` composes pinned public permission/subagents packages, the three owned system roles and narrow feature DATA authority once with explicit consent; see [`bootstrap.md`](bootstrap.md). Ordinary canonical projects require no whitelist/config. Goal/Evidence/UX/Run state remains separate by project, private and CAS-protected; empty reads create nothing. Main shares relevant managed knowledge across canonical projects; actual workers and retained v1 views remain scoped. A new root gets only a neutral scaffold through guarded native SDK/Faux, never a private corpus import; an existing migrated root/config/ledger/Core is preserved. Future project/import filtering has no OneDee-only ban; old quarantine/forget history is not restored.
 
 **Dated runtime evidence, not new activation:** the separately approved 2026-10-20 private cutover used Root public packages and one explicit Root guard, bootstrap first, plus the optional worker resource. Earlier installed-root repair, migration and its 318-asset preservation are retained historical evidence. This source repair does not apply/reload the actual profile or claim its cached process adopted new behavior. Public policy remains the sole resolver; public subagents remains the sole child runner. The previous recall/reflection errors and rejected nohup launch have no newly established live root cause. In particular, the rejected controller was never armed and is not retried through another channel.
 
@@ -27,7 +38,7 @@ Required verification is canonical `pnpm check` then `pnpm check:format` seriall
 ## Pi worker activity — explicit optional metadata resource
 
 `extensions/mahiro-worker-activity.ts` and `lib/worker-activity.ts` remain outside
-the actual guards-first12 graph and its disposable mirror. The owned public-SDK fixture adds a thirteenth
+the actual guards-first13 graph and its disposable mirror. The owned public-SDK fixture adds a fourteenth
 resource; the separately approved 2026-10-20 private runtime now explicitly adds
 this same worker resource alongside bootstrap-first Root guard/public owners.
 Neither installation nor source startup provisions that profile automatically.
@@ -365,9 +376,10 @@ human acceptance or proof of the currently running profile. Fresh QA remains Mai
 
 ## Managed agent memory — approved memory cutover, 2026-10-19
 
-This dated memory activation is distinct from the still-pending Root guard cutover.
-The private maintained root remains the knowledge owner; the new candidate does
-not establish a replacement live guard deployment.
+At this 2026-10-19 checkpoint the Root guard cutover was still pending. The
+separately approved 2026-10-20 cutover is recorded above; this paragraph does not
+reopen it. The private maintained root remains the knowledge owner, and any newer
+source release still needs its own intentional fresh load.
 
 At 15:29 Asia/Bangkok Mahiro explicitly approved reversible real-memory migration,
 role registration and exact-root activation. Main seeded the previously absent
@@ -830,7 +842,9 @@ observed concurrent edits, not hostile same-UID races between the final check an
 rename; this is not an OS sandbox or a general transaction framework.
 
 When explicitly selected, `mahiro-skills` owns copying reusable `SKILL.md` files only; this repository's native guards own Pi execution enforcement and no skill-policy grants. There is no
-canonical complete default profile. This setup command installs neither owner,
+canonical complete default profile supplied by this skill-only setup command.
+The separate current `install:profile` composition is documented above and in
+[getting started](getting-started.md). This setup command installs neither owner,
 roles, memory, dependencies nor their capabilities. The original four extension
 entries retain their order; the source-only utility resource is appended afterward. The separate explicit private-local bootstrap
 command is documented in [`bootstrap.md`](bootstrap.md); its candidate contract composes reviewed
@@ -880,7 +894,7 @@ provider/rendered/all-Space acceptance cannot be inferred from source tests.
 
 | Original entry / capability | Native equivalent or port / current owner | Meaningful source or SDK proof | Active-runtime / acceptance limit |
 | --- | --- | --- | --- |
-| `mahiro-user-timestamps` — clock context | Adapted port: `lib/native-utilities.ts`, `extensions/mahiro-native-utilities.ts`; host-local run-start metadata, not user-text rewriting or fixed Bangkok time | `test/native-utilities.test.ts`, `test/native-utilities-native.test.ts`: input/attachment immutability, clock skips and public SDK lifecycle | In the guards-first12 source list; current live utility behavior not re-probed. No human identity or memory authority. |
+| `mahiro-user-timestamps` — clock context | Adapted port: `lib/native-utilities.ts`, `extensions/mahiro-native-utilities.ts`; host-local run-start metadata, not user-text rewriting or fixed Bangkok time | `test/native-utilities.test.ts`, `test/native-utilities-native.test.ts`: input/attachment immutability, clock skips and public SDK lifecycle | In the guards-first13 source list; current live utility behavior not re-probed. No human identity or memory authority. |
 | `mahiro-realign` — correction guidance | Adapted port in the same native utility owners; bounded literal focus, public custom message and fresh idle delivery | Same source/native fixtures: busy/stale/child rejection and fresh-loader boundary | No live activation inferred; not a user message, cancellation guarantee or permission. `/skill:recap` is separate. |
 | `mahiro-model-profiles` — saved presets | **RETIRED/removed by current human decision, 20 October 2026**; no Pi Models runtime owner or compatibility stub | `test/rtk-contract.test.ts`: executable/manifest/ABI retirement; RTK storage/security coverage retained separately in `test/rtk-state.test.ts` and `lib/guards/test/rtk-patch-test.mjs` | Native `/model`, native registry/auth, defaults and personal roles unchanged. Frozen dated Letta oracle/provenance retained as history only; no live profile cleanup or reload claimed. |
 | `mahiro-herdr-lifecycle` — host activity | Native Pi owns raw lifecycle; `lib/status.ts` owns existing display metadata and `lib/worker-activity.ts` / `extensions/mahiro-worker-activity.ts` own separate exact-service worker counts. `mahiro-herdr/src/agent-renderer.mjs` owns the derived Space status-cell overlay | `test/status.test.ts`, `test/worker-activity.test.ts`, `lib/guards/test/worker-activity-sdk-test.mjs`: PID/generation/sequence controls and actual print-mode automatic children; Herdr `test/agent-renderer.test.mjs` checks strict tuple parsing and unchanged raw state | **Producer, consumer and approved Root-only runtime active.** Fresh Pi TUI/owned updater and independent live child established raw settled Main plus positive worker counts and real published spinner tokens, then terminal `0/0`. This is resolved runtime-token evidence, not rendered all-Space/human/daily/RAM acceptance. |
@@ -1126,9 +1140,10 @@ branch notifications. No extra model calls or invented backend statuses occur.
 
 ## Pi completion voice
 
-The actual package manifest is guards-first12: bootstrap and one Root native guard,
+The actual package manifest is guards-first13: bootstrap and one Root native guard,
 then the ten feature entries from `extensions/mahiro-status.ts` through
-`extensions/mahiro-execution-run.ts` in preserved feature order. The disposable
+`extensions/mahiro-execution-run.ts` in preserved feature order, followed by the
+rendering-only `extensions/mahiro-claude-ui.ts` (see [its contract](claude-ui.md)). The disposable
 candidate declaration mirrors that graph. Saved Models is retired. The single
 status-only CLI route above does not compose the full package or grant feature
 authority. Source development itself authorizes no real reload or cutover.

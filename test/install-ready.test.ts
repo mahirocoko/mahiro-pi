@@ -387,6 +387,26 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     });
     await call("agent_memory_commit", { revision: listed.revision });
     await call("agent_memory_read", { path: "deferred/project-b/relevant.md" });
+    const queried = JSON.parse(
+      (await call("agent_memory_read", { query: "Cross-project maintained" }))
+        .value,
+    );
+    assert.equal(queried.results[0].path, "deferred/project-b/relevant.md");
+    assert.equal(queried.freshness, "current");
+    assert.equal(queried.basis, "view-snapshot");
+    const topics = JSON.parse(
+      (await call("agent_memory_read", { topic: "*", limit: 1 })).value,
+    );
+    assert.equal(topics.entries.length, 1);
+    assert.equal(topics.complete, false);
+    for (const invalid of [
+      { query: "Cross-project", path: "Core.md" },
+      { topic: "*", query: "Cross-project" },
+      { topic: "*", limit: 33 },
+      { offset: 1 },
+    ])
+      await call("agent_memory_read", invalid, true);
+    assert.match(prompts.at(-1)!, /Curation doctrine v1/);
     assert.ok(prompts.at(-1)!.includes(store.snapshot().revision));
     assert.equal(store.snapshot().files["Core.md"].text, core);
     // Namespace authority MUST NOT mask exact legacy leaf, tool or path denies.
@@ -437,12 +457,18 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     faux.setResponses(
       Array.from({ length: 32 }, () => (c: any) => {
         childContexts.push(JSON.stringify(c.messages));
-        return normalTurns++ === 0
-          ? ai.fauxAssistantMessage(
-              [ai.fauxToolCall("bash", { command: "ls safe.txt" })],
-              { stopReason: "toolUse" },
-            )
-          : ai.fauxAssistantMessage("Synthetic normal child complete.");
+        const turn = normalTurns++;
+        if (turn === 0)
+          return ai.fauxAssistantMessage(
+            [ai.fauxToolCall("bash", { command: "ls safe.txt" })],
+            { stopReason: "toolUse" },
+          );
+        if (turn === 1)
+          return ai.fauxAssistantMessage(
+            [ai.fauxToolCall("agent_memory_read", { query: "Cross-project" })],
+            { stopReason: "toolUse" },
+          );
+        return ai.fauxAssistantMessage("Synthetic normal child complete.");
       }),
     );
     const normal = service.spawn(
@@ -478,6 +504,17 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
         c.includes("Cross-project maintained knowledge"),
       ),
     );
+    assert.ok(
+      childContexts.some((c) =>
+        JSON.parse(c).some(
+          (m: any) =>
+            m.role === "toolResult" &&
+            m.toolName === "agent_memory_read" &&
+            m.isError,
+        ),
+      ),
+      "ordinary native child cannot query maintained memory without a lease",
+    );
     // Start reflection while the parent is idle, after a real child has bound.
     // The writer gets a real private-view lease, not the shared primary corpus.
     results = [];
@@ -495,6 +532,9 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
         else if (rr.length === 1)
           call = ["agent_memory_read", { path: "Core.md" }];
         else if (rr.length === 2)
+          call = ["agent_memory_read", { query: "Cross-project" }];
+        else if (rr.length === 3) call = ["agent_memory_read", { topic: "*" }];
+        else if (rr.length === 4)
           call = [
             "agent_memory_edit",
             {
@@ -504,7 +544,7 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
               sources: [],
             },
           ];
-        else if (rr.length === 3)
+        else if (rr.length === 5)
           call = [
             "agent_memory_commit",
             { revision: JSON.parse(rr[1].content[0].text).revision },
@@ -566,6 +606,18 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     );
     assert.equal(JSON.parse(positive.content[0].text).path, "Core.md");
     assert.equal(JSON.parse(positive.content[0].text).text, core);
+    const leasedReads = writerMessages.filter(
+      (m: any) => m.role === "toolResult" && m.toolName === "agent_memory_read",
+    );
+    assert.equal(
+      JSON.parse(leasedReads[2].content[0].text).outcome,
+      "no-match",
+    );
+    assert.doesNotMatch(
+      leasedReads[3].content[0].text,
+      /project-b|relevant\.md/,
+    );
+    assert.match(writerContexts[0], /Curation doctrine v1/);
     const writerRecord = service
       .listAgents()
       .find((r: any) => r.type === "managed-memory-writer");
@@ -592,7 +644,8 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       ),
     );
     await call("agent_memory_read", {});
-    assert.ok(prompts.at(-1)!.includes("procedures/idle-check.md"));
+    assert.ok(prompts.at(-1)!.includes('"topic":"procedures"'));
+    assert.ok(!prompts.at(-1)!.includes("procedures/idle-check.md"));
     await session.extensionRunner.emit({
       type: "session_shutdown",
       reason: "quit",
@@ -735,7 +788,8 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       "genuine C1 empty-note success advances accepted review, not fabricated health",
     );
     await call("agent_memory_read", {});
-    assert.ok(prompts.at(-1)!.includes("procedures/auto-coexist.md"));
+    assert.ok(prompts.at(-1)!.includes('"topic":"procedures"'));
+    assert.ok(!prompts.at(-1)!.includes("procedures/auto-coexist.md"));
     const before = store.snapshot();
     const ledger = fs.readFileSync(path.join(root, ".memory.json"));
     const again = install();

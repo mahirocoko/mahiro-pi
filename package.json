@@ -1,9 +1,9 @@
 {
   "name": "@mahirocoko/mahiro-pi",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Mahiro's native Pi continuity, scoped managed memory, system roles, finish voice, footer and foreground-gated Herdr metadata.",
+  "description": "Native Pi companion UI, maintained memory, guarded RTK, explicit workflow tools and parent-scoped Herdr metadata.",
   "license": "UNLICENSED",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -39,11 +39,13 @@
     "install:profile": "node install.mjs",
     "goal:preview": "node goal-preview.mjs",
     "test": "node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts",
-    "check": "node check-package.mjs && node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts && node check-public-sdk.mjs",
+    "check:docs": "node check-docs.mjs",
+    "check:continuity-format": "biome format lib/continuity extensions/mahiro-continuity.ts test/continuity*.ts",
+    "check": "node check-package.mjs && node check-docs.mjs && node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts && node check-public-sdk.mjs",
     "check:public-sdk": "node check-public-sdk.mjs",
     "check:geometry": "node check-geometry.ts",
-    "format": "biome format --write lib/feature-data.ts install.mjs test/install-ready.test.ts lib/worker-activity.ts extensions/mahiro-worker-activity.ts test/worker-activity.test.ts test/bootstrap-candidate-fixture.ts test/candidate-isolation.test.ts lib/guards lib/rtk-state.ts lib/rtk.ts test/rtk-state.test.ts test/rtk*.test.ts check-public-sdk.mjs lib/execution-run extensions/mahiro-execution-run.ts test/execution-run-*.test.ts lib/ux-workflow extensions/mahiro-ux-workflow.ts test/ux-workflow-*.test.ts lib/evidence extensions/mahiro-code-evidence.ts test/evidence-*.ts goal-preview.mjs lib/goal extensions/mahiro-goal.ts test/goal-*.test.ts lib/code-map.ts extensions/mahiro-code-map.ts test/code-map*.test.ts lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts lib/native-utilities.ts extensions/mahiro-native-utilities.ts test/native-utilities*.test.ts biome.json package.json",
-    "check:format": "biome format lib/feature-data.ts install.mjs test/install-ready.test.ts lib/worker-activity.ts extensions/mahiro-worker-activity.ts test/worker-activity.test.ts test/bootstrap-candidate-fixture.ts test/candidate-isolation.test.ts lib/guards lib/rtk-state.ts lib/rtk.ts test/rtk-state.test.ts test/rtk*.test.ts check-public-sdk.mjs lib/execution-run extensions/mahiro-execution-run.ts test/execution-run-*.test.ts lib/ux-workflow extensions/mahiro-ux-workflow.ts test/ux-workflow-*.test.ts lib/evidence extensions/mahiro-code-evidence.ts test/evidence-*.ts goal-preview.mjs lib/goal extensions/mahiro-goal.ts test/goal-*.test.ts lib/code-map.ts extensions/mahiro-code-map.ts test/code-map*.test.ts lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts lib/native-utilities.ts extensions/mahiro-native-utilities.ts test/native-utilities*.test.ts biome.json package.json"
+    "format": "biome format --write check-docs.mjs lib/claude-ui*.ts extensions/mahiro-claude-ui.ts test/claude-ui*.ts lib/feature-data.ts install.mjs test/install-ready.test.ts lib/worker-activity*.ts extensions/mahiro-worker-activity.ts test/worker-activity*.test.ts test/bootstrap-candidate-fixture.ts test/candidate-isolation.test.ts lib/guards lib/rtk-state.ts lib/rtk.ts test/rtk-state.test.ts test/rtk*.test.ts check-public-sdk.mjs lib/execution-run extensions/mahiro-execution-run.ts test/execution-run-*.test.ts lib/ux-workflow extensions/mahiro-ux-workflow.ts test/ux-workflow-*.test.ts lib/evidence extensions/mahiro-code-evidence.ts test/evidence-*.ts goal-preview.mjs lib/goal extensions/mahiro-goal.ts test/goal-*.test.ts lib/code-map.ts extensions/mahiro-code-map.ts test/code-map*.test.ts lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts lib/native-utilities.ts extensions/mahiro-native-utilities.ts test/native-utilities*.test.ts biome.json package.json",
+    "check:format": "biome format check-docs.mjs lib/claude-ui*.ts extensions/mahiro-claude-ui.ts test/claude-ui*.ts lib/feature-data.ts install.mjs test/install-ready.test.ts lib/worker-activity*.ts extensions/mahiro-worker-activity.ts test/worker-activity*.test.ts test/bootstrap-candidate-fixture.ts test/candidate-isolation.test.ts lib/guards lib/rtk-state.ts lib/rtk.ts test/rtk-state.test.ts test/rtk*.test.ts check-public-sdk.mjs lib/execution-run extensions/mahiro-execution-run.ts test/execution-run-*.test.ts lib/ux-workflow extensions/mahiro-ux-workflow.ts test/ux-workflow-*.test.ts lib/evidence extensions/mahiro-code-evidence.ts test/evidence-*.ts goal-preview.mjs lib/goal extensions/mahiro-goal.ts test/goal-*.test.ts lib/code-map.ts extensions/mahiro-code-map.ts test/code-map*.test.ts lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts lib/native-utilities.ts extensions/mahiro-native-utilities.ts test/native-utilities*.test.ts biome.json package.json"
   },
   "pi": {
     "skills": [
@@ -61,7 +63,11 @@
       "./extensions/mahiro-goal.ts",
       "./extensions/mahiro-code-evidence.ts",
       "./extensions/mahiro-ux-workflow.ts",
-      "./extensions/mahiro-execution-run.ts"
+      "./extensions/mahiro-execution-run.ts",
+      "./extensions/mahiro-claude-ui.ts"
+    ],
+    "themes": [
+      "./themes/mahiro-claude-dark.json"
     ]
   },
   "devDependencies": {

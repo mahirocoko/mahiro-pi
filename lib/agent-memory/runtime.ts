@@ -14,6 +14,8 @@ import {
 } from "../continuity/records.ts";
 import { createMemoryStore, allowedPath, type View } from "./store.ts";
 import { resolveAgentDir } from "../setup.ts";
+import { parseMemoryRead, retrieveMemory } from "./retrieval.ts";
+import { memoryCurationDoctrine } from "./guidance.ts";
 
 type Store = ReturnType<typeof createMemoryStore>;
 interface NativeService {
@@ -411,48 +413,43 @@ export function createAgentMemoryRuntime(
       }
       throw new Error("Invalid memory management action");
     }
+    const selection =
+      name === "agent_memory_read" ? parseMemoryRead(args) : undefined;
     const { view, value } = viewFor(f, ctx);
-    if (name === "agent_memory_read") {
-      if (
-        !objectShape(args, ["path", "offset", "limit"]) ||
-        (args.path !== undefined && typeof args.path !== "string") ||
-        (args.offset !== undefined &&
-          (!Number.isSafeInteger(args.offset) ||
-            (args.offset as number) < 0)) ||
-        (args.limit !== undefined &&
-          (!Number.isSafeInteger(args.limit) ||
-            (args.limit as number) < 1 ||
-            (args.limit as number) > 4096))
-      )
-        throw new Error("Invalid memory read arguments");
-      if (args.path === undefined) {
-        if (args.offset !== undefined || args.limit !== undefined)
-          throw new Error("File required for paging");
+    if (selection) {
+      return f.store.inspect(view, (files) => {
+        if (selection.mode === "list")
+          return {
+            files: Object.keys(files).sort(),
+            project: view.project,
+            state: view.state,
+          };
+        if (selection.mode === "query" || selection.mode === "topic")
+          return retrieveMemory(files, selection);
+        const { path, offset, limit } = selection;
+        if (
+          !allowedPath(
+            path,
+            view.scope === "primary" ? undefined : view.project,
+          )
+        )
+          throw new Error("Memory path outside scope");
+        const file = files[path];
+        if (!file) return { path, missing: true, hash: null };
+        const chars = [...file.text];
         return {
-          revision: view.base.revision,
-          files: Object.keys(view.files).sort(),
-          project: view.project,
-          state: view.state,
+          path,
+          sources: [...file.sources],
+          hash: digest(file.text),
+          text: chars.slice(offset, offset + limit).join(""),
+          offset,
+          totalCharacters: chars.length,
+          truncated: offset > 0 || offset + limit < chars.length,
+          ...(offset + limit < chars.length
+            ? { nextOffset: offset + limit }
+            : {}),
         };
-      }
-      const file = f.store.read(view, args.path);
-      if (!("text" in file))
-        return { revision: view.base.revision, path: args.path, ...file };
-      const chars = [...file.text];
-      const offset = (args.offset as number | undefined) ?? 0;
-      const limit = (args.limit as number | undefined) ?? 4096;
-      return {
-        revision: view.base.revision,
-        path: args.path,
-        ...file,
-        text: chars.slice(offset, offset + limit).join(""),
-        offset,
-        totalCharacters: chars.length,
-        truncated: offset > 0 || offset + limit < chars.length,
-        ...(offset + limit < chars.length
-          ? { nextOffset: offset + limit }
-          : {}),
-      };
+      });
     }
     if (name === "agent_memory_edit") {
       if (
@@ -659,7 +656,7 @@ export function createAgentMemoryRuntime(
           throw new Error("Writer prompt unavailable");
         const prompt = source.replace(/^---\n[\s\S]*?\n---\n/, "");
         return {
-          systemPrompt: `${prompt}\nPrivate project scope: ${access.access.value!.project}. Read only your leased memory view. No primary transcript, bootstrap or corpus is inherited.`,
+          systemPrompt: `${prompt}\n${memoryCurationDoctrine}\nPrivate project scope: ${access.access.value!.project}. Read only your leased memory view. No primary transcript, bootstrap or corpus is inherited.`,
         };
       }
       const f = primary(ctx);
@@ -667,7 +664,7 @@ export function createAgentMemoryRuntime(
       f.current();
       const projection = f.store.projection(f.project, true);
       return {
-        systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.\n${JSON.stringify(projection).replace(/</g, "\\u003c")}\n</mahiro-managed-memory>`,
+        systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.\n${memoryCurationDoctrine}\n${JSON.stringify(projection).replace(/</g, "\\u003c")}\n</mahiro-managed-memory>`,
       };
     } catch {
       fail("projection-unavailable");

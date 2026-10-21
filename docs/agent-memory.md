@@ -1,4 +1,33 @@
-# Native agent-managed memory contract
+# Managed memory
+
+[← Feature guide](README.md) · [Historical recall](continuity.md) · [Installation](getting-started.md)
+
+## At a glance
+
+Maintained knowledge has one private Markdown/Git owner, separate from historical
+quotes and product source. Core/index projection supplies committed context;
+relevant detail stays selectively readable rather than flooding every prompt.
+
+- `agent_memory_read`: read/list scoped files, or bounded lexical `query` / pageable
+  `topic` discovery. These modes are mutually exclusive, not semantic/vector search.
+- `agent_memory_edit`: make a hash-guarded private proposal, not a direct live edit.
+- `agent_memory_commit`: integrate a reviewed draft against its base revision;
+  successful integration refreshes primary context on a later request.
+- `agent_memory_manage`: status, explicit absent-root initialization, conflicts,
+  logical forgetting and guarded recovery. Forgetting is not secure Git erasure.
+- `agent_memory_reflect`: assign the locked native writer with an identity-bound
+  scoped private view; a submitted assignment is not a completed save.
+
+Read before mutation and keep source citations/revisions explicit. Main may share
+relevant maintained knowledge across canonical projects; actual workers remain
+scoped. Missing exact-root authority fails closed. Installation never imports or
+reseeds an existing persona/corpus. See [retrieval details](#bounded-discovery-lexical-retrieval-and-curation-t217-source-slice)
+and [roles](agents.md).
+
+The new retrieval/curation slice is source/Faux capability, not installed
+activation, semantic-learning efficacy or companion acceptance. The five tools
+and ABI1 remain unchanged. Current work acceptance stays with the human/live board;
+the dated migration account below is not a task-status ledger.
 
 ## Mission and approval
 
@@ -9,9 +38,10 @@ following the complete-agent contract and native cross-session proof plan.
 This document owns the implemented managed-memory contract. A controlled native
 provider proof passed on 2026-10-19. At 15:29 Asia/Bangkok Mahiro separately
 approved reversible real migration; the default private root was seeded and
-explicitly activated at 16:08. This is not human daily-primary acceptance.
-`docs/integrations.md` owns actual activation/evidence; T190 owns progress and
-human acceptance. Source basis: Letta Code `7be3c81`, the 2320 source study.
+explicitly activated at 16:08. That controlled proof is not itself human daily-primary acceptance.
+The completed original migration and its dated evidence remain in
+`docs/integrations.md`; newer companion/retrieval acceptance is separate and must
+not reopen the already closed migration from old wording. Source basis: Letta Code `7be3c81`, the 2320 source study.
 
 ## Canonical owners
 
@@ -123,7 +153,8 @@ proof of truth. Use filesystem and Git bounds for enforceable guarantees.
 
 ## Layout, tools and lifecycle
 
-Implementation owners are `lib/agent-memory/store.ts`, `runtime.ts`,
+Implementation owners are `lib/agent-memory/store.ts`, `runtime.ts`, the derived
+`retrieval.ts` schema/parser/search/discovery helper, loaded `guidance.ts`,
 `extensions/mahiro-agent-memory.ts` and the package-owned writer role. There is no
 runtime import from Mods, installed host internals, or a separate SDK LLM driver.
 Root `lib/guards/index.ts` owns the separate `managedMemory` ABI1 on healthy
@@ -187,8 +218,10 @@ unattended retention promise.
 
 Main tools:
 
-- `agent_memory_read`: list primary-shared or worker-scoped files or page one Markdown file (Unicode
-  offsets, max 4096 characters); returns whole-file hash and committed base revision.
+- `agent_memory_read`: mutually exclusive legacy list/path, lexical query and topic
+  modes, all inside the same authenticated view. Returns explicit view basis,
+  base/current revisions and freshness; path/query supply whole-file hashes and
+  source IDs. The selector/paging contract is detailed below.
 - `agent_memory_edit`: add/replace/remove in a private draft with exact file hash
   (`null` for a new file), text and episode source IDs. Core/index cannot be removed.
 - `agent_memory_commit`: filewise three-way CAS against the base revision. Disjoint
@@ -238,11 +271,102 @@ Stale views cannot restore forgotten paths or linked sources. Unlinked paraphras
 cannot be proven forgotten structurally; model maintenance and human privacy review
 remain necessary. Old Git revisions, proposals and evidence are not secure erasure.
 
-Every primary `before_agent_start` rereads committed Core, index and filename
-metadata only, not all deferred bodies. The latest system projection replaces the
+Every primary `before_agent_start` rereads committed Core, index and bounded
+version-2 namespace/topic metadata only, not all deferred bodies or leaf names. The latest system projection replaces the
 old managed block; a missing/revoked capability removes that block. Committing is
 not reported as an already-updated provider request. Worker prompts are replaced
 independently and never receive the primary projection automatically.
+
+## Bounded discovery, lexical retrieval and curation (T217 source slice)
+
+These source changes implement P0/P1/bounded P2 only, not full companion parity.
+T190/T213 remain completed; T217 acceptance belongs to Mahiro. They do not migrate
+private config v1, ledger v2, Core/index, corpus or retained views; do not add a
+sixth tool, new grants or an ABI change; and do not establish installed activation,
+provider learning or human same-companion acceptance.
+
+The public read schema and runtime parser have one owner in `retrieval.ts`:
+
+| Arguments | Result and paging |
+| --- | --- |
+| `{}` | Legacy authorized file list, now validated against current state |
+| `{path, offset?, limit?}` | Legacy Markdown paging, original Unicode code points, limit 1–4096 |
+| `{topic: "", offset?, limit?}` | Derived namespace/count page, limit 1–32 |
+| `{topic: "*", offset?, limit?}` | Discover every authorized file, including Core/index, limit 1–32 |
+| `{topic: "global"}` / `"procedures"` / `"deferred/<id>"` | File page in that namespace; selects data, never project authority |
+| `{query, offset?, limit?}` | Literal lexical AND search, limit 1–8 results; offset is the sorted-file scan cursor |
+
+Selectors cannot be mixed. Paging without a selector, invalid mode-specific bounds,
+unknown properties and authority selectors are rejected. Runtime additionally
+checks UTF-8 bytes and lexical terms (JSON Schema length is not a UTF-8 byte bound).
+A query has at most 256 UTF-8 bytes and 16 distinct word terms. Thai word segmentation
+uses `Intl.Segmenter`, as existing continuity search already does. NFKC/case folding
+is for matching only, never returned text or offsets. Path terms participate in AND
+matching. Results are deterministic in sorted path order, not semantic relevance
+scores. A late-file match yields a nearby original excerpt (at most 192 code points),
+whole-file SHA-256, `path#sha256:<hash>` citation and complete source IDs. Grapheme
+normalization maps back to original code-point offsets, including astral/combining
+characters and case expansions. Historical quotes within maintained text remain
+fallible evidence, not authenticated current preferences.
+
+Lexical scanning is bounded to 1 MiB of file text per page, at most eight results
+and 32768 serialized bytes including reserved revision-envelope space. Authority,
+backing-view and current-state validation still walk the bounded view at operation
+boundaries; the scan budget is not a claim about total validation I/O or hard RSS.
+`complete: false` / `outcome: "incomplete"` and `nextOffset` mean coverage remains;
+follow that cursor to exhaustion. `no-match` is successful exhaustion of the selected
+scan suffix, not an unavailable read and not proof about earlier omitted pages.
+Namespace/file pages also expose `complete` and `nextOffset`. There is no persistent
+catalog/cache, embedding service, query regex execution or competing knowledge owner.
+
+Projection preserves authored Core/index and advertises only the first eight
+namespace/count entries, total authorized topic count and explicit discovery routes.
+Omitted foreign namespaces remain discoverable to authenticated Primary through
+`topic: ""` paging or `topic: "*"`. Scope filtering and canonical path permission
+checks precede names/counts. Scoped leased/retained legacy views cannot discover
+foreign names, counts, text or sources. Projection reads Core/index and immutable
+ledger metadata only, never `snapshot`, `createView` or deferred Markdown bodies.
+An authored stale index is preserved, not silently rewritten as a generated catalog.
+
+All path/list/query/topic reads validate the same private view/backing files,
+current config, authority and **current HEAD tombstones** before selecting results,
+and recheck view/config/path authority before a final HEAD observation. Projection
+uses the same ordering without deferred-body or view hydration. No validation I/O
+follows that observation: a forget completed during final config/authority checks
+fails closed. This is the return linearization point, not a promise to exclude a
+commit made after it. An old view containing
+currently forgotten paths or source-linked knowledge is unavailable as a whole:
+no old text, paths, counts or citations escape and no proposal is deleted. This
+minimal underlying read repair is required because integration's existing tombstone
+checks alone did not protect reads. Integration/CAS/conflict recovery remains its
+separate existing owner. HEAD movement through that final observation fails closed;
+a previously
+moved HEAD instead returns `freshness: "stale"`, `baseRevision`, `currentRevision`
+and `basis: "view-snapshot"` or `"private-draft"`. A draft is never labeled current
+committed truth or silently reset just to retrieve. File hashes and source IDs
+always describe the returned view's whole file, not another revision's text.
+
+Both authenticated Main and the locked leased writer actually consume the compact
+`guidance.ts` curation doctrine through their public `before_agent_start` prompt
+paths; the writer body reinforces it. Preserve established identity/user model,
+refine subject/principle and reason rather than append incident logs, prefer current
+owners to historical quotes, use sparse contrastive examples after repeated
+correction, and do not invent a lasting preference from an ambiguous one-off.
+The writer's model/thinking/three tools/locks/lifecycle are unchanged. No unsupported
+role skill frontmatter or new skill-policy grant is needed. Loading guidance proves
+instruction delivery only, not semantic learning. Older installed runtimes may not
+advertise these selectors; use their advertised capabilities, not source assumptions.
+
+Focused fictional regressions cover current-source/path-forget against old views,
+return-boundary races, proposal preservation, scoped/shared discovery, draft/stale
+coherence, Unicode clipping, lexical/work/output bounds and 512-file pagination.
+Actual registered public-SDK/Faux fixtures exercise Primary query/topic/mixed-schema
+rejection, leased child query/topic isolation, ordinary child denial, unchanged
+canonical Root dispatch and explicit installer restriction preservation. They make
+zero provider requests. Fresh independent QA and any installed/provider/human proof
+are separate layers; the writer's own checks are not independent verification.
+Remaining P3/P4/P5 evaluation, activation/semantic efficacy and human acceptance are
+not delivered by this bounded source slice.
 
 ## Explicit activation/migration and remaining proof
 

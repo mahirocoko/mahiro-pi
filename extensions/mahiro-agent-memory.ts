@@ -4,6 +4,7 @@ import {
   memoryTools,
   type RuntimeConfig,
 } from "../lib/agent-memory/runtime.ts";
+import { memoryReadSchema } from "../lib/agent-memory/retrieval.ts";
 
 export function activateAgentMemory(
   pi: ExtensionAPI,
@@ -12,14 +13,7 @@ export function activateAgentMemory(
   const runtime = createAgentMemoryRuntime(pi, config);
   const string = { type: "string" };
   const schemas = {
-    agent_memory_read: {
-      properties: {
-        path: string,
-        offset: { type: "integer", minimum: 0 },
-        limit: { type: "integer", minimum: 1, maximum: 4096 },
-      },
-      required: [],
-    },
+    agent_memory_read: memoryReadSchema,
     agent_memory_edit: {
       properties: {
         path: string,
@@ -73,7 +67,7 @@ export function activateAgentMemory(
       label: name,
       description: {
         agent_memory_read:
-          "Read scoped maintained Markdown knowledge (or list files). Pages by Unicode character offset/limit (4096 max); read all pages before a full replacement. Returns whole-file CAS hash and committed base revision; no arbitrary filesystem access. Missing separate managed-memory permission fails closed.",
+          "Read maintained knowledge within the authenticated view. Mutually exclusive modes: {} legacy file list; path with original Unicode code-point offset/limit (4096 max); query for bounded English/Thai lexical AND search (256 UTF-8 bytes, 16 terms, limit 8); topic='' for namespaces, topic='*' for all files, or a namespace (limit 32). Query/topic offset pages scan/files; follow nextOffset until complete. Search scans at most 1 MiB per page and returns at most 32 KiB, with original snippet offsets, whole-file hashes and source IDs. basis/baseRevision/currentRevision/freshness distinguish private drafts and stale snapshots from current truth. Current forgetting/authority changes make old views unavailable, never successful no-match. Read all path pages before replacement. No arbitrary root/project selection or filesystem access.",
         agent_memory_edit:
           "Add, replace or remove scoped Markdown in a private draft. expectedHash is from read (null for a new file); text=null removes a global/deferred/procedure file. Sources link observed episode IDs. No context changes until commit. Revise contradictory knowledge at its existing owner instead of appending it.",
         agent_memory_commit:
@@ -99,10 +93,20 @@ export function activateAgentMemory(
             content: [{ type: "text", text: JSON.stringify(result) }],
             details: result,
           };
-        } catch {
-          // Never return private paths, provider errors, payloads or raw subprocess stderr.
+        } catch (error) {
+          // Fixed public categories only, never private paths/payloads/subprocess stderr.
+          const message = error instanceof Error ? error.message : "";
+          if (
+            name === "agent_memory_read" &&
+            message.startsWith("Memory read unavailable:")
+          )
+            throw new Error(
+              message.includes("forgotten")
+                ? "Managed memory unavailable: current forgetting invalidates this retained view; proposal preserved"
+                : "Managed memory unavailable: current revision changed during read; proposal preserved",
+            );
           throw new Error(
-            "Managed memory unavailable: valid scope, CAS, separate permission and healthy native binding required",
+            "Managed memory unavailable: valid arguments, scope, CAS, separate permission and healthy native binding required",
           );
         }
       },
