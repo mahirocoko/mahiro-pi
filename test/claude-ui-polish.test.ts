@@ -224,6 +224,39 @@ test("native display gaps preserve offset; malformed and huge inputs choose full
   assert.equal(prepareDiff(""), undefined);
 });
 
+test("wide terminals fall back to unified when display width, not UTF-16 length, overflows a pane", () => {
+  const text = "中".repeat(30);
+  assert.ok(geometry.visibleWidth(text) > text.length);
+  const unicode = prepareDiff(`-1 ${text}\n+1 ${text}`)!;
+  assert.match(
+    plain(renderPreparedDiff(unicode, 110, theme, geometry)),
+    /old \/ new · unified/,
+  );
+  assert.doesNotMatch(
+    plain(renderPreparedDiff(unicode, 110, theme, geometry)),
+    /│/,
+  );
+  const short = prepareDiff("-1 short\n+1 shorter")!;
+  assert.match(
+    plain(renderPreparedDiff(short, 110, theme, geometry)),
+    /old\s+│ new/,
+  );
+  const late = [
+    ...Array.from({ length: 256 }, (_, index) => ` ${index + 1} short`),
+    `-257 ${"中".repeat(80)}`,
+    "+257 next",
+  ].join("\n");
+  assert.match(
+    plain(renderPreparedDiff(prepareDiff(late)!, 120, theme, geometry)),
+    /old\s+│ new/,
+  );
+  const early = prepareDiff(`-1 ${"中".repeat(80)}\n+1 next`)!;
+  assert.match(
+    plain(renderPreparedDiff(early, 120, theme, geometry)),
+    /old \/ new · unified/,
+  );
+});
+
 test("word work and long-line limits are bounded, never discard captured data", () => {
   const long = "x".repeat(DIFF_LIMITS.line + 10) + "LAST";
   const start = performance.now();

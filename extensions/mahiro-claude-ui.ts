@@ -28,6 +28,8 @@ import {
 export default function mahiroClaudeUI(pi: ExtensionAPI) {
   let generation = 0;
   let preferences: UIPreferences = { ...UI_DEFAULTS };
+  // Not part of the closed own-UI record. Each TUI session starts stable.
+  let liveTail = false;
   let fixed: Theme | undefined;
   let geometry: Geometry | undefined;
   let native: NativePresentation | undefined;
@@ -36,6 +38,23 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
   let storageStatus = PERSISTENCE_LIMIT;
   let requestRender = () => {};
   const originals = new Map<string, ToolRenderers>();
+  // True when two public factory calls return the same renderer functions.
+  // Shell factories allocate a new closure per call, so those use source identity.
+  const factoryStable = new Map<string, boolean>();
+  const sameFunction = (left: unknown, right: unknown, stable: boolean) =>
+    left === right ||
+    (stable === false &&
+      typeof left === "function" &&
+      typeof right === "function" &&
+      left.toString() === right.toString());
+  const ownedByFactory = (
+    base: ToolRenderers,
+    original: ToolRenderers,
+    stable: boolean,
+  ) =>
+    sameFunction(base.renderCall, original.renderCall, stable) &&
+    sameFunction(base.renderResult, original.renderResult, stable) &&
+    base.renderShell === original.renderShell;
   const palette = (host: Theme) =>
     preferences.palette === "claude" && fixed ? fixed : host;
 
@@ -43,6 +62,9 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
   // activate presentation until interactive startup. Keep custom same-name
   // renderers native too: compare public factory renderer identities, not names
   // alone, private tool registry fields, or guesses from descriptions.
+  // Factories that return a new closure each call still have to match that
+  // factory's function source and renderShell. Codemode, subagents, MCP and
+  // other custom tools are not in this map, so they stay on next().
   pi.registerToolRenderer((name, next) => {
     const base = next();
     if (!supportedTools.includes(name) || !base) return base;
@@ -52,9 +74,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
       const original = originals.get(name);
       if (
         !original ||
-        base.renderCall !== original.renderCall ||
-        base.renderResult !== original.renderResult ||
-        base.renderShell !== original.renderShell
+        !ownedByFactory(base, original, factoryStable.get(name) !== false)
       )
         return undefined;
       adapted ??= createToolPresentation(
@@ -63,7 +83,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
         geometry,
         native,
         palette,
-        () => preferences,
+        () => ({ ...preferences, liveTail }),
       );
       return adapted;
     };
@@ -121,10 +141,12 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     const revision = ++generation;
+    liveTail = false;
     context = undefined;
     geometry = undefined;
     native = undefined;
     originals.clear();
+    factoryStable.clear();
     const tui = await import("@earendil-works/pi-tui");
     const sdk = await import("@earendil-works/pi-coding-agent");
     if (revision !== generation) return;
@@ -133,13 +155,25 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     version = sdk.VERSION;
     // Factories only identify their public presentation functions. Never call
     // execute(), wrap tools, or register replacement definitions.
-    originals.set("read", sdk.createReadToolDefinition(ctx.cwd));
-    originals.set("bash", sdk.createBashToolDefinition(ctx.cwd));
-    originals.set("edit", sdk.createEditToolDefinition(ctx.cwd));
-    originals.set("write", sdk.createWriteToolDefinition(ctx.cwd));
-    originals.set("grep", sdk.createGrepToolDefinition(ctx.cwd));
-    originals.set("find", sdk.createFindToolDefinition(ctx.cwd));
-    originals.set("ls", sdk.createLsToolDefinition(ctx.cwd));
+    const capture = (name: string, create: (cwd: string) => ToolRenderers) => {
+      const sample = create(ctx.cwd);
+      const again = create(ctx.cwd);
+      originals.set(name, sample);
+      factoryStable.set(
+        name,
+        sample.renderCall === again.renderCall &&
+          sample.renderResult === again.renderResult &&
+          sample.renderShell === again.renderShell,
+      );
+    };
+    capture("read", sdk.createReadToolDefinition);
+    capture("bash", sdk.createBashToolDefinition);
+    capture("powershell", sdk.createPowerShellToolDefinition);
+    capture("edit", sdk.createEditToolDefinition);
+    capture("write", sdk.createWriteToolDefinition);
+    capture("grep", sdk.createGrepToolDefinition);
+    capture("find", sdk.createFindToolDefinition);
+    capture("ls", sdk.createLsToolDefinition);
     fixed = ctx.ui.getTheme(CLAUDE_THEME);
     try {
       const owner = ownUIOwner(ctx);
@@ -178,6 +212,8 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     native = undefined;
     fixed = undefined;
     originals.clear();
+    factoryStable.clear();
+    liveTail = false;
     requestRender = () => {};
   });
   pi.registerCommand("mh-ui", {
@@ -186,6 +222,22 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       if (ctx.mode !== "tui" || !context) return;
       const action = args.trim() || "settings";
+      if (
+        action === "live-tail" ||
+        action === "live-tail status" ||
+        action === "live-tail on" ||
+        action === "live-tail off"
+      ) {
+        if (action === "live-tail on") liveTail = true;
+        if (action === "live-tail off") liveTail = false;
+        context = ctx;
+        requestRender();
+        ctx.ui.notify(
+          `Mahiro UI live output tail: ${liveTail ? "on" : "off"}. Completed output stays stable unless this is on. Not saved.`,
+          "info",
+        );
+        return;
+      }
       if (action === "settings") {
         if (!geometry || !native) return;
         const revision = generation;
@@ -292,7 +344,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
         preferences = { ...preferences, palette: "follow" };
       } else if (action !== "theme status" && action !== "theme") {
         ctx.ui.notify(
-          "Usage: /mh-ui [settings] | theme status|follow|claude",
+          "Usage: /mh-ui [settings] | theme status|follow|claude | live-tail status|on|off",
           "warning",
         );
         return;

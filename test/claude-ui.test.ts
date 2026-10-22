@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 import {
+  createBashToolDefinition,
   createEditToolDefinition,
+  createPowerShellToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
   ToolExecutionComponent,
@@ -96,7 +98,37 @@ test("rendering is context/result/args neutral; missing/streaming args are safe"
 test("partial with output is never successful; errors/empty output retain native expansion", () => {
   assert.match(
     render(row("bash"), "progress", renderContext({ isPartial: true })),
-    /Running…[\s\S]*progress/,
+    /Running…/,
+  );
+  assert.doesNotMatch(
+    render(row("bash"), "progress", renderContext({ isPartial: true })),
+    /progress|Done/,
+  );
+  const live = createToolPresentation(
+    "bash",
+    createBashToolDefinition("/fixture"),
+    geometry,
+    native,
+    (host) => host,
+    () => ({
+      toolStyle: "transparent",
+      diffView: "split",
+      extraDetail: false,
+      liveTail: true,
+    }),
+  );
+  const tail = render(
+    live,
+    ["one", "two", "three", "FOUR"].join("\n"),
+    renderContext({ isPartial: true }),
+  );
+  assert.match(tail, /Running… · live tail/);
+  assert.match(tail, /not a completed result/);
+  assert.match(tail, /FOUR/);
+  assert.doesNotMatch(tail, /Done|\bone\b/);
+  assert.match(
+    render(row("bash"), "progress\nkept", renderContext()),
+    /Done[\s\S]*progress[\s\S]*kept/,
   );
   assert.doesNotMatch(
     render(
@@ -152,9 +184,30 @@ test("successful write previews only submitted content, not fabricated old/new d
     undefined,
     true,
   );
-  assert.match(output, /Wrote 2 lines/);
-  assert.match(output, /not an overwrite diff/);
+  assert.match(output, /submitted content preview · 2 lines/);
+  assert.match(output, /create\/overwrite unknown/);
   assert.match(output, /1 .*first[\s\S]*2 second/);
+  assert.doesNotMatch(output, /Created|Overwrote/);
+  const fresh = render(
+    row("write"),
+    "Successfully wrote",
+    renderContext({
+      args: { path: "brand-new.ts", content: "alpha\n" },
+    }),
+    undefined,
+    true,
+  );
+  const existing = render(
+    row("write"),
+    "Successfully wrote",
+    renderContext({
+      args: { path: "already-there.ts", content: "alpha\n" },
+    }),
+    undefined,
+    true,
+  );
+  assert.equal(fresh, existing);
+  assert.match(fresh, /1 .*alpha/);
   assert.match(output, /Successfully wrote 19 bytes/);
   assert.doesNotMatch(
     render(row("write"), "failure", { ...ctx, isError: true }),
@@ -417,7 +470,36 @@ test("resolver is native outside TUI; custom/specialized/codemode stay native; p
   assert.equal(beforeStartup.renderShell, "self");
   const custom = { renderCall() {}, renderResult() {}, renderShell: "self" };
   assert.equal(h.resolve("codemode", custom), custom);
+  assert.equal(h.resolve("subagent", custom), custom);
+  assert.equal(h.resolve("mcp__docs__search", custom), custom);
   assert.equal(h.resolve("custom-tool", custom), custom);
+  const powershell = createPowerShellToolDefinition("/other");
+  assert.notEqual(
+    powershell.renderCall,
+    createPowerShellToolDefinition("/fixture").renderCall,
+  );
+  const adapted = h.resolve("powershell", powershell);
+  assert.equal(adapted.renderShell, "self");
+  assert.match(
+    plain(
+      adapted.renderCall!(
+        { command: "Get-Date" },
+        theme,
+        renderContext(),
+      ).render(80),
+    ),
+    /PowerShell[\s\S]*Get-Date/,
+  );
+  assert.equal(h.resolve("powershell", custom).renderCall, custom.renderCall);
+  const bash = h.resolve("bash", createBashToolDefinition("/fixture-b"));
+  assert.equal(bash.renderShell, "self");
+  assert.match(
+    plain(
+      bash.renderCall!({ command: "pwd" }, theme, renderContext()).render(40),
+    ),
+    /Bash[\s\S]*pwd/,
+  );
+  assert.equal(h.resolve("bash", custom).renderCall, custom.renderCall);
   assert.equal(h.resolve("read", custom).renderResult, custom.renderResult);
   assert.equal(h.resolve("read", undefined), undefined);
   assert.equal(
@@ -887,6 +969,94 @@ test("repeated host frames reuse wrapped result rows until width, content, palet
   fixed = false;
   assert.doesNotMatch(call.render(80).join("\n"), /<fixed>/);
   assert.ok(wraps > callWork);
+});
+
+test("repeated diff and stable partial frames do not redo wrap or width measurement", () => {
+  let wraps = 0;
+  let widths = 0;
+  const counted = {
+    ...geometry,
+    visibleWidth: (text: string) => {
+      widths++;
+      return geometry.visibleWidth(text);
+    },
+    wrapTextWithAnsi: (text: string, width: number) => {
+      wraps++;
+      return geometry.wrapTextWithAnsi(text, width);
+    },
+  };
+  const edit = createToolPresentation(
+    "edit",
+    createEditToolDefinition("/fixture"),
+    counted,
+    native,
+    (host) => host,
+  );
+  const diff = `-1 ${"中".repeat(30)}\n+1 ${"中".repeat(30)} changed`;
+  const component = edit.renderResult!(
+    result("applied", { diff }),
+    { expanded: true, isPartial: false },
+    theme,
+    renderContext(),
+  );
+  const first = component.render(110);
+  const wrapWork = wraps;
+  const widthWork = widths;
+  assert.ok(wrapWork > 0);
+  assert.ok(widthWork > 0);
+  for (let frame = 0; frame < 5; frame++)
+    assert.deepEqual(component.render(110), first);
+  assert.equal(wraps, wrapWork, "identical diff frames must not re-wrap");
+  assert.equal(widths, widthWork, "identical diff frames must not remeasure");
+  const streaming = createToolPresentation(
+    "bash",
+    createBashToolDefinition("/fixture"),
+    counted,
+    native,
+    (host) => host,
+  );
+  const hidden = Array.from({ length: 400 }, (_, i) => `stream ${i}`).join(
+    "\n",
+  );
+  const partial = streaming.renderResult!(
+    result(hidden),
+    { expanded: false, isPartial: true },
+    theme,
+    renderContext({ isPartial: true }),
+  );
+  const stable = partial.render(80);
+  const stableWork = wraps;
+  assert.match(plain(stable), /Running…/);
+  assert.doesNotMatch(plain(stable), /stream 399|Done/);
+  for (let frame = 0; frame < 5; frame++)
+    assert.deepEqual(partial.render(80), stable);
+  assert.equal(wraps, stableWork);
+  assert.ok(wraps - wrapWork < 40, "hidden partial output is not wrapped");
+});
+
+test("live-tail command stays off the saved preference record and resets on the next TUI session", async () => {
+  const h = harness();
+  await h.handlers.get("session_start")!({}, h.ctx);
+  await h.command("live-tail on");
+  assert.match(h.notifications.at(-1)!, /live output tail: on/);
+  assert.match(h.notifications.at(-1)!, /Not saved/);
+  const bash = h.resolve("bash", createBashToolDefinition("/fixture"));
+  assert.match(
+    render(bash, "hidden\nVISIBLE", renderContext({ isPartial: true })),
+    /live tail[\s\S]*VISIBLE/,
+  );
+  assert.doesNotMatch(
+    render(bash, "hidden\nVISIBLE", renderContext({ isPartial: true })),
+    /Done/,
+  );
+  await h.command("live-tail off");
+  assert.doesNotMatch(
+    render(bash, "hidden\nVISIBLE", renderContext({ isPartial: true })),
+    /VISIBLE|Done/,
+  );
+  await h.handlers.get("session_start")!({}, h.ctx);
+  await h.command("live-tail status");
+  assert.match(h.notifications.at(-1)!, /live output tail: off/);
 });
 
 test("source contract: no execution/context/history/private hooks, settings writes, footer or rendering filesystem", () => {

@@ -29,12 +29,14 @@ export type NativePresentation = {
 const labels: Record<string, string> = {
   read: "Read",
   bash: "Bash",
+  powershell: "PowerShell",
   edit: "Update",
   write: "Write",
   grep: "Search",
   find: "Search",
   ls: "List",
 };
+const LIVE_TAIL_CHARS = 4096;
 export const supportedTools = Object.keys(labels);
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -46,6 +48,21 @@ const component = (render: (width: number) => string[]): Component => ({
   render,
   invalidate() {},
 });
+// Frame stamp only. Parsed diff spans stay plain; this does not cache them.
+const themeStamp = (theme: Theme) =>
+  [
+    theme.fg("muted", "a"),
+    theme.fg("dim", "a"),
+    theme.fg("warning", "a"),
+    theme.fg("toolOutput", "a"),
+    theme.fg("toolDiffAdded", "a"),
+    theme.fg("toolDiffRemoved", "a"),
+    theme.fg("toolDiffContext", "a"),
+    theme.fg("borderMuted", "a"),
+    theme.bg("toolSuccessBg", "a"),
+    theme.bg("toolErrorBg", "a"),
+    theme.style("a", { inverse: true }),
+  ].join("\0");
 
 // Convert only a *stored* unified patch to native display-diff notation. No
 // reconstruction from current files or call arguments (which are not old files).
@@ -72,7 +89,7 @@ export function createToolPresentation(
   preferences: () => Pick<
     UIPreferences,
     "toolStyle" | "diffView" | "extraDetail"
-  > = () => ({
+  > & { liveTail?: boolean } = () => ({
     toolStyle: "transparent",
     diffView: "split",
     extraDetail: false,
@@ -163,6 +180,20 @@ export function createToolPresentation(
       return rows;
     };
   };
+  const memoRows = () => {
+    let key: unknown[] = [];
+    let rows: string[] = [];
+    return (next: unknown[], produce: () => string[]) => {
+      if (
+        next.length === key.length &&
+        next.every((value, index) => value === key[index])
+      )
+        return rows;
+      rows = produce();
+      key = next;
+      return rows;
+    };
+  };
   return {
     renderShell: "self",
     renderCall(args, host, ctx) {
@@ -227,16 +258,40 @@ export function createToolPresentation(
           ? undefined
           : prepareDiff(cleanDiff);
       const bodyLayout = cachedLayout();
+      const diffLayout = memoRows();
+      // Last text blocks only, so a running tail does not walk the whole stream.
+      const tailLines = (count: number) => {
+        let budget = LIVE_TAIL_CHARS;
+        const chunks: string[] = [];
+        const blocks = result.content;
+        for (let index = blocks.length - 1; index >= 0 && budget > 0; index--) {
+          const block = blocks[index];
+          if (!block || block.type !== "text") continue;
+          const slice =
+            block.text.length > budget ? block.text.slice(-budget) : block.text;
+          chunks.push(slice);
+          budget -= slice.length;
+        }
+        const text = clean(chunks.reverse().join("\n")).replace(/\n$/, "");
+        return text ? text.split("\n").slice(-count) : [];
+      };
       return component((width) => {
         const theme = palette(host);
         const prefs = preferences();
         const data = record(ctx.args);
         const partial = options.isPartial || ctx.isPartial;
         const error = ctx.isError;
-        const output = result.content
-          .filter((block) => block.type === "text")
-          .map((block) => clean(block.text))
-          .join("\n");
+        // Stable screen is the default. A partial row is never success, and
+        // history with isPartial false keeps the completed text instead.
+        const streaming = partial && !error;
+        const showTail = streaming && prefs.liveTail === true;
+        const output = streaming
+          ? ""
+          : result.content
+              .filter((block) => block.type === "text")
+              .map((block) => clean(block.text))
+              .join("\n");
+        const liveRows = showTail ? tailLines(prefs.extraDetail ? 8 : 3) : [];
         const duration =
           prefs.extraDetail &&
           Number.isFinite(ctx.durationMs) &&
@@ -245,7 +300,9 @@ export function createToolPresentation(
             : "";
         const status =
           (partial
-            ? "Running…"
+            ? showTail
+              ? "Running… · live tail"
+              : "Running…"
             : error
               ? "Error"
               : `Done (${countLines(output)} output lines)`) + duration;
@@ -263,12 +320,16 @@ export function createToolPresentation(
           const diffWidth = Math.max(1, available - (available > 5 ? 5 : 0));
           if (diff && prefs.diffView !== "native") {
             body.push(
-              ...renderPreparedDiff(
-                diff,
-                diffWidth,
-                theme,
-                geometry,
-                prefs.diffView === "split",
+              ...diffLayout(
+                [diffWidth, prefs.diffView, themeStamp(theme), diff],
+                () =>
+                  renderPreparedDiff(
+                    diff,
+                    diffWidth,
+                    theme,
+                    geometry,
+                    prefs.diffView === "split",
+                  ),
               ),
             );
           } else {
@@ -297,7 +358,7 @@ export function createToolPresentation(
         ) {
           body[0] = theme.fg(
             "muted",
-            `Wrote ${countLines(data.content)} lines · submitted content preview (not an overwrite diff)`,
+            `submitted content preview · ${countLines(data.content)} lines · create/overwrite unknown`,
           );
           body.push(
             ...(data.content === ""
@@ -312,7 +373,13 @@ export function createToolPresentation(
           );
           previewReplacedOutput = true;
           cap = prefs.extraDetail ? 22 : 11;
-        } else {
+        } else if (liveRows.length > 0) {
+          body.push(theme.fg("dim", "not a completed result"));
+          body.push(...liveRows.map((line) => theme.fg("toolOutput", line)));
+          // The tail is already bounded; keep it visible instead of collapsing
+          // the newest lines behind the status.
+          cap = liveRows.length + 4;
+        } else if (!streaming) {
           if (!partial && !error && name === "read") {
             body[0] = theme.fg("muted", `${countLines(output)} output lines`);
           }

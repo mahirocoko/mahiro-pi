@@ -51,6 +51,9 @@ Save can additionally persist them through the authorized own-UI owner:
   native tool-expansion binding also expands/collapses the sample locally. There is
   no global key interceptor. Stale generation or competing runtime changes cannot be
   overwritten by an old panel or its cancellation/disposal.
+- `/mh-ui live-tail status|on|off` shows or hides a bounded running-output tail.
+  Off is the default. This flag is not in the saved own-UI record; each TUI
+  session starts off, and Save does not persist it.
 - `/mh-ui theme status` (or `/mh-ui theme`) reports the mode, palette
   name, native-diff exception, and storage availability. Theme commands never autosave.
 - `/mh-ui theme follow` uses the current Pi theme for these tool rows and header.
@@ -123,13 +126,32 @@ native settings.
 
 ## Individual tool rows and native fallback
 
-Only matching public built-in presentation functions for `read`, `bash`, `edit`,
-`write`, `grep`, `find` and `ls` are adapted. Identity comparison uses public native
-factories without executing them. Custom same-name renderers, other tools,
-PowerShell, native codemode/task tools and specialized tools remain with `next()`.
+Matching public presentation functions for `read`, `bash`, `powershell`, `edit`,
+`write`, `grep`, `find` and `ls` are adapted. Identity comparison uses the public
+factories (`createPowerShellToolDefinition` for PowerShell) without executing them.
+`read`, `edit`, `write`, `grep`, `find` and `ls` share stable renderer functions, so
+ownership is reference equality. Bash and PowerShell allocate a new renderer closure
+on every factory call, in both the declared 1.3.0 package and the installed 1.4.0
+host package, so those two also accept the factory function's source plus
+`renderShell`. That is still the public factory product, not a match on the tool
+name. A custom renderer with the same name stays on `next()`.
+
+Codemode, subagents and MCP/custom tools stay on `next()` on purpose. Codemode's
+renderer shows the script, nested call status and cost; subagent results are
+per-status widgets in `@gotgenes/pi-subagents`; MCP calls use a server/tool label.
+None of those renderers is a public factory export the adapter can identity-check
+(`codemodeRenderers` and `createMcpToolRenderers` are not package entry exports).
 There are no replacement tool definitions, execution wrappers or event-result
 mutations. The resolver is inert before TUI startup and in RPC/JSON/print modes;
 runtime SDK/TUI imports are deferred until interactive startup.
+
+Completed output is stable. A partial row says `Running…` and does not show the
+streaming text, so a partial update is never drawn as success and a history replay
+with `isPartial: false` keeps the completed text. `/mh-ui live-tail on` shows a
+bounded tail (last 3 lines, or 8 with extra detail, from the last 4 KiB of text)
+labeled `Running… · live tail` and `not a completed result`. `off` and `status`
+report the same runtime flag. It is not a field in the closed own-UI record, it is
+not written by Save, and each TUI session starts with it off.
 
 Each call has its own dot/title/path or command and a result arm. Pending and
 partial results (even with output) are never reported successful. Collapsed output
@@ -148,9 +170,12 @@ adds horizontal padding rather than importing private shell/image machinery.
 Edit previews use **only historical native** `details.diff` or `details.patch`.
 A clean implementation pairs contiguous removed/added lines, adds distinct old/new
 line numbers and semantic backgrounds, and highlights changed word spans. At 72
-available content columns or more, split mode renders old/new panes with a separator;
-less space automatically uses wrapped unified rows. Unified context displays both
-old/new numbers, including after insertions/deletions. Patch hunk offsets, gaps,
+available content columns or more, and when a bounded prefix of 256 captured cells
+fits the pane, split mode renders old/new panes with a separator. Less space, or a
+cell whose Unicode display width (public TUI `visibleWidth`, not UTF-16 length)
+exceeds that pane, uses wrapped unified rows. Cells after the 256-cell prefix do
+not force the fallback. Unified context displays both old/new numbers,
+including after insertions/deletions. Patch hunk offsets, gaps,
 CRLF and BOM content are retained. Word segmentation uses public `Intl.Segmenter`
 for Thai/combining/emoji-safe spans; all column geometry uses public Pi TUI helpers.
 No upstream diff helper source was copied and no new dependency is installed.
@@ -165,12 +190,15 @@ otherwise it also falls back to all captured plain rows. Parsed spans cache plai
 data only, never theme ANSI. Native result text/warnings and full-output notices
 remain available through native expansion. There is no current-file read or
 speculative preview from old/new call arguments.
-Normal writes do not provide an old-file snapshot: successful writes show a
-**submitted content preview**, explicitly not an overwrite/new-file diff. Native
-result text is also retained, including warnings and write status. Errors/partial
-writes show no successful content preview. No claim that a write created a new
-file is inferred from its name. An overwrite before/after diff is infeasible in
-this rendering-only scope: ordinary event contexts have no `executeTool`, guarded
+Normal writes do not provide an old-file snapshot. The public write result in the
+declared 1.3.0 SDK and the installed 1.4.0 host is `details: undefined` and text
+`Successfully wrote to ${path}`, which does not say whether the file was created
+or overwritten. Successful writes therefore show a **submitted content preview**
+with line numbers. The status says `create/overwrite unknown` because there is
+no before-image. The path is not used as evidence. Native result text is also
+retained, including warnings and write status. Errors and partial writes show no
+successful content preview. An overwrite before/after diff stays out of this
+rendering-only scope: ordinary event contexts have no `executeTool`, guarded
 nested calls belong only to `ExtensionToolContext`, and native write provides no
 before-image. No filesystem preread, native read factory execution, history cache,
 helper tool, execution wrapper or context/result mutation is used to work around

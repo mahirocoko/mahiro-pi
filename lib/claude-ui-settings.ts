@@ -91,7 +91,7 @@ export function createSettingsPanel(options: {
       currentValue: draft.diffView,
       values: ["split", "unified", "native"],
       description:
-        "Split at wide widths, unified when narrow. Only captured native edit details; writes show submitted content.",
+        "Split when wide and captured lines fit; unified when narrow or when display width wraps a pane. Writes show submitted content.",
     },
     {
       id: "extraDetail",

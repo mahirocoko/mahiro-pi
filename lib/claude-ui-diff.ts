@@ -241,9 +241,27 @@ export function renderPreparedDiff(
       .flatMap((r) => [r.old?.number ?? 0, r.next?.number ?? 0])
       .map((n) => String(n).length),
   );
-  const wide = split && width >= Math.max(72, 2 * (digits + 14) + 3);
   const leftWidth = Math.floor((width - 3) / 2),
     rightWidth = width - 3 - leftWidth;
+  const widthGate = width >= Math.max(72, 2 * (digits + 14) + 3);
+  // Same prefix the cells draw. Display columns, not UTF-16 length, so CJK
+  // and emoji can force unified while the terminal is still wide enough.
+  const samplePrefix =
+    leftWidth > digits + 4 ? `${"0".padStart(digits)} − ` : "";
+  const contentWidth = Math.max(1, leftWidth - g.visibleWidth(samplePrefix));
+  let pressure = false;
+  if (split && widthGate) {
+    let seen = 0;
+    for (const row of model.rows) {
+      if (pressure || seen >= 256) break;
+      for (const cell of row.context ? [row.old] : [row.old, row.next]) {
+        if (!cell || pressure || seen >= 256) continue;
+        seen++;
+        if (g.visibleWidth(cell.text) > contentWidth) pressure = true;
+      }
+    }
+  }
+  const wide = split && widthGate && !pressure;
   const cell = (
     value: DiffCell | undefined,
     size: number,

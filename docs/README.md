@@ -7,8 +7,9 @@ one guide; deeper contracts stay with their owning implementation, not this inde
 
 ## Presentation
 
-- [UI and theme](claude-ui.md) — Neko-Stack header, individual tool rows,
-  split/word edit diffs, submitted-content write previews and runtime-only settings.
+- [UI and theme](claude-ui.md) — Neko-Stack header, built-in and PowerShell rows,
+  split/word edit diffs with a wrap fallback, submitted-content write previews
+  and runtime-only settings.
 - [Status and usage](status.md) — authored footer, one streaming activity line,
   Git, native usage and Herdr display metadata; native direct OpenAI quota is
   deliberately absent.

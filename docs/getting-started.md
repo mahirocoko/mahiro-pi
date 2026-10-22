@@ -79,6 +79,7 @@ The package registers a rendering-only UI adapter and the optional
 /mh-ui settings
 /mh-ui theme follow
 /mh-ui theme claude
+/mh-ui live-tail off
 ```
 
 These choices are **runtime-only** and reset on reload. To keep the startup header

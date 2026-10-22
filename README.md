@@ -60,6 +60,7 @@ release payloads.
 /mh-ui settings          Live synthetic preview; runtime Apply or authorized explicit Save
 /mh-ui theme follow      Follow Pi's theme (default)
 /mh-ui theme claude      Use the optional palette for these rows/header only
+/mh-ui live-tail on|off  Running-output tail for this TUI session; off is the stable default. Not saved
 /mh-rtk                  Show RTK status (does not change mode)
 /mh-goal                 Goal help/status and explicit human controls
 /mh-evidence             Evidence help/report/collection controls
@@ -81,8 +82,11 @@ activation or human acceptance claim.
 ## Important boundaries
 
 - Tool rendering does not execute or wrap tools. Edit diffs use captured historical
-  native details. Write preview shows **submitted content only**, not an overwrite
-  before/after diff; the renderer does not preread files.
+  native details. Write preview shows **submitted content only** and does not claim
+  create versus overwrite; there is no before/after diff and the renderer does not
+  preread files. PowerShell uses the public factory renderer. Codemode, subagents
+  and MCP/custom tools stay on their native renderers. `/mh-ui live-tail` is
+  runtime-only.
 - Resource loading grants nothing. Missing permission/identity/provenance fails
   closed. Retained denies may prevent installation or use; a reviewed
   `--remove-default-deny` removes only scalar `permission["*"]: "deny"`, never
