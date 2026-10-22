@@ -1,8 +1,7 @@
 diff --git a/src/types.ts b/src/types.ts
 --- a/src/types.ts
 +++ b/src/types.ts
-@@ -68,6 +68,13 @@
- 
+@@ -69,5 +69,12 @@
  export interface PermissionCheckResult {
    toolName: string;
 +  /**
