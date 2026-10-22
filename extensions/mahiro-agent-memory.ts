@@ -1,66 +1,51 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  createAgentMemoryRuntime,
-  memoryTools,
-  type RuntimeConfig,
-} from "../lib/agent-memory/runtime.ts";
-import { memoryReadSchema } from "../lib/agent-memory/retrieval.ts";
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { createAgentMemoryRuntime, memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
+import { memoryReadSchema } from '../lib/agent-memory/retrieval.ts'
 
-export function activateAgentMemory(
-  pi: ExtensionAPI,
-  config: RuntimeConfig = {},
-) {
-  const runtime = createAgentMemoryRuntime(pi, config);
-  const string = { type: "string" };
+export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}) {
+  const runtime = createAgentMemoryRuntime(pi, config)
+  const string = { type: 'string' }
   const schemas = {
     agent_memory_read: memoryReadSchema,
     agent_memory_edit: {
       properties: {
         path: string,
-        expectedHash: { type: ["string", "null"] },
-        text: { type: ["string", "null"] },
-        sources: { type: "array", items: string, maxItems: 32 },
+        expectedHash: { type: ['string', 'null'] },
+        text: { type: ['string', 'null'] },
+        sources: { type: 'array', items: string, maxItems: 32 },
       },
-      required: ["path", "expectedHash", "text", "sources"],
+      required: ['path', 'expectedHash', 'text', 'sources'],
     },
     agent_memory_commit: {
       properties: { revision: string },
-      required: ["revision"],
+      required: ['revision'],
     },
     agent_memory_manage: {
       properties: {
         action: {
-          type: "string",
-          enum: [
-            "status",
-            "cancel",
-            "forget",
-            "rollback",
-            "initialize",
-            "conflicts",
-            "discard",
-          ],
+          type: 'string',
+          enum: ['status', 'cancel', 'forget', 'rollback', 'initialize', 'conflicts', 'discard'],
         },
         revision: string,
-        paths: { type: "array", items: string, maxItems: 128 },
-        sources: { type: "array", items: string, maxItems: 128 },
+        paths: { type: 'array', items: string, maxItems: 128 },
+        sources: { type: 'array', items: string, maxItems: 128 },
         target: string,
         path: string,
-        offset: { type: "integer", minimum: 0 },
-        limit: { type: "integer", minimum: 1, maximum: 4096 },
-        core: { type: "string", maxLength: 8192 },
-        projectId: { type: "string", pattern: "^[a-z0-9][a-z0-9-]{0,63}$" },
-        automatic: { type: "boolean" },
+        offset: { type: 'integer', minimum: 0 },
+        limit: { type: 'integer', minimum: 1, maximum: 4096 },
+        core: { type: 'string', maxLength: 8192 },
+        projectId: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,63}$' },
+        automatic: { type: 'boolean' },
       },
-      required: ["action"],
+      required: ['action'],
     },
     agent_memory_reflect: {
       properties: {
-        assignment: { type: "string", minLength: 1, maxLength: 4096 },
+        assignment: { type: 'string', minLength: 1, maxLength: 4096 },
       },
-      required: ["assignment"],
+      required: ['assignment'],
     },
-  };
+  }
   for (const name of memoryTools)
     pi.registerTool({
       name,
@@ -69,50 +54,47 @@ export function activateAgentMemory(
         agent_memory_read:
           "Read maintained knowledge within the authenticated view. Mutually exclusive modes: {} legacy file list; path with original Unicode code-point offset/limit (4096 max); query for bounded English/Thai lexical AND search (256 UTF-8 bytes, 16 terms, limit 8); topic='' for namespaces, topic='*' for all files, or a namespace (limit 32). Query/topic offset pages scan/files; follow nextOffset until complete. Search scans at most 1 MiB per page and returns at most 32 KiB, with original snippet offsets, whole-file hashes and source IDs. basis/baseRevision/currentRevision/freshness distinguish private drafts and stale snapshots from current truth. Current forgetting/authority changes make old views unavailable, never successful no-match. Read all path pages before replacement. No arbitrary root/project selection or filesystem access.",
         agent_memory_edit:
-          "Add, replace or remove scoped Markdown in a private draft. expectedHash is from read (null for a new file); text=null removes a global/deferred/procedure file. Sources link observed episode IDs. No context changes until commit. Revise contradictory knowledge at its existing owner instead of appending it.",
+          'Add, replace or remove scoped Markdown in a private draft. expectedHash is from read (null for a new file); text=null removes a global/deferred/procedure file. Sources link observed episode IDs. No context changes until commit. Revise contradictory knowledge at its existing owner instead of appending it.',
         agent_memory_commit:
-          "Commit/integrate the current private memory draft against its base revision. Disjoint edits merge automatically; overlapping edits preserve a conflict. Native workers mark ready; the healthy parent integrates only after successful completion. Active primary context refreshes on the next request.",
+          'Commit/integrate the current private memory draft against its base revision. Disjoint edits merge automatically; overlapping edits preserve a conflict. Native workers mark ready; the healthy parent integrates only after successful completion. Active primary context refreshes on the next request.',
         agent_memory_manage:
-          "Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files.",
+          'Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files.',
         agent_memory_reflect:
-          "Assign a locked native background writer to maintain the SAME private memory using current scoped episodes. No caller-chosen role/model/path. Registration, authority and native identity binding must already exist. Does not claim provider proof or semantic correctness.",
+          'Assign a locked native background writer to maintain the SAME private memory using current scoped episodes. No caller-chosen role/model/path. Registration, authority and native identity binding must already exist. Does not claim provider proof or semantic correctness.',
       }[name],
       promptGuidelines: [
-        "Memory is fallible maintained knowledge, not permission policy. Preserve established identity and current instructions. Read before editing; consolidate/revise existing knowledge, cite observed evidence, avoid speculative preferences and archive-to-instruction promotion. Core includes concise durable identity/preferences/methods; global holds shared detailed knowledge; deferred holds project detail; procedures hold reusable workflows. Commit only appropriate durable knowledge. Never copy secrets or excluded project data.",
+        'Memory is fallible maintained knowledge, not permission policy. Preserve established identity and current instructions. Read before editing; consolidate/revise existing knowledge, cite observed evidence, avoid speculative preferences and archive-to-instruction promotion. Core includes concise durable identity/preferences/methods; global holds shared detailed knowledge; deferred holds project detail; procedures hold reusable workflows. Commit only appropriate durable knowledge. Never copy secrets or excluded project data.',
       ],
       parameters: {
-        type: "object",
+        type: 'object',
         additionalProperties: false,
         ...schemas[name],
       },
-      executionMode: "sequential",
+      executionMode: 'sequential',
       async execute(_id, args, signal, _update, ctx) {
         try {
-          const result = await runtime.run(name, args, ctx, signal);
+          const result = await runtime.run(name, args, ctx, signal)
           return {
-            content: [{ type: "text", text: JSON.stringify(result) }],
+            content: [{ type: 'text', text: JSON.stringify(result) }],
             details: result,
-          };
+          }
         } catch (error) {
           // Fixed public categories only, never private paths/payloads/subprocess stderr.
-          const message = error instanceof Error ? error.message : "";
-          if (
-            name === "agent_memory_read" &&
-            message.startsWith("Memory read unavailable:")
-          )
+          const message = error instanceof Error ? error.message : ''
+          if (name === 'agent_memory_read' && message.startsWith('Memory read unavailable:'))
             throw new Error(
-              message.includes("forgotten")
-                ? "Managed memory unavailable: current forgetting invalidates this retained view; proposal preserved"
-                : "Managed memory unavailable: current revision changed during read; proposal preserved",
-            );
+              message.includes('forgotten')
+                ? 'Managed memory unavailable: current forgetting invalidates this retained view; proposal preserved'
+                : 'Managed memory unavailable: current revision changed during read; proposal preserved',
+            )
           throw new Error(
-            "Managed memory unavailable: valid arguments, scope, CAS, separate permission and healthy native binding required",
-          );
+            'Managed memory unavailable: valid arguments, scope, CAS, separate permission and healthy native binding required',
+          )
         }
       },
-    });
-  return runtime;
+    })
+  return runtime
 }
 export default function mahiroAgentMemory(pi: ExtensionAPI) {
-  activateAgentMemory(pi);
+  activateAgentMemory(pi)
 }

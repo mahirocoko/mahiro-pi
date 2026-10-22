@@ -10,9 +10,9 @@
     "node": ">=22.19.0"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": ">=1.3.0",
     "@earendil-works/pi-coding-agent": ">=1.3.0",
     "@earendil-works/pi-tui": ">=1.3.0",
-    "@earendil-works/pi-ai": ">=1.3.0",
     "typebox": ">=1.3.27"
   },
   "peerDependenciesMeta": {
@@ -41,11 +41,12 @@
     "test": "node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts",
     "check:docs": "node check-docs.mjs",
     "check:continuity-format": "biome format lib/continuity extensions/mahiro-continuity.ts test/continuity*.ts",
-    "check": "node check-package.mjs && node check-docs.mjs && node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts && node check-public-sdk.mjs",
+    "check": "pnpm check:types && pnpm check:format && node check-package.mjs && node check-docs.mjs && node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts && node check-public-sdk.mjs",
+    "check:types": "node check-types.mjs",
     "check:public-sdk": "node check-public-sdk.mjs",
     "check:geometry": "node check-geometry.ts",
-    "format": "biome format --write check-docs.mjs lib/claude-ui*.ts extensions/mahiro-claude-ui.ts test/claude-ui*.ts lib/feature-data.ts install.mjs test/install-ready.test.ts lib/worker-activity*.ts extensions/mahiro-worker-activity.ts test/worker-activity*.test.ts test/bootstrap-candidate-fixture.ts test/candidate-isolation.test.ts lib/guards lib/rtk-state.ts lib/rtk.ts test/rtk-state.test.ts test/rtk*.test.ts check-public-sdk.mjs lib/execution-run extensions/mahiro-execution-run.ts test/execution-run-*.test.ts lib/ux-workflow extensions/mahiro-ux-workflow.ts test/ux-workflow-*.test.ts lib/evidence extensions/mahiro-code-evidence.ts test/evidence-*.ts goal-preview.mjs lib/goal extensions/mahiro-goal.ts test/goal-*.test.ts lib/code-map.ts extensions/mahiro-code-map.ts test/code-map*.test.ts lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/native-basic-file-policy.ts test/native-basic-file-policy.test.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts lib/native-utilities.ts lib/copy-code.ts extensions/mahiro-native-utilities.ts test/native-utilities*.test.ts test/copy-code.test.ts biome.json package.json",
-    "check:format": "biome format check-docs.mjs lib/claude-ui*.ts extensions/mahiro-claude-ui.ts test/claude-ui*.ts lib/feature-data.ts install.mjs test/install-ready.test.ts lib/worker-activity*.ts extensions/mahiro-worker-activity.ts test/worker-activity*.test.ts test/bootstrap-candidate-fixture.ts test/candidate-isolation.test.ts lib/guards lib/rtk-state.ts lib/rtk.ts test/rtk-state.test.ts test/rtk*.test.ts check-public-sdk.mjs lib/execution-run extensions/mahiro-execution-run.ts test/execution-run-*.test.ts lib/ux-workflow extensions/mahiro-ux-workflow.ts test/ux-workflow-*.test.ts lib/evidence extensions/mahiro-code-evidence.ts test/evidence-*.ts goal-preview.mjs lib/goal extensions/mahiro-goal.ts test/goal-*.test.ts lib/code-map.ts extensions/mahiro-code-map.ts test/code-map*.test.ts lib/finish-voice.ts extensions/mahiro-finish-voice.ts test/finish-voice.test.ts test/agent-roles.test.ts lib/agent-memory extensions/mahiro-agent-memory.ts test/agent-memory*.ts lib/native-basic-file-policy.ts test/native-basic-file-policy.test.ts lib/setup.ts setup.mjs test/setup.test.ts lib/bootstrap.ts lib/bootstrap-native.mjs bootstrap.mjs test/bootstrap*.test.ts lib/native-utilities.ts lib/copy-code.ts extensions/mahiro-native-utilities.ts test/native-utilities*.test.ts test/copy-code.test.ts biome.json package.json"
+    "format": "biome format --write .",
+    "check:format": "biome format ."
   },
   "pi": {
     "skills": [
@@ -72,10 +73,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
-    "@earendil-works/pi-coding-agent": "1.3.0",
     "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
     "@earendil-works/pi-tui": "1.3.0",
+    "@types/node": "22.19.19",
+    "esbuild": "0.28.1",
     "typebox": "1.3.27",
-    "esbuild": "0.28.1"
+    "typescript": "6.0.3"
   }
 }

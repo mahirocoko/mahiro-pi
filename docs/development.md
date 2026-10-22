@@ -11,17 +11,43 @@ required. This repository authors the guards, dependency patches and narrow ABIs
 ```sh
 pnpm check
 pnpm check:docs
+pnpm check:types
+pnpm format # writes the owned formatter surface
 pnpm check:format
 pnpm check:continuity-format
 pnpm check:geometry -- /absolute/public/pi-coding-agent/package.json
 git diff --check
 ```
 
-`check` runs package/import/whitespace validation, documentation checks, serial
-source tests and required public SDK fixtures. It is not full TypeScript checking.
-Run scoped formatting, not a mass-format of legacy files. Geometry uses public
-TUI helpers from an explicitly supplied host manifest; it makes no model/auth
-calls and does not substitute for rendered testing.
+`check` runs the strict TypeScript and formatting gates, package/import/whitespace
+validation, documentation checks, serial source tests and required public SDK
+fixtures. `check:types` uses the pinned public TypeScript **6.0.3** and Node 22
+**22.19.19** declarations with strict NodeNext resolution, explicit Node types,
+TypeScript-extension imports and `noEmit`. The inventory check verifies every
+authored TS file under `lib/`, `extensions/`, `test/` and root TS tooling against
+the actual compiler program, including imported inputs. Private evidence and
+immutable `test/oracles/` never enter that program. `allowJs: true` permits existing
+JS interoperability/inference with `checkJs: false`; this does not claim all JS
+is typechecked. `skipLibCheck: true` skips dependency declaration diagnostics,
+not owned TS errors. No emit, baseline suppression or fake SDK declarations.
+
+Biome **2.5.14** owns all authored JS/TS/JSON, including root check scripts,
+configuration, fixtures and previously unformatted owned legacy files. Its
+contract is two spaces, single JS/TS quotes, semicolons only as needed for ASI
+safety, 110 columns, trailing commas, LF, always-parenthesized arrow parameters,
+spaced object braces and property quotes only as needed. JSON remains valid JSON:
+double quotes and no trailing commas; JSX quote defaults are unchanged. Run
+`pnpm format` after each completed change phase, then the read-only format gates.
+`check:continuity-format` remains a compatible subset of `check:format`.
+`biome.json` positively owns source/tooling roots and hard-excludes private state,
+`node_modules`, immutable upstream oracles and the two original Letta factories
+(`lib/guards/mahiro-secret-read-guard.js` and
+`lib/guards/mahiro-commit-attribution-guard.js`). Those factory bytes are SHA-pinned
+by `lib/guards/provenance.json`; patch files also remain byte-exact upstream
+evidence, outside the authored formatter contract.
+
+Geometry uses public TUI helpers from an explicitly supplied host manifest; it
+makes no model/auth calls and does not substitute for rendered testing.
 
 For offline QA without modifying this checkout's `node_modules`, select an
 explicit reviewed public-package supply:

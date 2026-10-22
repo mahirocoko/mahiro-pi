@@ -1,227 +1,183 @@
-import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-import test from "node:test";
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import test from 'node:test'
 
-const base = path.resolve(".agent-state/runtime/execution-run-port/integrity");
-fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+const base = path.resolve('.agent-state/runtime/execution-run-port/integrity')
+fs.mkdirSync(base, { recursive: true, mode: 0o700 })
 for (const attack of [
-  "symlink",
-  "hardlink",
-  "mode",
-  "bytes",
-  "cancel-replaced",
-  "target-identity",
-  "lock-replaced",
-  "continuation-cancel",
-  "same-mode-parent",
-  "higher-ancestor",
-  "config-replaced",
-  "continuation-revoke",
+  'symlink',
+  'hardlink',
+  'mode',
+  'bytes',
+  'cancel-replaced',
+  'target-identity',
+  'lock-replaced',
+  'continuation-cancel',
+  'same-mode-parent',
+  'higher-ancestor',
+  'config-replaced',
+  'continuation-revoke',
 ] as const) {
   test(`precommit ${attack}: preserve previous canonical bytes; cleanup only owned temp`, async () => {
-    const saved = process.env.PI_CODING_AGENT_DIR;
+    const saved = process.env.PI_CODING_AGENT_DIR
     try {
-      const root = fs.mkdtempSync(path.join(base, `temp-${attack}-`));
-      const primary = path.join(root, "primary"),
-        profile = path.join(root, "profile"),
-        project = path.join(root, "project");
-      for (const dir of [primary, profile, project])
-        fs.mkdirSync(dir, { mode: 0o700 });
-      fs.cpSync(path.resolve("lib"), path.join(primary, "lib"), {
+      const root = fs.mkdtempSync(path.join(base, `temp-${attack}-`))
+      const primary = path.join(root, 'primary'),
+        profile = path.join(root, 'profile'),
+        project = path.join(root, 'project')
+      for (const dir of [primary, profile, project]) fs.mkdirSync(dir, { mode: 0o700 })
+      fs.cpSync(path.resolve('lib'), path.join(primary, 'lib'), {
         recursive: true,
-      });
-      const config = path.join(
-        profile,
-        "extensions/mahiro-execution-run/config.json",
-      );
-      fs.mkdirSync(path.dirname(config), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(
-        config,
-        JSON.stringify({ version: 1, profile, projects: [project] }),
-        { mode: 0o600 },
-      );
-      process.env.PI_CODING_AGENT_DIR = profile;
-      const s = await import(
-        pathToFileURL(path.join(primary, "lib/execution-run/store.ts")).href
-      );
-      const m = await import(
-        pathToFileURL(path.join(primary, "lib/execution-run/model.ts")).href
-      );
+      })
+      const config = path.join(profile, 'extensions/mahiro-execution-run/config.json')
+      fs.mkdirSync(path.dirname(config), { recursive: true, mode: 0o700 })
+      fs.writeFileSync(config, JSON.stringify({ version: 1, profile, projects: [project] }), { mode: 0o600 })
+      process.env.PI_CODING_AGENT_DIR = profile
+      const s = await import(pathToFileURL(path.join(primary, 'lib/execution-run/store.ts')).href)
+      const m = await import(pathToFileURL(path.join(primary, 'lib/execution-run/model.ts')).href)
       const b = {
         ...s.resolveRunBinding(project),
-        sessionId: "fixture-native-session",
-      };
+        sessionId: 'fixture-native-session',
+      }
       await s.transactRun(
         b,
         s.stateTicket(s.readRunState(b)),
         () => {},
         (state: any) =>
-          m.applyRun(state, b, "create", {
-            summary: "Isolated integrity fixture",
-            acceptance_criteria: ["fixture"],
+          m.applyRun(state, b, 'create', {
+            summary: 'Isolated integrity fixture',
+            acceptance_criteria: ['fixture'],
             non_goals: [],
             protected_contracts: [],
             open_questions: [],
-            suggested_checks: ["fixture"],
+            suggested_checks: ['fixture'],
             targets: [
               {
-                id: "t",
-                path: "src",
-                intent: "fixture",
-                worktree_ref: "default",
-                access: "read",
+                id: 't',
+                path: 'src',
+                intent: 'fixture',
+                worktree_ref: 'default',
+                access: 'read',
                 writer_lane_id: null,
                 reader_lane_ids: [],
               },
             ],
           }),
-      );
-      const target = path.join(b.root, "state.json"),
-        before = fs.readFileSync(target);
-      const foreign = path.join(root, "foreign");
-      fs.writeFileSync(foreign, "FOREIGN UNVALIDATED BYTES", { mode: 0o600 });
+      )
+      const target = path.join(b.root, 'state.json'),
+        before = fs.readFileSync(target)
+      const foreign = path.join(root, 'foreign')
+      fs.writeFileSync(foreign, 'FOREIGN UNVALIDATED BYTES', { mode: 0o600 })
       let calls = 0,
-        temp = "",
-        continuationCancelled = false;
+        temp = '',
+        continuationCancelled = false
       const mutation = s.transactRun(
         b,
         s.stateTicket(s.readRunState(b)),
         () => {
-          if (++calls !== 2) return;
-          temp = path.join(
-            b.root,
-            fs
-              .readdirSync(b.root)
-              .find((name: string) => name.endsWith(".tmp"))!,
-          );
-          if (attack === "symlink" || attack === "cancel-replaced") {
-            fs.unlinkSync(temp);
-            fs.symlinkSync(foreign, temp);
-          } else if (attack === "hardlink") {
-            fs.unlinkSync(temp);
-            fs.linkSync(foreign, temp);
-          } else if (attack === "mode") fs.chmodSync(temp, 0o644);
-          else if (attack === "target-identity") {
-            fs.unlinkSync(target);
-            fs.writeFileSync(target, before, { mode: 0o600 });
-          } else if (attack === "lock-replaced") {
-            const lock = path.join(b.root, "state.lock");
-            fs.unlinkSync(lock);
-            fs.writeFileSync(
-              lock,
-              JSON.stringify({ token: "foreign-lock", pid: process.pid }),
-              { mode: 0o600 },
-            );
-          } else if (attack === "same-mode-parent") {
-            fs.renameSync(b.root, `${b.root}-original`);
-            fs.mkdirSync(b.root, { mode: 0o700 });
+          if (++calls !== 2) return
+          temp = path.join(b.root, fs.readdirSync(b.root).find((name: string) => name.endsWith('.tmp'))!)
+          if (attack === 'symlink' || attack === 'cancel-replaced') {
+            fs.unlinkSync(temp)
+            fs.symlinkSync(foreign, temp)
+          } else if (attack === 'hardlink') {
+            fs.unlinkSync(temp)
+            fs.linkSync(foreign, temp)
+          } else if (attack === 'mode') fs.chmodSync(temp, 0o644)
+          else if (attack === 'target-identity') {
+            fs.unlinkSync(target)
+            fs.writeFileSync(target, before, { mode: 0o600 })
+          } else if (attack === 'lock-replaced') {
+            const lock = path.join(b.root, 'state.lock')
+            fs.unlinkSync(lock)
+            fs.writeFileSync(lock, JSON.stringify({ token: 'foreign-lock', pid: process.pid }), {
+              mode: 0o600,
+            })
+          } else if (attack === 'same-mode-parent') {
+            fs.renameSync(b.root, `${b.root}-original`)
+            fs.mkdirSync(b.root, { mode: 0o700 })
             // Preserve every child inode (target, lock and held temp) so ONLY
             // the same-mode parent identity distinguishes this interference.
             for (const name of fs.readdirSync(`${b.root}-original`))
-              fs.renameSync(
-                path.join(`${b.root}-original`, name),
-                path.join(b.root, name),
-              );
-          } else if (attack === "higher-ancestor") {
-            const ancestor = path.dirname(profile);
-            fs.renameSync(ancestor, `${ancestor}-original`);
-            fs.mkdirSync(ancestor, { mode: 0o700 });
+              fs.renameSync(path.join(`${b.root}-original`, name), path.join(b.root, name))
+          } else if (attack === 'higher-ancestor') {
+            const ancestor = path.dirname(profile)
+            fs.renameSync(ancestor, `${ancestor}-original`)
+            fs.mkdirSync(ancestor, { mode: 0o700 })
             for (const name of fs.readdirSync(`${ancestor}-original`))
-              fs.renameSync(
-                path.join(`${ancestor}-original`, name),
-                path.join(ancestor, name),
-              );
-          } else if (attack === "config-replaced") {
-            fs.renameSync(config, `${config}.old`);
-            fs.copyFileSync(`${config}.old`, config);
-            fs.chmodSync(config, 0o600);
-          } else if (attack === "continuation-revoke") {
+              fs.renameSync(path.join(`${ancestor}-original`, name), path.join(ancestor, name))
+          } else if (attack === 'config-replaced') {
+            fs.renameSync(config, `${config}.old`)
+            fs.copyFileSync(`${config}.old`, config)
+            fs.chmodSync(config, 0o600)
+          } else if (attack === 'continuation-revoke') {
             queueMicrotask(() => {
-              continuationCancelled = true;
-            });
-          } else if (attack === "continuation-cancel")
+              continuationCancelled = true
+            })
+          } else if (attack === 'continuation-cancel')
             queueMicrotask(() => {
-              continuationCancelled = true;
-            });
+              continuationCancelled = true
+            })
           else {
-            const bytes = fs.readFileSync(temp);
-            bytes[0] = bytes[0] === 123 ? 91 : 123;
-            fs.writeFileSync(temp, bytes); // same size/mode/inode: requires exact-byte check
+            const bytes = fs.readFileSync(temp)
+            bytes[0] = bytes[0] === 123 ? 91 : 123
+            fs.writeFileSync(temp, bytes) // same size/mode/inode: requires exact-byte check
           }
-          if (attack === "cancel-replaced")
-            throw new Error("cancel after foreign replacement");
+          if (attack === 'cancel-replaced') throw new Error('cancel after foreign replacement')
         },
         (state: any) =>
-          m.applyRun(state, b, "update", {
-            action: "add_blocker",
+          m.applyRun(state, b, 'update', {
+            action: 'add_blocker',
             expected_revision: 1,
             expected_run_id: m.runAt(s.readRunState(b), b).id,
-            summary: "must not commit",
+            summary: 'must not commit',
           }),
         () => {
-          if (continuationCancelled)
-            throw new Error("cancelled in final continuation");
+          if (continuationCancelled) throw new Error('cancelled in final continuation')
         },
-      );
-      if (["same-mode-parent", "higher-ancestor"].includes(attack))
-        await assert.rejects(mutation, /parent identity changed/);
-      else if (attack === "bytes")
-        await assert.rejects(mutation, /serialized bytes changed/);
-      else await assert.rejects(mutation);
-      assert.deepEqual(fs.readFileSync(target), before);
-      if (attack === "config-replaced")
+      )
+      if (['same-mode-parent', 'higher-ancestor'].includes(attack))
+        await assert.rejects(mutation, /parent identity changed/)
+      else if (attack === 'bytes') await assert.rejects(mutation, /serialized bytes changed/)
+      else await assert.rejects(mutation)
+      assert.deepEqual(fs.readFileSync(target), before)
+      if (attack === 'config-replaced')
         Object.assign(b, s.resolveRunBinding(project), {
-          sessionId: "fixture-native-session",
-        });
-      assert.equal(m.runAt(s.readRunState(b), b).revision, 1);
-      assert.equal(
-        fs.readFileSync(foreign, "utf8"),
-        "FOREIGN UNVALIDATED BYTES",
-      );
-      if (["symlink", "hardlink", "cancel-replaced"].includes(attack)) {
-        assert.ok(
-          fs.lstatSync(temp),
-          "foreign replacement must not be unlinked by cleanup",
-        );
+          sessionId: 'fixture-native-session',
+        })
+      assert.equal(m.runAt(s.readRunState(b), b).revision, 1)
+      assert.equal(fs.readFileSync(foreign, 'utf8'), 'FOREIGN UNVALIDATED BYTES')
+      if (['symlink', 'hardlink', 'cancel-replaced'].includes(attack)) {
+        assert.ok(fs.lstatSync(temp), 'foreign replacement must not be unlinked by cleanup')
+        assert.equal(fs.lstatSync(temp).isSymbolicLink(), attack !== 'hardlink')
+      } else assert.equal(fs.existsSync(temp), false, 'still-owned corrupted temp can be cleaned')
+      if (attack === 'same-mode-parent') assert.equal(fs.statSync(b.root).mode & 0o7777, 0o700)
+      if (attack === 'lock-replaced') {
         assert.equal(
-          fs.lstatSync(temp).isSymbolicLink(),
-          attack !== "hardlink",
-        );
-      } else
-        assert.equal(
-          fs.existsSync(temp),
-          false,
-          "still-owned corrupted temp can be cleaned",
-        );
-      if (attack === "same-mode-parent")
-        assert.equal(fs.statSync(b.root).mode & 0o7777, 0o700);
-      if (attack === "lock-replaced") {
-        assert.equal(
-          JSON.parse(fs.readFileSync(path.join(b.root, "state.lock"), "utf8"))
-            .token,
-          "foreign-lock",
-        );
-        return;
+          JSON.parse(fs.readFileSync(path.join(b.root, 'state.lock'), 'utf8')).token,
+          'foreign-lock',
+        )
+        return
       }
-      assert.equal(fs.existsSync(path.join(b.root, "state.lock")), false);
+      assert.equal(fs.existsSync(path.join(b.root, 'state.lock')), false)
       await s.transactRun(
         b,
         s.stateTicket(s.readRunState(b)),
         () => {},
         (state: any) =>
-          m.applyRun(state, b, "update", {
-            action: "add_blocker",
+          m.applyRun(state, b, 'update', {
+            action: 'add_blocker',
             expected_revision: 1,
             expected_run_id: m.runAt(s.readRunState(b), b).id,
-            summary: "genuine next write",
+            summary: 'genuine next write',
           }),
-      );
-      assert.equal(m.runAt(s.readRunState(b), b).revision, 2);
+      )
+      assert.equal(m.runAt(s.readRunState(b), b).revision, 2)
     } finally {
-      if (saved === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = saved;
+      if (saved === undefined) delete process.env.PI_CODING_AGENT_DIR
+      else process.env.PI_CODING_AGENT_DIR = saved
     }
-  });
+  })
 }

@@ -66,6 +66,21 @@ run the explicit public-host geometry smoke for geometry changes. Serialize heav
 checks. Synthetic/source checks are not rendered, installed or human acceptance.
 Use a fresh verifier for independent QA.
 
-Follow repository-local Biome: two spaces, double quotes and semicolons.
-Use the scoped format scripts and separate continuity formatting check; do not
-mass-reformat legacy files. Checks are not full TypeScript checking.
+Follow repository-local Biome: two spaces, single JavaScript/TypeScript quotes,
+ASI-safe semicolons only as needed, 110 columns, trailing commas, LF, parenthesized
+arrow parameters and spaced object braces. JSON retains required double quotes
+and no trailing commas. Run `pnpm format` (writes) after each completed change
+phase, then verify with `pnpm check:format`; `check:continuity-format` remains a
+compatible subset. All authored JS/TS/JSON, including root tooling and legacy
+owned files, share this contract. Private state/node_modules are hard-excluded.
+The two SHA-pinned original Letta guard factories, `test/oracles/` and patch bytes
+are immutable upstream evidence, not formatter omissions.
+
+`pnpm check` includes `check:types` and formatting before the existing source/SDK
+gates. `tsconfig.json` owns strict NodeNext/noEmit checking with explicit Node 22
+types; `check-types.mjs` verifies every authored TS file under lib/extensions/test
+and root TS tooling is actually in the compiler program, and refuses private or
+oracle inputs. JS interoperability uses inference with `checkJs: false`; this is
+not full JS checking. `skipLibCheck: true` skips external declaration diagnostics,
+not authored TypeScript. Use the pinned public TypeScript/Node types devDependencies;
+never host internals, fake SDK declarations or blanket source suppressions.

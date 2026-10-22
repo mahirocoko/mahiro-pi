@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from 'node:crypto'
 import {
   closeSync,
   constants,
@@ -12,83 +12,72 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
-} from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { resolveAgentDir } from "../setup.ts";
-import {
-  emptyState,
-  validateState,
-  type Scope,
-  type WorkflowState,
-} from "./model.ts";
+} from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { resolveAgentDir } from '../setup.ts'
+import { emptyState, validateState, type Scope, type WorkflowState } from './model.ts'
 
-const MAX_BYTES = 2 * 1024 * 1024;
-const sourceRoot = fileURLToPath(new URL("../../", import.meta.url)).replace(
-  /\/$/,
-  "",
-);
-const sourceRoots = [sourceRoot, join(dirname(sourceRoot), "mods")];
-const inside = (root: string, path: string) =>
-  path === root || path.startsWith(`${root}/`);
-export const goalHash = (value: string | Buffer) =>
-  createHash("sha256").update(value).digest("hex");
-const missing = (error: unknown) =>
-  (error as NodeJS.ErrnoException).code === "ENOENT";
-const uid = () => process.getuid?.();
-const excluded = (path: string) => /(?:^|\/)\.letta(?:\/|$)/i.test(path);
+const MAX_BYTES = 2 * 1024 * 1024
+const sourceRoot = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '')
+const sourceRoots = [sourceRoot, join(dirname(sourceRoot), 'mods')]
+const inside = (root: string, path: string) => path === root || path.startsWith(`${root}/`)
+export const goalHash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
+const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+const uid = () => process.getuid?.()
+const excluded = (path: string) => /(?:^|\/)\.letta(?:\/|$)/i.test(path)
 function canonical(path: string) {
   if (
-    typeof path !== "string" ||
+    typeof path !== 'string' ||
     !isAbsolute(path) ||
     resolve(path) !== path ||
     /[\x00-\x1f]/.test(path) ||
     excluded(path)
   )
-    throw new Error("Canonical nonexcluded Goal path required");
-  let current = path;
+    throw new Error('Canonical nonexcluded Goal path required')
+  let current = path
   for (;;) {
     try {
-      const stat = lstatSync(current);
+      const stat = lstatSync(current)
       if (
         stat.isSymbolicLink() ||
         (current !== path && !stat.isDirectory()) ||
         (stat.mode & 0o022) !== 0 ||
         (uid() !== undefined && stat.uid !== uid() && stat.uid !== 0)
       )
-        throw new Error("Unsafe Goal path ancestor");
+        throw new Error('Unsafe Goal path ancestor')
     } catch (error) {
-      if (!missing(error)) throw error;
+      if (!missing(error)) throw error
     }
-    if (dirname(current) === current) break;
-    current = dirname(current);
+    if (dirname(current) === current) break
+    current = dirname(current)
   }
 }
 function privateDirectory(path: string, optional = false) {
-  canonical(path);
+  canonical(path)
   try {
-    const stat = lstatSync(path);
+    const stat = lstatSync(path)
     if (
       !stat.isDirectory() ||
       (stat.mode & 0o7777) !== 0o700 ||
       (uid() !== undefined && stat.uid !== uid()) ||
       realpathSync(path) !== path
     )
-      throw new Error("Private owned Goal directory required");
-    return true;
+      throw new Error('Private owned Goal directory required')
+    return true
   } catch (error) {
-    if (optional && missing(error)) return false;
-    throw error;
+    if (optional && missing(error)) return false
+    throw error
   }
 }
 function readPrivate(path: string, bound = MAX_BYTES): string | null {
-  canonical(path);
-  let stat;
+  canonical(path)
+  let stat
   try {
-    stat = lstatSync(path);
+    stat = lstatSync(path)
   } catch (error) {
-    if (missing(error)) return null;
-    throw error;
+    if (missing(error)) return null
+    throw error
   }
   if (
     !stat.isFile() ||
@@ -97,17 +86,17 @@ function readPrivate(path: string, bound = MAX_BYTES): string | null {
     (uid() !== undefined && stat.uid !== uid()) ||
     stat.size > bound
   )
-    throw new Error("Unsafe or oversized private Goal file");
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    throw new Error('Unsafe or oversized private Goal file')
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
-    const buffer = Buffer.alloc(bound + 1);
+    const buffer = Buffer.alloc(bound + 1)
     let size = 0,
-      count = 0;
+      count = 0
     do {
-      count = readSync(fd, buffer, size, buffer.length - size, size);
-      size += count;
-    } while (count && size < buffer.length);
-    const after = fstatSync(fd);
+      count = readSync(fd, buffer, size, buffer.length - size, size)
+      size += count
+    } while (count && size < buffer.length)
+    const after = fstatSync(fd)
     if (
       !after.isFile() ||
       after.ino !== stat.ino ||
@@ -120,164 +109,149 @@ function readPrivate(path: string, bound = MAX_BYTES): string | null {
       after.mtimeMs !== stat.mtimeMs ||
       after.ctimeMs !== stat.ctimeMs
     )
-      throw new Error("Goal file changed during read");
-    const text = buffer.subarray(0, size).toString("utf8");
-    if (!Buffer.from(text).equals(buffer.subarray(0, size)))
-      throw new Error("Goal UTF-8 required");
-    return text;
+      throw new Error('Goal file changed during read')
+    const text = buffer.subarray(0, size).toString('utf8')
+    if (!Buffer.from(text).equals(buffer.subarray(0, size))) throw new Error('Goal UTF-8 required')
+    return text
   } finally {
-    closeSync(fd);
+    closeSync(fd)
   }
 }
 export interface GoalBinding extends Scope {
-  root: string;
-  configHash: string;
+  root: string
+  configHash: string
 }
 /** Read-only canonical binding. Legacy config is optional, never a project whitelist. */
 export function resolveGoalBinding(project: string): GoalBinding | null {
-  const profile = resolveAgentDir();
-  canonical(profile);
-  canonical(project);
+  const profile = resolveAgentDir()
+  canonical(profile)
+  canonical(project)
   if (
     sourceRoots.some(
       (source) =>
-        (inside(source, profile) &&
-          !inside(join(source, ".agent-state/runtime"), profile)) ||
+        (inside(source, profile) && !inside(join(source, '.agent-state/runtime'), profile)) ||
         inside(profile, source),
     ) ||
     inside(profile, project) ||
     inside(project, profile) ||
-    inside(join(profile, "memory"), project) ||
-    inside(join(profile, "continuity"), project)
+    inside(join(profile, 'memory'), project) ||
+    inside(join(profile, 'continuity'), project)
   )
-    throw new Error("Goal profile/project/source separation required");
+    throw new Error('Goal profile/project/source separation required')
   // Retain legacy config validation and CAS freshness, without requiring setup.
-  const configPath = join(profile, "extensions/mahiro-goal/config.json");
-  const text = readPrivate(configPath, 16384);
-  if (text !== null) privateDirectory(dirname(configPath));
+  const configPath = join(profile, 'extensions/mahiro-goal/config.json')
+  const text = readPrivate(configPath, 16384)
+  if (text !== null) privateDirectory(dirname(configPath))
   if (realpathSync(project) !== project || !lstatSync(project).isDirectory())
-    throw new Error("Existing canonical project required");
-  let config: any;
+    throw new Error('Existing canonical project required')
+  let config: any
   try {
-    config =
-      text === null ? { version: 1, profile, projects: [] } : JSON.parse(text);
+    config = text === null ? { version: 1, profile, projects: [] } : JSON.parse(text)
   } catch {
-    throw new Error("Invalid Goal configuration JSON");
+    throw new Error('Invalid Goal configuration JSON')
   }
-  validateGoalConfiguration(config, profile);
+  validateGoalConfiguration(config, profile)
   // Every canonical project derives a separate bounded private leaf.
-  const root = join(profile, "workflow/goals", goalHash(project));
-  for (const dir of [
-    join(profile, "workflow"),
-    join(profile, "workflow/goals"),
-    root,
-  ])
-    privateDirectory(dir, true);
+  const root = join(profile, 'workflow/goals', goalHash(project))
+  for (const dir of [join(profile, 'workflow'), join(profile, 'workflow/goals'), root])
+    privateDirectory(dir, true)
   return {
     profile,
     project,
     root,
     configHash: goalHash(text ?? `canonical-goal-v2:${profile}`),
-    sessionId: "",
-  };
+    sessionId: '',
+  }
 }
 function validateGoalConfiguration(config: any, profile: string): void {
-  canonical(profile);
+  canonical(profile)
   // Profile is a host-owned container; canonical() rejects unsafe ancestors.
   if (
     sourceRoots.some(
       (source) =>
-        (inside(source, profile) &&
-          !inside(join(source, ".agent-state/runtime"), profile)) ||
+        (inside(source, profile) && !inside(join(source, '.agent-state/runtime'), profile)) ||
         inside(profile, source),
     ) ||
     !config ||
-    typeof config !== "object" ||
+    typeof config !== 'object' ||
     Array.isArray(config) ||
     config.version !== 1 ||
     config.profile !== profile ||
-    Object.keys(config).some(
-      (k) => !["version", "profile", "projects"].includes(k),
-    ) ||
+    Object.keys(config).some((k) => !['version', 'profile', 'projects'].includes(k)) ||
     !Array.isArray(config.projects) ||
     config.projects.length > 32 ||
     new Set(config.projects).size !== config.projects.length ||
     Buffer.byteLength(JSON.stringify(config)) > 16384
   )
-    throw new Error("Invalid explicit Goal configuration");
-  const workflow = join(profile, "workflow/goals");
+    throw new Error('Invalid explicit Goal configuration')
+  const workflow = join(profile, 'workflow/goals')
   for (const protectedRoot of [
-    process.env.MAHIRO_AGENT_MEMORY_ROOT ?? join(profile, "memory"),
-    process.env.MAHIRO_CONTINUITY_ROOT ?? join(profile, "continuity"),
+    process.env.MAHIRO_AGENT_MEMORY_ROOT ?? join(profile, 'memory'),
+    process.env.MAHIRO_CONTINUITY_ROOT ?? join(profile, 'continuity'),
   ]) {
-    canonical(protectedRoot);
+    canonical(protectedRoot)
     if (inside(protectedRoot, workflow) || inside(workflow, protectedRoot))
-      throw new Error(
-        "Goal storage overlaps managed-memory or continuity root",
-      );
+      throw new Error('Goal storage overlaps managed-memory or continuity root')
   }
   for (const root of config.projects) {
-    canonical(root);
+    canonical(root)
     if (
       realpathSync(root) !== root ||
       !lstatSync(root).isDirectory() ||
       inside(profile, root) ||
       inside(root, profile)
     )
-      throw new Error("Invalid configured Goal project");
+      throw new Error('Invalid configured Goal project')
   }
 }
 /** Proposed source config only. No mkdir, state read, grant, install or apply API. */
-export function previewGoalConfiguration(
-  projects: string[],
-  explicitProfile?: string,
-) {
-  const profile = resolveAgentDir(explicitProfile);
-  const config = { version: 1, profile, projects };
-  validateGoalConfiguration(config, profile);
+export function previewGoalConfiguration(projects: string[], explicitProfile?: string) {
+  const profile = resolveAgentDir(explicitProfile)
+  const config = { version: 1, profile, projects }
+  validateGoalConfiguration(config, profile)
   return {
-    path: join(profile, "extensions/mahiro-goal/config.json"),
+    path: join(profile, 'extensions/mahiro-goal/config.json'),
     config,
     scopes: projects.map((project) => {
-      const root = join(profile, "workflow/goals", goalHash(project));
-      return { project, root, capability: `goal_state_${goalHash(root)}` };
+      const root = join(profile, 'workflow/goals', goalHash(project))
+      return { project, root, capability: `goal_state_${goalHash(root)}` }
     }),
     applied: false,
     permissionsGranted: false,
     stateInitialized: false,
-  };
+  }
 }
 function assertBinding(binding: GoalBinding) {
-  const current = resolveGoalBinding(binding.project);
+  const current = resolveGoalBinding(binding.project)
   if (
     !current ||
     current.profile !== binding.profile ||
     current.root !== binding.root ||
     current.configHash !== binding.configHash
   )
-    throw new Error("Goal configuration authority changed");
+    throw new Error('Goal configuration authority changed')
 }
 export function readGoalState(binding: GoalBinding): WorkflowState {
-  assertBinding(binding);
-  const text = readPrivate(join(binding.root, "state.json"));
-  if (text === null) return emptyState(binding.profile, binding.project);
-  let state;
+  assertBinding(binding)
+  const text = readPrivate(join(binding.root, 'state.json'))
+  if (text === null) return emptyState(binding.profile, binding.project)
+  let state
   try {
-    state = JSON.parse(text);
+    state = JSON.parse(text)
   } catch {
-    throw new Error("Invalid Goal state JSON");
+    throw new Error('Invalid Goal state JSON')
   }
-  validateState(state, binding.profile, binding.project);
-  return state;
+  validateState(state, binding.profile, binding.project)
+  return state
 }
 export interface GoalTicket {
-  readonly digest: string;
+  readonly digest: string
 }
 /** Whole-state ticket also prevents absent→create→clear ABA across processes. */
 export function stateTicket(state: WorkflowState): GoalTicket {
-  return Object.freeze({ digest: goalHash(JSON.stringify(state)) });
+  return Object.freeze({ digest: goalHash(JSON.stringify(state)) })
 }
-const queues = new Map<string, { tail: Promise<unknown>; pending: number }>();
+const queues = new Map<string, { tail: Promise<unknown>; pending: number }>()
 export async function transactGoal<T>(
   binding: GoalBinding,
   ticket: GoalTicket,
@@ -285,147 +259,126 @@ export async function transactGoal<T>(
   mutate: (state: WorkflowState) => T,
   assertCurrent: () => void = () => {},
 ): Promise<T> {
-  let queue = queues.get(binding.root);
+  let queue = queues.get(binding.root)
   if (!queue) {
-    queue = { tail: Promise.resolve(), pending: 0 };
-    queues.set(binding.root, queue);
+    queue = { tail: Promise.resolve(), pending: 0 }
+    queues.set(binding.root, queue)
   }
-  if (queue.pending >= 32) throw new Error("Goal local queue bound reached");
-  queue.pending++;
+  if (queue.pending >= 32) throw new Error('Goal local queue bound reached')
+  queue.pending++
   const operation = queue.tail
     .catch(() => {})
     .then(async () => {
-      await authorize();
-      assertBinding(binding);
+      await authorize()
+      assertBinding(binding)
       // Parent creation is solely in this explicit authorized mutation, never reads/startup.
       for (const dir of [
-        join(binding.profile, "workflow"),
-        join(binding.profile, "workflow/goals"),
+        join(binding.profile, 'workflow'),
+        join(binding.profile, 'workflow/goals'),
         binding.root,
       ]) {
         if (!privateDirectory(dir, true)) {
-          mkdirSync(dir, { mode: 0o700 });
-          privateDirectory(dir);
+          mkdirSync(dir, { mode: 0o700 })
+          privateDirectory(dir)
         }
       }
-      const lockPath = join(binding.root, "state.lock"),
-        token = randomUUID();
-      let lockFd: number;
+      const lockPath = join(binding.root, 'state.lock'),
+        token = randomUUID()
+      let lockFd: number
       try {
         lockFd = openSync(
           lockPath,
-          constants.O_WRONLY |
-            constants.O_CREAT |
-            constants.O_EXCL |
-            constants.O_NOFOLLOW,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
           0o600,
-        );
+        )
       } catch (error) {
-        throw new Error(
-          "Goal lock unavailable; no automatic stale steal or force unlock",
-          { cause: error },
-        );
+        throw new Error('Goal lock unavailable; no automatic stale steal or force unlock', { cause: error })
       }
-      let lockStat;
-      let temp: string | undefined;
-      let tempFd: number | undefined;
-      let targetFd: number | undefined;
-      let tempStat: ReturnType<typeof fstatSync> | undefined;
+      let lockStat
+      let temp: string | undefined
+      let tempFd: number | undefined
+      let targetFd: number | undefined
+      let tempStat: import('node:fs').Stats | undefined
       try {
-        writeFileSync(lockFd, JSON.stringify({ token, pid: process.pid }));
-        fsyncSync(lockFd);
-        lockStat = fstatSync(lockFd);
-        const state = readGoalState(binding);
+        writeFileSync(lockFd, JSON.stringify({ token, pid: process.pid }))
+        fsyncSync(lockFd)
+        lockStat = fstatSync(lockFd)
+        const state = readGoalState(binding)
         if (stateTicket(state).digest !== ticket.digest)
-          throw new Error("Stale Goal revision ticket; read again");
-        const result = mutate(state);
-        state.sequence++;
-        validateState(state, binding.profile, binding.project);
-        const bytes = Buffer.from(`${JSON.stringify(state)}\n`);
-        if (bytes.length > MAX_BYTES)
-          throw new Error("Goal state byte bound exceeded");
-        temp = join(binding.root, `.state-${process.pid}-${randomUUID()}.tmp`);
+          throw new Error('Stale Goal revision ticket; read again')
+        const result = mutate(state)
+        state.sequence++
+        validateState(state, binding.profile, binding.project)
+        const bytes = Buffer.from(`${JSON.stringify(state)}\n`)
+        if (bytes.length > MAX_BYTES) throw new Error('Goal state byte bound exceeded')
+        temp = join(binding.root, `.state-${process.pid}-${randomUUID()}.tmp`)
         // Keep the original descriptor open across authorization: an unlinked
         // inode cannot be reused and mistaken for our owned temporary file.
         tempFd = openSync(
           temp,
-          constants.O_RDWR |
-            constants.O_CREAT |
-            constants.O_EXCL |
-            constants.O_NOFOLLOW,
+          constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
           0o600,
-        );
-        tempStat = fstatSync(tempFd);
-        writeFileSync(tempFd, bytes);
-        fsyncSync(tempFd);
+        )
+        tempStat = fstatSync(tempFd)
+        writeFileSync(tempFd, bytes)
+        fsyncSync(tempFd)
         const parents = [
           binding.profile,
-          join(binding.profile, "workflow"),
-          join(binding.profile, "workflow/goals"),
+          join(binding.profile, 'workflow'),
+          join(binding.profile, 'workflow/goals'),
           binding.root,
-        ].map((path) => ({ path, stat: lstatSync(path) }));
-        const target = join(binding.root, "state.json");
-        let targetStat: ReturnType<typeof lstatSync> | undefined;
+        ].map((path) => ({ path, stat: lstatSync(path) }))
+        const target = join(binding.root, 'state.json')
+        let targetStat: import('node:fs').Stats | undefined
         try {
-          targetStat = lstatSync(target);
+          targetStat = lstatSync(target)
         } catch (error) {
-          if (!missing(error)) throw error;
+          if (!missing(error)) throw error
         }
         if (targetStat) {
-          targetFd = openSync(
-            target,
-            constants.O_RDONLY | constants.O_NOFOLLOW,
-          );
-          const openedTarget = fstatSync(targetFd);
-          if (
-            openedTarget.dev !== targetStat.dev ||
-            openedTarget.ino !== targetStat.ino
-          )
-            throw new Error("Goal target changed while binding descriptor");
+          targetFd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW)
+          const openedTarget = fstatSync(targetFd)
+          if (openedTarget.dev !== targetStat.dev || openedTarget.ino !== targetStat.ino)
+            throw new Error('Goal target changed while binding descriptor')
         }
-        await authorize();
+        await authorize()
         // Recheck in this continuation, not only inside the awaited authorizer:
         // a navigation/cancellation microtask may precede this resumption.
-        assertCurrent();
-        assertBinding(binding);
+        assertCurrent()
+        assertBinding(binding)
         // Revalidate lock token/inode, target safety and canonical context immediately before commit.
-        const currentLock = lstatSync(lockPath);
+        const currentLock = lstatSync(lockPath)
         if (
           currentLock.ino !== lockStat.ino ||
           currentLock.dev !== lockStat.dev ||
           JSON.parse(readPrivate(lockPath, 1024)!).token !== token
         )
-          throw new Error("Goal lock ownership changed");
-        const fresh = readGoalState(binding);
-        if (stateTicket(fresh).digest !== ticket.digest)
-          throw new Error("Goal state changed before commit");
+          throw new Error('Goal lock ownership changed')
+        const fresh = readGoalState(binding)
+        if (stateTicket(fresh).digest !== ticket.digest) throw new Error('Goal state changed before commit')
         for (const parent of parents) {
-          if (parent.path === binding.profile) canonical(parent.path);
-          else privateDirectory(parent.path);
-          const current = lstatSync(parent.path);
-          if (
-            current.dev !== parent.stat.dev ||
-            current.ino !== parent.stat.ino
-          )
-            throw new Error("Goal parent identity changed");
+          if (parent.path === binding.profile) canonical(parent.path)
+          else privateDirectory(parent.path)
+          const current = lstatSync(parent.path)
+          if (current.dev !== parent.stat.dev || current.ino !== parent.stat.ino)
+            throw new Error('Goal parent identity changed')
         }
-        let currentTarget: ReturnType<typeof lstatSync> | undefined;
+        let currentTarget: import('node:fs').Stats | undefined
         try {
-          currentTarget = lstatSync(target);
+          currentTarget = lstatSync(target)
         } catch (error) {
-          if (!missing(error)) throw error;
+          if (!missing(error)) throw error
         }
         if (
           !!currentTarget !== !!targetStat ||
           (currentTarget &&
             targetStat &&
-            (currentTarget.dev !== targetStat.dev ||
-              currentTarget.ino !== targetStat.ino))
+            (currentTarget.dev !== targetStat.dev || currentTarget.ino !== targetStat.ino))
         )
-          throw new Error("Goal target identity changed");
+          throw new Error('Goal target identity changed')
         const pathname = lstatSync(temp),
-          opened = fstatSync(tempFd);
-        const owned = (stat: ReturnType<typeof fstatSync>) =>
+          opened = fstatSync(tempFd)
+        const owned = (stat: import('node:fs').Stats) =>
           stat.isFile() &&
           stat.dev === tempStat!.dev &&
           stat.ino === tempStat!.ino &&
@@ -433,26 +386,18 @@ export async function transactGoal<T>(
           (stat.mode & 0o7777) === 0o600 &&
           stat.uid === tempStat!.uid &&
           stat.gid === tempStat!.gid &&
-          stat.size === bytes.length;
+          stat.size === bytes.length
         if (!owned(pathname) || !owned(opened))
-          throw new Error(
-            "Goal temporary identity or private metadata changed",
-          );
-        const prepared = Buffer.alloc(bytes.length + 1);
+          throw new Error('Goal temporary identity or private metadata changed')
+        const prepared = Buffer.alloc(bytes.length + 1)
         let length = 0,
-          count = 0;
+          count = 0
         do {
-          count = readSync(
-            tempFd,
-            prepared,
-            length,
-            prepared.length - length,
-            length,
-          );
-          length += count;
-        } while (count && length < prepared.length);
+          count = readSync(tempFd, prepared, length, prepared.length - length, length)
+          length += count
+        } while (count && length < prepared.length)
         const afterRead = fstatSync(tempFd),
-          finalPath = lstatSync(temp);
+          finalPath = lstatSync(temp)
         if (
           !owned(afterRead) ||
           !owned(finalPath) ||
@@ -461,42 +406,35 @@ export async function transactGoal<T>(
           length !== bytes.length ||
           !prepared.subarray(0, length).equals(bytes)
         )
-          throw new Error("Goal temporary serialized bytes changed");
+          throw new Error('Goal temporary serialized bytes changed')
         // Bounded synchronous final checks: no JS authorization/context yield
         // between this integrity check and rename. Public pathname APIs cannot
         // eliminate an external same-UID race; this is not an adversarial sandbox.
-        renameSync(temp, target);
-        temp = undefined;
-        const dirFd = openSync(
-          binding.root,
-          constants.O_RDONLY | constants.O_NOFOLLOW,
-        );
+        renameSync(temp, target)
+        temp = undefined
+        const dirFd = openSync(binding.root, constants.O_RDONLY | constants.O_NOFOLLOW)
         try {
-          fsyncSync(dirFd);
+          fsyncSync(dirFd)
         } finally {
-          closeSync(dirFd);
+          closeSync(dirFd)
         }
-        return result;
+        return result
       } finally {
         try {
           try {
             if (temp && tempStat) {
-              const current = lstatSync(temp);
-              if (
-                current.isFile() &&
-                current.dev === tempStat.dev &&
-                current.ino === tempStat.ino
-              )
-                unlinkSync(temp);
+              const current = lstatSync(temp)
+              if (current.isFile() && current.dev === tempStat.dev && current.ino === tempStat.ino)
+                unlinkSync(temp)
             }
           } catch (error) {
-            if (!missing(error)) throw error;
+            if (!missing(error)) throw error
           }
         } finally {
           // Release only the lock this transaction created, even if owned-temp
           // cleanup failed. Held descriptors prevent inode-reuse confusion.
           try {
-            const current = lstatSync(lockPath);
+            const current = lstatSync(lockPath)
             if (
               lockStat &&
               current.isFile() &&
@@ -504,23 +442,22 @@ export async function transactGoal<T>(
               current.dev === lockStat.dev &&
               JSON.parse(readPrivate(lockPath, 1024)!).token === token
             )
-              unlinkSync(lockPath);
+              unlinkSync(lockPath)
           } catch (error) {
-            if (!missing(error)) throw error;
+            if (!missing(error)) throw error
           } finally {
-            closeSync(lockFd);
-            if (tempFd !== undefined) closeSync(tempFd);
-            if (targetFd !== undefined) closeSync(targetFd);
+            closeSync(lockFd)
+            if (tempFd !== undefined) closeSync(tempFd)
+            if (targetFd !== undefined) closeSync(targetFd)
           }
         }
       }
-    });
-  queue.tail = operation;
+    })
+  queue.tail = operation
   try {
-    return await operation;
+    return await operation
   } finally {
-    queue.pending--;
-    if (!queue.pending && queues.get(binding.root) === queue)
-      queues.delete(binding.root);
+    queue.pending--
+    if (!queue.pending && queues.get(binding.root) === queue) queues.delete(binding.root)
   }
 }
