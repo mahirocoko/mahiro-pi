@@ -38,6 +38,8 @@ import {
   setupTarget,
 } from "./setup.ts";
 
+import { planNativeBasicFilePolicy } from "./native-basic-file-policy.ts";
+
 const product = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const roles = ["memory-reflector", "managed-memory-writer", "git-commit"];
 const tools = [
@@ -340,6 +342,8 @@ export interface BootstrapRequest {
     roles?: true;
     skills?: string[];
     skillPolicy?: true;
+    /** Opt-in finite BASIC read-deny defaults; public runtime policy is authoritative. */
+    nativeBasicFilePolicy?: true;
     /** Explicit one-time consent for narrowly owned feature data, not arbitrary paths. */
     featureData?: true;
     /** Explicit consent to delete only the scalar universal deny; never an allow. */
@@ -366,6 +370,7 @@ export interface BootstrapPlan {
   dependencies: { subagents: string; permissions: string; patchHash: string };
   changes: Change[];
   skillPolicy: ReturnType<typeof inspectSetup> | null;
+  nativeBasicFilePolicy: ReturnType<typeof planNativeBasicFilePolicy> | null;
   featureInstallation: {
     capabilities: string[];
     removedDefaultDeny: boolean;
@@ -433,6 +438,7 @@ const validateRequest = (value: unknown): BootstrapRequest => {
           "roles",
           "skills",
           "skillPolicy",
+          "nativeBasicFilePolicy",
           "featureData",
           "removeDefaultDeny",
           "memory",
@@ -444,6 +450,7 @@ const validateRequest = (value: unknown): BootstrapRequest => {
     "packages",
     "roles",
     "skillPolicy",
+    "nativeBasicFilePolicy",
     "featureData",
     "removeDefaultDeny",
   ] as const)
@@ -1260,6 +1267,22 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       runtimePolicy: "public-service-authoritative",
     };
   }
+  let nativeBasicFilePolicy: BootstrapPlan["nativeBasicFilePolicy"] = null;
+  if (r.components.nativeBasicFilePolicy) {
+    const path = setupTarget(r.agentDir);
+    const configChange = changes.find((c) => c.path === path);
+    nativeBasicFilePolicy = planNativeBasicFilePolicy(
+      configChange?.next ??
+        skillPolicy?.next ??
+        readBootstrapFile(path)?.text ??
+        null,
+    );
+    if (nativeBasicFilePolicy.changed) {
+      if (configChange) configChange.next = nativeBasicFilePolicy.next!;
+      else
+        change(path, nativeBasicFilePolicy.next!, "native-basic-file-policy");
+    }
+  }
   const sources = [
     ...featureStateBindings,
     ...nativePrerequisites,
@@ -1305,11 +1328,18 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     dependencies,
     changes,
     skillPolicy,
+    nativeBasicFilePolicy,
     featureInstallation,
     skills: skillsInspect(r),
     memory,
   };
   return { digest: sha(JSON.stringify(body)), ...body };
+};
+
+const basicPolicySummary = (plan: BootstrapPlan["nativeBasicFilePolicy"]) => {
+  if (!plan) return null;
+  const { next: _next, ...metadata } = plan;
+  return metadata;
 };
 
 export const bootstrapSummary = (plan: BootstrapPlan) => ({
@@ -1325,6 +1355,7 @@ export const bootstrapSummary = (plan: BootstrapPlan) => ({
     afterHash: sha(c.next),
   })),
   skillPolicy: plan.skillPolicy ? setupSummary(plan.skillPolicy) : null,
+  nativeBasicFilePolicy: basicPolicySummary(plan.nativeBasicFilePolicy),
   featureInstallation: plan.featureInstallation,
   skills: plan.skills,
   memory: plan.memory,
@@ -1454,9 +1485,10 @@ export const applyBootstrap = (
       JSON.stringify(reviewed)
   )
     throw new Error("Reviewed bootstrap plan is stale");
+  const configTarget = setupTarget(reviewed.request.agentDir);
   const plannedSteps = [
     ...reviewed.changes
-      .filter((c) => c.kind !== "memory-authority")
+      .filter((c) => c.path !== configTarget)
       .map((c) => ({
         kind: c.kind,
         path: c.path,
@@ -1464,14 +1496,14 @@ export const applyBootstrap = (
         afterHash: sha(c.next),
       })),
     ...reviewed.changes
-      .filter((c) => c.kind === "memory-authority")
+      .filter((c) => c.path === configTarget)
       .map((c) => ({
         kind: c.kind,
         path: c.path,
         beforeHash: c.before?.hash ?? null,
         afterHash: sha(c.next),
       })),
-    ...(!reviewed.changes.some((c) => c.kind === "memory-authority") &&
+    ...(!reviewed.changes.some((c) => c.path === configTarget) &&
     reviewed.skillPolicy
       ? [{ kind: "skill-policy", path: setupTarget(reviewed.request.agentDir) }]
       : []),
@@ -1495,6 +1527,7 @@ export const applyBootstrap = (
     digest: expected,
     status: "running",
     atomicAcrossOwners: false,
+    nativeBasicFilePolicy: basicPolicySummary(reviewed.nativeBasicFilePolicy),
     featureInstallation: reviewed.featureInstallation,
     steps: plannedSteps.map((step) => ({ ...step, status: "not-attempted" })),
     receiptPath: join(
@@ -1527,14 +1560,12 @@ export const applyBootstrap = (
   };
   try {
     for (const change of reviewed.changes.filter(
-      (c) => c.kind !== "memory-authority",
+      (c) => c.path !== configTarget,
     ))
       step(change.kind, () => publish(change));
-    // If memory authority composes the policy bytes, publish that combined result once.
-    const authority = reviewed.changes.find(
-      (c) => c.kind === "memory-authority",
-    );
-    if (authority) step("memory-authority", () => publish(authority));
+    // Publish composed permission bytes once, regardless of which component owns the change.
+    const authority = reviewed.changes.find((c) => c.path === configTarget);
+    if (authority) step(authority.kind, () => publish(authority));
     else if (reviewed.skillPolicy)
       step("skill-policy", () =>
         applySetup(reviewed.request.agentDir, reviewed.skillPolicy!),

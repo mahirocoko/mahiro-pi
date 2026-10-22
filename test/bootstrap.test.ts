@@ -53,6 +53,109 @@ test("actual authoring graph previews guarded installation without profile write
   assert.ok(plan.changes.some((c) => c.kind === "rtk-default"));
   assert.equal(existsSync(agentDir), false);
 });
+test("native basic bootstrap composes one config publication and rejects stale CAS", () => {
+  const root = mkdtempSync(join(candidate.root, "basic-policy-"));
+  try {
+    for (const featureData of [false, true]) {
+      const agentDir = join(root, featureData ? "combined" : "native-only");
+      const request: BootstrapRequest = {
+        version: 1,
+        dependencyModules: candidate.modules,
+        agentDir,
+        sources: { pi: activeProduct },
+        components: {
+          nativeBasicFilePolicy: true,
+          ...(featureData
+            ? {
+                packages: true,
+                roles: true,
+                featureData: true,
+                skillPolicy: true,
+              }
+            : {}),
+        },
+      };
+      const plan = inspectActiveBootstrap(request);
+      const target = setupTarget(agentDir);
+      assert.equal(plan.changes.filter((c) => c.path === target).length, 1);
+      assert.equal(plan.skillPolicy !== null, featureData);
+      assert.equal(existsSync(agentDir), false);
+      const receipt = applyActiveBootstrap(plan, plan.digest);
+      assert.equal(receipt.status, "completed");
+      assert.equal(
+        receipt.steps.filter((s: any) => s.path === target).length,
+        1,
+      );
+      assert.equal(receipt.nativeBasicFilePolicy.status, "added");
+      assert.equal(Object.hasOwn(receipt.nativeBasicFilePolicy, "next"), false);
+      const config = JSON.parse(readFileSync(target, "utf8"));
+      assert.equal(config.permission.path_read[".env"], "deny");
+      assert.equal(config.permission.skill, featureData ? "allow" : undefined);
+      assert.equal(lstatSync(target).mode & 0o777, 0o600);
+      const stale = inspectActiveBootstrap(request);
+      writeFileSync(target, JSON.stringify({ ...config, yoloMode: true }), {
+        mode: 0o600,
+      });
+      assert.throws(() => applyActiveBootstrap(stale, stale.digest), /stale/);
+      assert.equal(JSON.parse(readFileSync(target, "utf8")).yoloMode, true);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("native basic CLI opt-in previews only an explicitly disposable agent directory", () => {
+  const root = mkdtempSync(join(candidate.root, "basic-cli-"));
+  const agentDir = join(root, "agent");
+  // A malformed existing root would trigger memory validation; absent root is a
+  // disposable neutral-scaffold preview, never a real-profile install.
+  try {
+    for (const enabled of [false, true]) {
+      const result = spawnSync(
+        process.execPath,
+        [
+          join(activeProduct, "install.mjs"),
+          "--agent-dir",
+          agentDir,
+          "--preview",
+          ...(enabled ? ["--native-basic-file-policy"] : []),
+        ],
+        {
+          cwd: activeProduct,
+          encoding: "utf8",
+          env: { ...process.env, MAHIRO_PI_TEST_MODULES: candidate.modules },
+          timeout: 60000,
+        },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const summary = JSON.parse(result.stdout);
+      assert.equal(
+        summary.nativeBasicFilePolicy?.status ?? null,
+        enabled ? "added" : null,
+      );
+      assert.equal(summary.skillPolicy, null);
+      assert.equal(
+        Object.hasOwn(summary.nativeBasicFilePolicy ?? {}, "next"),
+        false,
+      );
+      assert.equal(existsSync(agentDir), false);
+    }
+    assert.throws(
+      () =>
+        inspectActiveBootstrap({
+          version: 1,
+          dependencyModules: candidate.modules,
+          agentDir,
+          sources: { pi: activeProduct },
+          components: { nativeBasicFilePolicy: false },
+        } as any),
+      /Unsupported component/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const fixtures = join(product, ".agent-state/runtime/bootstrap-tests");
 mkdirSync(fixtures, { recursive: true, mode: 0o700 });
 const fixture = (run: (root: string, request: BootstrapRequest) => void) => {

@@ -38,6 +38,8 @@
       "test/code-map*.test.ts",
       "extensions/mahiro-native-utilities.ts",
       "test/native-utilities*.test.ts",
+      "lib/native-basic-file-policy.ts",
+      "test/native-basic-file-policy.test.ts",
       "lib/setup.ts",
       "setup.mjs",
       "test/setup.test.ts",

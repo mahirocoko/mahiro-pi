@@ -22,16 +22,22 @@ try {
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
     console.log(
-      'Usage: pnpm install:profile [--agent-dir /canonical/profile] [--preview] [--remove-default-deny]\nExplicitly compose one Root guard owner, pinned public permission/subagents resources, three owned system roles, ordinary feature DATA authority and rewrite-rtk default. Retains restrictions, existing RTK off, Core/data and unrelated settings. --remove-default-deny explicitly deletes ONLY scalar permission["*"]="deny" (unset falls back to public ask, never blanket allow). Retained required tool/DATA restrictions refuse before writes; this flag cannot override them. Fresh memory gets a minimal neutral scaffold through guarded native initialization; existing memory is never reseeded. No dependency install, provider call or reload. Startup grants nothing.',
+      'Usage: pnpm install:profile [--agent-dir /canonical/profile] [--preview] [--remove-default-deny] [--native-basic-file-policy]\nExplicitly compose one Root guard owner, pinned public permission/subagents resources, three owned system roles, ordinary feature DATA authority and rewrite-rtk default. Retains restrictions, existing RTK off, Core/data and unrelated settings. --remove-default-deny explicitly deletes ONLY scalar permission["*"]="deny" (unset falls back to public ask, never blanket allow). Retained required tool/DATA restrictions refuse before writes; this flag cannot override them. Fresh memory gets a minimal neutral scaffold through guarded native initialization; existing memory is never reseeded. No dependency install, provider call or reload. Startup grants nothing. --native-basic-file-policy independently opts in to finite BASIC read-deny defaults; not a sandbox or complete secret protection. Public runtime policy, project overrides and yolo remain authoritative.',
     );
   } else {
     let agentDir,
       preview = false,
-      removeDefaultDeny = false;
+      removeDefaultDeny = false,
+      nativeBasicFilePolicy = false;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "--preview" && !preview) preview = true;
       else if (args[i] === "--remove-default-deny" && !removeDefaultDeny)
         removeDefaultDeny = true;
+      else if (
+        args[i] === "--native-basic-file-policy" &&
+        !nativeBasicFilePolicy
+      )
+        nativeBasicFilePolicy = true;
       else if (args[i] === "--agent-dir" && !agentDir && args[i + 1])
         agentDir = args[++i];
       else throw Error("Invalid install arguments; use --help");
@@ -63,6 +69,7 @@ try {
         roles: true,
         featureData: true,
         ...(removeDefaultDeny ? { removeDefaultDeny: true } : {}),
+        ...(nativeBasicFilePolicy ? { nativeBasicFilePolicy: true } : {}),
         ...(fresh
           ? {
               memory: {

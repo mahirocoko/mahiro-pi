@@ -10,7 +10,7 @@ setup and upgrade path, start with [getting started](getting-started.md).
 The actual manifest is now guards-first13: bootstrap, one Root guard, the preserved ten features and the rendering-only [Claude UI adapter](claude-ui.md). Its optional theme is not auto-activated. Disposable candidates mirror this graph, not another live owner. The earlier active10 refusal is historical. Source changes do not reload the cached real profile.
 
 ```sh
-pnpm install:profile [--agent-dir /absolute/canonical/profile] [--preview] [--remove-default-deny]
+pnpm install:profile [--agent-dir /absolute/canonical/profile] [--preview] [--remove-default-deny] [--native-basic-file-policy]
 ```
 
 `install.mjs` explicitly composes required public packages, the three owned system roles, narrow `featureData` grants and RTK's rewrite-rtk default once. Preview is optional. Startup grants nothing. It never installs dependencies, copies auth, changes personal roles/models, reloads a session or grants generic filesystem/HOME/Bash authority. Existing role differences block; restrictions and explicit RTK off remain effective.
@@ -65,6 +65,47 @@ missing winning-surface metadata. Planning and source tests do not activate the 
 profile, and a fresh load remains separately authorized. Positive Code Map proof
 uses an isolated patched-source mirror; an old service lacking attestation remains denied. Current installed-asset preservation is phase-specific, not a claim that earlier repair never occurred.
 Goal uses the same authored owner metadata; actual-root installation tests supplement the isolated-source historical proof boundary.
+
+## Optional BASIC native file read defaults
+
+`--native-basic-file-policy` independently opts in to `components.nativeBasicFilePolicy: true`.
+It is **not enabled by default**, by `featureData`, by `removeDefaultDeny`, or by
+package/role installation. It does not select skills or change the skill-only
+`setup` owner. The pure `planNativeBasicFilePolicy(previous)` advisor validates a
+bounded strict public config without filesystem discovery or policy evaluation.
+Only public PSS 40.2.2 resolves runtime policy; project overrides and existing
+`yoloMode` remain authoritative. A source load or startup never seeds these defaults.
+
+The finite list emits exactly each basename and `*/<basename>` as `path_read`
+deny entries: `.env`, `.env.local`, `.env.development`, `.env.test`,
+`.env.production`, `.env.staging`, `.env.development.local`, `.env.test.local`,
+`.env.production.local`, `.env.staging.local`, `.npmrc`, `.pypirc`, `.netrc`,
+`auth.json`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ecdsa_sk`, `id_ed25519`, and
+`id_ed25519_sk`. It adds no `.env.*`, extension/PEM/public-key patterns, template
+or example blanket, allow exceptions, or catch-all allows. BASIC is incomplete
+by design: this is read-only policy advice, **not write protection, a sandbox,
+or coverage of all secret formats**.
+
+Only missing keys are prepended before all existing `path_read` entries. Existing
+keys, values, deny reasons and order remain intact, so later user decisions can
+win. Existing allow/ask entries produce a generic warning, not a private decision
+dump; a trailing `path_read["*"]: "allow"` remains and can defeat all inserted
+defaults. No protected-state claim is made. Generic `permission.path` (map or
+scalar), scalar `path_read`, or nonuniversal surface wildcards conservatively skip
+automatic insertion with unchanged bytes and a reason. Generic path preservation
+is essential because public directional sugar prioritizes explicit directional
+policy over generic policy. Integer-like read-pattern keys refuse unsupported
+ordering; malformed/unsupported config refuses before writes. Universal `*`,
+write/tool/Bash/external-directory policy and yolo are untouched.
+
+The advisor composes after selected skill, memory and feature transformations.
+Bootstrap updates or creates one config-target change, publishes those composed
+bytes exactly once through existing CAS/private backup handling, and never follows
+that publication with stale skill output. Plan digest, preview and apply receipts
+include nullable status, added patterns, retained surface names, warnings and
+`runtimePolicy: "public-service-authoritative"`; preview/receipts omit config
+bodies. Existing default-deny removal consent is unchanged. Real profile apply,
+reload and human acceptance remain separate authorized actions.
 
 ## Goal configuration preview is separate and read-only
 
