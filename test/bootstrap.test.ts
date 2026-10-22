@@ -38,6 +38,7 @@ const {
   readBootstrapRequest,
 } = candidate.bootstrap;
 import { setupTarget } from "../lib/setup.ts";
+import { featureCapability } from "../lib/feature-data.ts";
 
 const activeProduct = resolve(import.meta.dirname, "..");
 const product = candidate.primary;
@@ -51,6 +52,23 @@ test("actual authoring graph previews guarded installation without profile write
     components: { packages: true, roles: true, featureData: true },
   });
   assert.ok(plan.changes.some((c) => c.kind === "rtk-default"));
+  const permission = JSON.parse(
+    plan.changes.find((c) => c.path === setupTarget(agentDir))!.next,
+  ).permission;
+  const ownUI = featureCapability(
+    "own_ui_state",
+    join(agentDir, "preferences/own-ui"),
+  );
+  assert.deepEqual(
+    Object.keys(permission).filter((key) => key.startsWith("own_ui_state")),
+    [ownUI],
+  );
+  assert.equal(permission[ownUI], "allow");
+  assert.equal(Object.hasOwn(permission, "mh_ui"), false);
+  assert.ok(
+    !plan.changes.some((c) => c.path.includes("preferences/own-ui")),
+    "installation grants but never seeds own-UI preferences",
+  );
   assert.equal(existsSync(agentDir), false);
 });
 test("native basic bootstrap composes one config publication and rejects stale CAS", () => {
@@ -1212,6 +1230,7 @@ test("revocation cannot override required tool/DATA restrictions, ambiguous defa
   for (const restriction of [
     "tool",
     "data",
+    "own-ui-data",
     "ask",
     "allow",
     "map",
@@ -1236,6 +1255,13 @@ test("revocation cannot override required tool/DATA restrictions, ambiguous defa
           Object.keys(p).find((k) => k.startsWith("goal_state_data_"))!
         ] = "deny";
       }
+      if (restriction === "own-ui-data")
+        permission[
+          featureCapability(
+            "own_ui_state",
+            join(r.agentDir, "preferences/own-ui"),
+          )
+        ] = "deny";
       if (["ask", "allow"].includes(restriction)) permission["*"] = restriction;
       if (restriction === "map") permission["*"] = { "*": "deny" };
       if (restriction === "wildcard") permission["mh_*"] = "deny";

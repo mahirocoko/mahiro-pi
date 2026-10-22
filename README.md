@@ -57,7 +57,7 @@ release payloads.
 ## Everyday controls
 
 ```text
-/mh-ui settings          Runtime tool/diff appearance with a live synthetic preview
+/mh-ui settings          Live synthetic preview; runtime Apply or authorized explicit Save
 /mh-ui theme follow      Follow Pi's theme (default)
 /mh-ui theme claude      Use the optional palette for these rows/header only
 /mh-rtk                  Show RTK status (does not change mode)
@@ -70,8 +70,13 @@ release payloads.
 
 For a quieter startup that keeps the header, use native **`/settings` → Quiet
 startup → `header`** (`quietStartup: "header"`). That host setting persists.
-By contrast, **`/mh-ui` choices are runtime-only** and reset on reload; there is no
-Save or authorized preference-file store.
+`/mh-ui` live preview, **Apply** and theme commands change this runtime only.
+**Save preferences** is separate: when the Root owner and one exact own-UI DATA
+capability are available, it durably saves only UI appearance to the fixed profile
+`preferences/own-ui` root. Authorized TUI startup/resume/reload loads those choices;
+unavailable storage leaves runtime controls usable and never reports saved. Source
+loading provisions nothing. This source contract is not a release, real-profile
+activation or human acceptance claim.
 
 ## Important boundaries
 

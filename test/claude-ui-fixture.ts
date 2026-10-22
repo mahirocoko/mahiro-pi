@@ -1,9 +1,15 @@
 // Deterministic public-TUI render fixture, not a live Pi/profile probe.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import type { ToolRenderContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ToolRenderContext,
+  ToolRenderers,
+} from "@earendil-works/pi-coding-agent";
 import {
   createReadToolDefinition,
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createWriteToolDefinition,
   initTheme,
   keyHint,
   renderDiff,
@@ -50,6 +56,12 @@ export const themeFrom = (name = "mahiro-claude-dark") => {
 };
 export const theme = themeFrom();
 export const native = { renderDiff, keyHint };
+export const nativeTools = new Map<string, ToolRenderers>([
+  ["read", createReadToolDefinition("/fixture")],
+  ["bash", createBashToolDefinition("/fixture")],
+  ["edit", createEditToolDefinition("/fixture")],
+  ["write", createWriteToolDefinition("/fixture")],
+]);
 export function renderContext(
   overrides: Partial<ToolRenderContext> = {},
 ): ToolRenderContext {

@@ -6,7 +6,7 @@ import {
   UI_DEFAULTS,
   type UIPreferences,
 } from "../lib/claude-ui-settings.ts";
-import { geometry, native, theme } from "./claude-ui-fixture.ts";
+import { geometry, native, nativeTools, theme } from "./claude-ui-fixture.ts";
 
 export function polishFixture(
   kind: string,
@@ -27,6 +27,7 @@ export function polishFixture(
     tui: geometry,
     geometry,
     native,
+    nativeTools,
     keybindings: geometry.getKeybindings(),
     theme: () => theme,
     initial: value,

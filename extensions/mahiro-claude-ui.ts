@@ -18,9 +18,13 @@ import {
   UI_DEFAULTS,
   type UIPreferences,
 } from "../lib/claude-ui-settings.ts";
+import {
+  ownUIOwner,
+  type UIStoredPreferences,
+} from "../lib/claude-ui-owner.ts";
 
-// Session-runtime-only controller. No settings, profile, transcript or filesystem
-// writes; follow is the default for every new extension runtime (including reload).
+// Runtime presentation remains separate from explicit Root-owned Save. No native
+// settings, profile provisioning, transcript, auth or model writes.
 export default function mahiroClaudeUI(pi: ExtensionAPI) {
   let generation = 0;
   let preferences: UIPreferences = { ...UI_DEFAULTS };
@@ -29,6 +33,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
   let native: NativePresentation | undefined;
   let version = "";
   let context: ExtensionContext | undefined;
+  let storageStatus = PERSISTENCE_LIMIT;
   let requestRender = () => {};
   const originals = new Map<string, ToolRenderers>();
   const palette = (host: Theme) =>
@@ -136,6 +141,16 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     originals.set("find", sdk.createFindToolDefinition(ctx.cwd));
     originals.set("ls", sdk.createLsToolDefinition(ctx.cwd));
     fixed = ctx.ui.getTheme(CLAUDE_THEME);
+    try {
+      const owner = ownUIOwner(ctx);
+      if (!owner) throw Error("Unavailable");
+      const stored = owner.read(ctx);
+      preferences = { ...stored.preferences };
+      storageStatus =
+        "Own-UI preferences loaded. Apply is runtime-only; only explicit Save persists changes.";
+    } catch {
+      storageStatus = PERSISTENCE_LIMIT;
+    }
     if (preferences.palette === "claude" && !fixed)
       preferences = { ...preferences, palette: "follow" };
     context = ctx;
@@ -167,7 +182,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
   });
   pi.registerCommand("mh-ui", {
     description:
-      "Mahiro UI settings with live preview; theme status | follow | claude (not persisted)",
+      "Mahiro UI live preview and explicit own-UI Save; theme status | follow | claude is runtime-only",
     handler: async (args, ctx) => {
       if (ctx.mode !== "tui" || !context) return;
       const action = args.trim() || "settings";
@@ -189,12 +204,26 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
         }
         let expected = preferences;
         const current = () =>
-          revision === generation && !!context && preferences === expected;
+          revision === generation &&
+          !!context &&
+          preferences === expected &&
+          !ctx.signal?.aborted;
+        const owner = ownUIOwner(ctx);
+        let stored: UIStoredPreferences | undefined;
+        try {
+          stored = owner?.read(ctx);
+          storageStatus = stored
+            ? "Own-UI storage available. Changes are not saved until explicit Save; Apply is runtime-only."
+            : PERSISTENCE_LIMIT;
+        } catch {
+          storageStatus = PERSISTENCE_LIMIT;
+        }
         await ctx.ui.custom<void>((screen, _theme, keybindings, done) =>
           createSettingsPanel({
             tui,
             geometry: panelGeometry,
             native: panelNative,
+            nativeTools: new Map(originals),
             keybindings,
             theme: () => palette(ctx.ui.theme),
             initial: preferences,
@@ -206,6 +235,40 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
               expected = preferences;
               requestRender();
               return true;
+            },
+            persistence: {
+              status: storageStatus,
+              save(value) {
+                if (
+                  !current() ||
+                  !owner ||
+                  !stored ||
+                  ownUIOwner(ctx) !== owner
+                )
+                  return {
+                    saved: false,
+                    message:
+                      "Own-UI owner unavailable or stale; preferences not saved. Reopen settings.",
+                  };
+                try {
+                  stored = owner.save(ctx, stored.ticket, value);
+                  storageStatus =
+                    "Own-UI preferences saved durably. Theme commands and Apply remain runtime-only.";
+                  ctx.ui.notify(storageStatus, "info");
+                  return { saved: true, message: storageStatus };
+                } catch (error) {
+                  const code = (error as { code?: unknown })?.code;
+                  stored = undefined; // Reopen/read after any failure; never blind retry.
+                  storageStatus =
+                    code === "durability-unknown"
+                      ? "Own-UI state written, but durability is unknown. Reopen settings before any further Save."
+                      : code === "stale"
+                        ? "Own-UI stored revision changed; preferences not saved. Reopen settings."
+                        : "Own-UI storage unavailable; preferences not saved. Reopen settings.";
+                  ctx.ui.notify(storageStatus, "warning");
+                  return { saved: false, message: storageStatus };
+                }
+              },
             },
             done: () => done(undefined),
             requestRender: () => screen.requestRender(),
@@ -241,7 +304,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
           (preferences.palette === "follow"
             ? "Follows the current Pi theme."
             : "Fixed Claude palette for these tool rows/header and split/unified diff; native diff still follows Pi.") +
-          ` Host theme/footer unchanged. ${PERSISTENCE_LIMIT}`,
+          ` Host theme/footer unchanged. Theme commands are runtime-only; use settings → Save for authorized persistence. ${storageStatus}`,
         "info",
       );
     },

@@ -120,7 +120,7 @@ const provenance = await readFile(
 const versions = [...provenance.matchAll(/pkg\.version === "([^"]+)"/g)].map(
   (match) => match[1],
 );
-assert.equal(versions.length, 8, "Expected eight exact provenance pins");
+assert.equal(versions.length, 9, "Expected nine exact provenance pins");
 assert.ok(
   versions.every((version) => version === manifest.version),
   "Guard/package version drift",

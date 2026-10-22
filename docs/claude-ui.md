@@ -7,11 +7,14 @@ acceptance of that scope, not proof of exhaustive regular/fullscreen raster test
 activation in every session or acceptance of unrelated memory/observer work.
 The Neko-Stack selection and authored footer are preserved.
 
-`extensions/mahiro-claude-ui.ts` is a rendering-only public-API adapter, appended
+`extensions/mahiro-claude-ui.ts` is a presentation-only public-API adapter, appended
 as resource 13 after bootstrap, the Root guard and the preserved ten features.
 `lib/claude-ui.ts` owns tool/header presentation and geometry;
 `lib/claude-ui-diff.ts` owns bounded historical diff pairing/word spans, and
-`lib/claude-ui-settings.ts` owns the runtime settings panel and actual-renderer sample. Source registration does
+`lib/claude-ui-settings.ts` owns the live settings panel and actual-renderer samples.
+`lib/claude-ui-preferences.ts` owns the closed UI data contract;
+`lib/claude-ui-state.ts` and `lib/guards/own-ui.ts` own fixed-root storage behind
+Root's generation-bound `read(ctx)` / `save(ctx, ticket, prefs)` bridge. Source registration does
 not authorize installation, reload, real-profile activation or human acceptance.
 The Mahiro footer, quota, RTK, permissions, tool execution, model context and
 session history retain their existing owners. No task/group/silent mode, spinner,
@@ -24,12 +27,22 @@ loading the package does not select it, change Pi's host theme, or write setting
 Selecting it through native Pi settings is a separate human decision; this
 source release does not apply a global theme or change a profile.
 
-The extension controller owns **in-memory, UI-only** preferences for its runtime:
+The extension controller owns **in-memory, UI-only** runtime preferences. Explicit
+Save can additionally persist them through the authorized own-UI owner:
 
-- `/mh-ui` (or `/mh-ui settings`) opens a public `SettingsList` with a live sample
-  from the **actual tool/diff renderer**, labeled synthetic rather than execution.
+- `/mh-ui` (or `/mh-ui settings`) opens a public `SelectList` with a focus-follow
+  preview from the **actual tool/diff renderer** and the controller's retained
+  public native factory products, labeled synthetic rather than execution.
+  Up/down focus changes the preview **before any value changes**, without publishing
+  preferences: palette shows Read/Edit/Write, tool style shows Bash/pending/error,
+  edit diff shows Edit, and extra detail shows a long Read. An additional **Preview
+  scenario** row cycles focus-default / Read / Bash / Edit / Write / pending / error;
+  choosing a sample never changes runtime preferences. Enter (the public configurable
+  confirm binding) or Space activates a setting. There is no search or mirrored
+  private selection index. Fullscreen mouse press/wheel follows public selection;
+  click activates, with coordinates translated from the actual rendered list offset.
   Palette, tool style (`transparent` / `tinted`), edit diff (`split` / `unified` /
-  `native`) and extra detail update the sample and runtime presentation immediately.
+  `native`) and extra detail update the preview and runtime presentation immediately.
   **Apply for this runtime** keeps changes and closes; **Cancel** (including native
   selection cancellation) restores the opening choices. **Reset runtime defaults**
   previews `follow`, `transparent`, `split`, detail off, and remains cancellable.
@@ -38,9 +51,9 @@ The extension controller owns **in-memory, UI-only** preferences for its runtime
   no global key interceptor. Stale generation or competing runtime changes cannot be
   overwritten by an old panel or its cancellation/disposal.
 - `/mh-ui theme status` (or `/mh-ui theme`) reports the mode, palette
-  name, native-diff exception, and runtime-only scope.
+  name, native-diff exception, and storage availability. Theme commands never autosave.
 - `/mh-ui theme follow` uses the current Pi theme for these tool rows and header.
-  This is the initial state; native theme changes invalidate/rebuild components.
+  This is the unsaved default; native theme changes invalidate/rebuild components.
 - `/mh-ui theme claude` uses the loaded `mahiro-claude-dark` palette for these tool
   rows and header, independent of the host theme. Missing theme leaves the mode
   unchanged and reports unavailability. **This does not disable the application
@@ -48,19 +61,54 @@ The extension controller owns **in-memory, UI-only** preferences for its runtime
   UI palette; optional native `renderDiff` and native fallback/key hints retain the
   current Pi theme because the public diff API has no palette argument.
 
-Choices survive session navigation within that extension runtime, but reload/new
-runtime resets to the documented defaults. **Not persisted** is visible in the
-panel and command status; there is deliberately no Save button or pretend success.
-Pi 1.3 exposes no generic public extension-settings setter. The Root guard's
-existing DATA authorization is bound to named feature owners; it exposes no
-legitimate own-UI preference storage contract. Reusing private RTK storage,
-claiming a native write also permits reading old contents, or expanding the guard
-API/grants is outside this scope. A separately reviewed exact read/write DATA owner
-would be needed before adding durable storage and its filesystem/CAS protections.
-No preference-file read or write is attempted, even at startup; no real profile
-was modified. Native/global model, auth, grants, settings and session entries are
-untouched. Neither mode recolors or replaces the Mahiro footer. Theme resources
-load through public APIs at startup/on command, never filesystem reads in rendering.
+### Conditional durable own-UI preferences
+
+**Save preferences** is the only durable publication action. Apply keeps the live
+choices for this runtime; Cancel restores the opening runtime choices, and Reset
+only previews the defaults until an explicit Save. A stale/closed/busy panel,
+concurrent disk change or revoked owner never reports a successful Save. Any failed
+Save requires reopening settings and a fresh read; no automatic retry occurs.
+
+Authorized TUI startup (new session, resume or reload) loads the saved choices.
+Uninstalled, denied, invalid or corrupt storage is shown as unavailable/not saved,
+not as an empty successful store; runtime appearance controls remain usable. A saved
+`claude` palette whose theme is unavailable falls back to `follow` **without rewriting
+the stored preferences**. Theme commands never autosave.
+
+The Root guard exposes a versioned, generation-bound closed bridge, not arbitrary
+paths, caller services or caller-supplied provenance. It checks the healthy current
+Root generation, exact public SDK manager, primary non-native-child header, TUI and
+cancellation, plus the fresh public command registry's sole exact bare `mh-ui`
+registration. All bare-name collisions are counted before filtering. Only the exact
+canonical authored package/manifest extension identity is accepted. This is registered
+owner identity, **not invocation-origin or human-Save attestation, cryptography or a
+same-UID sandbox**.
+
+One exact winning `own_ui_state_data_<sha256(canonical profile/preferences/own-ui)>`
+allow is required from the public permission service, including exact source/tool/
+matched-surface attestation and no yolo substitution. There is no synthetic `mh_ui`
+tool or control permission, no RTK/native-preference borrowing, and applicable explicit
+read/path-read/path-write restrictions remain effective (writes also require reading).
+Only future explicitly reviewed feature-DATA installation composes this exact DATA
+capability; loading source, startup and preview grant nothing and seed no UI state.
+Existing restrictions, explicit offs, consent and reviewed-plan CAS remain intact.
+
+The fixed owned data folders are 0700; state/lock/temp are no-follow, owned,
+single-link 0600 regular files. Reads are descriptor-bounded to 4 KiB, strict UTF-8,
+closed version 1 appearance state and a monotonic sequence. Authorized absent reads
+return defaults plus an absence ticket **without creation or mode repair**. Raw-byte
+CAS distinguishes absence and every external byte change. Publication uses an
+exclusive cooperative lock (never stolen), fsynced temp, identity/authority/CAS
+rechecks, atomic rename and directory fsync including newly created directories.
+A failure after rename says **written, durability unknown** rather than not-written
+or saved; it requires a fresh read. Fixed errors never echo stored JSON/parser values.
+
+This describes the **source** contract, not a release, installed
+policy, production activation, completed independent security review or human acceptance.
+No real profile was modified. Native/global model, auth, grants, settings and session
+entries are untouched. Neither palette recolors or replaces the Mahiro footer. Theme
+resources load through public APIs at startup/on command, never filesystem reads in
+rendering; all own-UI I/O stays behind Root.
 
 ## Persistent native startup setting
 
@@ -69,7 +117,8 @@ To keep the header while hiding startup resource listings, choose native
 Pi owns and persists this setting. `false` is the native default; `true` hides
 both the startup header and resource listing. The `header` mode also hides the
 native model scope line. This host setting is distinct from `/mh-ui`'s
-runtime-only choices, which have no authorized preference store.
+UI-only choices and separately authorized explicit Save. No own-UI action writes
+native settings.
 
 ## Individual tool rows and native fallback
 
@@ -180,9 +229,9 @@ Direct visual/source references inspected, never executed:
   options and highlights only a single removed/added pair, so it remains optional.
 
 This candidate deliberately lacks grouped tool trees, animated status, the large
-cc-my-pi reference mascot and private loaded-resource totals. Own-UI preference
-persistence and overwrite before-images remain deliberately unavailable for the
-security/API reasons above. Split diff and runtime settings are now present but
+cc-my-pi reference mascot and private loaded-resource totals. Overwrite before-images
+remain deliberately unavailable for the API reasons above; own-UI persistence is
+conditional on the separately guarded DATA owner described above. Split diff and runtime settings are now present but
 are not a claim of pixel-exact recreation. The
 selected Neko-Stack art is not that reference mascot. The theme's
 optional global effect has not been activated. These are disclosed differences,
@@ -194,10 +243,17 @@ scope was explicitly human-closed; that does not authorize a later redesign.
 Targeted tests: `test/claude-ui.test.ts`, `test/claude-ui-polish.test.ts` plus
 resource-order/RTK/footer regressions. New behavioral coverage includes paired
 multi-line word changes, patch offsets, created/deleted historical diffs, bounds,
-wide/narrow geometry, ANSI/graphemes, theme/mode changes, actual SettingsList
+wide/narrow geometry, ANSI/graphemes, theme/mode changes, actual public selector
 interaction, preview/cancel/reset/apply/unavailable choices, stale generation/CAS,
-immutable input and non-TUI isolation. Persistence tests are not claimed: no data
-store was implemented.
+immutable input and non-TUI isolation. Own-UI storage/controller coverage is authored in
+`test/claude-ui-state.test.ts`, `test/claude-ui-storage.test.ts`, and the actual
+Root/public-SDK gate `lib/guards/test/own-ui-{patch,sdk}-test.mjs`; results and independent
+review remain evidence-specific, not inferred from source. Phase 1 adds focused deterministic public-UI tests for
+up/down focus without writes, independent six-scenario selection, mouse coordinate
+translation, pending/error distinction, retained native products without execution
+access, and panel widths 1/20/60/110/160. Serial focused results for this candidate
+belong under ignored `.agent-state/runtime/claude-workflow-v2/`; full SDK, terminal
+geometry and human visual acceptance are separate, not inferred from these tests.
 `test/claude-ui-fixture.ts` emits deterministic raw ANSI or plain output using
 public TUI geometry and public native diff, without a live profile or provider:
 

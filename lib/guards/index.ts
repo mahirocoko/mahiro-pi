@@ -16,6 +16,8 @@ import { createHash } from "node:crypto";
 import { evidenceGitCommand } from "./evidence-git.mjs";
 import { rtkBinding } from "../rtk-state.ts";
 import { registerRTK } from "../rtk.ts";
+import { createOwnUIOwner } from "./own-ui.ts";
+import { resolveAgentDir } from "../setup.ts";
 import { resolveRunBinding } from "../execution-run/store.ts";
 import { featureCapability } from "../feature-data.ts";
 
@@ -146,6 +148,7 @@ export default async function activate(pi) {
     trustedUXWorkflowTool,
     trustedExecutionRunTool,
     trustedRTKTool,
+    trustedOwnUICommand,
   } = await import("./provenance.mjs");
   const host = createGuardHost();
   let sessionId,
@@ -218,6 +221,57 @@ export default async function activate(pi) {
       return leaf;
     return featureCapability(prefix, root);
   };
+  const ownUI = createOwnUIOwner(
+    generation,
+    (ctx, binding, operation, paths) => {
+      // Re-read actual public host metadata, never caller-supplied SourceInfo.
+      if (
+        !isPrimarySession(ctx) ||
+        ctx.mode !== "tui" ||
+        !ctx.hasUI ||
+        !trustedOwnUICommand(pi.getCommands())
+      )
+        throw Error("Own-UI Root unavailable");
+      const profile = resolveAgentDir();
+      const root = join(profile, "preferences/own-ui");
+      if (binding && (binding.profile !== profile || binding.root !== root))
+        throw Error("Own-UI binding changed");
+      const service = getPermissionsService(sessionId);
+      // No legacy leaf, RTK, native settings or wildcard capability fallback.
+      const capability = featureCapability("own_ui_state", root);
+      const grant = service?.checkPermission(capability);
+      if (
+        grant?.state !== "allow" ||
+        grant.source !== "tool" ||
+        grant.toolName !== capability ||
+        grant.matchedSurface !== capability ||
+        grant.origin === "yolo"
+      )
+        throw Error("Own-UI exact DATA authority required");
+      for (const target of [
+        join(profile, "preferences"),
+        root,
+        join(root, "state.json"),
+        join(root, "state.lock"),
+        ...paths,
+      ]) {
+        for (const surface of operation === "read"
+          ? ["read", "path_read"]
+          : ["read", "path_read", "path_write"]) {
+          const decision = service.checkPermission(surface, target);
+          // The exact DATA grant is independent of the global tool fallback.
+          // Explicit read/tool or path restrictions still veto this owner.
+          if (
+            decision?.state !== "allow" &&
+            (decision?.matchedPattern !== undefined ||
+              (decision?.matchedSurface !== undefined &&
+                decision.matchedSurface !== "*"))
+          )
+            throw Error("Own-UI path denied");
+        }
+      }
+    },
+  );
   const rtkAccess = (tool, ctx, root, operation = "read") => {
     const actual = pi.getAllTools().find((item) => item.name === tool?.name);
     const binding = rtkBinding(ctx.cwd);
@@ -583,6 +637,7 @@ export default async function activate(pi) {
       nodes.set(id, {
         generation,
         host,
+        ownUI,
         codeMap: {
           version: 1,
           generation,

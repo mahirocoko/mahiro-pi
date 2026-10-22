@@ -60,9 +60,17 @@ export const featureNamespaces = (profile: string) => [
     root: join(profile, "preferences/rtk"),
     tools: ["mh_rtk"],
   },
+  {
+    prefix: "own_ui_state",
+    root: join(profile, "preferences/own-ui"),
+    tools: [],
+  },
 ];
 export function featureCapability(prefix: string, leaf: string) {
-  const namespace = prefix === "rtk_state" ? leaf : dirname(leaf);
+  // Both preference namespaces are profile-wide ROOTS, not project leaves.
+  const namespace = ["rtk_state", "own_ui_state"].includes(prefix)
+    ? leaf
+    : dirname(leaf);
   return `${prefix}_data_${hash(namespace)}`;
 }
 export function featureGrants(profile: string) {

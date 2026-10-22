@@ -383,6 +383,8 @@ function harness() {
   };
   const ctx = {
     mode: "tui",
+    hasUI: true,
+    sessionManager: { getSessionId: () => "synthetic-ui-panel-only" },
     cwd: "/fixture/current",
     model: { provider: "test", id: "actual-model" },
     thinkingLevel: "high",
@@ -525,6 +527,89 @@ test("settings command integrates live preview, cancel, missing theme and genera
   shutdownPanel.handleInput("\r");
   shutdownPanel.dispose();
   assert.equal(h.header(), undefined);
+});
+
+test("UI controller loads authorized preferences on startup/resume, explicit Save only, missing theme never rewrites disk", async () => {
+  // UI-unit bridge only. The real Root/public-PSS positive and denial gate is
+  // lib/guards/test/own-ui-sdk-test.mjs, never this synthetic owner.
+  const key = Symbol.for("@mahirocoko/pi-guards:healthy-nodes");
+  const previous = (globalThis as any)[key];
+  const nodes = new Map();
+  (globalThis as any)[key] = nodes;
+  const generation = {};
+  let reads = 0,
+    saves = 0,
+    denied = false;
+  let disk = {
+    palette: "claude",
+    toolStyle: "tinted",
+    diffView: "unified",
+    extraDetail: true,
+  };
+  let ticket = Object.freeze({ version: 1 });
+  const owner = {
+    version: 1,
+    generation,
+    read() {
+      reads++;
+      return { preferences: { ...disk }, ticket };
+    },
+    save(_ctx: unknown, expected: object, prefs: typeof disk) {
+      saves++;
+      if (denied) throw Error("PRIVATE_CANARY");
+      assert.equal(expected, ticket);
+      disk = { ...prefs };
+      ticket = Object.freeze({ version: 1 });
+      return { preferences: { ...disk }, ticket };
+    },
+  };
+  nodes.set("synthetic-ui-panel-only", {
+    generation,
+    ownUI: owner,
+    healthy: () => true,
+  });
+  try {
+    const h = harness();
+    h.missingTheme();
+    await h.handlers.get("session_start")!({}, h.ctx);
+    await h.command("theme status");
+    assert.match(h.notifications.at(-1)!, /follow · host-theme/);
+    assert.equal(disk.palette, "claude");
+    assert.equal(saves, 0);
+    await h.command("settings");
+    const p = h.panel();
+    assert.match(plain(p.render(110)), /Tool style\s+tinted/);
+    p.handleInput("\x1b[B");
+    p.handleInput("\r"); // transparent runtime preview
+    for (let i = 0; i < 3; i++) p.handleInput("\x1b[B");
+    p.handleInput("\r"); // Apply, not Save
+    assert.equal(saves, 0);
+    await h.command("theme follow");
+    assert.equal(saves, 0);
+    await h.handlers.get("session_start")!({}, h.ctx); // fresh startup/resume reloads canonical state
+    await h.command("settings");
+    assert.match(plain(h.panel().render(110)), /Tool style\s+tinted/);
+    for (let i = 0; i < 8; i++) h.panel().handleInput("\x1b[B");
+    denied = true;
+    h.panel().handleInput("\r");
+    assert.equal(saves, 1);
+    assert.match(h.notifications.at(-1)!, /not saved/);
+    assert.doesNotMatch(h.notifications.at(-1)!, /PRIVATE_CANARY/);
+    denied = false;
+    h.panel().handleInput("\r");
+    assert.equal(saves, 1, "failed Save requires reopen/read, no blind retry");
+    await h.command("settings");
+    for (let i = 0; i < 8; i++) h.panel().handleInput("\x1b[B");
+    h.panel().handleInput("\r");
+    assert.equal(saves, 2);
+    assert.match(h.notifications.at(-1)!, /saved durably/);
+    assert.equal(disk.palette, "follow");
+    assert.ok(reads >= 4);
+    await h.handlers.get("session_shutdown")!({}, h.ctx);
+  } finally {
+    if (previous === undefined) delete (globalThis as any)[key];
+    else (globalThis as any)[key] = previous;
+  }
 });
 
 test("startup header uses actual public model/effort/cwd and counts, never fabricated skills/extensions/totals", async () => {

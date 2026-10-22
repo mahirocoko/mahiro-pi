@@ -10,7 +10,7 @@ if (modules) {
   const allowed = new Set(["@gotgenes/pi-permission-system", "@gotgenes/pi-subagents", "@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-tui", "typebox"]);
   registerHooks({ resolve(specifier, context, nextResolve) {
     const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : "";
-    if (allowed.has(specifier) && (parent.startsWith(path.join(root, "lib/guards") + path.sep) || parent === path.join(root, "lib/bootstrap-native.mjs"))) {
+    if (allowed.has(specifier) && (parent.startsWith(path.join(root, "lib/guards") + path.sep) || parent === path.join(root, "lib/bootstrap-native.mjs") || ["test/install-ready.test.ts", "test/claude-ui-fixture.ts", "test/claude-ui.test.ts", "test/claude-ui-polish.test.ts", "extensions/mahiro-claude-ui.ts"].some((file) => parent === path.join(root, file)))) {
       const packageRoot = path.join(modules, specifier), metadata = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
       const exports = metadata.exports?.["."];
       const entry = typeof exports === "string" ? exports : exports?.import ?? exports?.default ?? metadata.main;

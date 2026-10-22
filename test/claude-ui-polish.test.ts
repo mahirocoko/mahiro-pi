@@ -18,6 +18,7 @@ import {
 import {
   geometry,
   native,
+  nativeTools,
   renderContext,
   theme,
   themeFrom,
@@ -382,16 +383,19 @@ function panel(initial: UIPreferences = { ...UI_DEFAULTS }) {
     current = true,
     done = 0,
     renders = 0;
+  let writes = 0;
   let palette = theme;
   const instance = createSettingsPanel({
     tui: geometry,
     geometry,
     native,
+    nativeTools,
     keybindings: geometry.getKeybindings(),
     theme: () => palette,
     initial: Object.freeze({ ...initial }),
     current: () => current,
     change(v) {
+      writes++;
       value = { ...v };
       return true;
     },
@@ -409,6 +413,7 @@ function panel(initial: UIPreferences = { ...UI_DEFAULTS }) {
     down,
     enter,
     value: () => value,
+    writes: () => writes,
     done: () => done,
     renders: () => renders,
     stale() {
@@ -420,7 +425,149 @@ function panel(initial: UIPreferences = { ...UI_DEFAULTS }) {
   };
 }
 
-test("real SettingsList keyboard interaction changes actual preview; cancel restores original", () => {
+const preview = (lines: string[]) =>
+  plain(lines).split("Preview · synthetic sample, not tool execution")[1];
+
+test("focus alone follows public selection both directions without changing preferences", () => {
+  const p = panel();
+  assert.match(
+    preview(p.instance.render(110)),
+    /Read sample.ts[\s\S]*Update sample.ts[\s\S]*Write sample.md/,
+  );
+  p.down();
+  assert.match(
+    preview(p.instance.render(110)),
+    /Bash[\s\S]*Running…[\s\S]*Error/,
+  );
+  p.down();
+  assert.match(preview(p.instance.render(110)), /stored edit diff/);
+  assert.doesNotMatch(
+    preview(p.instance.render(110)),
+    /Running…|Write sample.md/,
+  );
+  p.down();
+  const short = preview(p.instance.render(110));
+  assert.match(short, /Read sample.ts[\s\S]*more rows/);
+  assert.doesNotMatch(short, /7 \/\//);
+  p.enter();
+  assert.equal(p.writes(), 1);
+  assert.match(preview(p.instance.render(110)), /7 \/\//);
+  p.instance.handleInput!("\x1b[A");
+  assert.match(preview(p.instance.render(110)), /stored edit diff/);
+  assert.equal(p.writes(), 1, "focus itself never publishes preferences");
+});
+
+test("scenario choice exposes all six actual presentations without runtime mutation", () => {
+  const p = panel();
+  for (let i = 0; i < 7; i++) p.down();
+  const expected = [
+    /Read sample.ts/,
+    /Bash printf/,
+    /Update sample.ts/,
+    /Write sample.md[\s\S]*submitted content preview/,
+    /Running…/,
+    /Error/,
+  ];
+  for (const pattern of expected) {
+    p.enter();
+    const output = preview(p.instance.render(160));
+    assert.match(output, pattern);
+    if (pattern.source === "Running…")
+      assert.doesNotMatch(output, /Done|Applied|Error/);
+    if (pattern.source === "Error")
+      assert.doesNotMatch(output, /Done|Applied|Running…/);
+    assert.equal(p.writes(), 0);
+    assert.deepEqual(p.value(), UI_DEFAULTS);
+    for (const width of [1, 20, 60, 110, 160])
+      for (const line of p.instance.render(width))
+        assert.ok(geometry.visibleWidth(line) <= width);
+  }
+  p.enter(); // focus default again
+  assert.match(plain(p.instance.render(110)), /Preview scenario\s+focus/);
+  assert.equal(p.writes(), 0);
+  p.instance.dispose();
+  assert.equal(p.done(), 1);
+});
+
+test("public selector mouse uses rendered offsets; press/wheel follow focus, click activates", () => {
+  for (const width of [20, 110]) {
+    const p = panel();
+    const rows = p.instance.render(width);
+    const y = rows.findIndex((line) =>
+      geometry.stripTerminalSequences(line).includes("Tool style"),
+    );
+    assert.ok(y > 0);
+    p.instance.handleMouse!({ type: "press", button: "left", x: 1, y });
+    assert.match(preview(p.instance.render(110)), /Running…[\s\S]*Error/);
+    assert.equal(p.writes(), 0);
+    p.instance.render(width);
+    p.instance.handleMouse!({ type: "click", button: "left", x: 1, y });
+    assert.equal(p.value().toolStyle, "tinted");
+    assert.equal(p.writes(), 1);
+    p.instance.render(width);
+    p.instance.handleMouse!({
+      type: "wheel",
+      button: "none",
+      x: 1,
+      y,
+      wheelDelta: 1,
+    });
+    assert.match(preview(p.instance.render(110)), /stored edit diff/);
+    assert.equal(p.writes(), 1);
+    assert.equal(
+      p.instance.handleMouse!({ type: "click", button: "left", x: 1, y: 0 }),
+      undefined,
+    );
+    p.stale();
+    p.instance.handleMouse!({ type: "click", button: "left", x: 1, y });
+    assert.equal(p.writes(), 1);
+    p.instance.dispose();
+    assert.equal(p.writes(), 1);
+  }
+});
+
+test("preview uses retained public factory products without touching execution properties", () => {
+  const guarded = new Map(
+    Array.from(nativeTools, ([name, product]) => [
+      name,
+      new Proxy(product, {
+        get(target, property, receiver) {
+          assert.notEqual(
+            property,
+            "execute",
+            "rendering cannot access execution",
+          );
+          return Reflect.get(target, property, receiver);
+        },
+      }),
+    ]),
+  );
+  const before = JSON.stringify(UI_DEFAULTS);
+  for (const scenario of [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "pending",
+    "error",
+  ] as const) {
+    const lines = renderSettingsPreview(
+      UI_DEFAULTS,
+      160,
+      theme,
+      geometry,
+      native,
+      true,
+      guarded,
+      [scenario],
+    );
+    assert.ok(lines.length > 1);
+    assert.match(plain(lines), /sample|Synthetic|synthetic/);
+  }
+  assert.equal(JSON.stringify(UI_DEFAULTS), before);
+});
+
+test("real SelectList keyboard interaction changes actual preview; cancel restores original", () => {
   const p = panel();
   const before = p.instance.render(110).join("\n");
   assert.match(plain(p.instance.render(40)), /more rows.*f6 to expand/);
@@ -437,6 +584,8 @@ test("real SettingsList keyboard interaction changes actual preview; cancel rest
   assert.match(plain(p.instance.render(110)), /old \/ new · unified/);
   p.down();
   p.enter(); // extra detail
+  assert.match(plain(p.instance.render(110)), /12 output lines/);
+  p.instance.handleInput!("\x1b[A"); // focus edit: captured duration remains in actual edit renderer
   assert.match(plain(p.instance.render(110)), /24 ms/);
   assert.ok(p.renders() >= 7);
   p.instance.handleInput!("\x1b");
@@ -446,7 +595,7 @@ test("real SettingsList keyboard interaction changes actual preview; cancel rest
   assert.equal(p.done(), 1);
 });
 
-test("reset previews documented defaults, apply is runtime only; no fake Save or storage", () => {
+test("reset previews documented defaults and apply is runtime only when storage is unavailable", () => {
   const initial: UIPreferences = {
     palette: "claude",
     toolStyle: "tinted",
@@ -475,6 +624,72 @@ test("reset previews documented defaults, apply is runtime only; no fake Save or
   assert.match(PERSISTENCE_LIMIT, /no authorized own-UI DATA/);
 });
 
+test("explicit Save is separate from Apply/Cancel/Reset; failure, busy and closed panels cannot pretend success", () => {
+  for (const outcome of ["saved", "denied", "throw"] as const) {
+    let value = { ...UI_DEFAULTS },
+      saves = 0,
+      done = 0;
+    let instance: ReturnType<typeof createSettingsPanel>;
+    instance = createSettingsPanel({
+      tui: geometry,
+      geometry,
+      native,
+      nativeTools,
+      keybindings: geometry.getKeybindings(),
+      theme: () => theme,
+      initial: value,
+      current: () => true,
+      change(next) {
+        value = next;
+        return true;
+      },
+      persistence: {
+        status: "Exact own-UI owner available; not saved yet.",
+        save(next) {
+          saves++;
+          assert.deepEqual(next, value);
+          instance.handleInput!("\r"); // A synchronous/reentrant Save is busy, not a second publication.
+          if (outcome === "throw") throw Error("PRIVATE_PARSER_CANARY");
+          return {
+            saved: outcome === "saved",
+            message:
+              outcome === "saved" ? "Saved durably." : "Denied; not saved.",
+          };
+        },
+      },
+      done() {
+        done++;
+      },
+      requestRender() {},
+    });
+    instance.handleInput!("\r");
+    for (let i = 0; i < 8; i++) instance.handleInput!("\x1b[B");
+    instance.handleInput!("\r");
+    assert.equal(saves, 1);
+    assert.equal(done, outcome === "saved" ? 1 : 0);
+    assert.equal(value.palette, "claude");
+    assert.doesNotMatch(plain(instance.render(110)), /PRIVATE_PARSER_CANARY/);
+    if (outcome !== "saved")
+      assert.match(plain(instance.render(110)), /not saved/);
+    if (outcome === "saved") {
+      instance.handleInput!("\r");
+      instance.handleInput!("\x1b");
+      assert.equal(saves, 1);
+      instance.dispose();
+      assert.equal(value.palette, "claude");
+    } else {
+      instance.handleInput!("\x1b");
+      assert.deepEqual(value, UI_DEFAULTS);
+    }
+  }
+  const unavailable = panel();
+  for (let i = 0; i < 8; i++) unavailable.down();
+  unavailable.enter();
+  assert.match(plain(unavailable.instance.render(110)), /Not persisted/);
+  assert.equal(unavailable.done(), 0);
+  assert.equal(unavailable.writes(), 0);
+});
+
 test("stale panel/disposal cannot roll back a later owner; unavailable choices fail truthfully", () => {
   const p = panel();
   p.enter();
@@ -487,6 +702,7 @@ test("stale panel/disposal cannot roll back a later owner; unavailable choices f
     tui: geometry,
     geometry,
     native,
+    nativeTools,
     keybindings: geometry.getKeybindings(),
     theme: () => theme,
     initial: { ...UI_DEFAULTS },
@@ -502,6 +718,102 @@ test("stale panel/disposal cannot roll back a later owner; unavailable choices f
   assert.equal(writes, 1);
   assert.match(plain(instance.render(110)), /Choice unavailable/);
   assert.match(plain(instance.render(110)), /Palette\s+follow/);
+});
+
+test("Space remapped to cancel closes without publishing an unchanged draft", () => {
+  const original = geometry.getKeybindings();
+  geometry.setKeybindings(
+    new geometry.KeybindingsManager(geometry.TUI_KEYBINDINGS, {
+      "tui.select.cancel": "space",
+    }),
+  );
+  try {
+    const p = panel();
+    p.instance.handleInput!(" ");
+    assert.equal(p.done(), 1);
+    assert.equal(p.writes(), 0);
+    assert.deepEqual(p.value(), UI_DEFAULTS);
+    p.instance.dispose();
+    assert.equal(p.writes(), 0);
+  } finally {
+    geometry.setKeybindings(original);
+  }
+});
+
+test("Space remapped to either navigation action moves public focus without publication", () => {
+  const original = geometry.getKeybindings();
+  try {
+    for (const direction of ["up", "down"] as const) {
+      geometry.setKeybindings(
+        new geometry.KeybindingsManager(geometry.TUI_KEYBINDINGS, {
+          [`tui.select.${direction}`]: "space",
+        }),
+      );
+      const p = panel();
+      p.instance.handleInput!(" ");
+      assert.match(
+        plain(p.instance.render(110)),
+        direction === "up" ? /→ Save preferences/ : /→ Tool style/,
+      );
+      assert.equal(p.writes(), 0);
+      assert.equal(p.done(), 0);
+      assert.deepEqual(p.value(), UI_DEFAULTS);
+      p.instance.dispose();
+      assert.equal(p.writes(), 0);
+    }
+  } finally {
+    geometry.setKeybindings(original);
+  }
+});
+
+test("selector bindings precede conflicting expansion; unmapped Space and expansion still work", () => {
+  const original = geometry.getKeybindings();
+  try {
+    geometry.setKeybindings(
+      new geometry.KeybindingsManager(
+        {
+          ...geometry.TUI_KEYBINDINGS,
+          "app.tools.expand": {
+            defaultKeys: "space",
+            description: "Fixture expansion collision",
+          },
+        },
+        { "tui.select.down": "space" },
+      ),
+    );
+    const conflicting = panel();
+    conflicting.instance.handleInput!(" ");
+    assert.match(plain(conflicting.instance.render(110)), /→ Tool style/);
+    conflicting.instance.handleInput!("\x1b[A");
+    assert.match(preview(conflicting.instance.render(110)), /more rows/);
+    assert.equal(conflicting.writes(), 0);
+    conflicting.instance.dispose();
+
+    geometry.setKeybindings(
+      new geometry.KeybindingsManager({
+        ...geometry.TUI_KEYBINDINGS,
+        "app.tools.expand": {
+          defaultKeys: "f4",
+          description: "Fixture alternate expansion",
+        },
+      }),
+    );
+    const p = panel();
+    p.instance.handleInput!(" "); // not configured for selection: legacy activation
+    assert.equal(p.value().palette, "claude");
+    assert.equal(p.writes(), 1);
+    assert.match(preview(p.instance.render(110)), /more rows/);
+    p.instance.handleInput!("\x1bOS"); // F4: configurable application expansion
+    assert.doesNotMatch(preview(p.instance.render(110)), /more rows/);
+    p.instance.handleInput!("\x1bOS");
+    assert.match(preview(p.instance.render(110)), /more rows/);
+    assert.equal(p.writes(), 1);
+    p.instance.handleInput!("\x1b");
+    assert.deepEqual(p.value(), UI_DEFAULTS);
+    assert.equal(p.done(), 1);
+  } finally {
+    geometry.setKeybindings(original);
+  }
 });
 
 test("public remapped selection bindings work locally; preview resize and theme invalidation", () => {
@@ -522,7 +834,7 @@ test("public remapped selection bindings work locally; preview resize and theme 
     geometry.setKeybindings(original);
   }
   const p = panel();
-  for (const width of [0, 1, 5, 20, 40, 110])
+  for (const width of [0, 1, 5, 20, 40, 60, 110, 160])
     for (const line of p.instance.render(width))
       assert.ok(geometry.visibleWidth(line) <= width);
   for (const pref of [
@@ -530,7 +842,17 @@ test("public remapped selection bindings work locally; preview resize and theme 
     { ...UI_DEFAULTS, extraDetail: true },
   ])
     assert.match(
-      plain(renderSettingsPreview(pref, 110, theme, geometry, native)),
+      plain(
+        renderSettingsPreview(
+          pref,
+          110,
+          theme,
+          geometry,
+          native,
+          false,
+          nativeTools,
+        ),
+      ),
       /const title/,
     );
 });
