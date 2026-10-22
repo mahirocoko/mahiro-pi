@@ -28,6 +28,40 @@ const nodes = (globalThis[registryKey] ??= new Map());
 const nativeChildren = (nodes.nativeChildren ??= new Set());
 const nativeParents = (nodes.nativeParents ??= new Map());
 const memoryLeases = (nodes.memoryLeases ??= new Map());
+// Omitted helper paths are not `input.path`, so the public convention cannot
+// see them. Explicit paths and these defaults must both reach the path gate.
+const HELPER_DEFAULT_PATHS = {
+  mh_npm_config: ".npmrc",
+  mh_env_config: ".env",
+  mh_pypi_config: ".pypirc",
+};
+const helperAccessPath = (fallback) => (input) => {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    return undefined;
+  if (Object.hasOwn(input, "path")) {
+    const value = input.path;
+    return typeof value === "string" &&
+      value.length > 0 &&
+      !value.includes("\0")
+      ? value
+      : undefined;
+  }
+  return fallback;
+};
+const registerHelperExtractors = (service) => {
+  if (!service?.registerToolAccessExtractor) return;
+  for (const [name, fallback] of Object.entries(HELPER_DEFAULT_PATHS)) {
+    if (service.getToolAccessExtractor?.(name)) continue;
+    service.registerToolAccessExtractor(name, helperAccessPath(fallback));
+  }
+};
+const finalPathSurface = (toolName) =>
+  toolName === "write"
+    ? "path_write"
+    : ["read", "grep", "find", "ls"].includes(toolName)
+      ? "path_read"
+      : "path";
+
 const memoryPermission = (root) => {
   if (typeof root !== "string" || !isAbsolute(root) || root !== resolve(root))
     throw new Error("Canonical managed-memory root required");
@@ -363,6 +397,38 @@ export default async function activate(pi) {
         }
     },
   });
+  // Public path gate rule: only a matched deny or ask is a decision here.
+  // An unmatched universal fallback, including ask, stays with that gate.
+  // A one-time approval is not recorded as a rule, so a matched ask passes only
+  // by consuming an allow decision the gate published this turn for the same
+  // surface and path. A path rewritten after that gate has no such decision.
+  const pathApprovals = new Map();
+  const approvalKey = (surface, value) => `${surface}\0${value}`;
+  const vetoFinalPath = (toolName, args) => {
+    const service = getPermissionsService(sessionId);
+    registerHelperExtractors(service);
+    const fallback = HELPER_DEFAULT_PATHS[toolName];
+    const filePath = fallback
+      ? helperAccessPath(fallback)(args)
+      : typeof args?.path === "string" && args.path
+        ? args.path
+        : undefined;
+    if (!filePath || !service) return;
+    const surface = finalPathSurface(toolName);
+    const decision = service.checkPermission(surface, filePath);
+    if (decision?.matchedPattern === undefined || decision.state === "allow")
+      return;
+    if (decision.state === "ask") {
+      const key = approvalKey(surface, filePath);
+      const left = pathApprovals.get(key) ?? 0;
+      if (left > 0) {
+        if (left === 1) pathApprovals.delete(key);
+        else pathApprovals.set(key, left - 1);
+        return;
+      }
+    }
+    throw new Error("Native final path permission denied");
+  };
   const names = [
     "read",
     "bash",
@@ -425,6 +491,7 @@ export default async function activate(pi) {
           )?.state !== "allow"
         )
           throw Error("Native final Bash permission denied");
+        if (name !== "bash") vetoFinalPath(name, final);
         return native.execute(id, final, signal, update, ctx);
       },
     });
@@ -441,6 +508,7 @@ export default async function activate(pi) {
         const args = await host.finalArgs(tool.name, input, ctx);
         if (signal?.aborted || !ownsContext(ctx))
           throw new Error("Pi guard node unavailable; execution blocked");
+        vetoFinalPath(tool.name, args);
         const result = await tool.run({ cwd: ctx.cwd, args, signal });
         if (result.status === "error")
           throw new Error(
@@ -1323,6 +1391,24 @@ export default async function activate(pi) {
       rtk.initialize(ctx);
     }),
   );
+  unsubscribes.push(
+    pi.events.on("permissions:ready", (event) => {
+      registerHelperExtractors(getPermissionsService(event?.sessionId));
+    }),
+  );
+  unsubscribes.push(
+    pi.events.on("permissions:decision", (event) => {
+      if (
+        event?.result !== "allow" ||
+        typeof event.value !== "string" ||
+        !["path", "path_read", "path_write"].includes(event.surface)
+      )
+        return;
+      const key = approvalKey(event.surface, event.value);
+      pathApprovals.set(key, (pathApprovals.get(key) ?? 0) + 1);
+    }),
+  );
+  unsubscribes.push(pi.on("turn_end", () => pathApprovals.clear()));
   unsubscribes.push(
     pi.events.on("subagents:child:session-created", (event) => {
       if (typeof event.sessionId === "string") {

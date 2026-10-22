@@ -43,7 +43,7 @@ release payloads.
 | RTK | `off`, `suggest`, conservative rewrite and installed RTK resolver modes; visible mode status and policy-checked execution | [RTK](docs/rtk.md) |
 | Maintained memory | Private Markdown/Git knowledge, CAS drafts/commits, bounded lexical retrieval/discovery and scoped native writers | [Managed memory](docs/agent-memory.md) |
 | Historical recall | Screened, cited history and literal low-authority quotation notes; correction and forgetting controls | [Continuity](docs/continuity.md) |
-| Execution guards | One Root guard and the public permission owner; secret-read, attribution and final-argument checks | [Guards and permissions](docs/guards.md) |
+| Execution guards | One Root guard and the public permission owner; public secret-read policy, attribution and final-argument checks | [Guards and permissions](docs/guards.md) |
 | Native utilities | `/realign [focus]` guidance, `/mh-copy-code` and separate run-start clock metadata | [Utilities](docs/utilities.md) |
 | Code Map | Bounded navigation guidance from caller metadata, not a search/indexing engine | [Code Map](docs/code-map.md) |
 | Goal Mode | Explicit objectives, criteria, evidence, blockers and revision-guarded session ownership | [Goals](docs/goal.md) |

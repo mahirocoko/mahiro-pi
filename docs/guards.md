@@ -10,7 +10,18 @@ host's grants or replace native tool/subagent ownership.
 
 - Canonical healthy execution context and exact tool provenance.
 - Existing public tool/path policy, including retained denies.
-- Secret-read restrictions and commit-attribution checks at final execution.
+- Secret reads through that public policy, including the opt-in BASIC
+  `path_read` defaults described in [the installation contract](bootstrap.md).
+  The custom secret checker is not a second resolver. Its four filtered
+  helpers remain, and an omitted helper path is still a native path decision.
+- Commit-attribution checks at final execution.
+- A second public path or Bash check after ordinary and codemode argument
+  changes. A matched deny blocks. A matched ask passes only by consuming a
+  public `permissions:decision` allow for the same surface and path from the
+  current turn, so a one-time approval passes once and a path rewritten after
+  the gate is refused without a second prompt. An unmatched universal fallback
+  stays with the public gate, and an approval already recorded as allow still
+  passes.
 - RTK authorization for original, proposed and sanitizer-transformed final
   arguments before native spawn.
 - Separate exact feature-DATA capabilities for private feature storage.

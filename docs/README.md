@@ -22,7 +22,7 @@ one guide; deeper contracts stay with their owning implementation, not this inde
 - [Continuity](continuity.md) — historical recall, literal quotation notes,
   correction/forget controls and the distinction from maintained knowledge.
 - [Guards and permissions](guards.md) — single Root guard, public policy owner,
-  exact grants, secret/attribution checks and native execution.
+  exact grants, public secret-read policy, attribution checks and native execution.
 - [RTK](rtk.md) — visible mode, bounded resolver, guarded proposals and explicit control.
 - [Agents and skills](agents.md) — three owned roles, local personal roles and
   the native [commit skill](../skills/git-commit/SKILL.md).

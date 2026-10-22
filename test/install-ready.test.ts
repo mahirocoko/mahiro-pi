@@ -471,6 +471,19 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
         return ai.fauxAssistantMessage("Synthetic normal child complete.");
       }),
     );
+    // Spawn resolves the model string against the available snapshot.
+    // registerNativeProvider starts that refresh in the background. The retired
+    // secret checker no longer adds enough delay for it to land first.
+    const refreshed = await runtime.refresh({ allowNetwork: false });
+    assert.equal(refreshed.aborted, false);
+    assert.ok(
+      runtime
+        .getAvailableSnapshot()
+        .some(
+          (model: { provider: string; id: string }) =>
+            model.provider === "openai" && model.id === "gpt-6.1-sol",
+        ),
+    );
     const normal = service.spawn(
       "general-purpose",
       "Synthetic child Bash check only.",

@@ -98,6 +98,8 @@ policy over generic policy. Integer-like read-pattern keys refuse unsupported
 ordering; malformed/unsupported config refuses before writes. Universal `*`,
 write/tool/Bash/external-directory policy and yolo are untouched.
 
+Runtime final execution does not recreate the retired secret checker. After a path or Bash command changes, it asks the public service again; [guards](guards.md) owns that check. A source load still does not seed these defaults.
+
 The advisor composes after selected skill, memory and feature transformations.
 Bootstrap updates or creates one config-target change, publishes those composed
 bytes exactly once through existing CAS/private backup handling, and never follows
