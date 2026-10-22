@@ -52,7 +52,7 @@ test("primary shared authority is explicit; retained v1 views/conflicts stay sco
   const f = fixture();
   try {
     const primary = createMemoryStore(f.root, () => {}, "primary");
-    const other = join(f.dir, "onedeex-frontend");
+    const other = join(f.dir, "unmapped-project");
     mkdirSync(other);
     const id = primary.project(other);
     assert.equal(id, digest(other));
@@ -429,13 +429,16 @@ test("stale hashes, traversal, symlinks, hardlinks, secrets and unsafe project m
       () => f.store.edit(v, "procedures/file.md", null, "safe\n"),
       /Symlink/,
     );
-    assert.throws(() =>
-      parseConfig(
-        JSON.stringify({
-          ...f.config,
-          projects: [{ cwd: "/tmp/onedee", id: "x" }],
-        }),
-      ),
+    // The mapping is refused because it targets a symlink, not its project name.
+    assert.throws(
+      () =>
+        parseConfig(
+          JSON.stringify({
+            ...f.config,
+            projects: [{ cwd: link, id: "x" }],
+          }),
+        ),
+      /Symlink/,
     );
     assert.throws(() =>
       parseConfig(

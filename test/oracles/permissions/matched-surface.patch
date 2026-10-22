@@ -1,0 +1,45 @@
+diff --git a/src/types.ts b/src/types.ts
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -68,6 +68,13 @@
+ 
+ export interface PermissionCheckResult {
+   toolName: string;
++  /**
++   * Surface pattern of the actual winning rule, not the queried toolName or
++   * value matchedPattern. Optional for older/unattested producers. Defaults,
++   * session rules and yolo rewrites retain their real rule surface; consumers
++   * must also check state/source/origin, never treat this metadata as a grant.
++   */
++  matchedSurface?: string;
+   state: PermissionState;
+   /** Custom denial reason from a deny-with-reason pattern, when present. */
+   reason?: string;
+diff --git a/dist/public.d.ts b/dist/public.d.ts
+--- a/dist/public.d.ts
++++ b/dist/public.d.ts
+@@ -45,6 +45,13 @@
+ type FloorExemption = "core-reader" | "execution-modifier" | "no-command";
+ interface PermissionCheckResult {
+     toolName: string;
++    /**
++     * Surface pattern of the actual winning rule, not the queried toolName or
++     * value matchedPattern. Optional for older/unattested producers. Defaults,
++     * session rules and yolo rewrites retain their real rule surface; consumers
++     * must also check state/source/origin, never treat this metadata as a grant.
++     */
++    matchedSurface?: string;
+     state: PermissionState;
+     /** Custom denial reason from a deny-with-reason pattern, when present. */
+     reason?: string;
+diff --git a/src/policy/permission-manager.ts b/src/policy/permission-manager.ts
+--- a/src/policy/permission-manager.ts
++++ b/src/policy/permission-manager.ts
+@@ -465,6 +465,7 @@
+   return {
+     result: {
+       toolName,
++      matchedSurface: rule.surface,
+       state: rule.action,
+       reason: rule.reason,
+       matchedPattern:

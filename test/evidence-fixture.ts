@@ -32,47 +32,12 @@ export async function fixture() {
     ),
     m = await import(
       pathToFileURL(path.join(primary, "lib/evidence/model.ts")).href
-    ),
-    g = await import(
-      pathToFileURL(path.join(primary, "lib/evidence/git.ts")).href
     );
   const b = {
       ...s.resolveEvidenceBinding(project),
       sessionId: "native-session-fixture",
     },
     target = path.join(b.root, "state.json");
-  const git = (...args: string[]) =>
-    execFileSync("/usr/bin/git", args, {
-      cwd: project,
-      encoding: "utf8",
-      env: { HOME: root, PATH: "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1" },
-    });
-  git("init", "-q");
-  git("config", "user.name", "Fixture");
-  git("config", "user.email", "fixture@example.test");
-  fs.writeFileSync(path.join(project, "tracked"), "initial\n");
-  git("add", ".");
-  git("commit", "-qm", "initial");
-  const collect = async () => {
-    const inspection = new g.GitInspection(project, {
-      assertCurrent() {},
-      assertSources() {},
-      async authorizeGit() {},
-    });
-    try {
-      await inspection.preflight(project);
-      const sample = await inspection.sample(null);
-      return {
-        ...sample,
-        collectionId: `collection-fixture-${Date.now()}`,
-        requestedWorkspace: project,
-        repositoryRoot: project,
-        collectedAt: new Date().toISOString(),
-      };
-    } finally {
-      inspection.close();
-    }
-  };
   // Structurally valid deterministic report for store-only tests; not Git proof.
   const lane = () => m.capLane([], null, "");
   const synthetic = () => {
@@ -119,15 +84,34 @@ export async function fixture() {
     config,
     s,
     m,
-    g,
     b,
     target,
-    git,
-    collect,
     synthetic,
     seed,
   };
 }
+
+// Only Git-contract tests pay for repository initialization and real commits.
+export async function gitFixture() {
+  const f = await fixture();
+  const g = await import(
+    pathToFileURL(path.join(f.primary, "lib/evidence/git.ts")).href
+  );
+  const git = (...args: string[]) =>
+    execFileSync("/usr/bin/git", args, {
+      cwd: f.project,
+      encoding: "utf8",
+      env: { HOME: f.root, PATH: "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1" },
+    });
+  git("init", "-q");
+  git("config", "user.name", "Fixture");
+  git("config", "user.email", "fixture@example.test");
+  fs.writeFileSync(path.join(f.project, "tracked"), "initial\n");
+  git("add", ".");
+  git("commit", "-qm", "initial");
+  return { ...f, g, git };
+}
+
 export function saveEnv() {
   const agent = process.env.PI_CODING_AGENT_DIR,
     home = process.env.HOME;

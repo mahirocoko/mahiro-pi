@@ -3,12 +3,12 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { fixture, saveEnv } from "./evidence-fixture.ts";
+import { fixture, gitFixture, saveEnv } from "./evidence-fixture.ts";
 
 test("base/head changes and unsupported Git storage/config/ref boundaries fail conservatively", async () => {
   const restore = saveEnv();
   try {
-    const f = await fixture(),
+    const f = await gitFixture(),
       authority = {
         assertCurrent() {},
         assertSources() {},
@@ -76,7 +76,7 @@ test("base/head changes and unsupported Git storage/config/ref boundaries fail c
 test("actual owned Git cancellation/reap, revocation and output overflow publish no state", async () => {
   const restore = saveEnv();
   try {
-    const f = await fixture();
+    const f = await gitFixture();
     await f.seed();
     const original = fs.readFileSync(f.target);
     fs.writeFileSync(

@@ -23,7 +23,9 @@ test("private read-only empty; whole-envelope CAS empty/create-clear ABA and exa
       { s, m, b } = f,
       empty = s.stateTicket(s.readEvidenceState(b));
     assert.equal(fs.existsSync(b.root), false);
+    assert.equal(fs.existsSync(path.join(f.project, ".git")), false);
     await f.seed();
+    assert.equal(fs.existsSync(path.join(f.project, ".git")), false);
     assert.equal(m.reportAt(s.readEvidenceState(b), b).revision, 1);
     assert.equal(
       m.reportAt(s.readEvidenceState(b), {
@@ -261,8 +263,9 @@ test("invalid UTF8/oversize/schema/fingerprint/private metadata and config paths
     fs.unlinkSync(f.target);
     fs.writeFileSync(f.target, before, { mode: 0o600 });
     assert.throws(() => s.resolveEvidenceBinding(`${f.project}/../project`));
+    // Refuse a missing directory, not a particular project name.
     assert.throws(() =>
-      s.resolveEvidenceBinding(path.join(f.root, "onedeex-frontend")),
+      s.resolveEvidenceBinding(path.join(f.root, "missing-project")),
     );
     fs.chmodSync(f.config, 0o644);
     assert.throws(() => s.resolveEvidenceBinding(f.project));

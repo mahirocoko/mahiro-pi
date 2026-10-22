@@ -449,7 +449,18 @@ export function registerRTK(
       }
       publishStatus(ctx, binding !== null);
     },
-    async transform(input: any, ctx: any) {
+    async transform(
+      input: any,
+      ctx: any,
+      effectiveBash?: (command: string) => boolean,
+    ) {
+      // A consumed PSS receipt is execution-local. Preview/control retain the
+      // original strict query; no capability is put on a shared context.
+      const authorizeExecution = (context: any, command: string) => {
+        if (!effectiveBash) return authorize(context, command);
+        if (!effectiveBash(command))
+          throw Error("RTK original/final Bash permission required");
+      };
       // The disabled fast path performs no filesystem read, probe, helper or log work.
       if (mode === "off") return input;
       const captured = epoch;
@@ -477,8 +488,8 @@ export function registerRTK(
       // Always inspect the original BEFORE considering any rewrite, even unsupported syntax.
       const original = await owner.finalArgs("bash", input, ctx);
       assert();
-      authorize(ctx, input.command);
-      authorize(ctx, original.command);
+      authorizeExecution(ctx, input.command);
+      authorizeExecution(ctx, original.command);
       // Preserve direct native commits: never send them through RTK (including
       // already sanitized attribution). The host still checks/spawns the raw git.
       if (/^\s*git\s+commit(?:\s|$)/.test(original.command)) return original;
@@ -500,17 +511,17 @@ export function registerRTK(
             throw Error("RTK operand read denied");
         }
       }
-      authorize(ctx, candidate.command);
+      authorizeExecution(ctx, candidate.command);
       const final = await owner.finalArgs(
         "bash",
         { ...original, command: candidate.command },
         ctx,
       );
       assert();
-      authorize(ctx, input.command);
-      authorize(ctx, original.command);
-      authorize(ctx, candidate.command);
-      authorize(ctx, final.command);
+      authorizeExecution(ctx, input.command);
+      authorizeExecution(ctx, original.command);
+      authorizeExecution(ctx, candidate.command);
+      authorizeExecution(ctx, final.command);
       assert();
       recent.unshift({
         action: mode === "suggest" ? "suggested" : "rewritten",

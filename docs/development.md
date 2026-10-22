@@ -1,93 +1,90 @@
 # Development and release
 
-[← Feature guide](README.md) · [v0.3.0 notes](releases/0.3.0.md)
+[← Documentation](README.md) · [Release record](releases/0.3.0.md)
 
-## Local checks
+## Dependencies and checks
 
-Use Node ≥22.19.0 and pnpm **10.33.0** with explicitly installed declared public
-dependencies. No sibling runtime, private corpus or Mods checkout is required.
+Use Node ≥22.19.0 and pnpm **10.33.0**. Install declared public dependencies
+explicitly with the frozen lockfile. No private corpus or sibling runtime is
+required. This repository authors the guards, dependency patches and narrow ABIs.
 
 ```sh
 pnpm check
 pnpm check:docs
 pnpm check:format
 pnpm check:continuity-format
-pnpm check:geometry -- /absolute/path/to/pi-coding-agent/package.json
+pnpm check:geometry -- /absolute/public/pi-coding-agent/package.json
 git diff --check
 ```
 
-`check` runs package/import/whitespace validation, serial source tests and the
-required public SDK gate. It is not full TypeScript checking. The explicit
-continuity format script covers the separate continuity roots; do not mass-format
-the legacy footer. Geometry resolves public TUI helpers from an explicitly
-supplied host manifest; it makes no model/auth calls and is not a rendered/human
-acceptance check.
+`check` runs package/import/whitespace validation, documentation checks, serial
+source tests and required public SDK fixtures. It is not full TypeScript checking.
+Run scoped formatting, not a mass-format of legacy files. Geometry uses public
+TUI helpers from an explicitly supplied host manifest; it makes no model/auth
+calls and does not substitute for rendered testing.
 
-For offline source QA without modifying canonical `node_modules`, a reviewed
-public package supply may be selected explicitly:
+For offline QA without modifying this checkout's `node_modules`, select an
+explicit reviewed public-package supply:
 
 ```sh
 MAHIRO_PI_TEST_MODULES=/absolute/public/node_modules pnpm check
 ```
 
-The test loader maps only canonical source imports. It never harvests another
-runtime's installed state. Required SDK fixtures use genuine public packages,
-guarded native dispatch and deterministic Faux transport, not provider inference.
-Unpatched/unauthorized real owners still fail closed.
+The loader maps canonical source imports and required public packages; it never
+harvests another runtime's state. SDK fixtures use genuine public packages,
+guarded native dispatch, disposable profiles and deterministic Faux transport,
+not provider inference. Missing required supply fails, rather than counting as a
+successful skip. Old or unattested owners remain fail-closed.
 
-Serialize full tests/SDK/large format/geometry jobs and keep one product writer.
-A fresh independent verifier should challenge semantic contracts, not just
-repeat the writer's assertions. A source/Faux pass does not establish installed,
-provider, browser, rendered, RAM or human product acceptance.
+Keep one writer per checkout and serialize heavy tests/SDK/format/geometry jobs.
+Independent verification must use a fresh reviewer, not only writer assertions.
+Source/Faux passes do not establish installed activation, provider behavior,
+rendered quality, memory-use performance or human acceptance.
 
-## Documentation ownership
+## Documentation maintenance
 
-The [feature index](README.md) points to current user-facing owners.
-`check:docs` checks local links/anchors, the declared feature guide set and current
-version references; it does not verify external websites or infer semantic truth.
-`integrations.md` retains dated deployment/migration evidence. Its historical
-source-only or pending gates must not be read as the current release's status.
+[Documentation navigation](README.md) points to one current guide per concern.
+Prefer correcting that owner over adding migration summaries or duplicate API
+matrices. Remove obsolete pages only after checking incoming references and
+preserving necessary contracts; Git retains superseded prose. Keep private
+operator paths, project-only policy and runtime incident reports out of public
+guides. Local reports belong only under ignored `.agent-state/runtime/`.
 
-## Release contract
+`check:docs` checks local links/anchors, navigability, manifest-to-guide ownership,
+version/provenance alignment, public-document hygiene and selected security
+boundaries. It does not validate external websites or prove semantic truth.
+Source/test changes still require contract review. Dated release notes remain
+source records, not rewritten histories or current activation instructions.
 
-The package is intentionally `private: true` / `UNLICENSED`, even though this
-GitHub repository is public. The existing release channel is **GitHub source
-releases**, not npm publication. A release request does not authorize auth,
-profile, provider or runtime changes.
+## Source releases
 
-1. Obtain explicit commit/push/release authority and reconcile the pending source
-   union, branch, index, remote and existing tags. Never reset somebody else's
-   changes or force push.
-2. Choose a version from actual release history. Keep root `package.json`,
-   the exact package check, **all eight guard provenance version pins**, current
-   feature-contract version references and release notes aligned. Do not broaden
-   provenance to accept arbitrary versions.
-3. Update navigable docs/limitations, preserve third-party notices, and run fresh
-   combined gates plus independent release review against the final source.
-4. Write a local RRR under ignored runtime evidence. Keep private state,
-   credentials, profiles, transcripts, caches and installed copies out of commits
-   and artifacts. Old tracked `.agent-state` notes are excluded from archives by
-   `.gitattributes`; no history rewrite is implied.
-5. Use the native [commit skill](../skills/git-commit/SKILL.md) and role for the
-   exact approved safe path set. Verify the stored message and resulting commit.
-   The role does not push, tag or release.
-6. Push normally. Create a new annotated version tag at the verified commit and
-   push it normally. Never replace an existing tag.
-7. Publish the GitHub release with reviewed notes. Attach a source archive made
-   from that tag and a SHA-256 checksum manifest; no `npm publish`.
+The package is intentionally `private: true` / `UNLICENSED`. The release channel
+is **GitHub source releases**, not npm publication or a license grant. A release
+request does not authorize authentication, profile, model or runtime changes.
 
-For example, after the approved commit/push and new annotated tag:
+1. Obtain explicit commit/push/release scope. Inspect branch, index, remote and
+   existing tags; preserve local work and reconcile concurrent changes normally.
+   Do not reset others' work, rewrite history or force push.
+2. Choose a version from actual release history. Align `package.json`, package
+   validation, every exact guard provenance pin, README and a dated release note.
+   Do not widen provenance to accept arbitrary versions.
+3. Update current guides and third-party notices as needed. Run combined gates
+   and independent review against the final source, not an earlier checkpoint.
+4. Inspect the exact approved diff/artifact inventory. Keep profiles, credentials,
+   transcripts, caches, installed copies and runtime reports out of source payloads.
+   `.gitattributes` excludes `.agent-state` and `.pi` from source archives; this is
+   not history erasure or permission to commit private state.
+5. Use the [commit skill](../skills/git-commit/SKILL.md) for an authorized scoped
+   commit; verify the resulting stored message and commit. That role does not push,
+   tag or release.
+6. Push normally. Create a new annotated version tag at the verified commit;
+   never replace an existing tag. Publish reviewed notes through GitHub.
+7. Create a source archive from that tag, inspect its paths/content and attach a
+   SHA-256 checksum manifest. Do not use `npm publish`.
+8. Verify remote branch/tag identity, published URLs, downloaded asset hashes and
+   archive inventory, including GitHub's automatic source archives. Command
+   submission alone is not a release receipt.
 
-```sh
-git archive --format=tar.gz --prefix=mahiro-pi-0.3.0/ v0.3.0 > /private/artifacts/mahiro-pi-0.3.0.tar.gz
-# Inspect the archive paths/content and generate SHA256SUMS before upload.
-gh release create v0.3.0 /private/artifacts/mahiro-pi-0.3.0.tar.gz /private/artifacts/SHA256SUMS \
-  --verify-tag --title "mahiro-pi v0.3.0" --notes-file /private/artifacts/release-notes.md
-```
-
-Use an actual private local artifact directory, not the literal example path.
-Verify the remote branch/tag commit, published version/URLs, downloaded asset
-hashes and archive inventory, including GitHub's automatic source archives.
-Publishing source does not install it, reload a session, activate the Web observer
-or close unrelated human-owned tasks. Report an actual blocker instead of claiming
-a release from successful command submission.
+Publication does not install dependencies, update profiles, reload sessions,
+select themes, activate Web observation or close human-owned tasks. Follow the
+[upgrade guide](getting-started.md#upgrade-safely) for intentional activation.

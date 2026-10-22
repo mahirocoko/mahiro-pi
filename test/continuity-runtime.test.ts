@@ -69,7 +69,7 @@ function fixture() {
     },
     seed() {
       createStore(data, {
-        excludedProjectIds: ["OneDee"],
+        excludedProjectIds: ["ExcludedProject"],
         excludedPaths: [],
       }).initialize({ session: "import", branch: "main", epoch: 0 }, [
         {
@@ -105,7 +105,7 @@ function fixture() {
 }
 
 const policy = {
-  excludedProjectIds: ["onedee", "onedeex-frontend"],
+  excludedProjectIds: ["excludedproject", "excluded-frontend"],
   excludedPaths: [],
 };
 const historicalInput = (
@@ -656,14 +656,14 @@ test("async authorization shutdown/generation replacement, ambiguous maps and sy
       join(f.data, "manifest.json"),
       JSON.stringify({
         version: 1,
-        projects: [{ cwd: f.root, projectId: "OneDee" }],
+        projects: [{ cwd: f.root, projectId: "unmapped-project" }],
       }),
       { mode: 0o600 },
     );
     assert.deepEqual(
       await f.runtime.run("recall_read", { recordId: "late" }, f.tool, f.ctx),
       { unavailable: true },
-    ); // A revoked project-name ban is not a guard failure; absent record is honest.
+    ); // An ordinary unmapped project is not a guard failure; its record is absent.
     rmSync(join(f.data, "manifest.json"));
     symlinkSync(join(f.root, "missing"), join(f.data, "manifest.json"));
     await assert.rejects(

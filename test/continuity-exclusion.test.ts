@@ -4,16 +4,16 @@ import { assertArchive, normalize, search } from "../lib/continuity/records.ts";
 
 test("excluded project aliases and case variants cannot enter cross-project recall", () => {
   const policy = {
-    excludedProjectIds: ["OneDee", "onedeex-frontend"],
+    excludedProjectIds: ["ExcludedProject", "excluded-frontend"],
     excludedPaths: [],
   };
   for (const projectId of [
-    "OneDee",
-    "onedee",
-    "ONEDEE",
-    "oNeDeE",
-    "onedeex-frontend",
-    "ONEDEEX-FRONTEND",
+    "ExcludedProject",
+    "excludedproject",
+    "EXCLUDEDPROJECT",
+    "eXcLuDeDpRoJeCt",
+    "excluded-frontend",
+    "EXCLUDED-FRONTEND",
   ]) {
     const input = {
       id: "excluded-record",

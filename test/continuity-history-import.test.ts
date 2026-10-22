@@ -3,7 +3,7 @@ import test from "node:test";
 import { projectTranscriptEntry } from "../lib/continuity/history-import.ts";
 
 const policy = {
-  excludedProjectIds: ["onedee", "onedeex-frontend"],
+  excludedProjectIds: ["excludedproject", "excluded-frontend"],
   excludedPaths: [],
 };
 const source = {
@@ -90,7 +90,7 @@ test("native history adapter excludes tools, automation, failed output and overs
   );
 });
 
-test("native history adapter rejects credentials, retires name-only ban and retains explicit import exclusions", () => {
+test("native history adapter rejects credentials and excludes project identities, not prose mentions", () => {
   const marker = "ghp_" + "Z".repeat(24);
   const secret = projectTranscriptEntry(
     entry("user", [{ type: "text", text: marker }]),
@@ -99,7 +99,11 @@ test("native history adapter rejects credentials, retires name-only ban and reta
   );
   assert.equal(secret.records.length, 0);
   assert.ok(!JSON.stringify(secret).includes(marker));
-  for (const text of ["OneDee", "onedeex-frontend", "ONEDEE"]) {
+  for (const text of [
+    "ExcludedProject",
+    "excluded-frontend",
+    "EXCLUDEDPROJECT",
+  ]) {
     const excluded = projectTranscriptEntry(
       entry("user", [{ type: "text", text }]),
       source,
@@ -110,7 +114,7 @@ test("native history adapter rejects credentials, retires name-only ban and reta
     assert.equal(
       projectTranscriptEntry(
         entry("user", [{ type: "text", text }]),
-        { ...source, projectId: "onedee" },
+        { ...source, projectId: "excludedproject" },
         policy,
       ).records.length,
       0,

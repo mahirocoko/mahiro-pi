@@ -464,13 +464,24 @@ export default async function activate(pi) {
           );
         const classifierName =
           { find: "find_files", ls: "list_dir" }[name] ?? name;
-        if (
-          name === "bash" &&
-          getPermissionsService(sessionId)?.checkPermission(
-            "bash",
-            input.command,
-          )?.state !== "allow"
-        )
+        // PSS owns aggregate approval and principal selection. Consume before
+        // awaiting transformations; the checker is local to this one execution,
+        // not an event/path cache and not usable by RTK preview or DATA control.
+        const service = getPermissionsService(sessionId);
+        const effectiveBash =
+          name === "bash"
+            ? service?.consumeBashApproval?.({
+                sessionManager: ctx.sessionManager,
+                toolCallId: id,
+                command: input.command,
+              })
+            : undefined;
+        const bashAllowed = (command) =>
+          effectiveBash
+            ? effectiveBash(command)
+            : getPermissionsService(sessionId)?.checkPermission("bash", command)
+                ?.state === "allow";
+        if (name === "bash" && !bashAllowed(input.command))
           throw Error("Native final Bash permission denied");
         if (signal?.aborted) throw new Error("Pi guard execution cancelled");
         const executionContext = { ...ctx, signal: signal ?? ctx.signal };
@@ -480,16 +491,12 @@ export default async function activate(pi) {
           executionContext,
         );
         const final =
-          name === "bash" ? await rtk.transform(args, executionContext) : args;
+          name === "bash"
+            ? await rtk.transform(args, executionContext, effectiveBash)
+            : args;
         if (signal?.aborted || !ownsContext(ctx))
           throw new Error("Pi guard node unavailable; execution blocked");
-        if (
-          name === "bash" &&
-          getPermissionsService(sessionId)?.checkPermission(
-            "bash",
-            final.command,
-          )?.state !== "allow"
-        )
+        if (name === "bash" && !bashAllowed(final.command))
           throw Error("Native final Bash permission denied");
         if (name !== "bash") vetoFinalPath(name, final);
         return native.execute(id, final, signal, update, ctx);

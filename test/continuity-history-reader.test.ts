@@ -16,7 +16,7 @@ import {
 } from "../lib/continuity/records.ts";
 
 const policy = {
-  excludedProjectIds: ["onedee", "onedeex-frontend"],
+  excludedProjectIds: ["excludedproject", "excluded-frontend"],
   excludedPaths: [],
 };
 const scope = { projectId: "demo" };
@@ -248,14 +248,17 @@ test("untrusted archives fail closed on secrets, metadata, schema, roles, projec
       a.records[0].agentId = "sk-" + "Z".repeat(24);
     },
     (a) => {
-      a.records[0].conversationId = "ONEDEE";
+      a.records[0].conversationId = "EXCLUDEDPROJECT";
     },
     (a) => {
-      a.records[0].text = "Historical ONEDEEX-FRONTEND evidence";
+      a.records[0].text = "Historical EXCLUDED-FRONTEND evidence";
       a.records[0].hash = digest(a.records[0].text);
     },
     (a) => {
-      a.quarantine.push({ id: "OneDee", reason: "automated-or-empty" });
+      a.quarantine.push({
+        id: "ExcludedProject",
+        reason: "automated-or-empty",
+      });
     },
     (a) => {
       a.records[0].projectId = "elsewhere";
@@ -290,7 +293,7 @@ test("untrusted archives fail closed on secrets, metadata, schema, roles, projec
     f.save();
     await rejects(() => searchHistory(f.access, policy, "evidence", scope));
   }
-  for (const project of ["OneDee", "ONEDEEX-FRONTEND"]) {
+  for (const project of ["ExcludedProject", "EXCLUDED-FRONTEND"]) {
     const f = fixture([archive("excluded", project)]);
     await rejects(() =>
       searchHistory(f.access, policy, "evidence", {

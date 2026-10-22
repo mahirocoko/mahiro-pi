@@ -13,7 +13,7 @@ import { normalize } from "../lib/continuity/records.ts";
 import { createStore } from "../lib/continuity/store.ts";
 import { createRuntime } from "../lib/continuity/runtime.ts";
 
-const policy = { excludedProjectIds: ["onedee"], excludedPaths: [] };
+const policy = { excludedProjectIds: ["excludedproject"], excludedPaths: [] };
 function fixture() {
   const parent = resolve(".agent-state/runtime/continuity-tests");
   mkdirSync(parent, { recursive: true, mode: 0o700 });
@@ -409,10 +409,10 @@ test("generation replacement and actual pointer-target denial prevent publish", 
   }
 });
 
-test("extension input cannot admit learning; ordinary OneDee-named scopes are no longer name-banned", () => {
+test("extension input cannot admit learning; ordinary named projects remain eligible", () => {
   const f = fixture();
   try {
-    f.ctx.cwd = join(f.root, "OneDee");
+    f.ctx.cwd = join(f.root, "NeutralProject");
     mkdirSync(f.ctx.cwd, { mode: 0o700 });
     f.input("Synthetic extension text", "extension");
     f.settle();

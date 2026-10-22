@@ -35,7 +35,7 @@ test("owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
   const dir = fs.mkdtempSync(path.join(evidence, "one-install-"));
   const profile = path.join(dir, "profile");
   const projectA = path.join(dir, "project-a");
-  const projectB = path.join(dir, "onedeex-frontend");
+  const projectB = path.join(dir, "project-b");
   for (const p of [profile, projectA, projectB])
     fs.mkdirSync(p, { mode: 0o755 });
   const unrelated = path.join(dir, "unrelated-halo");

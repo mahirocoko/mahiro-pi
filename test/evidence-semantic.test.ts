@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { fixture, saveEnv } from "./evidence-fixture.ts";
+import { gitFixture, saveEnv } from "./evidence-fixture.ts";
 
 test("actual original differential: four lanes, revisions, content freshness, retained stale history, verdicts and handoff", async () => {
   const restore = saveEnv();
@@ -14,7 +14,7 @@ test("actual original differential: four lanes, revisions, content freshness, re
   ];
   const saved = names.map((name) => process.env[name]);
   try {
-    const f = await fixture(),
+    const f = await gitFixture(),
       { m, s, b } = f;
     fs.writeFileSync(path.join(f.project, "committed"), "committed\n");
     f.git("add", ".");

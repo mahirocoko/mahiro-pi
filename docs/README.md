@@ -1,56 +1,37 @@
-# Feature guide
+# Documentation
 
 [← Mahiro Pi](../README.md)
 
-Start with [installation and upgrades](getting-started.md). Each feature below has
-one guide; deeper contracts stay with their owning implementation, not this index.
+## Install and configure
 
-## Presentation
+- [Installation and upgrades](getting-started.md) — requirements, preview/apply,
+  profile selection and intentional fresh loading.
+- [Profile installation contract](bootstrap.md) — exact grants, default-deny
+  consent, optional BASIC read policy and reviewed advanced composition.
+- [Guards and permissions](guards.md) — public PSS, effective Bash approval,
+  final checks and the limits of file-access enforcement.
 
-- [UI and theme](claude-ui.md) — Neko-Stack header, built-in and PowerShell rows,
-  split/word edit diffs with a wrap fallback, submitted-content write previews
-  and runtime-only settings.
-- [Status and usage](status.md) — authored footer, one streaming activity line,
-  Git, native usage and Herdr display metadata; native direct OpenAI quota is
-  deliberately absent.
-- [Completion voice](finish-voice.md) — macOS-only successful-settlement notification.
+## Use the package
 
-## Knowledge and execution safety
+- [UI and theme](claude-ui.md) — header, tool rows, edit/write previews and appearance Save.
+- [Status and notifications](status.md) — usage, activity, quota boundaries and completion voice.
+- [RTK](rtk.md) — modes, resolver bounds and guarded failure behavior.
+- [Memory and historical recall](agent-memory.md) — maintained knowledge, discovery,
+  scoped writing, conflict recovery and separate quotation controls.
+- [Agents and skills](agents.md) — package-owned role registration and commit authorization.
+- [Workflow tools](workflows.md) — [Goals](workflows.md#goals),
+  [Code Evidence](workflows.md#code-evidence), [UX workflow](workflows.md#ux-workflow)
+  and [Execution Run](workflows.md#execution-run).
+- [Utilities and Code Map](utilities.md) — guidance, copy, clock metadata and navigation.
+- [Herdr integrations](integrations.md) — optional worker counts and private Web observation.
 
-- [Managed memory](agent-memory.md) — maintained Markdown/Git knowledge, discovery,
-  lexical queries, private drafts/CAS and scoped writers.
-- [Continuity](continuity.md) — historical recall, literal quotation notes,
-  correction/forget controls and the distinction from maintained knowledge.
-- [Guards and permissions](guards.md) — single Root guard, public policy owner,
-  exact grants, public secret-read policy, attribution checks and native execution.
-- [RTK](rtk.md) — visible mode, bounded resolver, guarded proposals and explicit control.
-- [Agents and skills](agents.md) — three owned roles, local personal roles and
-  the native [commit skill](../skills/git-commit/SKILL.md).
+## Develop and release
 
-## Workflow tools
+- [Development and release](development.md) — dependency supply, checks and source artifacts.
+- [v0.3.0 release record](releases/0.3.0.md) — dated delivered scope. Its historical
+  runtime-only appearance limitation predates the current guarded Save contract;
+  use [UI documentation](claude-ui.md) for current behavior.
+- [Third-party notices](../THIRD_PARTY_NOTICES.md) — palette attribution and license notice.
 
-| Guide | Main entry point | Not its responsibility |
-| --- | --- | --- |
-| [Utilities](utilities.md) | `/realign`, `/mh-copy-code`, run-start metadata | Human identity, permission, queue edits or automatic state changes |
-| [Code Map](code-map.md) | `mh_code_map` | Executing searches or indexing source |
-| [Goals](goal.md) | `/mh-goal`, four Goal tools | Automatic missions or claiming human criteria |
-| [Code Evidence](evidence.md) | `/mh-evidence`, `mh_code_evidence` | Executing recorded commands or verifying their claims |
-| [UX workflow](ux-workflow.md) | `/mh-ux`, three UX tools | Design execution or approving human gates |
-| [Execution runs](execution-run.md) | `/mh-run`, `mh_execution_run` | Launching workers, CLI, Git or worktrees |
-
-The live task board owns tasks and acceptance. These optional metadata features
-do not replace it or create one another.
-
-## Integrations and operations
-
-- [Worker activity](worker-activity.md) — optional Herdr counts from the native
-  parent-scoped service, not a second child lifecycle.
-- [Herdr Web observer](herdr-web-activity.md) — explicit session opt-in,
-  private v1 receipts, bounded metadata and UNKNOWN when unavailable.
-- [Installation contract](bootstrap.md) — advanced reviewed composition,
-  default-deny consent, exact DATA grants and preservation/recovery.
-- [Development and release](development.md) — checks, artifact safety and
-  ordinary GitHub source publication.
-- [v0.3.0 release notes](releases/0.3.0.md) — delivered changes and evidence limits.
-- [Integration reference](integrations.md) — dated deployment, provenance and
-  upstream ownership records; historical slices are not current activation steps.
+Source and offline fixtures establish only their checked layer. Installation,
+fresh loading, provider behavior and rendered/human acceptance are separate.

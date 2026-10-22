@@ -1,6 +1,6 @@
 # Installation and upgrades
 
-[← Feature guide](README.md) · [Advanced bootstrap contract](bootstrap.md)
+[← Documentation](README.md) · [Advanced bootstrap contract](bootstrap.md)
 
 ## Requirements
 
@@ -12,7 +12,7 @@
 - Your own Pi provider/auth setup. Installation never copies credentials, selects
   a provider/model or changes personal roles.
 
-No Mods, Letta or sibling runtime checkout is required. Source releases are on
+No sibling runtime or legacy checkout is required. Source releases are on
 [GitHub](https://github.com/mahirocoko/mahiro-pi/releases), not npm.
 The package remains `private: true` / `UNLICENSED`; public visibility is not a
 license change. Palette attribution remains in
@@ -43,6 +43,8 @@ pnpm install:profile --agent-dir /absolute/canonical/profile
 
 A fresh memory root receives only a neutral scaffold through the guarded native
 SDK pipeline with deterministic Faux transport: **zero external inference**.
+Standard installation enables automatic reflection for that new root only;
+existing memory policy is preserved.
 Existing Core/config/ledger/data are preserved, not imported or reseeded.
 RTK defaults to `rewrite-rtk` only when no existing selection prevents it;
 explicit `off` remains off. Review [memory](agent-memory.md) and [RTK](rtk.md).
@@ -82,10 +84,17 @@ The package registers a rendering-only UI adapter and the optional
 /mh-ui live-tail off
 ```
 
-These choices are **runtime-only** and reset on reload. To keep the startup header
-without resource listings, choose native `/settings` → Quiet startup → `header`
-(`quietStartup: "header"`). That host setting persists independently.
-See [UI details and limitations](claude-ui.md).
+Live preview, **Apply for this runtime** and `/mh-ui theme` commands are
+**runtime-only**; they never autosave. **Save preferences** explicitly persists
+only the supported own-UI appearance choices after the installer provisions the
+exact own-UI DATA grant and the Root owner authorizes access. Authorized TUI
+startup/resume/reload loads that record. Missing, denied or corrupt storage is
+unavailable, never reported saved. `/mh-ui live-tail` is not saved, and own-UI
+Save does not persist the host's global theme selection or arbitrary themes.
+
+To keep the startup header without resource listings, choose native `/settings`
+→ Quiet startup → `header` (`quietStartup: "header"`). That host setting persists
+independently. See [UI details and limitations](claude-ui.md).
 
 ## Optional integrations
 
@@ -93,12 +102,12 @@ The main manifest has 13 ordered resources: bootstrap, one Root guard, ten
 preserved features and the UI adapter. The worker-activity extension is separate.
 Configure it only when you explicitly want native child metadata, using Pi's
 public extension settings and the exact canonical resource. Do not load a second
-child manager or Web producer alongside it. See [worker activity](worker-activity.md).
+child manager or Web producer alongside it. See [Herdr integrations](integrations.md).
 
 Even with that resource loaded, the Web observer stays off until
 `/mh-herdr-web-observer start` in the intended interactive session.
 Its directory privacy and parent/PID binding are required, not repaired for you.
-[Web setup](herdr-web-activity.md) explains the separate consumer and TTL.
+[Web setup](integrations.md#web-observer) explains the separate consumer and TTL.
 
 ## Other setup commands
 

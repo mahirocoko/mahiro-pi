@@ -1,63 +1,93 @@
 # Guards and permissions
 
-[← Feature guide](README.md) · [Installation](getting-started.md) · [RTK](rtk.md)
+[← Documentation](README.md) · [Installation policy](bootstrap.md) · [RTK](rtk.md)
 
-Mahiro Pi uses **one Root native guard** and the public permission-system as the
-sole policy resolver. It does not run a second permission engine, borrow another
-host's grants or replace native tool/subagent ownership.
+Mahiro Pi uses **one Root native guard** and the public permission-system (PSS)
+as the sole policy resolver. It does not add a second permission engine, borrow
+another host's grants or replace native subagent ownership.
 
-## What is enforced
+## File access and command policy are different
 
-- Canonical healthy execution context and exact tool provenance.
-- Existing public tool/path policy, including retained denies.
-- Secret reads through that public policy, including the opt-in BASIC
-  `path_read` defaults described in [the installation contract](bootstrap.md).
-  The custom secret checker is not a second resolver. Its four filtered
-  helpers remain, and an omitted helper path is still a native path decision.
-- Commit-attribution checks at final execution.
-- A second public path or Bash check after ordinary and codemode argument
-  changes. A matched deny blocks. A matched ask passes only by consuming a
-  public `permissions:decision` allow for the same surface and path from the
-  current turn, so a one-time approval passes once and a path rewritten after
-  the gate is refused without a second prompt. An unmatched universal fallback
-  stays with the public gate, and an approval already recorded as allow still
-  passes.
-- RTK authorization for original, proposed and sanitizer-transformed final
-  arguments before native spawn.
-- Separate exact feature-DATA capabilities for private feature storage.
+File-access policy concerns actual recognized file-path operands, not arbitrary
+text in a comment, prompt, query, patch or submitted content. Such text is not
+itself a file read. Explicit tool/path/Bash rules still apply; commit-attribution
+and managed-memory content screening have separate contracts.
 
-The manifest starts with `lib/guards/bootstrap.mjs`, then
-`lib/guards/index.ts`; features follow. The authored dependency patches and
-pinned public packages are part of this repository's contract. No Mods checkout
-is required. Loading source grants no capability.
+PSS's Bash path gate checks the **first recognized operand**, using its supported
+command grammar. It is not an exhaustive traversal of every operand, chain,
+redirection, wrapper or interpreter program. Root's final Bash recheck evaluates
+**command policy**, not general shell/interpreter file-access inference.
+An allowed command is not proof that every file it might access was inspected.
 
-## Installation is explicit, not a bypass
+These are cooperating native execution checks, **not an OS sandbox** or
+protection against hostile same-user extensions. PowerShell execution is currently
+blocked by Root because its classifier is unsupported; preserving its renderer
+does not imply execution support.
 
-`pnpm install:profile --preview` explains the intended composition.
-A reviewed apply may register required owners, roles and narrow tool/DATA grants.
-It preserves restrictions, explicit offs, existing private memory and unrelated
-settings. Unsupported/restricted requirements refuse rather than silently
-reporting usable installation.
+## Native final execution
 
-The optional `--remove-default-deny` flag removes only scalar top-level
-`permission["*"]: "deny"` by explicit consent. It neither sets blanket allow nor
-overrides targeted restrictions. Public permission fallback remains `ask`;
-existing yolo behavior is unchanged. See [the full policy contract](bootstrap.md).
+The manifest loads `lib/guards/bootstrap.mjs`, then `lib/guards/index.ts`,
+before features. Root checks healthy canonical context, public native-tool
+provenance, cancellation, commit attribution and final arguments before spawn.
+Loading source grants no capability.
 
-## Failure and ownership
+For path tools, final execution queries public policy again after argument
+changes. A matched deny blocks. A matched ask requires consuming a same-turn
+public `permissions:decision` allow for that exact surface/path; a rewritten
+path cannot borrow it. Unmatched universal path fallback stays with the public gate.
 
-A denial, unhealthy canonical node, unsupported alias or missing provenance is
-not permission to retry through a helper, changed command spelling or another
-executor. Stop, preserve the actual state and resolve the named owner/contract.
-Do not disable guards, copy credentials or add a second guard.
+Secret reads use public policy, not a mandatory parallel secret resolver.
+Optional [BASIC read defaults](bootstrap.md#optional-basic-read-defaults) are
+finite and incomplete. Four filtered helpers remain for inspecting configuration
+without exposing values: `mh_npm_config`, `mh_env_config`, `mh_pypi_config`
+and `mh_certificate_info`. Their explicit or default paths still undergo
+native path decisions; a filtered helper is not a policy bypass.
 
-Native subagents keep their own policy and exact session owner. Primary control
-does not automatically authorize a child or grant it maintained-memory writes.
-The locked writer's narrow tools and scoped private view remain separate.
+## Effective Bash approval
 
-Commands and source tests do not prove actual profile activation. An upgrade
-must align the version-bound source, dependencies and public factories before an
-intentional fresh load; offline/Faux evidence is not provider or human proof.
-Original Letta guards remain historical differential fixtures, not runtime
-dependencies. Public source visibility does not expose private profiles or
-managed-memory state.
+The authored PSS patch exposes optional `consumeBashApproval`. Only the
+**aggregate successful native Bash pipeline** mints a bounded one-shot receipt,
+bound before awaiting to:
+
+- Exact SessionManager object and native session ID;
+- Full toolCallId and complete original command, including heredoc body;
+- Current cwd and the PSS-selected principal.
+
+Root consumes the receipt **before asynchronous transformations**. The returned
+execution-local checker re-queries current Bash policy under that principal.
+Deny always vetoes. Only the identical effectively approved command may lift an
+ask/yolo floor; a changed original, RTK candidate or sanitizer-transformed final
+command needs independent **non-yolo allow**. Approval of one command is not
+authority for a rewrite.
+
+Unit decision events and path caches never supply Bash authority. Completion,
+cancellation, turn end, reload and shutdown revoke receipts and retained
+checkers; late approvals from old generations cannot restore them. Without the
+capability or valid receipt, Root retains raw allow checks and refuses asks.
+This is not a second prompt or a replacement for other PSS pipeline gates.
+
+RTK checks the original, proposal and final sanitized command before native
+spawn. Direct `git commit` bypasses the RTK helper, not commit-attribution checks.
+
+## Feature authority and failures
+
+Private feature data uses separate exact capabilities with public winning-rule
+attestation. Missing, old, malformed, wildcard-only or yolo-substituted authority
+does not become an exact DATA grant. Primary control does not transfer policy to
+a native child or authorize maintained-memory writes.
+
+Installation may register reviewed owners and grants but preserves targeted
+restrictions. `--remove-default-deny` removes only scalar
+`permission["*"]: "deny"` with explicit consent; it never grants blanket allow.
+See [bootstrap](bootstrap.md) for refusal and recovery behavior.
+
+A denial, unsupported alias, unhealthy context or missing provenance is not
+permission to retry through a helper or another executor. Resolve the named
+owner rather than disabling guards or forging metadata.
+
+Owners: [Root guard](../lib/guards/index.ts) and the authored
+[PSS patch](../patches/@gotgenes__pi-permission-system@40.2.2.patch).
+Source declarations and offline SDK/Faux fixtures do not prove that installed
+dependencies are patched or a running session loaded them. Installation and an
+intentional fresh load must align source, public factories and version-bound
+provenance.

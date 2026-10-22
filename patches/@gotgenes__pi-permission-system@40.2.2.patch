@@ -1,24 +1,8 @@
-diff --git a/src/types.ts b/src/types.ts
---- a/src/types.ts
-+++ b/src/types.ts
-@@ -68,6 +68,13 @@
- 
- export interface PermissionCheckResult {
-   toolName: string;
-+  /**
-+   * Surface pattern of the actual winning rule, not the queried toolName or
-+   * value matchedPattern. Optional for older/unattested producers. Defaults,
-+   * session rules and yolo rewrites retain their real rule surface; consumers
-+   * must also check state/source/origin, never treat this metadata as a grant.
-+   */
-+  matchedSurface?: string;
-   state: PermissionState;
-   /** Custom denial reason from a deny-with-reason pattern, when present. */
-   reason?: string;
 diff --git a/dist/public.d.ts b/dist/public.d.ts
+index 1323d5f..ab8c95e 100644
 --- a/dist/public.d.ts
 +++ b/dist/public.d.ts
-@@ -45,6 +45,13 @@
+@@ -45,6 +45,13 @@ type BashCommandContext = "command_substitution" | "process_substitution" | "sub
  type FloorExemption = "core-reader" | "execution-modifier" | "no-command";
  interface PermissionCheckResult {
      toolName: string;
@@ -32,10 +16,70 @@ diff --git a/dist/public.d.ts b/dist/public.d.ts
      state: PermissionState;
      /** Custom denial reason from a deny-with-reason pattern, when present. */
      reason?: string;
+@@ -626,6 +633,14 @@ interface PermissionQuery {
+  * rules internally.
+  */
+ interface PermissionsService extends PermissionQuery {
++    /** One-shot aggregate native Bash approval, bound to exact manager/session/id/full command.
++     * Rechecks gate principal; denies veto, changed commands require non-yolo allow.
++     * Revoked on cancellation, completion, turn/session end and reload. */
++    consumeBashApproval?(request: {
++        sessionManager: { getSessionId(): string };
++        toolCallId: string;
++        command: string;
++    }): ((command: string) => boolean) | undefined;
+     /**
+      * Whether every value under a tool's surface resolves to `deny`.
+      *
+diff --git a/src/handlers/permission-gate-handler.ts b/src/handlers/permission-gate-handler.ts
+index 5ff2d78..6e0103a 100644
+--- a/src/handlers/permission-gate-handler.ts
++++ b/src/handlers/permission-gate-handler.ts
+@@ -73,7 +73,23 @@ export class PermissionGateHandler {
+       cwd: ctx.cwd,
+     };
+
+-    return await this.pipeline.evaluate(tcc, this.runner);
++    // Snapshot the full native command before any asynchronous gate/prompt.
++    // Publish authority only after ALL gates allow, never from per-unit events.
++    const command = toRecord(input).command;
++    const approve =
++      toolName === "bash"
++        ? this.session.beginBashApproval(ctx, toolCallId, command, agentName)
++        : undefined;
++    try {
++      const outcome = await this.pipeline.evaluate(tcc, this.runner);
++      if (outcome.action === "allow" && toRecord(input).command === command)
++        approve?.();
++      else if (approve) this.session.forgetBashApproval(toolCallId);
++      return outcome;
++    } catch (error) {
++      if (approve) this.session.forgetBashApproval(toolCallId);
++      throw error;
++    }
+   }
+
+   async handleInput(
+diff --git a/src/index.ts b/src/index.ts
+index 45ac5d0..6b6ff70 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -387,6 +387,10 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
+   pi.on("session_shutdown", () => lifecycle.handleSessionShutdown());
+   pi.on("before_agent_start", (event, ctx) => agentPrep.handle(event, ctx));
+   pi.on("input", (event, ctx) => gates.handleInput(event, ctx));
++  pi.on("turn_end", () => session.clearBashApprovals());
++  pi.on("tool_execution_end", (event) =>
++    session.forgetBashApproval(event.toolCallId),
++  );
+   pi.on(
+     "tool_call",
+     createFailClosedToolCall(
 diff --git a/src/policy/permission-manager.ts b/src/policy/permission-manager.ts
+index ed9b0de..16c362c 100644
 --- a/src/policy/permission-manager.ts
 +++ b/src/policy/permission-manager.ts
-@@ -465,6 +465,7 @@
+@@ -465,6 +465,7 @@ function evaluateCheck(
    return {
      result: {
        toolName,
@@ -43,3 +87,233 @@ diff --git a/src/policy/permission-manager.ts b/src/policy/permission-manager.ts
        state: rule.action,
        reason: rule.reason,
        matchedPattern:
+diff --git a/src/service/permissions-service.ts b/src/service/permissions-service.ts
+index dd46503..a9e245d 100644
+--- a/src/service/permissions-service.ts
++++ b/src/service/permissions-service.ts
+@@ -34,6 +34,13 @@ interface ResolverForService {
+ /** Narrow session view: hands out the cwd-bound path normalizer. */
+ interface PathNormalizerProvider {
+   getPathNormalizer(): PathNormalizer;
++  consumeBashApproval(request: {
++    sessionManager: { getSessionId(): string };
++    toolCallId: string;
++    command: string;
++  }):
++    | { current(): boolean; command: string; agentName: string | undefined }
++    | undefined;
+ }
+
+ /**
+@@ -83,6 +90,26 @@ export class LocalPermissionsService implements PermissionsService {
+     return this.resolver.resolve(intent);
+   }
+
++  consumeBashApproval(request: {
++    sessionManager: { getSessionId(): string };
++    toolCallId: string;
++    command: string;
++  }): ((command: string) => boolean) | undefined {
++    const approval = this.session.consumeBashApproval(request);
++    if (!approval) return undefined;
++    return (command) => {
++      if (!approval.current()) return false;
++      const check = this.checkPermission("bash", command, approval.agentName);
++      if (!approval.current() || check.state === "deny") return false;
++      // Only the exact aggregate-approved command may lift an ask/yolo floor.
++      // Rewrites still need independent recorded policy, never this receipt.
++      return (
++        command === approval.command ||
++        (check.state === "allow" && check.origin !== "yolo")
++      );
++    };
++  }
++
+   getToolPermission(
+     toolName: string,
+     agentName?: string,
+diff --git a/src/service.ts b/src/service.ts
+index 3348223..3db9d11 100644
+--- a/src/service.ts
++++ b/src/service.ts
+@@ -130,6 +130,21 @@ export interface PermissionQuery {
+  * rules internally.
+  */
+ export interface PermissionsService extends PermissionQuery {
++  /**
++   * Consume this turn's aggregate native Bash approval once. Exact session-manager
++   * identity, native session id, full toolCallId and full original command bind it.
++   * The returned execution-local checker re-queries under the gate's principal:
++   * denies always veto; only the identical command may lift an effective-approved
++   * ask/yolo floor. Rewrites require independent non-yolo allow. Completion,
++   * cancellation, turn end, reload and shutdown revoke it, including in-flight gates.
++   * Older owners omit this optional capability; consumers must fail closed on ask.
++   */
++  consumeBashApproval?(request: {
++    sessionManager: { getSessionId(): string };
++    toolCallId: string;
++    command: string;
++  }): ((command: string) => boolean) | undefined;
++
+   /**
+    * Whether every value under a tool's surface resolves to `deny`.
+    *
+diff --git a/src/session/permission-session.ts b/src/session/permission-session.ts
+index b089562..7c80cf5 100644
+--- a/src/session/permission-session.ts
++++ b/src/session/permission-session.ts
+@@ -43,6 +43,103 @@ import type { SessionRules } from "./session-rules";
+  */
+ export class PermissionSession implements ToolCallGateInputs {
+   private context: ExtensionContext | null = null;
++  private bashEpoch = 0;
++  private readonly bashPending = new Map<string, object>();
++  private readonly bashApprovals = new Map<
++    string,
++    {
++      manager: ExtensionContext["sessionManager"];
++      sessionId: string;
++      command: string;
++      signal: AbortSignal | undefined;
++      cwd: string;
++      agentName: string | undefined;
++      token: object;
++    }
++  >();
++
++  /** Ephemeral full-invocation authority; never reconstructed from unit events. */
++  clearBashApprovals(): void {
++    this.bashEpoch++;
++    this.bashApprovals.clear();
++    this.bashPending.clear();
++  }
++
++  forgetBashApproval(id: string): void {
++    this.bashApprovals.delete(id);
++    this.bashPending.delete(id);
++  }
++
++  beginBashApproval(
++    ctx: ExtensionContext,
++    id: string,
++    command: unknown,
++    agentName: string | null,
++  ): () => void {
++    this.bashApprovals.delete(id);
++    if (this.bashPending.size >= 256) this.clearBashApprovals();
++    const token = {};
++    this.bashPending.set(id, token);
++    const epoch = this.bashEpoch;
++    const manager = ctx.sessionManager;
++    const sessionId = manager.getSessionId();
++    const cwd = ctx.cwd;
++    const signal = ctx.signal;
++    return () => {
++      if (this.bashPending.get(id) !== token) return;
++      if (
++        !id ||
++        typeof command !== "string" ||
++        !command ||
++        signal?.aborted ||
++        epoch !== this.bashEpoch ||
++        this.context?.sessionManager !== manager ||
++        manager.getSessionId() !== sessionId ||
++        ctx.cwd !== cwd
++      )
++        return;
++      // Bound even if a consumer never executes a permitted call.
++      if (this.bashApprovals.size >= 256) this.bashApprovals.clear();
++      this.bashApprovals.set(id, {
++        manager,
++        sessionId,
++        command,
++        signal,
++        cwd,
++        agentName: agentName ?? undefined,
++        token,
++      });
++    };
++  }
++
++  consumeBashApproval(request: {
++    sessionManager: { getSessionId(): string };
++    toolCallId: string;
++    command: string;
++  }):
++    | { current(): boolean; command: string; agentName: string | undefined }
++    | undefined {
++    const approval = this.bashApprovals.get(request.toolCallId);
++    // Every attempt consumes, including a mismatching command.
++    this.bashApprovals.delete(request.toolCallId);
++    if (
++      !approval ||
++      request.sessionManager !== approval.manager ||
++      request.command !== approval.command
++    )
++      return undefined;
++    const epoch = this.bashEpoch;
++    const current = () =>
++      epoch === this.bashEpoch &&
++      this.bashPending.get(request.toolCallId) === approval.token &&
++      !approval.signal?.aborted &&
++      this.context?.sessionManager === approval.manager &&
++      this.context?.cwd === approval.cwd &&
++      approval.manager.getSessionId() === approval.sessionId;
++    return current()
++      ? { current, command: approval.command, agentName: approval.agentName }
++      : undefined;
++  }
+   private skillEntries: SkillPromptEntry[] = [];
+   private knownAgentName: string | null = null;
+   private pathNormalizer: PathNormalizer;
+@@ -75,6 +172,8 @@ export class PermissionSession implements ToolCallGateInputs {
+    * fail-open gap if a tool call ever arrives before `session_start`.
+    */
+   activate(ctx: ExtensionContext): void {
++    if (this.context?.sessionManager !== ctx.sessionManager)
++      this.clearBashApprovals();
+     this.context = ctx;
+     this.pathNormalizer = new PathNormalizer(this.flavor, ctx.cwd);
+     this.forwarding.start(ctx);
+@@ -83,6 +182,7 @@ export class PermissionSession implements ToolCallGateInputs {
+
+   /** Clear the context, stop forwarding, and deactivate the authorizer selection. */
+   deactivate(): void {
++    this.clearBashApprovals();
+     this.context = null;
+     this.forwarding.stop();
+     this.authorizerSelection.deactivate();
+@@ -111,6 +211,7 @@ export class PermissionSession implements ToolCallGateInputs {
+    * entries, and activates the new context.
+    */
+   resetForNewSession(ctx: ExtensionContext, projectTrusted: boolean): void {
++    this.clearBashApprovals();
+     this.permissionManager.configureForCwd(
+       projectTrusted ? ctx.cwd : undefined,
+     );
+@@ -139,6 +240,7 @@ export class PermissionSession implements ToolCallGateInputs {
+    * later reload re-includes the project scope (#644).
+    */
+   reload(projectTrusted: boolean): void {
++    this.clearBashApprovals();
+     this.permissionManager.configureForCwd(
+       projectTrusted ? this.context?.cwd : undefined,
+     );
+diff --git a/src/types.ts b/src/types.ts
+index 6c9ed8f..9f07127 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -68,6 +68,13 @@ export type FloorExemption =
+
+ export interface PermissionCheckResult {
+   toolName: string;
++  /**
++   * Surface pattern of the actual winning rule, not the queried toolName or
++   * value matchedPattern. Optional for older/unattested producers. Defaults,
++   * session rules and yolo rewrites retain their real rule surface; consumers
++   * must also check state/source/origin, never treat this metadata as a grant.
++   */
++  matchedSurface?: string;
+   state: PermissionState;
+   /** Custom denial reason from a deny-with-reason pattern, when present. */
+   reason?: string;

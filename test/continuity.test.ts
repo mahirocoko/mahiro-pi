@@ -22,8 +22,8 @@ import {
 import { createStore, type IProposal } from "../lib/continuity/store.ts";
 
 const policy = {
-  excludedProjectIds: ["OneDee"],
-  excludedPaths: ["/excluded/OneDee"],
+  excludedProjectIds: ["ExcludedProject"],
+  excludedPaths: ["/excluded/ExcludedProject"],
 };
 const message = (
   id: string,
@@ -359,8 +359,8 @@ test("DTO whitelist, wrappers, duplicate conflicts, invalid identity/date/path a
   assert.equal(
     normalize(
       [
-        message("excluded", "no touch", "OneDee"),
-        { ...safe, path: "/excluded/OneDee/source.md" },
+        message("excluded", "no touch", "ExcludedProject"),
+        { ...safe, path: "/excluded/ExcludedProject/source.md" },
       ],
       policy,
     ).records.length,

@@ -6,7 +6,7 @@ import {
 } from "../lib/continuity/memory-import.ts";
 import { bytes, digest, normalize } from "../lib/continuity/records.ts";
 
-const policy = { excludedProjectIds: ["onedee"], excludedPaths: [] };
+const policy = { excludedProjectIds: ["excludedproject"], excludedPaths: [] };
 const document = (text: string): ISourceMemoryDocument => ({
   relativePath: "demo/overview.md",
   sourcePath: "/approved/source/demo/overview.md",
@@ -95,8 +95,10 @@ test("memory import validates source hashes, paths, exclusions and opaque metada
     /Invalid/,
   );
   assert.equal(
-    prepareMemoryDocuments([{ ...source, projectId: "OneDee" }], policy).imports
-      .length,
+    prepareMemoryDocuments(
+      [{ ...source, projectId: "ExcludedProject" }],
+      policy,
+    ).imports.length,
     0,
   );
   const marker = "ghp_" + "Z".repeat(24);

@@ -1,6 +1,6 @@
 # Native utilities
 
-[← Feature guide](README.md)
+[← Documentation](README.md)
 
 ## Realign
 
@@ -20,8 +20,8 @@ run, separately from the original user's text and attachments. It is the
 **run-start clock**, not keypress/receipt time, authenticated human identity,
 instructional evidence or permission.
 
-Disable it with `--mahiro-user-timestamps-disable`. No Letta sentinel or new
-global configuration is created. Realign and clock metadata do not execute tools
+Disable it with `--mahiro-user-timestamps-disable`. No new global
+configuration is created. Realign and clock metadata do not execute tools
 or overwrite the user input.
 
 ## Copy code
@@ -46,6 +46,28 @@ not applied.
 Owners: `extensions/mahiro-native-utilities.ts`, `lib/native-utilities.ts` and
 `lib/copy-code.ts`.
 
-The [integration reference](integrations.md#native-utility-port--source-only-first-all-mods-slice)
-contains native adaptation and fixture details; its original source-only slice
-is dated history, not proof of the current session's loaded version.
+## Code Map
+
+`mh_code_map` returns bounded repository-navigation guidance from caller-supplied
+metadata. It does not search files, build an index, infer an outline or verify
+source. It has no slash command.
+
+```json
+{"intent":"exact","query":"createWebActivityPublisher","path_hints":["lib/worker-activity-web.ts"]}
+```
+
+Intents are `semantic`, `exact` and `outline`. Guidance points to a subsequent
+real search or bounded read. Path/language hints, navigation entries, optional
+large-read guidance and Goal/Evidence references remain metadata, not proof a
+file exists, permission to read it or evidence attachment. Formatting is bounded
+to 3000 characters; registration/formatting do not scan workspace source.
+
+Execution requires the exact named capability, healthy canonical source and
+public winning-rule attestation. Family wildcards or an old unattested service
+are insufficient. Feature DATA installation does not replace Code Map tool
+authority. Canonical checks may read package/provenance/policy metadata, not
+perform the proposed source search.
+
+Owner: [registration](../extensions/mahiro-code-map.ts) and
+[guidance formatter](../lib/code-map.ts). Source availability does not prove
+that the running profile loaded these controls.

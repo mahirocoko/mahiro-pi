@@ -1,6 +1,6 @@
 # Status, usage and Herdr display
 
-[← Feature guide](README.md) · [Worker activity](worker-activity.md)
+[← Documentation](README.md) · [Herdr integrations](integrations.md)
 
 The authored footer presents project/Git/session/activity alongside Pi's model,
 effort/provider, context and native usage. It uses public footer/TUI APIs and
@@ -33,7 +33,7 @@ width/truncation preserves Thai and emoji graphemes.
 
 `lib/activity.ts` owns the one streaming activity line. `extensions/mahiro-status.ts`
 attaches it with Pi's public `setWorkingMessage` and `setWorkingIndicator`.
-The footer, the optional [worker-count widget](worker-activity.md), the native
+The footer, the optional [worker-count widget](integrations.md#worker-counts), the native
 queue and any plan stay separate. This line does not copy their contents.
 
 While a request is running the loader row is one fixed line, for example:
@@ -88,9 +88,27 @@ Native ProgramStatusReporter/OSC 7501 remains untouched.
 
 Generation fencing, monotonic sequence, bounded producers and disposal prevent
 stale work from reviving a replaced owner. Failures do not fail Pi operations.
-The renderer and Halo remain separate products. Optional child counts are covered
-in [worker activity](worker-activity.md), not inferred from the footer.
+Other renderers remain separate products. Optional child counts are covered
+in [integrations](integrations.md#worker-counts), not inferred from the footer.
 
-Owners: `extensions/mahiro-status.ts`, `lib/activity.ts`, `lib/status.ts`,
-`lib/footer.ts` and `lib/herdr.ts`. The [integration reference](integrations.md#preserved-presentation-and-public-data)
-retains detailed palette, quota, heartbeat and cleanup contracts.
+## Completion voice
+
+On macOS, the interactive TUI can announce a successfully settled native run
+with the fixed phrase **“ทำงานเสร็จแล้วค่ะ”**. It does not speak the transcript
+or forward audio to another application. The latest whole-run outcome must be
+completed and final settlement not aborted. Before-settle alone, duplicate
+settlement, errors and cancelled runs do not speak.
+
+Argv-only `say` synthesizes the phrase with Kanya at rate 300 into an owned
+temporary AIFF; `afplay` plays at volume 0.4. Deadlines, a three-second cooldown,
+one active operation and no queue bound playback. Shutdown/reload aborts owned
+work; cleanup removes only its generated temporary directory. Headless/RPC/SDK
+children cannot displace the TUI owner. Foreground terminal focus is not required.
+Non-macOS and notification failures are silent; there is no voice-settings command.
+
+Native settlement remains execution truth. Hearing audio is not task acceptance.
+Silent injected test runners do not prove speakers, voice availability or live audio.
+
+Owners: [status](../extensions/mahiro-status.ts), [activity](../lib/activity.ts),
+[footer](../lib/footer.ts), [Herdr publisher](../lib/status.ts) and
+[completion voice](../lib/finish-voice.ts).

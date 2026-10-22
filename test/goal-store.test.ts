@@ -265,8 +265,9 @@ test("invalid/oversized JSON, symlinks, hardlinks, modes, traversal, conflicting
     assert.throws(() => s.readGoalState(b));
     fs.chmodSync(b.root, 0o700);
     assert.throws(() => s.resolveGoalBinding(`${f.project}/../project`));
+    // Refuse a missing directory, not a particular project name.
     assert.throws(() =>
-      s.resolveGoalBinding(path.join(f.root, "onedeex-frontend")),
+      s.resolveGoalBinding(path.join(f.root, "missing-project")),
     );
     const config = fs.readFileSync(f.config);
     fs.writeFileSync(

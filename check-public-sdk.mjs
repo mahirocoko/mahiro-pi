@@ -65,6 +65,7 @@ const files = [
   "bootstrap-test.mjs",
   "managed-memory-test.mjs",
   "permission-patch-test.mjs",
+  "bash-approval-patch-test.mjs",
   "code-map-blocked-test.mjs",
   "goal-patch-test.mjs",
   "evidence-patch-test.mjs",
