@@ -94,13 +94,45 @@ export function pack(parts: Segment[], width: number, geometry: Geometry): strin
   if (line) lines.push(line);
   return lines;
 }
+// A Pi TUI render request re-renders every transcript component, so periodic
+// polls may only request one when this footer's own painted output changed.
+export function footerRepaint(lines: (width: number) => string[], request: () => void) {
+  let width: number | undefined, painted = "";
+  return {
+    render(next: number) { const output = lines(next); width = next; painted = output.join("\n"); return output; },
+    changed() {
+      try { if (width !== undefined && lines(width).join("\n") === painted) return; } catch { /* repaint below */ }
+      request();
+    },
+  };
+}
+// Sessions are append-only and the leaf moves only by branching, so full-session
+// usage and the host's context estimate change only with these inputs.
+export function sessionTotals() {
+  let key: unknown[] = [];
+  let value: { stats: ReturnType<typeof usageStats>; context: ReturnType<ExtensionContext["getContextUsage"]> } | undefined;
+  return (ctx: ExtensionContext) => {
+    const entries = ctx.sessionManager.getEntries();
+    const next = [ctx.sessionManager.getSessionId?.(), ctx.sessionManager.getLeafId?.(), entries.length, entries.at(-1), ctx.model];
+    if (value && next.length === key.length && next.every((part, i) => part === key[i])) return value;
+    const stats = usageStats(entries);
+    try {
+      value = { stats, context: ctx.getContextUsage() };
+      key = next;
+    } catch {
+      key = [];
+      return { stats, context: undefined };
+    }
+    return value;
+  };
+}
 export interface FooterState { git: string; activity: string; hideContext: boolean; quota: Segment[] }
 export interface FooterData {
   getGitBranch(): string | null;
   getExtensionStatuses(): ReadonlyMap<string, string>;
 }
 export function renderFooter(ctx: ExtensionContext, settings: { compaction?: { enabled?: boolean } }, data: FooterData,
-  state: FooterState, width: number, geometry: Geometry): string[] {
+  state: FooterState, width: number, geometry: Geometry, totals = sessionTotals()): string[] {
   const cell = (value: string, color: string = COLORS.label): Segment => ({ text: value, color });
   const model = ctx.model;
   const effort = ctx.thinkingLevel ? ` r:${ctx.thinkingLevel === "medium" ? "med" : text(ctx.thinkingLevel)}` : "";
@@ -130,9 +162,7 @@ export function renderFooter(ctx: ExtensionContext, settings: { compaction?: { e
     // Model first on narrow screens; optional project/session never crowds it out.
     rows = [...right, ...left];
   }
-  const stats = usageStats(ctx.sessionManager.getEntries());
-  let context;
-  try { context = ctx.getContextUsage(); } catch { /* unavailable */ }
+  const { stats, context } = totals(ctx);
   const percent = !state.hideContext && finite(context?.percent) ? context.percent : undefined;
   const capacity = context?.contextWindow ?? model?.contextWindow;
   const contextText = `ctx ${percent === undefined ? "?" : `${percent.toFixed(1)}%`}/${finite(capacity) && capacity > 0 ? tokens(capacity) : "?"} (${settings.compaction?.enabled === false ? "auto off" : "auto"})`;

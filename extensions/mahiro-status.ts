@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sharedOwner, start } from "../lib/status.ts";
-import { renderFooter, type FooterState } from "../lib/footer.ts";
+import { footerRepaint, renderFooter, sessionTotals, type FooterState } from "../lib/footer.ts";
 import { quotaController } from "../lib/quota.ts";
 
 export default function mahiroStatus(pi: ExtensionAPI) {
@@ -17,20 +17,25 @@ export default function mahiroStatus(pi: ExtensionAPI) {
     if (revision !== generation) return;
     sharedOwner().dispose?.();
     let requestRender = () => {};
+    let footerChanged = () => {};
     let state: FooterState = { git: "git unknown", activity: "idle", hideContext: false, quota: [] };
     const quota = quotaController(ctx, () => requestRender());
     ctx.ui.setStatus("mahiro-status", undefined);
     ctx.ui.setFooter((tui, _theme, data) => {
       requestRender = () => tui.requestRender();
+      const totals = sessionTotals();
+      const footer = footerRepaint(width => renderFooter(ctx, pi.getSettings(), data,
+        { ...state, quota: quota.view().segments }, width, geometry, totals), () => requestRender());
+      footerChanged = footer.changed;
       const unsubscribe = data.onBranchChange(requestRender);
       return {
-        render: width => renderFooter(ctx, pi.getSettings(), data, { ...state, quota: quota.view().segments }, width, geometry),
+        render: footer.render,
         invalidate() {},
-        dispose() { unsubscribe(); requestRender = () => {}; },
+        dispose() { unsubscribe(); requestRender = () => {}; footerChanged = () => {}; },
       };
     });
     current = start(ctx, { presentation: {
-      render(next) { state = { ...state, ...next }; requestRender(); },
+      render(next) { state = { ...state, ...next }; footerChanged(); },
       tick: () => quota.tick(),
       tokens: () => quota.view().tokens,
       invalidate: model => quota.invalidate(model),

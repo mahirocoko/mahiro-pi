@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pack, renderFooter, routeLabel, usageStats, COLORS } from "../lib/footer.ts";
+import { footerRepaint, pack, renderFooter, routeLabel, sessionTotals, usageStats, COLORS, type Segment } from "../lib/footer.ts";
 import { parseQuota, quotaController, SUCCESS_TTL, STALE_BOUND, quotaSegments } from "../lib/quota.ts";
 import { start, text } from "../lib/status.ts";
 
@@ -249,4 +249,61 @@ test("legacy presentation owns footer cleanup, shared q keys clear when invalid;
   const child = start({ ...f.ctx, mode: "print" }, options); child.tick(); child.dispose();
   assert.equal(renders, before); assert.equal(disposed, 0);
   controller.dispose(); controller.dispose(); assert.equal(disposed, 1);
+});
+
+test("idle polls request a whole-TUI repaint only when the rendered footer changes", () => {
+  const f = fixture();
+  let requests = 0, quota: Segment[] = [];
+  const footer = footerRepaint(width => renderFooter(f.ctx, {}, f.data, { ...f.state, quota }, width, geometry), () => { requests++; });
+  footer.changed();
+  assert.equal(requests, 1, "nothing painted yet");
+  footer.render(100);
+  for (let i = 0; i < 10; i++) footer.changed();
+  assert.equal(requests, 1, "unchanged idle ticks must not repaint the transcript");
+  f.state.activity = "idle"; footer.changed();
+  assert.equal(requests, 2);
+  footer.render(100); footer.changed();
+  assert.equal(requests, 2);
+  // Quota staleness and context come from time/host state, not status events.
+  quota = quotaSegments([{ label: "P:7d", remaining: 59, reset: null }], true); footer.changed();
+  assert.equal(requests, 3);
+  footer.render(100);
+  f.ctx.getContextUsage = () => ({ tokens: 1, percent: 42, contextWindow: 272000 }); footer.changed();
+  assert.equal(requests, 4);
+  footer.render(80); footer.changed();
+  assert.equal(requests, 4, "comparison uses the last painted width");
+  let fail = false;
+  const fragile = footerRepaint(() => { if (fail) throw new Error("synthetic"); return ["row"]; }, () => { requests++; });
+  fragile.render(10); fail = true; fragile.changed();
+  assert.equal(requests, 5, "a footer that cannot be compared still repaints");
+});
+
+test("append-only session totals are recomputed only for new entries, leaf moves, model or session changes", () => {
+  const f = fixture();
+  let estimates = 0, leaf = "leaf-A", session = "session-A", percent = 10, fail = false;
+  f.ctx.getContextUsage = () => {
+    estimates++;
+    if (fail) throw new Error("synthetic");
+    return { tokens: 1, percent, contextWindow: 272000 };
+  };
+  f.ctx.sessionManager.getLeafId = () => leaf;
+  f.ctx.sessionManager.getSessionId = () => session;
+  const totals = sessionTotals();
+  const paint = () => renderFooter(f.ctx, {}, f.data, f.state, 100, geometry, totals).map(plain).join("\n");
+  const first = paint();
+  for (let i = 0; i < 5; i++) assert.equal(paint(), first);
+  assert.equal(estimates, 1, "identical frames reuse the host context estimate");
+  assert.deepEqual(renderFooter(f.ctx, {}, f.data, f.state, 100, geometry).map(plain).join("\n"), first);
+  estimates = 0;
+  percent = 55; f.entries.push({ type: "message", message: { role: "assistant", model: "gpt", provider: "openai",
+    api: "openai-responses", stopReason: "stop", usage: usage(40, 0) } });
+  assert.match(paint(), /ctx 55\.0%/);
+  assert.match(paint(), /↑50/);
+  assert.equal(estimates, 1, "an appended entry recomputes once");
+  percent = 60; leaf = "leaf-B"; paint();
+  f.ctx.model = { ...f.ctx.model }; paint();
+  session = "session-B"; paint();
+  assert.equal(estimates, 4);
+  fail = true; f.entries.push({ type: "custom", customType: "x" }); paint(); paint();
+  assert.equal(estimates, 6, "an unavailable estimate is retried rather than cached");
 });

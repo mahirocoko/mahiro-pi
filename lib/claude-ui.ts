@@ -140,6 +140,29 @@ export function createToolPresentation(
       ),
     );
   };
+  // The host re-renders every transcript row on each frame and wrapping walks
+  // every grapheme of the whole output, so identical layout inputs are reused.
+  const cachedLayout = () => {
+    let options: unknown[] = [];
+    let source: string[] = [];
+    let rows: string[] = [];
+    return (...args: Parameters<typeof layout>) => {
+      const [width, pad, lines, ...rest] = args;
+      const next = [width, pad, ...rest];
+      if (
+        next.length === options.length &&
+        next.every((value, index) => value === options[index]) &&
+        lines.length === source.length &&
+        lines.every((line, index) => line === source[index])
+      ) {
+        return rows;
+      }
+      rows = layout(...args);
+      options = next;
+      source = lines;
+      return rows;
+    };
+  };
   return {
     renderShell: "self",
     renderCall(args, host, ctx) {
@@ -150,6 +173,7 @@ export function createToolPresentation(
           ctx.outputPad,
         );
       }
+      const callLayout = cachedLayout();
       return component((width) => {
         const theme = palette(host);
         const data = record(args);
@@ -172,7 +196,7 @@ export function createToolPresentation(
             ? "warning"
             : "success";
         const title = `${theme.bold(theme.fg("toolTitle", labels[name] ?? name))} ${theme.fg("accent", oneLine(argument) || (ctx.argsComplete ? "(no arguments)" : "…"))}`;
-        return layout(
+        return callLayout(
           width,
           ctx.outputPad,
           [title],
@@ -202,6 +226,7 @@ export function createToolPresentation(
         cleanDiff === undefined || capture?.plainOnly
           ? undefined
           : prepareDiff(cleanDiff);
+      const bodyLayout = cachedLayout();
       return component((width) => {
         const theme = palette(host);
         const prefs = preferences();
@@ -322,7 +347,7 @@ export function createToolPresentation(
         );
         const hint = native.keyHint("app.tools.expand", "to expand");
         const rendered = [
-          ...layout(
+          ...bodyLayout(
             width,
             ctx.outputPad,
             body.flatMap((line) => line.split("\n")),

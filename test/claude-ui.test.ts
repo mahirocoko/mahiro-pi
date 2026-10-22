@@ -740,6 +740,70 @@ test("existing components rebuild palette output on runtime mode change and inva
   assert.doesNotMatch(output.render(120).join("\n"), /<fixed>/);
 });
 
+test("repeated host frames reuse wrapped result rows until width, content, palette or expansion change", () => {
+  let wraps = 0;
+  const counted = {
+    ...geometry,
+    wrapTextWithAnsi: (text: string, width: number) => {
+      wraps++;
+      return geometry.wrapTextWithAnsi(text, width);
+    },
+  };
+  let fixed = false;
+  const other = {
+    ...theme,
+    fg: (_token: string, text: string) => `<fixed>${text}</fixed>`,
+    bold: (text: string) => text,
+  } as never;
+  const renderer = createToolPresentation(
+    "read",
+    createReadToolDefinition("/fixture"),
+    counted,
+    native,
+    (host) => (fixed ? other : host),
+  );
+  const output = Array.from(
+    { length: 400 },
+    (_, i) => `ไทย 👩🏽‍💻 line ${i}`,
+  ).join("\n");
+  const view = { expanded: false, isPartial: false };
+  const component = renderer.renderResult!(
+    result(output),
+    view,
+    theme,
+    renderContext(),
+  );
+  const first = component.render(80);
+  const work = wraps;
+  assert.ok(work >= 400);
+  for (let frame = 0; frame < 5; frame++)
+    assert.deepEqual(component.render(80), first);
+  assert.equal(wraps, work, "identical frames must not re-wrap the output");
+  component.render(60);
+  assert.ok(wraps > work, "resize re-wraps");
+  const resized = wraps;
+  fixed = true;
+  assert.match(component.render(60).join("\n"), /<fixed>/);
+  assert.ok(wraps > resized, "palette change re-wraps");
+  const recolored = wraps;
+  view.expanded = true;
+  assert.match(plain(component.render(60)), /line 399/);
+  assert.ok(wraps > recolored, "expansion is part of the layout input");
+  const call = renderer.renderCall!(
+    { path: "file.ts" },
+    theme,
+    renderContext(),
+  );
+  const title = call.render(80);
+  const callWork = wraps;
+  for (let frame = 0; frame < 5; frame++)
+    assert.deepEqual(call.render(80), title);
+  assert.equal(wraps, callWork, "identical call rows are not re-wrapped");
+  fixed = false;
+  assert.doesNotMatch(call.render(80).join("\n"), /<fixed>/);
+  assert.ok(wraps > callWork);
+});
+
 test("source contract: no execution/context/history/private hooks, settings writes, footer or rendering filesystem", () => {
   const source = [
     "../extensions/mahiro-claude-ui.ts",
