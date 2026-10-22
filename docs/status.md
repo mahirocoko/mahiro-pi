@@ -5,7 +5,8 @@
 The authored footer presents project/Git/session/activity alongside Pi's model,
 effort/provider, context and native usage. It uses public footer/TUI APIs and
 preserves other extensions' status cells once. The [UI adapter](claude-ui.md)
-does not recolor or replace it.
+does not recolor or replace it. The streaming activity line is a separate
+public working message, not a second footer cell.
 
 ## What the numbers mean
 
@@ -20,12 +21,49 @@ does not recolor or replace it.
 - Subscription/route labels use public provider/model evidence. Unavailable is
   not guessed from private host internals.
 - Native idle state and bounded active-tool names are display hints, not proof
-  of completion, success or human acceptance.
+  of completion, success or human acceptance. The footer keeps that short name
+  hint. The streaming line below is the request narrative.
 - RTK's current mode is an extension status cell; missing authority shows
   unavailable rather than fabricating an enabled mode.
 
 Narrow layouts prioritize model identity and wrap semantic cells. Public visible
 width/truncation preserves Thai and emoji graphemes.
+
+## Current activity line
+
+`lib/activity.ts` owns the one streaming activity line. `extensions/mahiro-status.ts`
+attaches it with Pi's public `setWorkingMessage` and `setWorkingIndicator`.
+The footer, the optional [worker-count widget](worker-activity.md), the native
+queue and any plan stay separate. This line does not copy their contents.
+
+While a request is running the loader row is one fixed line, for example:
+
+```text
+Responding · 00 tools ·  0:00:12 · escape to interrupt
+```
+
+- The verb is Working, Thinking, Responding, Reading or Running. Reading is only
+  read, grep, find and ls. Running is bash, including when other tools are in
+  flight. Any other tool, or a mix of read-like tools with anything else, stays
+  Working. Thinking and Responding describe the assistant stream when no tool
+  is in flight.
+- The count is in-flight tool executions for this request, shown as two digits
+  and capped at 99. It is not a worker or subagent count.
+- Elapsed time starts with the agent run and continues across later turns of
+  that run. It is `h:mm:ss`, capped at `99:59:59`.
+- The interrupt hint uses the public `app.interrupt` label when that lookup
+  succeeds, otherwise `escape`.
+
+Idle, error, abort, shutdown and a replaced session clear the line and stop the
+elapsed timer. Startup, reload, new, resume and fork all begin from that idle
+line. The timer is not running while idle. Spinner frames are one column and use
+a 160ms interval only while Pi is showing the working loader. Narrow terminals
+truncate the text and leave two columns for that frame and its space. The
+message follows Pi's working-message color. Frames take the current accent
+color when the line is published.
+
+Measured usage stays on the footer. This line has no text-length estimate and
+does not present one as provider or billed usage.
 
 ## Quota is not session usage
 
@@ -53,6 +91,6 @@ stale work from reviving a replaced owner. Failures do not fail Pi operations.
 The renderer and Halo remain separate products. Optional child counts are covered
 in [worker activity](worker-activity.md), not inferred from the footer.
 
-Owners: `extensions/mahiro-status.ts`, `lib/status.ts`, `lib/footer.ts` and
-`lib/herdr.ts`. The [integration reference](integrations.md#preserved-presentation-and-public-data)
+Owners: `extensions/mahiro-status.ts`, `lib/activity.ts`, `lib/status.ts`,
+`lib/footer.ts` and `lib/herdr.ts`. The [integration reference](integrations.md#preserved-presentation-and-public-data)
 retains detailed palette, quota, heartbeat and cleanup contracts.

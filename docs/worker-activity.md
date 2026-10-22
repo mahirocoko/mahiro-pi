@@ -5,6 +5,8 @@
 The optional `extensions/mahiro-worker-activity.ts` publishes parent-scoped child
 activity from the public native subagent service. It does not launch, stop or
 own children, and Main's idle/done state remains independent of its children.
+It is not the streaming activity line. That line is the [status](status.md)
+working message for the current request.
 
 ## Enable the optional resource
 

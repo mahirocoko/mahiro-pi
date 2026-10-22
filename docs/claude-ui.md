@@ -18,7 +18,8 @@ Root's generation-bound `read(ctx)` / `save(ctx, ticket, prefs)` bridge. Source 
 not authorize installation, reload, real-profile activation or human acceptance.
 The Mahiro footer, quota, RTK, permissions, tool execution, model context and
 session history retain their existing owners. No task/group/silent mode, spinner,
-queue, key/Esc interception or host-private patch is included.
+queue, key/Esc interception or host-private patch is included. The streaming
+activity line belongs to [status](status.md), not this adapter.
 
 ## Palette ownership and runtime controls
 

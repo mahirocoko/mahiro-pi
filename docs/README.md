@@ -9,8 +9,9 @@ one guide; deeper contracts stay with their owning implementation, not this inde
 
 - [UI and theme](claude-ui.md) — Neko-Stack header, individual tool rows,
   split/word edit diffs, submitted-content write previews and runtime-only settings.
-- [Status and usage](status.md) — authored footer, Git, native usage and Herdr
-  display metadata; native direct OpenAI quota is deliberately absent.
+- [Status and usage](status.md) — authored footer, one streaming activity line,
+  Git, native usage and Herdr display metadata; native direct OpenAI quota is
+  deliberately absent.
 - [Completion voice](finish-voice.md) — macOS-only successful-settlement notification.
 
 ## Knowledge and execution safety

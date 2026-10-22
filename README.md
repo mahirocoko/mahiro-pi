@@ -39,7 +39,7 @@ release payloads.
 | Feature | What it does | Guide |
 | --- | --- | --- |
 | Terminal UI and Neko-Stack header | Individual tool rows, bounded split/word edit diffs, submitted-content write preview and runtime settings | [UI and theme](docs/claude-ui.md) |
-| Authored footer | Project/Git, model/effort, native usage, context and extension status; foreground-gated Herdr display metadata | [Status and usage](docs/status.md) |
+| Authored footer | Project/Git, model/effort, native usage, context, extension status and a separate streaming activity line; foreground-gated Herdr display metadata | [Status and usage](docs/status.md) |
 | RTK | `off`, `suggest`, conservative rewrite and installed RTK resolver modes; visible mode status and policy-checked execution | [RTK](docs/rtk.md) |
 | Maintained memory | Private Markdown/Git knowledge, CAS drafts/commits, bounded lexical retrieval/discovery and scoped native writers | [Managed memory](docs/agent-memory.md) |
 | Historical recall | Screened, cited history and literal low-authority quotation notes; correction and forgetting controls | [Continuity](docs/continuity.md) |
