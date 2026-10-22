@@ -31,7 +31,7 @@ one guide; deeper contracts stay with their owning implementation, not this inde
 
 | Guide | Main entry point | Not its responsibility |
 | --- | --- | --- |
-| [Utilities](utilities.md) | `/realign`, run-start metadata | Human identity, permission or automatic state changes |
+| [Utilities](utilities.md) | `/realign`, `/mh-copy-code`, run-start metadata | Human identity, permission, queue edits or automatic state changes |
 | [Code Map](code-map.md) | `mh_code_map` | Executing searches or indexing source |
 | [Goals](goal.md) | `/mh-goal`, four Goal tools | Automatic missions or claiming human criteria |
 | [Code Evidence](evidence.md) | `/mh-evidence`, `mh_code_evidence` | Executing recorded commands or verifying their claims |

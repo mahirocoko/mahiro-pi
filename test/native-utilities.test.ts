@@ -31,10 +31,14 @@ function fixture(id = crypto.randomUUID()) {
       }),
     ui: { notify: (text: string) => notices.push(text) },
   };
+  let editorReplacements = 0;
   const pi: any = {
     on: (name: string, fn: Function) => {
       handlers.set(name, [...(handlers.get(name) ?? []), fn]);
       return () => {};
+    },
+    setEditorComponent() {
+      editorReplacements += 1;
     },
     registerFlag: (name: string, options: any) =>
       flags.set(name, options.default),
@@ -69,6 +73,7 @@ function fixture(id = crypto.randomUUID()) {
       release();
     },
     clockCalls: () => clockCalls,
+    editorReplacements: () => editorReplacements,
   };
 }
 const userRun = (prompt: string, images?: any[]) => ({
@@ -359,4 +364,20 @@ test("ownership retains active sessions only, not shutdown session IDs", () => {
     f.emit("session_start");
   }
   assert.equal(owners.size, before);
+});
+
+test("multiline text and image attachments stay on the native input path", () => {
+  const f = fixture();
+  const text = "line one\nline two";
+  const images = [{ type: "image", data: "png-bytes", mimeType: "image/png" }];
+  const input = { type: "input", source: "interactive", text, images };
+  const run = userRun(text, images);
+  const original = structuredClone({ input, run });
+  assert.equal(f.emit("input", input), undefined);
+  const result = f.emit("before_agent_start", run);
+  assert.equal(result.message.customType, TIMESTAMP_KIND);
+  assert.equal(result.systemPrompt, undefined);
+  assert.equal(result.message.content.includes(text), false);
+  assert.deepEqual({ input, run }, original);
+  assert.equal(f.editorReplacements(), 0);
 });

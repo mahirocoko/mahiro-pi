@@ -44,7 +44,7 @@ release payloads.
 | Maintained memory | Private Markdown/Git knowledge, CAS drafts/commits, bounded lexical retrieval/discovery and scoped native writers | [Managed memory](docs/agent-memory.md) |
 | Historical recall | Screened, cited history and literal low-authority quotation notes; correction and forgetting controls | [Continuity](docs/continuity.md) |
 | Execution guards | One Root guard and the public permission owner; secret-read, attribution and final-argument checks | [Guards and permissions](docs/guards.md) |
-| Native utilities | `/realign [focus]` guidance and separate run-start clock metadata | [Utilities](docs/utilities.md) |
+| Native utilities | `/realign [focus]` guidance, `/mh-copy-code` and separate run-start clock metadata | [Utilities](docs/utilities.md) |
 | Code Map | Bounded navigation guidance from caller metadata, not a search/indexing engine | [Code Map](docs/code-map.md) |
 | Goal Mode | Explicit objectives, criteria, evidence, blockers and revision-guarded session ownership | [Goals](docs/goal.md) |
 | Code Evidence | Four bounded read-only Git lanes or metadata about an external check; never executes a recorded command | [Evidence](docs/evidence.md) |
@@ -67,6 +67,7 @@ release payloads.
 /mh-ux                   UX workflow help and human gates
 /mh-run                  Execution coordination help and human controls
 /realign [focus]         Generate bounded guidance without a fake user message
+/mh-copy-code            Copy a current-branch response or one code block
 ```
 
 For a quieter startup that keeps the header, use native **`/settings` → Quiet

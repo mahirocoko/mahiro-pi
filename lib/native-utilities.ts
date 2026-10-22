@@ -2,6 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { COPY_CODE_COMMAND, createCopyCodeHandler } from "./copy-code.ts";
 
 export const MAX_FOCUS_CHARS = 500;
 export const REALIGN_KIND = "mahiro-realign";
@@ -225,5 +226,10 @@ export function registerNativeUtilities(
         if (epoch === generation) waiting = false;
       }
     },
+  });
+  pi.registerCommand(COPY_CODE_COMMAND, {
+    description:
+      "Copy a full assistant response or one code block from the current branch",
+    handler: createCopyCodeHandler(pi),
   });
 }
