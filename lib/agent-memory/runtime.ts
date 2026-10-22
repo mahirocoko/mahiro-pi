@@ -17,6 +17,10 @@ import { resolveAgentDir } from "../setup.ts";
 import { parseMemoryRead, retrieveMemory } from "./retrieval.ts";
 import { memoryCurationDoctrine } from "./guidance.ts";
 
+// Primary-only handoff advice, not a capability grant or worker context mechanism.
+const primaryDelegationDoctrine =
+  "Primary delegation guidance: Before dispatch, verify the selected role, tools and capabilities are actually available and permitted for the scope. Give workers a concise brief: outcome, constraints, only relevant decisions/conventions with provenance, and expected result. If a capability is missing or uncertain, say so; never assume ask_parent, notify_parent or other parent helpers exist. Return ordinary terminal results when appropriate and report missing capabilities or failed execution honestly. Do not broaden permissions, inherit the primary private corpus or dump private memory into worker prompts. Current user/repository authorities remain controlling. This is handoff guidance, not automatic context delivery or enforcement.";
+
 type Store = ReturnType<typeof createMemoryStore>;
 interface NativeService {
   supportsInitialOutcomeClaim: true;
@@ -38,6 +42,8 @@ interface NativeService {
         id: string;
         type: string;
         status: string;
+        toolUses?: unknown;
+        turnBudget?: unknown;
         result?: string;
         outputFile?: string;
       }
@@ -45,7 +51,13 @@ interface NativeService {
   hasRunning(): boolean;
   abort(id: string): boolean;
 }
+interface ToolEndObservation {
+  tool: "read" | "edit" | "commit" | "other";
+  isError: boolean | null;
+}
+const toolEndSink = Symbol.for("@mahirocoko/agent-memory:tool-end-sink");
 interface WorkerValue {
+  [toolEndSink]?: () => ((sample: ToolEndObservation) => void) | undefined;
   view: View;
   root: string;
   project: string;
@@ -56,6 +68,86 @@ interface Access {
   kind: "primary" | "worker";
   value?: WorkerValue;
 }
+type NativeStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "aborted"
+  | "stopped"
+  | "error"
+  | "unknown";
+type AttemptOutcome =
+  | "pending"
+  | "integrated"
+  | "conflict"
+  | "native-unsuccessful"
+  | "not-ready"
+  | "integration-unavailable"
+  | "deadline"
+  | "cancelled"
+  | "dispatch-failed";
+interface NativeProgress {
+  toolUses: number | null;
+  turnBudget: {
+    used: number | null;
+    maxTurns: number | null;
+    phase: "within" | "warned" | "exhausted" | null;
+  };
+}
+// Each optional field is independent; unknown/throwing is never measured zero.
+const optionalObservation = (read: () => unknown): unknown => {
+  try {
+    return read();
+  } catch {
+    return null;
+  }
+};
+const progressCount = (value: unknown): number | null =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+const nativeProgress = (record?: {
+  toolUses?: unknown;
+  turnBudget?: unknown;
+}): NativeProgress => {
+  const budget = optionalObservation(() => record?.turnBudget);
+  const field = (name: string) =>
+    optionalObservation(() =>
+      budget && typeof budget === "object" && !Array.isArray(budget)
+        ? (budget as Record<string, unknown>)[name]
+        : undefined,
+    );
+  const phase = field("phase");
+  return {
+    toolUses: progressCount(optionalObservation(() => record?.toolUses)),
+    turnBudget: {
+      used: progressCount(field("used")),
+      maxTurns: progressCount(field("maxTurns")),
+      phase:
+        phase === "within" || phase === "warned" || phase === "exhausted"
+          ? phase
+          : null,
+    },
+  };
+};
+interface AttemptObservation {
+  phase: "queued" | "running" | "terminal" | "unknown";
+  nativeStatus: NativeStatus;
+  outcome: AttemptOutcome;
+  dispatchedAt: number;
+  observedAt: number;
+  deadlineAt: number;
+  selectedEpisodeCount: number;
+  progress: NativeProgress;
+  latestToolEnd: ToolEndObservation | null;
+}
+// Local observations only: never infer queue/provider durations from native timestamps.
+const observationTime = (fallback = 0) => {
+  const now = Date.now();
+  return Number.isFinite(now)
+    ? Math.min(Number.MAX_SAFE_INTEGER - 120000, Math.max(0, Math.trunc(now)))
+    : fallback;
+};
 export interface MemoryABI {
   version: number;
   generation: unknown;
@@ -115,14 +207,19 @@ const bounded = (value: unknown, max = 2048): string | undefined => {
     return undefined;
   return value;
 };
-const textContent = (content: unknown) => {
-  if (typeof content === "string") return bounded(content);
+const rawTextContent = (content: unknown): string | undefined => {
+  if (typeof content === "string") return content;
   if (!Array.isArray(content)) return undefined;
-  const text = content
+  return content
     .filter((p) => p?.type === "text" && typeof p.text === "string")
     .map((p) => p.text)
     .join("\n");
-  return bounded(text);
+};
+const textContent = (content: unknown) => bounded(rawTextContent(content));
+// Call only after screening the complete candidate, never a safe prefix/block.
+const retainEvidence = <T>(items: T[], item: T) => {
+  if (items.length === 4) items.splice(1, 1);
+  items.push(item);
 };
 interface Episode {
   id: string;
@@ -154,6 +251,13 @@ export function createAgentMemoryRuntime(
   let pending: PendingEpisode | undefined;
   let outcome: string | undefined;
   let lastError: string | undefined;
+  let latestAttempt:
+    | {
+        observation: AttemptObservation;
+        matches(ctx: ExtensionContext, f: ReturnType<typeof primary>): boolean;
+        valid(): boolean;
+      }
+    | undefined;
   let job:
     | {
         id?: string;
@@ -162,6 +266,8 @@ export function createAgentMemoryRuntime(
         store: Store;
         view: View;
         value: WorkerValue;
+        observe(): NativeStatus;
+        cancel(outcome: AttemptOutcome): void;
       }
     | undefined;
   const root =
@@ -228,25 +334,20 @@ export function createAgentMemoryRuntime(
     if (!project) throw new Error("Unmapped managed-memory scope");
     return { ...f, project };
   };
-  const stopJob = () => {
-    const own = job;
-    job = undefined;
-    if (own) {
-      own.stop();
-      if (own.id) own.service.abort(own.id);
-      try {
-        if (own.view.state === "open") own.store.cancel(own.view);
-      } catch {
-        /* Revocation/expiry already makes the retained view inert. */
-      }
-    }
+  const stopJob = (own = job, result: AttemptOutcome = "cancelled") => {
+    if (!own) return;
+    // Capture/detach before optional diagnostics can reenter native lifecycle hooks.
+    if (job === own) job = undefined;
+    own.cancel(result);
   };
   const reset = () => {
-    stopJob();
+    const own = job;
     epoch++;
     draft = undefined;
     pending = undefined;
     outcome = undefined;
+    latestAttempt = undefined;
+    stopJob(own);
   };
   const viewFor = (f: ReturnType<typeof owner>, ctx: ExtensionContext) => {
     if (f.access.kind === "worker") {
@@ -343,6 +444,13 @@ export function createAgentMemoryRuntime(
       const p = primary(ctx, name, "write");
       if (args.action === "status") {
         const s = p.store.snapshot();
+        if (
+          latestAttempt &&
+          (!latestAttempt.matches(ctx, p) || !latestAttempt.valid())
+        )
+          latestAttempt = undefined;
+        job?.observe();
+        const observed = latestAttempt?.observation;
         return {
           revision: s.revision,
           project: p.project,
@@ -350,6 +458,24 @@ export function createAgentMemoryRuntime(
           draft: draft?.state,
           worker: job ? "active" : "idle",
           lastError,
+          latestAttempt: observed
+            ? {
+                ...observed,
+                latestToolEnd: observed.latestToolEnd
+                  ? { ...observed.latestToolEnd }
+                  : null,
+                progress: {
+                  ...observed.progress,
+                  turnBudget: { ...observed.progress.turnBudget },
+                },
+                backlog: {
+                  total: null,
+                  selectedLowerBound: observed.selectedEpisodeCount,
+                  selectionLimit: 4,
+                  fileCapacityLimit: 256,
+                },
+              }
+            : null,
           historicalErasure: false,
         };
       }
@@ -522,23 +648,212 @@ export function createAgentMemoryRuntime(
       ready: false,
     };
     const token = epoch;
+    const generation = f.node.generation;
+    const identity = ctx.sessionManager;
+    const sessionId = identity.getSessionId();
+    const dispatchedAt = observationTime();
+    const attempt = {
+      observation: {
+        phase: "unknown",
+        nativeStatus: "unknown",
+        outcome: "pending",
+        dispatchedAt,
+        observedAt: dispatchedAt,
+        deadlineAt: Math.min(
+          dispatchedAt + 120000,
+          Math.max(dispatchedAt, view.deadline),
+        ),
+        selectedEpisodeCount: Math.min(4, episodes.length),
+        progress: nativeProgress(),
+        latestToolEnd: null,
+      } as AttemptObservation,
+      matches(context: ExtensionContext, p: ReturnType<typeof primary>) {
+        return (
+          context.sessionManager === identity &&
+          identity.getSessionId() === sessionId &&
+          p.node === f.node &&
+          p.abi === f.abi &&
+          p.project === f.project
+        );
+      },
+      valid() {
+        try {
+          f.current();
+          return (
+            token === epoch &&
+            identity.getSessionId() === sessionId &&
+            f.node.generation === generation &&
+            f.abi.generation === generation
+          );
+        } catch {
+          return false;
+        }
+      },
+    };
+    latestAttempt = attempt;
     const branch = ctx.sessionManager.getBranch().map((e) => e.id);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let revoke: (() => void) | undefined;
     const disposers: (() => void)[] = [];
+    let cancelled = false;
+    let aborted = false;
+    let stopped = false;
+    let observing = false;
     const own = {
       id: undefined as string | undefined,
       service,
       store: f.store,
       view,
       value,
+      observe(): NativeStatus {
+        if (observing) return "unknown";
+        observing = true;
+        let status: NativeStatus = "unknown";
+        let progress = nativeProgress();
+        try {
+          const record = own.id ? service.getRecord(own.id) : undefined;
+          if (
+            record?.id === own.id &&
+            record?.type === "managed-memory-writer"
+          ) {
+            const candidate = optionalObservation(() => record.status);
+            if (
+              [
+                "queued",
+                "running",
+                "completed",
+                "aborted",
+                "stopped",
+                "error",
+              ].includes(candidate as string)
+            )
+              status = candidate as NativeStatus;
+            progress = nativeProgress(record);
+          }
+        } catch {
+          /* An optional observation must never bypass cancellation or publication fences. */
+        } finally {
+          observing = false;
+        }
+        if (
+          latestAttempt !== attempt ||
+          attempt.observation.outcome !== "pending"
+        )
+          return status;
+        if (!attempt.valid()) {
+          latestAttempt = undefined;
+          return status;
+        }
+        const observation = attempt.observation;
+        observation.nativeStatus = status;
+        // Replace the whole sample: a failed current field cannot retain an old count.
+        observation.progress = progress;
+        observation.phase =
+          status === "queued" || status === "running"
+            ? status
+            : status === "unknown"
+              ? "unknown"
+              : "terminal";
+        observation.observedAt = Math.max(
+          observation.observedAt,
+          observationTime(observation.observedAt),
+        );
+        return status;
+      },
+      seal(result: AttemptOutcome, refresh = true) {
+        if (
+          latestAttempt !== attempt ||
+          attempt.observation.outcome !== "pending"
+        )
+          return;
+        if (refresh) own.observe();
+        if (
+          latestAttempt !== attempt ||
+          attempt.observation.outcome !== "pending"
+        )
+          return;
+        attempt.observation.phase = "terminal";
+        attempt.observation.outcome = result;
+      },
+      cancel(result: AttemptOutcome) {
+        try {
+          if (!cancelled) {
+            cancelled = true;
+            try {
+              own.seal(result);
+            } finally {
+              own.stop();
+            }
+          }
+        } finally {
+          try {
+            if (own.id && !aborted) {
+              aborted = true;
+              service.abort(own.id);
+            }
+          } finally {
+            try {
+              if (view.state === "open") f.store.cancel(view);
+            } catch {
+              /* Revocation/expiry already makes the retained view inert. */
+            }
+          }
+        }
+      },
       stop() {
+        if (stopped) return;
+        stopped = true;
         if (timer) clearTimeout(timer);
         revoke?.();
         for (const dispose of disposers.splice(0)) dispose();
       },
     };
     job = own;
+    if (assignment === undefined) {
+      // The existing opaque Root lease carries this runtime-owned, ephemeral bridge.
+      // Admission is checked before metadata reads and again at publication. A nested
+      // ending wins over an older getter frame; diagnostics never cancel a job.
+      const admissible = () => {
+        const local = () =>
+          job === own &&
+          latestAttempt === attempt &&
+          token === epoch &&
+          f.node.generation === generation &&
+          f.abi.generation === generation &&
+          !cancelled &&
+          !stopped &&
+          !value.ready &&
+          value.root === root &&
+          value.view === view &&
+          view.state === "open" &&
+          Date.now() < view.deadline &&
+          attempt.observation.outcome === "pending";
+        return local() && attempt.valid() && local();
+      };
+      value[toolEndSink] = () => {
+        try {
+          if (!admissible()) return;
+          const previous = attempt.observation.latestToolEnd;
+          return (sample) => {
+            try {
+              if (
+                !admissible() ||
+                attempt.observation.latestToolEnd !== previous
+              )
+                return;
+              attempt.observation.latestToolEnd = {
+                tool: sample.tool,
+                isError: sample.isError,
+              };
+            } catch {
+              /* Optional diagnostics cannot interfere with the owning lifecycle. */
+            }
+          };
+        } catch {
+          return;
+        }
+      };
+    }
     const current = () => {
       f.current();
       if (
@@ -552,33 +867,66 @@ export function createAgentMemoryRuntime(
     };
     const finish = () => {
       if (job !== own || !own.id) return;
-      const record = service.getRecord(own.id);
-      if (!record || ["running", "queued"].includes(record.status)) return;
+      const status = own.observe();
+      if (
+        job !== own ||
+        cancelled ||
+        ["running", "queued", "unknown"].includes(status)
+      )
+        return;
       try {
         current();
-        if (record.status !== "completed" || !value.ready)
-          throw new Error(
-            "Native writer did not complete a memory transaction",
+        if (status !== "completed" || !value.ready) {
+          own.seal(
+            status === "completed" ? "not-ready" : "native-unsuccessful",
+            false,
           );
+          fail("worker-integration-unavailable");
+          return;
+        }
         const result = f.store.integrate(view, value.episodes);
-        if ("conflict" in result) fail("worker-conflict-preserved");
-        else lastError = undefined;
+        if ("conflict" in result) {
+          own.seal("conflict", false);
+          fail("worker-conflict-preserved");
+        } else {
+          own.seal("integrated", false);
+          lastError = undefined;
+        }
       } catch {
+        own.seal("integration-unavailable", false);
         fail("worker-integration-unavailable");
       } finally {
         if (job === own) job = undefined;
         own.stop();
       }
     };
+    // Events are untrusted wakeups, not completion or timing authority.
+    const wake = (event: unknown, complete: boolean) => {
+      try {
+        const hint = event as { id?: unknown; type?: unknown } | undefined;
+        if (
+          job !== own ||
+          !own.id ||
+          hint?.id !== own.id ||
+          hint?.type !== "managed-memory-writer"
+        )
+          return;
+      } catch {
+        return;
+      }
+      if (complete) finish();
+      else own.observe();
+    };
     try {
       disposers.push(
-        pi.events.on("subagents:completed", finish),
-        pi.events.on("subagents:failed", finish),
+        pi.events.on("subagents:started", (event) => wake(event, false)),
+        pi.events.on("subagents:completed", (event) => wake(event, true)),
+        pi.events.on("subagents:failed", (event) => wake(event, true)),
       );
       timer = setTimeout(() => {
         if (job === own) {
           fail("worker-deadline");
-          stopJob();
+          stopJob(own, "deadline");
         }
       }, 120000);
       timer.unref?.();
@@ -602,6 +950,14 @@ export function createAgentMemoryRuntime(
           claimOutcome: true,
         },
       );
+      if (cancelled || job !== own) {
+        own.cancel("cancelled");
+        return {
+          job: own.id,
+          status: "native-dispatched",
+          providerProof: false,
+        };
+      }
       revoke = f.abi.bindWorker(f.tool, ctx, root, own.id, value, () => {
         try {
           current();
@@ -610,10 +966,11 @@ export function createAgentMemoryRuntime(
           return false;
         }
       });
-      finish();
+      if (job !== own) revoke();
+      else finish();
       return { job: own.id, status: "native-dispatched", providerProof: false };
     } catch (error) {
-      stopJob();
+      stopJob(own, "dispatch-failed");
       throw error;
     }
   };
@@ -664,7 +1021,7 @@ export function createAgentMemoryRuntime(
       f.current();
       const projection = f.store.projection(f.project, true);
       return {
-        systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.\n${memoryCurationDoctrine}\n${JSON.stringify(projection).replace(/</g, "\\u003c")}\n</mahiro-managed-memory>`,
+        systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, "\\u003c")}\n</mahiro-managed-memory>`,
       };
     } catch {
       fail("projection-unavailable");
@@ -705,16 +1062,23 @@ export function createAgentMemoryRuntime(
     try {
       primary(ctx, "agent_memory_reflect", "write");
       if (event.message.role !== "assistant") return;
-      const text = textContent(event.message.content);
+      const raw = rawTextContent(event.message.content);
+      const text = bounded(raw);
+      if (raw && !text) return;
       const tools = Array.isArray(event.message.content)
         ? event.message.content
-            .filter((p) => p.type === "toolCall")
+            .filter((p) => p?.type === "toolCall")
             .map((p) => p.name)
-            .filter((n) => /^[a-z_]{1,64}$/.test(n))
+            .filter(
+              (n) =>
+                typeof n === "string" &&
+                /^[a-z_]{1,64}$/.test(n) &&
+                !hasSecret(n),
+            )
             .slice(0, 8)
         : [];
-      if (pending.actions.length < 4 && (text || tools.length))
-        pending.actions.push({
+      if (text || tools.length)
+        retainEvidence(pending.actions, {
           ...(text ? { text } : {}),
           ...(tools.length ? { tools } : {}),
         });
@@ -727,6 +1091,7 @@ export function createAgentMemoryRuntime(
     // read/recall payload, tool arguments, reasoning, imported corpus or auth is persisted.
     if (
       pending &&
+      pending.toolCalls.size < 64 &&
       event.toolName === "bash" &&
       typeof event.args?.command === "string" &&
       /^(?:pnpm (?:check|test)(?::[a-z-]+)?|node --test [a-zA-Z0-9_./* -]+)$/.test(
@@ -735,14 +1100,62 @@ export function createAgentMemoryRuntime(
     )
       pending.toolCalls.add(event.toolCallId);
   });
-  pi.on("tool_execution_end", (event) => {
-    if (
-      !pending?.toolCalls.has(event.toolCallId) ||
-      pending.results.length >= 4
-    )
-      return;
-    const text = textContent(event.result?.content);
-    pending.results.push({
+  const observeToolEnd = (
+    event: { toolName?: unknown; isError?: unknown },
+    ctx: ExtensionContext,
+  ) => {
+    try {
+      const f = owner(ctx, "agent_memory_read", "read");
+      if (f.access.kind !== "worker") return;
+      const value = f.access.value;
+      const token = epoch;
+      const generation = f.node.generation;
+      const current = () => {
+        const access = f.current();
+        return (
+          token === epoch &&
+          f.node.generation === generation &&
+          f.abi.generation === generation &&
+          access.kind === "worker" &&
+          access.value === value &&
+          value?.root === root &&
+          value.view.project === value.project &&
+          !value.ready &&
+          value.view.state === "open" &&
+          Date.now() < value.view.deadline
+        );
+      };
+      if (!current()) return;
+      const publish = value![toolEndSink]?.();
+      if (!current() || !publish) return;
+      const name = event.toolName;
+      if (!current() || typeof name !== "string") return;
+      const error = event.isError;
+      if (!current()) return;
+      publish({
+        tool:
+          name === "agent_memory_read"
+            ? "read"
+            : name === "agent_memory_edit"
+              ? "edit"
+              : name === "agent_memory_commit"
+                ? "commit"
+                : "other",
+        isError: typeof error === "boolean" ? error : null,
+      });
+      current();
+    } catch {
+      /* Never let metadata getters affect execution, publication or cancellation. */
+    }
+  };
+  pi.on("tool_execution_end", (event, ctx) => {
+    observeToolEnd(event, ctx);
+    if (!pending?.toolCalls.delete(event.toolCallId)) return;
+    if (event.toolName !== "bash") return;
+    const raw = rawTextContent(event.result?.content);
+    const text = bounded(raw);
+    if (raw && !text) return;
+    retainEvidence(pending.results, {
       tool: event.toolName,
       error: event.isError,
       ...(text ? { text } : {}),
@@ -789,6 +1202,14 @@ export function createAgentMemoryRuntime(
         results: own.results,
         outcome: "completed",
       };
+      // The store writes a newline and reads the entire file under this cap.
+      // Prune whole interior records only; exact input and each array's endpoints
+      // survive if the protected subset fits. The store remains final validator.
+      while (bytes(`${JSON.stringify(episode)}\n`) > 16384) {
+        if (episode.results.length > 2) episode.results.splice(1, 1);
+        else if (episode.actions.length > 2) episode.actions.splice(1, 1);
+        else return;
+      }
       f.store.recordEpisode(id, episode);
       if (f.store.config().automatic) startWriter(ctx);
     } catch {

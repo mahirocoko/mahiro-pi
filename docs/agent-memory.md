@@ -24,8 +24,8 @@ scoped. Missing exact-root authority fails closed. Installation never imports or
 reseeds an existing persona/corpus. See [retrieval details](#bounded-discovery-lexical-retrieval-and-curation-t217-source-slice)
 and [roles](agents.md).
 
-The new retrieval/curation slice is source/Faux capability, not installed
-activation, semantic-learning efficacy or companion acceptance. The five tools
+The retrieval/curation, bounded late-episode selection, latest-attempt observation
+and primary delegation-guidance slices are source/Faux capability, not installed activation, semantic-learning efficacy or companion acceptance. The five tools
 and ABI1 remain unchanged. Current work acceptance stays with the human/live board;
 the dated migration account below is not a task-status ledger.
 
@@ -243,6 +243,52 @@ text. Sensitive/oversized/uncertain capture is rejected or omitted. Source scree
 is not semantic truth or complete secret detection. Pending episodes survive
 sessions; only successful native completion/integration advances reviewed IDs.
 
+### Bounded late-episode selection (T217 P3 source slice)
+
+Input remains exact, nonempty, at most **2048 UTF-8 bytes**, from interactive/RPC
+input without images and matching exactly one newly observed native user entry.
+There is no input truncation, safe-prefix recovery or longer-input support. The
+original session/entry-derived ID, source label, entry hash, branch and completion
+checks remain in force; observed user role is not authenticated human identity.
+
+Actions and selected verification results independently retain the **first eligible
+plus latest three eligible** records, in original order: six eligible records yield
+`[1, 4, 5, 6]` in each array. This is deterministic bounded selection, not semantic
+ranking, command/result pairing or episode/session replay. Assistant text and result
+text are screened as a complete combined text aggregate before selection: nonempty
+oversized, secret-pattern or import-wrapper text rejects that candidate entirely.
+There is no pre-screen truncation, individual safe-block salvage or metadata-only
+fallback from rejected text that could evict safe evidence. Truly text-absent safe
+metadata remains eligible. Assistant tool names require a string, the existing
+lowercase/underscore syntax and secret screening before the eight-name cap. Raw
+arguments, reasoning and arbitrary read/recall results remain excluded.
+
+Selected results require a previously allowlisted verification call ID and a `bash`
+ending. A matching ending consumes its pending ID once, including when its tool
+name or text is rejected, so duplicate endings cannot crowd evidence. At most **64
+pending verification IDs** are tracked; new starts at capacity are skipped, not
+replayed later or allowed to evict earlier pending IDs. Matching endings free
+capacity. The command allowlist is unchanged.
+
+Before recording, the runtime checks **UTF-8 bytes of `JSON.stringify(episode)`
+plus its persisted newline ≤16384**, including JSON escaping. If needed it removes
+whole oldest interior results, then whole oldest interior actions, preserving exact
+input and the first/latest action and first/latest result when present. Endpoint
+preservation is conditional: if that protected subset still does not fit, capture
+is rejected. Fields are never silently sliced, arrays are not cross-paired and the
+store's final structural/secret validator remains authoritative. This avoids
+writing evidence that the same capped reader cannot reopen.
+
+Fictional event regressions check stored evidence and the writer's exact episode
+order, late correction/failure-to-pass, eligibility-before-eviction, typed/secret
+tool names, one-shot/capped result matching and escaped-byte/readability bounds.
+They also exercise existing input/branch/abort/noncompletion/revocation fences;
+the wider suites retain ownership of CAS, forgetting, review cursors and native
+worker lifecycle. No guard, format/schema, role, ABI, tool or timeout contract is
+changed. These checks prove source behavior, not actual provider learning or
+successful real-store reflection. Actual deadline-cause/config diagnosis, exact/current
+backlog, longer inputs, deeper P3 consolidation/replay and P4/P5 remain deferred.
+
 A writer has an isolated 120-second view and eight native turns. Its tools cannot
 read another project, run Bash or write product/HOME files. Commit marks readiness;
 the parent integrates only after actual completed service status, healthy matching
@@ -251,6 +297,101 @@ input, session navigation/shutdown, cancellation, expiry and revocation invalida
 publication. Failed/conflicting jobs do not advance review progress. There is no
 idle retry/inference loop; pending evidence is retried on a later qualifying turn
 or explicit assignment. Main drafts have ten-minute leases and per-file CAS.
+
+### Latest native attempt observation (T217 source slice2)
+
+Existing authorized primary `agent_memory_manage {action: "status"}` additionally
+returns `latestAttempt`: `null` before any dispatch or after reset/scope mismatch,
+otherwise one ephemeral local observation retained after job cleanup. A new dispatch
+replaces it; it is not durable history, completion truth or another store/ledger.
+The private `runtime.status()` helper remains unchanged. Existing status fields,
+five tools/arguments, ABI1 and policy authority remain unchanged.
+
+The observation exposes only:
+
+- `phase`: `queued`, `running`, `terminal` or `unknown`; `nativeStatus`: one of
+  `queued`, `running`, `completed`, `aborted`, `stopped`, `error` or `unknown`.
+  These are selected from the exact owned service record after validating its ID
+  and writer type, never copied from event payloads. Missing, malformed or throwing
+  getters produce `unknown`, not inferred queue/running/success evidence.
+- `outcome`: `pending`, `integrated`, `conflict`, `native-unsuccessful`, `not-ready`,
+  `integration-unavailable`, `deadline`, `cancelled` or `dispatch-failed`.
+  `integrated` requires this parent's successful `store.integrate`; completed native
+  execution alone is insufficient. Conflict preservation, unsuccessful native status,
+  completed-without-ready and failed integration remain distinct. Existing coarse
+  `lastError` categories are retained for compatibility; raw exceptions are not output.
+- `dispatchedAt`, `observedAt`, `deadlineAt`: finite bounded local epoch-millisecond
+  observations and the earlier local lease/dispatch deadline, not actual queue exit,
+  provider start/end or measured execution durations. Native `startedAt` is not used.
+- `selectedEpisodeCount` (0–4) and `backlog: {total: null, selectedLowerBound: n,
+  selectionLimit: 4, fileCapacityLimit: 256}`. These describe only the existing
+  **dispatch selection**. They are neither total nor current unreviewed backlog;
+  zero selected episodes on an explicit assignment does not prove an empty store.
+  No extra episode scan or store method is added. Selection remains unchanged after
+  integration/review or later evidence changes.
+- `progress: {toolUses, turnBudget: {used, maxTurns, phase}}`: a small snapshot
+  from that same identity/type-validated public `getRecord` observation. `toolUses`
+  counts completed native tool-execution endings, **including unsuccessful ones**;
+  it does not count starts or identify which tools ran. `used` counts successful
+  native turns completed, `maxTurns` is the native turn ceiling, and `phase` is
+  the explicit native enum `within`, `warned` or `exhausted`, never inferred from
+  counts. Only finite nonnegative safe integers are retained, independently per
+  count; missing, malformed or throwing fields become `null`, not zero. A real
+  zero remains zero. An unavailable/throwing budget yields null budget fields
+  without discarding a valid `toolUses` or native status. Every observation replaces
+  the complete progress sample, so a failed current field cannot silently expose
+  an earlier count as the deadline measurement. Returned nested objects are by
+  value, not aliases to retained observations or native records.
+
+- `latestToolEnd`: initially `null`, then only the latest **admitted ending** as
+  `{tool: "read" | "edit" | "commit" | "other", isError: boolean | null}`.
+  Only automatic jobs attach an ephemeral runtime-owned sink to the existing opaque
+  WorkerValue reference returned by Root; explicit assignments never attach one.
+  The existing child `tool_execution_end` hook first authenticates its read owner
+  and exact current open, nonexpired, not-ready worker lease, then reads only
+  `toolName` and `isError`. Nonstring names are ignored without reading the error;
+  nonboolean errors become null. Parent admission rechecks its exact job, attempt,
+  epoch, generation, healthy Root, open view and pending outcome. Each metadata
+  getter and the sink boundary are fenced; throwing or reentrant metadata cannot
+  overwrite a newer admitted sample or interfere with cancellation/publication.
+  A commit that already set `ready` drops its ending, preserving any prior sample.
+  Returned nested samples are copied by value. No starts, history, IDs, pairing,
+  raw names, arguments, results, content, details or raw errors are collected.
+
+This is partial latest-admitted-end visibility, not correlation with the native
+`toolUses` counter or proof of which ending that counter measured. `isError: false`
+means only a non-error ending, not a successful save, integration or learning.
+It does not establish an error cause, provider RTT or commit proof. Separate-runtime
+unit fixtures are not actual SDK delivery proof; the public SDK/Faux bridge
+falsifier is separate evidence, and production-fixture verification remains Main's
+gate. No diagnostic subscriptions, record reads, timers or pollers are added.
+
+These counters do not prove successful reads, edits, integration, semantic learning
+or provider latency. They cannot diagnose why a worker reached its deadline or
+separate queue time from provider/tool time. Optional progress getter failures do
+not suppress required abort/cancellation or block an otherwise valid publication.
+There are no active-tool, transcript/message, usage, raw-error or read-specific
+counts, and no new record reads, subscriptions, timers or polling for progress.
+
+Public started/completed/failed events are matching-ID/type wakeups only. Each
+reads the owned service record; dispatch also observes after synchronous spawn/
+binding, and an authorized status may refresh the active observation once. There
+is no new timer, poller, executor, retry or inference path. Synchronous events and
+late old-job events cannot replace a sealed observation or the next attempt.
+Before the unchanged 120-second timeout abort, deadline is sealed with the then
+observed queued/running/unknown status; abort's subsequent stopped record cannot
+erase it. Cancellation similarly seals before abort. Observation failure does not
+suppress mandatory abort/cancellation or authorize publication. Identity, healthy
+node/generation, epoch and project scope bind the observation internally; mismatch
+suppresses/clears it. IDs, prompts, results, filesystem paths, corpus and native
+record/event payloads are not added to this status metadata.
+
+Both the native queue (`bypassQueue: false`) and the separate 120-second worker
+view/dispatch limits, lease/readiness/revocation/branch/config/CAS/forget/review
+fences remain unchanged. Local fake-clock and native-event regressions prove the
+bounded source observation, including deadline evidence surviving cleanup, not an
+actual deadline cause, installed adoption, provider learning or human acceptance.
+No timeout increase, exact backlog diagnosis or private runtime pilot is delivered.
 
 Forget and rollback affect only the mapped current project plus intentionally global
 Core/index/procedures; other projects' deferred files are preserved. Managed ledger
@@ -279,7 +420,8 @@ independently and never receive the primary projection automatically.
 
 ## Bounded discovery, lexical retrieval and curation (T217 source slice)
 
-These source changes implement P0/P1/bounded P2 only, not full companion parity.
+These source changes implement P0/P1/bounded P2 and the bounded P3 selection
+above, not full companion parity.
 T190/T213 remain completed; T217 acceptance belongs to Mahiro. They do not migrate
 private config v1, ledger v2, Core/index, corpus or retained views; do not add a
 sixth tool, new grants or an ABI change; and do not establish installed activation,
@@ -357,6 +499,31 @@ role skill frontmatter or new skill-policy grant is needed. Loading guidance pro
 instruction delivery only, not semantic learning. Older installed runtimes may not
 advertise these selectors; use their advertised capabilities, not source assumptions.
 
+### Primary-only delegation guidance (bounded P4 source slice)
+
+The authenticated primary `before_agent_start` path adds one short, package-owned
+handoff paragraph inside the existing managed-memory block. It advises Main to
+verify the selected role, tools and capabilities are actually available and
+permitted for the task scope before dispatch, then supply a concise worker brief:
+outcome, constraints, only relevant decisions/conventions with provenance, and
+expected result. Missing or uncertain capabilities and failed execution must be
+reported honestly; `ask_parent`, `notify_parent` and other parent helpers must not
+be assumed available. Ordinary terminal results remain appropriate when needed.
+The guidance forbids broader permissions, inherited primary private corpus or a
+private-memory dump as a substitute for a scoped brief. Current human/repository
+authorities remain controlling.
+
+This is shared operational instruction, not a new personal preference, automatic
+context-delivery/dispatch framework, capability registry or mechanical enforcement
+for all workers. The native base prompt remains intact. Reprojection replaces the
+managed block rather than accumulating paragraphs; unavailable Root authority or
+permission removes it. The identity-bound locked writer keeps its exact separate
+role/curation prompt replacement and three-tool preflight; it receives neither
+this primary-only paragraph nor inherited parent private context. No grants,
+roles, models, tool arguments, ABI, stores, progress counters or lifecycle limits
+change. Fictional prompt-path checks establish instruction delivery and isolation,
+not universal provider compliance, semantic learning or a memory-deadline fix.
+
 Focused fictional regressions cover current-source/path-forget against old views,
 return-boundary races, proposal preservation, scoped/shared discovery, draft/stale
 coherence, Unicode clipping, lexical/work/output bounds and 512-file pagination.
@@ -365,8 +532,8 @@ rejection, leased child query/topic isolation, ordinary child denial, unchanged
 canonical Root dispatch and explicit installer restriction preservation. They make
 zero provider requests. Fresh independent QA and any installed/provider/human proof
 are separate layers; the writer's own checks are not independent verification.
-Remaining P3/P4/P5 evaluation, activation/semantic efficacy and human acceptance are
-not delivered by this bounded source slice.
+Deeper P3 consolidation/replay, P4/P5 evaluation, activation/semantic efficacy and
+human acceptance are not delivered by these bounded source slices.
 
 ## Explicit activation/migration and remaining proof
 
