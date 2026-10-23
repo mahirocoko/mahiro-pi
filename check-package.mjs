@@ -7,7 +7,7 @@ import ts from 'typescript'
 const root = fileURLToPath(new URL('.', import.meta.url))
 const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@mahirocoko/mahiro-pi')
-assert.equal(manifest.version, '0.3.0')
+assert.equal(manifest.version, '0.4.0')
 assert.equal(manifest.private, true)
 assert.equal(manifest.packageManager, 'pnpm@10.33.0')
 assert.equal(manifest.engines.node, '>=22.19.0')
@@ -145,6 +145,8 @@ async function inspect(directory = '') {
             [
               '@earendil-works/pi-coding-agent',
               '@earendil-works/pi-tui',
+              'typebox',
+              'typebox/value',
               '@gotgenes/pi-permission-system',
               '@gotgenes/pi-subagents',
               ...(name.startsWith('lib/guards/test/') ? ['@earendil-works/pi-ai', 'esbuild'] : []),

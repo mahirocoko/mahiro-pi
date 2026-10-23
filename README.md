@@ -5,7 +5,7 @@ terminal presentation, private maintained knowledge, guarded command rewriting
 and explicit workflow tools. Pi keeps ownership of models, authentication,
 native tools and subagent lifecycle.
 
-**v0.3.0 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
+**v0.4.0 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
 
 [Install and upgrade](docs/getting-started.md) · [Documentation](docs/README.md) ·
 [Source releases](https://github.com/mahirocoko/mahiro-pi/releases) ·
@@ -42,7 +42,7 @@ profile selection, restriction failures and upgrades.
 | [Memory and recall](docs/agent-memory.md) | Private Markdown/Git knowledge, scoped drafts, bounded lexical retrieval and separately screened historical quotations |
 | [Guards and permissions](docs/guards.md) | One Root guard, public permission resolution, final-argument checks and filtered configuration helpers |
 | [Workflow tools](docs/workflows.md) | Goals, Code Evidence, UX handoffs and optional execution coordination metadata |
-| [Utilities](docs/utilities.md) | Realignment guidance, branch-aware response copying, run-start clock metadata and Code Map navigation guidance |
+| [Utilities](docs/utilities.md) | Branch-local session steps, editable staging, response copying, realignment, clock metadata and Code Map guidance |
 | [Integrations](docs/integrations.md) | Optional parent-scoped Herdr worker counts and session-opt-in private Web receipts |
 
 ## Useful controls
@@ -57,6 +57,9 @@ profile selection, restriction failures and upgrades.
 /mh-run help             Execution coordination controls
 /realign [focus]         Reorient around current rules and evidence
 /mh-copy-code            Copy a response or code block from this branch
+/mh-tasks                Session steps, dependencies and session-local settings
+/mh-queue                Editable staging, explicit handoff and receipt inspection
+/mh-queue capture off    Keep future busy interactive submissions native (default)
 ```
 
 Apply and theme commands are runtime-only. Appearance Save requires the exact
@@ -72,11 +75,14 @@ The native `/settings` → Quiet startup → `header` setting persists independe
   create/overwrite detection or an unauthorized before-image.
 - Workflow records, reported checks and worker counts are metadata, not execution
   proof, task-board acceptance or automatic Goal completion.
+- Session steps are not task-board acceptance. Editable staging does not edit
+  already-native pending rows; recorded handoff is not model completion. Capture
+  defaults off and unconfirmed attempts never auto-resend.
 - Native direct OpenAI quota is intentionally omitted; native session usage
   remains available. No borrowed credentials or speculative quota calls.
 - Public source does not include private profiles, memory or runtime evidence.
 
 This package remains `private: true` and `UNLICENSED`. GitHub source releases
 are not npm publication or a license grant. See [third-party notices](THIRD_PARTY_NOTICES.md)
-for palette attribution and [v0.3.0 notes](docs/releases/0.3.0.md) for the dated
+for palette attribution and [v0.4.0 notes](docs/releases/0.4.0.md) for the dated
 release scope; current contracts live in the guides above.

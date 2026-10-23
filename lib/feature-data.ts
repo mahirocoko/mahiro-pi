@@ -63,9 +63,18 @@ export function featureCapability(prefix: string, leaf: string) {
   const namespace = ['rtk_state', 'own_ui_state'].includes(prefix) ? leaf : dirname(leaf)
   return `${prefix}_data_${hash(namespace)}`
 }
+export const sessionTrackingTools = [
+  'mh_task_create',
+  'mh_task_get',
+  'mh_task_list',
+  'mh_task_update',
+] as const
 export function featureGrants(profile: string) {
-  return featureNamespaces(profile).flatMap(({ prefix, root, tools }) => [
-    ...tools,
-    `${prefix}_data_${hash(root)}`,
-  ])
+  return [
+    ...sessionTrackingTools,
+    ...featureNamespaces(profile).flatMap(({ prefix, root, tools }) => [
+      ...tools,
+      `${prefix}_data_${hash(root)}`,
+    ]),
+  ]
 }

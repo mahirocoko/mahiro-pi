@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Release record](releases/0.3.0.md)
+[← Documentation](README.md) · [Source preparation](releases/0.4.0.md)
 
 ## Dependencies and checks
 
@@ -45,6 +45,20 @@ double quotes and no trailing commas; JSX quote defaults are unchanged. Run
 `lib/guards/mahiro-commit-attribution-guard.js`). Those factory bytes are SHA-pinned
 by `lib/guards/provenance.json`; patch files also remain byte-exact upstream
 evidence, outside the authored formatter contract.
+
+Focused session-work checks (serialize with other SDK/heavy jobs):
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/native-utilities.test.ts test/session-work-model.test.ts test/session-work-native.test.ts
+```
+
+The session-work native fixture runs genuine public SDK/Faux factories across
+reload/fork/resume/new, native input and correlated custom-message journaling.
+Its public UI selectors/editor keys and terminal object are scripted, not a
+live CLI/TTY. Model tests cover bounds, dependency cleanup, missing/delayed and
+duplicate receipt correlation. A fresh reviewer and native TUI checks must still
+assess composer/attachments, native queue coexistence and rendered narrow layouts.
+No provider inference or execution/RPC package interoperability is established.
 
 Geometry uses public TUI helpers from an explicitly supplied host manifest; it
 makes no model/auth calls and does not substitute for rendered testing.

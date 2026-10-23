@@ -147,6 +147,7 @@ for (const owner of [
   'trustedMemoryTool',
   'trustedOwnUICommand',
   'trustedRTKTool',
+  'trustedTaskTool',
 ]) {
   const start = provenance.indexOf(`export function ${owner}(`)
   assert.ok(start >= 0, `Missing provenance owner: ${owner}`)

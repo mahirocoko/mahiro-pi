@@ -63,6 +63,9 @@ const files = [
   'execution-run-patch-test.mjs',
   'subagents-patch-test.mjs',
   'subagents-owner-test.mjs',
+  'child-controls-patch-test.mjs',
+  'child-controls-owner-test.mjs',
+  'task-provenance-patch-test.mjs',
   'worker-activity-sdk-test.mjs',
   'rtk-patch-test.mjs',
   'own-ui-patch-test.mjs',
@@ -79,10 +82,13 @@ const result = spawnSync(
   },
 )
 const receipt = {
+  pid: result.pid,
   status: result.status,
   signal: result.signal,
   error: String(result.error ?? ''),
   timeoutMs: 300000,
+  externalWait: 'spawnSync returned',
+  bootstrapPreview: { pid: preview.pid, status: preview.status, signal: preview.signal, timeoutMs: 240000 },
   sourceOwner: productRoot,
   stage: stage.root,
   modsCheckoutPresent: fs.existsSync(path.join(stage.root, 'mods')),

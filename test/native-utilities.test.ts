@@ -22,6 +22,7 @@ function fixture(id = crypto.randomUUID()) {
     sessionManager: {
       getSessionId: () => id,
       getHeader: () => ({ type: 'session', id }),
+      getBranch: () => [],
     },
     getSystemPrompt: () => 'primary system prompt',
     isIdle: () => idle,
@@ -40,6 +41,7 @@ function fixture(id = crypto.randomUUID()) {
     setEditorComponent() {
       editorReplacements += 1
     },
+    registerTool: () => {},
     registerFlag: (name: string, options: any) => flags.set(name, options.default),
     getFlag: (name: string) => flags.get(name),
     registerCommand: (name: string, options: any) => commands.set(name, options),

@@ -1,7 +1,8 @@
 diff --git a/dist/public.d.ts b/dist/public.d.ts
+index 738b79ec79ddd01fa5a4dd4c04df77fcb6daccea..543a5245a63c6d5c8ebd215cc0e019e10ba45ee4 100644
 --- a/dist/public.d.ts
 +++ b/dist/public.d.ts
-@@ -239,9 +239,31 @@
+@@ -239,9 +239,33 @@ interface SpawnOptions {
      inheritContext?: boolean;
      foreground?: boolean;
      bypassQueue?: boolean;
@@ -12,7 +13,7 @@ diff --git a/dist/public.d.ts b/dist/public.d.ts
 +     * Like ResumeOptions.claimOutcome, this applies only to this run.
 +     */
 +    claimOutcome?: boolean;
- }
++}
 +/** Immutable current role configuration; absent toolNames means the native built-in default. */
 +interface AgentTypeDescriptor {
 +    readonly name: string;
@@ -23,9 +24,11 @@ diff --git a/dist/public.d.ts b/dist/public.d.ts
 +    readonly inheritContext?: boolean;
 +    readonly promptMode: "replace" | "append";
 +    readonly locked?: true | readonly string[];
-+}
+ }
  /** The public service contract for cross-extension subagent access. */
  interface SubagentsService {
++    /** Current creator-owned child definition, exact SDK context manager; never a permission grant. */
++    ownsChildControlTool(manager: object, tool: import("@earendil-works/pi-coding-agent").ToolInfo | undefined): boolean;
 +    /** Runtime capability: initial claims are taken before publication or scheduling. */
 +    readonly supportsInitialOutcomeClaim: true;
 +    /** Current enabled role only; unknown/disabled names never fall back. */
@@ -33,7 +36,7 @@ diff --git a/dist/public.d.ts b/dist/public.d.ts
      /** Spawn an agent. Returns the agent ID immediately. */
      spawn(type: string, prompt: string, options?: SpawnOptions): string;
      /** Get a snapshot of an agent's current state. */
-@@ -288,8 +310,10 @@
+@@ -288,8 +312,10 @@ declare const SUBAGENT_EVENTS: {
  declare function publishSubagentsService(service: SubagentsService): void;
  /** Retrieve the published SubagentsService, or undefined if not yet published. */
  declare function getSubagentsService(): SubagentsService | undefined;
@@ -47,25 +50,43 @@ diff --git a/dist/public.d.ts b/dist/public.d.ts
 +export { SUBAGENT_EVENTS, getSubagentsServiceForSession, getSubagentsService, publishSubagentsService, unpublishSubagentsService };
 +export type { AgentTypeDescriptor, LifetimeUsage, ResumeOptions, ResumeRefusal, ResumeRefusalReason, ResumeResult, SpawnOptions, SubagentRecord, SubagentStatus, SubagentsService, TurnBudget, TurnBudgetPhase, Workspace, WorkspaceDisposeOutcome, WorkspaceDisposeResult, WorkspacePrepareContext, WorkspaceProvider };
 diff --git a/src/index.ts b/src/index.ts
+index c93b0480b8767fbb379ce87093f926460c530fe4..0f9c6f10e101f491f2c1bffd59501c3e2baa2333 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -41,6 +41,7 @@
+@@ -41,6 +41,8 @@ import { SubagentEventsObserver } from "#src/observation/subagent-events-observe
  import { createSubagentRuntime } from "#src/runtime";
  import { publishSubagentsService, unpublishSubagentsService } from "#src/service/service";
  import { SubagentsServiceAdapter } from "#src/service/service-adapter";
 +import { createSessionServiceBinding } from "#src/service/session-owner";
++import { createChildControlOwner } from "#src/service/child-controls";
  import { detectEnv } from "#src/session/env";
  import { resolveModel } from "#src/session/model-resolver";
  import { createExcludedPackagesStorage } from "#src/session/package-exclusions";
-@@ -202,6 +203,7 @@
+@@ -113,7 +115,10 @@ export default function (pi: ExtensionAPI) {
+   // only at spawn time, so registering late is safe.
+   const observer = new CompositeSubagentObserver([eventsObserver]);
+-
++
++  // The closure is evaluated only after this factory has bound its parent.
++  const childControls = createChildControlOwner(() => sessionBinding.isCurrent());
+   const subagentSessionDeps: SubagentSessionDeps = {
++    childControls,
+     io: {
+       detectEnv,
+       getAgentDir,
+@@ -200,8 +205,9 @@ export default function (pi: ExtensionAPI) {
+-
++
+   // Typed service published via Symbol.for() for cross-extension access.
    // Consumers: const { getSubagentsService } = await import("@gotgenes/pi-subagents");
-   const service = new SubagentsServiceAdapter(manager, resolveModel, runtime);
+-  const service = new SubagentsServiceAdapter(manager, resolveModel, runtime);
++  const service = new SubagentsServiceAdapter(manager, resolveModel, runtime, childControls);
    publishSubagentsService(service);
 +  const sessionBinding = createSessionServiceBinding(service);
  
    const lifecycle = new SessionLifecycleHandler(
      runtime,
-@@ -220,10 +222,16 @@
+@@ -220,10 +226,17 @@ export default function (pi: ExtensionAPI) {
    // registrations rather than sharing a lambda with an unrelated concern.
    const widgetEvents = new WidgetEventsHandler(widget);
  
@@ -78,16 +99,120 @@ diff --git a/src/index.ts b/src/index.ts
    pi.on("session_before_switch", () => lifecycle.handleSessionBeforeSwitch());
 -  pi.on("session_shutdown", () => lifecycle.handleSessionShutdown());
 +  pi.on("session_shutdown", () => {
++    childControls.clear();
 +    sessionBinding.shutdown();
 +    return lifecycle.handleSessionShutdown();
 +  });
    // Registered after the lifecycle handler on purpose. Pi awaits an extension's
    // handlers for an event in registration order, so the widget is torn down once
    // `abortAll()` and the awaited `manager.dispose()` have finished — no terminal
+diff --git a/src/lifecycle/create-subagent-session.ts b/src/lifecycle/create-subagent-session.ts
+index 8ca0490dc15956ffa0b3d2aadef4add155292030..497273c5e8a2feccc9fef654378a804ee1b851d4 100644
+--- a/src/lifecycle/create-subagent-session.ts
++++ b/src/lifecycle/create-subagent-session.ts
+@@ -30,6 +30,7 @@ import type { EnvInfo } from "#src/session/env";
+ import { expandMcpToolPatterns } from "#src/session/mcp-tool-patterns";
+ import type { ModelRegistry } from "#src/session/model-resolver";
+ import { NotifyParentTool, type UpdateAnnouncer } from "#src/session/notify-parent-tool";
++import type { ChildControlOwner } from "#src/service/child-controls";
+ import { type AssemblerIO, assembleSessionConfig } from "#src/session/session-config";
+ import type {
+   ParentSessionInfo,
+@@ -145,6 +146,8 @@ export type SubagentSessionIO = EnvironmentIO & SessionFactoryIO;
+  * static domain deps (exec, registry) every creation needs.
+  */
+ export interface SubagentSessionDeps {
++  /** Internal composition-root capability; absence provides no attestation. */
++  childControls?: ChildControlOwner;
+   io: SubagentSessionIO;
+   exec: ShellExec;
+   registry: AgentConfigLookup;
+@@ -182,8 +185,7 @@ export interface CreateSubagentSessionParams {
+   askParent?: QuestionRecorder;
+   /**
+    * Announces a mid-run update the child sends with `notify_parent`. Supplied
+-   * only for a background child whose operator left the channel on; its absence
+-   * installs no update tool.
++   * when the operator leaves the channel on; its absence installs no update tool.
+    */
+   notifyParent?: UpdateAnnouncer;
+ }
+@@ -261,6 +263,8 @@ export async function createSubagentSession(
+   // would defeat prompt_mode: replace. Parent context, if wanted, reaches the
+   // subagent via prompt_mode: append (parentSystemPrompt is embedded in
+   // systemPromptOverride) or inherit_context (conversation).
++  const childTools = buildChildTools(params);
++  const controlBinding = deps.childControls?.prepare(childTools);
+   const loader = deps.io.createResourceLoader({
+     cwd: cfg.effectiveCwd,
+     agentDir,
+@@ -270,9 +274,17 @@ export async function createSubagentSession(
+     noContextFiles: true,
+     systemPromptOverride: () => cfg.systemPrompt,
+     appendSystemPromptOverride: () => [],
+-    extensionFactories: builtinExtensionsFor(toolNames),
++    extensionFactories: [
++      ...builtinExtensionsFor(toolNames),
++      ...(controlBinding ? [controlBinding.extension] : []),
++    ],
+   });
+-  await loader.reload();
++  try {
++    await loader.reload();
++  } catch (err) {
++    controlBinding?.revoke();
++    throw err;
++  }
+-
++
+   // Create a persisted SessionManager so transcripts are written in Pi's
+   // official JSONL format. Falls back to a temp directory when the parent
+@@ -282,7 +294,6 @@ export async function createSubagentSession(
+   sessionManager.newSession({ parentSession: params.parentSession?.parentSessionId });
+   const sessionId = sessionManager.getSessionId();
+-
++
+-  const childTools = buildChildTools(params);
+   const { session } = await deps.io.createSession({
+     cwd: cfg.effectiveCwd,
+     agentDir,
+@@ -295,7 +306,11 @@ export async function createSubagentSession(
+     excludeTools: EXCLUDED_TOOL_NAMES,
+     resourceLoader: loader,
+     thinkingLevel: cfg.thinkingLevel,
++  }).catch((err: unknown) => {
++    controlBinding?.revoke();
++    throw err;
+   });
++  controlBinding?.bind(session);
+-
++
+   const subagentSession = new SubagentSession(session, {
+     outputFile: sessionManager.getSessionFile(),
+@@ -305,6 +320,7 @@ export async function createSubagentSession(
+     agentMaxTurns: cfg.agentMaxTurns,
+     parentContext: snapshot.parentContext,
+     lifecycle: deps.lifecycle,
++    disposeChildControls: controlBinding?.revoke,
+   });
+-
++
+   // Publish session-created before bindExtensions() so observers (e.g. the
+@@ -317,7 +333,9 @@ export async function createSubagentSession(
+   try {
+     // Bind extensions so that session_start fires and extensions can initialize.
+     await session.bindExtensions({});
++    controlBinding?.activate();
+   } catch (err) {
++    controlBinding?.revoke();
+     // Binding failed after session-created — dispose (child session_shutdown +
+     // session.dispose() + emit disposed) before rethrowing so neither the
+     // registration nor a partially-initialized extension's resources leak.
 diff --git a/src/lifecycle/subagent-manager.ts b/src/lifecycle/subagent-manager.ts
+index 1e7b5087ac0dc3fcd74e67c353a5e2cdddd8fd2a..2ecd6f6c7e4985a9a756a46484bb2f1ad002fcc8 100644
 --- a/src/lifecycle/subagent-manager.ts
 +++ b/src/lifecycle/subagent-manager.ts
-@@ -201,6 +201,8 @@
+@@ -201,6 +201,8 @@ export interface AgentSpawnConfig {
     * callers (e.g. cross-extension RPC) that must not be deferred by the queue.
     */
    bypassQueue?: boolean;
@@ -96,7 +221,7 @@ diff --git a/src/lifecycle/subagent-manager.ts b/src/lifecycle/subagent-manager.
    /** Parent abort signal - when aborted, the subagent is also stopped. */
    signal?: AbortSignal;
    /** Per-subagent lifecycle observer — replaces onSessionCreated callback. */
-@@ -210,6 +212,23 @@
+@@ -210,6 +212,23 @@ export interface AgentSpawnConfig {
  }
  
  export class SubagentManager {
@@ -120,7 +245,7 @@ diff --git a/src/lifecycle/subagent-manager.ts b/src/lifecycle/subagent-manager.
    private agents = new Map<string, Subagent>();
    private sweepInterval: ReturnType<typeof setInterval>;
    private readonly observer?: SubagentManagerObserver;
-@@ -383,6 +402,9 @@
+@@ -383,6 +402,9 @@ export class SubagentManager {
          signal: options.signal,
        },
      });
@@ -130,10 +255,132 @@ diff --git a/src/lifecycle/subagent-manager.ts b/src/lifecycle/subagent-manager.
      this.agents.set(id, record);
  
      if (isBackground) {
+diff --git a/src/lifecycle/subagent-session.ts b/src/lifecycle/subagent-session.ts
+index 8137ec9ddded1df17fb03f2179a9b522970c85b6..446d09a47a1deba24e6cb9db9cbf0a86fb767272 100644
+--- a/src/lifecycle/subagent-session.ts
++++ b/src/lifecycle/subagent-session.ts
+@@ -71,6 +71,8 @@ export interface SubagentSessionMeta {
+   /** Parent context prepended to the run prompt, captured at spawn time. */
+   parentContext: string | undefined;
+   lifecycle: ChildLifecyclePublisher;
++  /** Internal creator registration is revoked before asynchronous teardown. */
++  disposeChildControls?: () => void;
+ }
+-
++
+ /**
+@@ -293,6 +295,7 @@ export class SubagentSession {
+   async dispose(): Promise<void> {
+     if (this.disposed) return;
+     this.disposed = true;
++    this.meta.disposeChildControls?.();
+     this.turnFailure.unsubscribe();
+     await emitChildSessionShutdown(this._session);
+     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- dispose may not exist on all session implementations
+diff --git a/src/service/child-controls.ts b/src/service/child-controls.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8cb99f6c1d2cf05b7e8d89196cf4e7b2487304ff
+--- /dev/null
++++ b/src/service/child-controls.ts
+@@ -0,0 +1,83 @@
++import type { AgentSession, ExtensionAPI, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
++
++/** Factory-private registrations, not grants or an in-process sandbox. */
++export function createChildControlOwner(isCurrent: () => boolean) {
++  type Record = {
++    session?: AgentSession;
++    manager?: object;
++    active: boolean;
++    revoked: boolean;
++    definitions: Map<string, { definition: ToolDefinition; execute: ToolDefinition["execute"] }>;
++  };
++  const records = new WeakMap<object, Record>();
++  const pending = new Set<Record>();
++  const revoke = (record: Record) => {
++    record.active = false;
++    record.revoked = true;
++    if (record.manager && records.get(record.manager) === record) records.delete(record.manager);
++    pending.delete(record);
++  };
++  return {
++    owns(manager: object, tool: ToolInfo | undefined): boolean {
++      try {
++        if (!isCurrent() || !tool || !["ask_parent", "notify_parent"].includes(tool.name)) return false;
++        const record = records.get(manager);
++        if (!record?.active || record.revoked || !record.session || record.manager !== manager) return false;
++        const captured = record.definitions.get(tool.name);
++        if (!captured || record.session.getToolDefinition(tool.name) !== captured.definition ||
++          captured.definition.execute !== captured.execute) return false;
++        // ToolInfo has no execute. Compare the fresh host entry's identity-bearing
++        // schema/source references, then prove its definition via the public SDK.
++        const actual = record.session.getAllTools().find((entry) => entry.name === tool.name);
++        return actual !== undefined && actual.parameters === tool.parameters &&
++          actual.sourceInfo === tool.sourceInfo && tool.parameters === captured.definition.parameters;
++      } catch {
++        return false;
++      }
++    },
++    prepare(definitions: readonly ToolDefinition[]) {
++      const record: Record = {
++        active: false,
++        revoked: false,
++        definitions: new Map(definitions.filter((tool) => ["ask_parent", "notify_parent"].includes(tool.name))
++          .map((definition) => [definition.name, { definition, execute: definition.execute }])),
++      };
++      return {
++        extension(pi: ExtensionAPI) {
++          pi.on("session_start", (_event, ctx) => {
++            if (record.revoked || (record.manager && record.manager !== ctx.sessionManager)) {
++              revoke(record);
++              return;
++            }
++            record.manager = ctx.sessionManager;
++          });
++          pi.on("session_shutdown", () => revoke(record));
++        },
++        bind(session: AgentSession) {
++          if (record.revoked || record.session) { revoke(record); return; }
++          record.session = session;
++          pending.add(record);
++        },
++        activate() {
++          const session = record.session;
++          if (record.revoked || !isCurrent() || !session || !record.manager ||
++            record.definitions.size === 0 || [...record.definitions.values()].some(({ definition, execute }) =>
++              session.getToolDefinition(definition.name) !== definition || definition.execute !== execute)) {
++            revoke(record);
++            return;
++          }
++          const previous = records.get(record.manager);
++          if (previous && previous !== record) revoke(previous);
++          records.set(record.manager, record);
++          record.active = true;
++        },
++        revoke: () => revoke(record),
++      };
++    },
++    clear() {
++      for (const record of pending) revoke(record);
++    },
++  };
++}
++
++export type ChildControlOwner = ReturnType<typeof createChildControlOwner>;
 diff --git a/src/service/service-adapter.ts b/src/service/service-adapter.ts
+index e72fcf152e5a3ae49b374d6083575600c04d04df..9e54ef625ef57f76d3867701aab41d514766a84f 100644
 --- a/src/service/service-adapter.ts
 +++ b/src/service/service-adapter.ts
-@@ -22,6 +22,7 @@
+@@ -6,6 +6,8 @@
+  */
+-
++
+ import type { Model } from "@earendil-works/pi-ai";
++import type { ToolInfo } from "@earendil-works/pi-coding-agent";
++import type { ChildControlOwner } from "#src/service/child-controls";
+ import { parseThinkingLevel, thinkingLevelError } from "#src/config/thinking-level";
+ import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
+ import type { AgentSpawnConfig, ResumeCallOptions, ResumeOutcome } from "#src/lifecycle/subagent-manager";
+@@ -22,6 +24,7 @@ import type { SessionContext, Subagent, ThinkingLevel } from "#src/types";
  
  /** Narrow interface for the SubagentManager — avoids coupling to the concrete class. */
  export interface SubagentManagerLike {
@@ -141,7 +388,7 @@ diff --git a/src/service/service-adapter.ts b/src/service/service-adapter.ts
    spawn(snapshot: ParentSnapshot, type: string, prompt: string, options: AgentSpawnConfig): string;
    getRecord(id: string): Subagent | undefined;
    listAgents(): Subagent[];
-@@ -45,6 +46,12 @@
+@@ -45,10 +48,21 @@ export interface ServiceRuntimeLike {
  
  /** Adapter that wraps SubagentManager to satisfy SubagentsService. */
  export class SubagentsServiceAdapter implements SubagentsService {
@@ -151,10 +398,20 @@ diff --git a/src/service/service-adapter.ts b/src/service/service-adapter.ts
 +    return this.manager.getAgentType(name);
 +  }
 +
++  ownsChildControlTool(manager: object, tool: ToolInfo | undefined): boolean {
++    return this.childControls?.owns(manager, tool) === true;
++  }
++
    constructor(
      private readonly manager: SubagentManagerLike,
      private readonly resolveModel: (input: string, registry: ModelRegistry) => Model<any> | string,
-@@ -71,6 +78,7 @@
+     private readonly runtime: ServiceRuntimeLike,
++    private readonly childControls?: ChildControlOwner,
+   ) {}
+-
++
+   spawn(type: string, prompt: string, options?: SpawnOptions): string {
+@@ -71,6 +85,7 @@ export class SubagentsServiceAdapter implements SubagentsService {
        thinkingLevel: this.resolveThinkingLevel(options?.thinkingLevel),
        inheritContext: options?.inheritContext,
        bypassQueue: options?.bypassQueue,
@@ -163,9 +420,10 @@ diff --git a/src/service/service-adapter.ts b/src/service/service-adapter.ts
        // not, so the agent's own frontmatter decides and background is the
        // SDK-door default.
 diff --git a/src/service/service.ts b/src/service/service.ts
+index 71151535b2dc886e7e4b343060593d82860cdb33..5daba9e41c9995e9655d0ff6797d5c79ebcd3738 100644
 --- a/src/service/service.ts
 +++ b/src/service/service.ts
-@@ -126,10 +126,33 @@
+@@ -126,10 +126,35 @@ export interface SpawnOptions {
    inheritContext?: boolean;
    foreground?: boolean;
    bypassQueue?: boolean;
@@ -176,8 +434,8 @@ diff --git a/src/service/service.ts b/src/service/service.ts
 +   * Like ResumeOptions.claimOutcome, this applies only to this run.
 +   */
 +  claimOutcome?: boolean;
- }
- 
++}
++
 +/** Immutable current role configuration; absent toolNames means the native built-in default. */
 +export interface AgentTypeDescriptor {
 +  readonly name: string;
@@ -188,10 +446,13 @@ diff --git a/src/service/service.ts b/src/service/service.ts
 +  readonly inheritContext?: boolean;
 +  readonly promptMode: "replace" | "append";
 +  readonly locked?: true | readonly string[];
-+}
+ }
+-
 +
  /** The public service contract for cross-extension subagent access. */
  export interface SubagentsService {
++  /** Current creator-owned child definition, exact SDK context manager; never a permission grant. */
++  ownsChildControlTool(manager: object, tool: import("@earendil-works/pi-coding-agent").ToolInfo | undefined): boolean;
 +  /** Runtime capability: initial claims are taken before publication or scheduling. */
 +  readonly supportsInitialOutcomeClaim: true;
 +  /** Current enabled role only; unknown/disabled names never fall back. */
@@ -199,7 +460,7 @@ diff --git a/src/service/service.ts b/src/service/service.ts
    /** Spawn an agent. Returns the agent ID immediately. */
    spawn(type: string, prompt: string, options?: SpawnOptions): string;
  
-@@ -203,3 +226,5 @@
+@@ -203,3 +228,5 @@ export function unpublishSubagentsService(): void {
    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- Symbol-keyed global property; Map.delete() is not applicable
    delete (globalThis as Record<symbol, unknown>)[SERVICE_KEY];
  }
@@ -207,9 +468,10 @@ diff --git a/src/service/service.ts b/src/service/service.ts
 +export { getSubagentsServiceForSession } from "./session-owner";
 diff --git a/src/service/session-owner.ts b/src/service/session-owner.ts
 new file mode 100644
+index 0000000000000000000000000000000000000000..659bd5444dd815c1ec56682b04fd2f8befe746aa
 --- /dev/null
 +++ b/src/service/session-owner.ts
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,80 @@
 +import type { SubagentsService } from "./service";
 +
 +// Private metadata index, never a queue, policy resolver or session-id registry.
@@ -266,10 +528,17 @@ new file mode 100644
 +    if (owner) services?.deleteIf(owner, service);
 +  };
 +  return {
++    isCurrent() {
++      if (owner && services?.get(owner) !== service) {
++        clear();
++        disabled = true;
++      }
++      return !disabled && owner !== undefined && services?.get(owner) === service;
++    },
 +    start(next: object) {
 +      if (disabled) return;
-+      if (owner && owner !== next) {
-+        // A manager's queue must never silently migrate to another SDK owner.
++      if (owner && (owner !== next || services?.get(owner) !== service)) {
++        // A manager's queue must never migrate or replay a replaced factory.
 +        clear();
 +        disabled = true;
 +        return;

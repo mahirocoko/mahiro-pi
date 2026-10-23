@@ -36,6 +36,25 @@ changes. A matched deny blocks. A matched ask requires consuming a same-turn
 public `permissions:decision` allow for that exact surface/path; a rewritten
 path cannot borrow it. Unmatched universal path fallback stays with the public gate.
 
+### Owner-installed child controls
+
+The public subagent creator can install bare `ask_parent` and `notify_parent`
+controls independently of a role's tool list. Root recognizes these only when
+its current healthy parent factory attests the exact child SDK manager and the
+actual currently registered definition through public `AgentSession` APIs.
+The creator separately captures the original execute function; copied names,
+schemas, synthetic SDK source metadata, session IDs or lifecycle events are not
+ownership proof. Events locate a candidate parent only.
+
+This narrow classification exception is **not a grant**: the ordinary public
+PSS pipeline still resolves allow, ask and deny. Missing/legacy attestation,
+failed binding, child disposal or parent replacement fails closed. Stale cleanup
+cannot revoke a replacement registration. Aliases such as
+`functions.notify_parent` are not normalized or admitted. These controls remain
+package-owned communication, not generic child execution or RPC authority.
+
+### Filtered configuration reads
+
 Secret reads use public policy, not a mandatory parallel secret resolver.
 Optional [BASIC read defaults](bootstrap.md#optional-basic-read-defaults) are
 finite and incomplete. Four filtered helpers remain for inspecting configuration
@@ -86,7 +105,8 @@ permission to retry through a helper or another executor. Resolve the named
 owner rather than disabling guards or forging metadata.
 
 Owners: [Root guard](../lib/guards/index.ts) and the authored
-[PSS patch](../patches/@gotgenes__pi-permission-system@40.2.2.patch).
+[PSS patch](../patches/@gotgenes__pi-permission-system@40.2.2.patch), with child-control
+attestation in the authored [subagents patch](../patches/@gotgenes__pi-subagents@23.4.1.patch).
 Source declarations and offline SDK/Faux fixtures do not prove that installed
 dependencies are patched or a running session loaded them. Installation and an
 intentional fresh load must align source, public factories and version-bound

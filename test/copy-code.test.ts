@@ -344,6 +344,7 @@ test('registration uses mh-copy-code and does not replace the editor', () => {
     on() {
       return () => {}
     },
+    registerTool() {},
     registerFlag() {},
     getFlag() {
       return false

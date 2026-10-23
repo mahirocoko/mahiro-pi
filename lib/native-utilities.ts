@@ -1,5 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { COPY_CODE_COMMAND, createCopyCodeHandler } from './copy-code.ts'
+import { registerSessionTasks } from './session-work/tasks.ts'
+import { registerSessionQueue } from './session-work/queue.ts'
 
 export const MAX_FOCUS_CHARS = 500
 export const REALIGN_KIND = 'mahiro-realign'
@@ -57,6 +59,8 @@ function synthetic(text: string) {
 }
 
 export function registerNativeUtilities(pi: ExtensionAPI, now: () => Date = () => new Date()) {
+  registerSessionTasks(pi)
+  registerSessionQueue(pi)
   pi.registerFlag('mahiro-user-timestamps-disable', {
     type: 'boolean',
     default: false,

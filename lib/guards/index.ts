@@ -162,6 +162,7 @@ export default async function activate(pi: ExtensionAPI) {
   const { getPermissionsService } = await import('@gotgenes/pi-permission-system')
   const {
     trustedMetaTool,
+    trustedTaskTool,
     trustedRecallTool,
     trustedMemoryTool,
     trustedCodeMapTool,
@@ -452,6 +453,21 @@ export default async function activate(pi: ExtensionAPI) {
     })
   }
   const supported = new Set([...names, ...host.tools.keys(), 'codemode'])
+  const ownedChildControl = (tool: ToolInfo | undefined, ctx: ExtensionContext) => {
+    if (
+      !tool ||
+      !['ask_parent', 'notify_parent'].includes(tool.name) ||
+      !ownsContext(ctx) ||
+      ctx.sessionManager !== sessionManager ||
+      ctx.signal?.aborted
+    )
+      return false
+    // Event metadata only locates a candidate. Its current public factory must
+    // independently attest the exact child manager and registered definition.
+    const parentId = nativeParents.get(sessionId)
+    const parent = parentId && nodes.get(parentId)
+    return !!parent && parent.healthy() && parent.ownsChildControlTool?.(sessionManager, tool) === true
+  }
   unsubscribes.push(
     pi.on('tool_call', (event, ctx) => {
       const tool = pi.getAllTools().find((tool) => tool.name === event.toolName)
@@ -557,8 +573,10 @@ export default async function activate(pi: ExtensionAPI) {
       if (
         !supported.has(event.toolName) &&
         !trustedMetaTool(tool) &&
+        !trustedTaskTool(tool) &&
         !trustedRecallTool(tool) &&
-        !trustedMemoryTool(tool)
+        !trustedMemoryTool(tool) &&
+        !ownedChildControl(tool, ctx)
       ) {
         return {
           block: true,
@@ -1123,6 +1141,14 @@ export default async function activate(pi: ExtensionAPI) {
             ownsContext({ sessionManager: { getSessionId: () => id } as ExtensionContext['sessionManager'] })
               ? getParentService()
               : undefined,
+        },
+        ownsChildControlTool(manager, tool) {
+          if (
+            !ownsContext({ sessionManager }) ||
+            !trustedMetaTool(pi.getAllTools().find((entry) => entry.name === 'subagent'))
+          )
+            return false
+          return getParentService()?.ownsChildControlTool?.(manager, tool) === true
         },
         healthy: () =>
           registered &&

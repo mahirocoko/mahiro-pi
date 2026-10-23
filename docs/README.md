@@ -22,12 +22,15 @@
 - [Workflow tools](workflows.md) — [Goals](workflows.md#goals),
   [Code Evidence](workflows.md#code-evidence), [UX workflow](workflows.md#ux-workflow)
   and [Execution Run](workflows.md#execution-run).
-- [Utilities and Code Map](utilities.md) — guidance, copy, clock metadata and navigation.
+- [Utilities and Code Map](utilities.md) — [session steps](utilities.md#session-steps),
+  [editable staging](utilities.md#editable-staging-queue), guidance, copy, clock and navigation.
 - [Herdr integrations](integrations.md) — optional worker counts and private Web observation.
 
 ## Develop and release
 
 - [Development and release](development.md) — dependency supply, checks and source artifacts.
+- [v0.4.0 source preparation](releases/0.4.0.md) — branch-local steps and editable staging;
+  publication and native acceptance remain separate gates.
 - [v0.3.0 release record](releases/0.3.0.md) — dated delivered scope. Its historical
   runtime-only appearance limitation predates the current guarded Save contract;
   use [UI documentation](claude-ui.md) for current behavior.

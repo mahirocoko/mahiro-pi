@@ -34,6 +34,7 @@ interface EvidenceABI extends StateABI {
 export interface GuardNode {
   generation: object
   healthy(): boolean
+  ownsChildControlTool?(manager: object, tool: Tool): boolean
   host: ReturnType<typeof createGuardHost>
   ownUI: OwnUIOwner
   codeMap: Pick<StateABI, 'version' | 'generation'> & {
