@@ -7,7 +7,7 @@ import ts from 'typescript'
 const root = fileURLToPath(new URL('.', import.meta.url))
 const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@mahirocoko/mahiro-pi')
-assert.equal(manifest.version, '0.6.0')
+assert.equal(manifest.version, '0.6.1')
 assert.equal(manifest.private, true)
 assert.equal(manifest.packageManager, 'pnpm@10.33.0')
 assert.equal(manifest.engines.node, '>=22.19.0')

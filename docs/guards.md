@@ -36,6 +36,32 @@ changes. A matched deny blocks. A matched ask requires consuming a same-turn
 public `permissions:decision` allow for that exact surface/path; a rewritten
 path cannot borrow it. Unmatched universal path fallback stays with the public gate.
 
+### Native MCP registry admission
+
+Root admits native MCP calls from a fresh public tool-registry snapshot, not a
+per-server tool-name list. The exact dispatched name must have one current
+registration with the runtime-assigned built-in MCP owner provenance. Caller
+input, MCP-looking names, namespace aliases and copied definition metadata do
+not supply that provenance. Root does not reconstruct names from prefixes;
+legitimate shortened or hash-suffixed native names remain opaque identities.
+
+Admission also preserves public exposure semantics: hidden, withdrawn, missing
+and unknown-exposure entries fail closed. Direct tools require active membership;
+registered codemode/deferred tools can be called by another tool while inactive.
+Model-issued calls require active membership, and model-only tools are never
+nested-callable. Nested identity comes from the host's tool-call event, not input.
+The native MCP owner still checks current server/tool availability at execution.
+
+This classification only lets the ordinary PSS pipeline continue. It does not
+approve a call, override targeted deny/ask decisions, grant a child role tools or
+skip normal codemode dispatch. There is no positive name/provenance cache.
+Public registry metadata assumes a trusted Pi host and loaded extension set; it
+is not cryptographic factory attestation against hostile in-process code or an
+OS sandbox. Source/SDK regressions do not prove that an existing session loaded
+the fix: intentional fresh loading and an appropriate read-only native check remain
+separate gates. See the [upgrade procedure](getting-started.md#upgrade-safely)
+when a same-process reload leaves native tool health unavailable.
+
 ### Owner-installed child controls
 
 The public subagent creator can install bare `ask_parent` and `notify_parent`

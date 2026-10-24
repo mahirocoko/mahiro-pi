@@ -32,6 +32,8 @@
 ## Develop and release
 
 - [Development and release](development.md) — dependency supply, checks and source artifacts.
+- [v0.6.1 source release record](releases/0.6.1.md) — native MCP registry admission with
+  existing policy gates, exposure-aware dispatch and explicit fresh-process activation.
 - [v0.6.0 source release record](releases/0.6.0.md) — workflow cards and owner navigation,
   task adoption, cached usage and explicit read-only CLI quota, inline footer hierarchy.
 - [v0.5.0 source release record](releases/0.5.0.md) — historical ordinary memory installation,

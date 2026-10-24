@@ -53,6 +53,7 @@ assert.ok(JSON.parse(preview.stdout).steps.some((s) => s.kind === 'packages'))
 const stage = stagePermissionFixture({ patched: false })
 const files = [
   'test.mjs',
+  'native-mcp-sdk-test.mjs',
   'bootstrap-test.mjs',
   'managed-memory-test.mjs',
   'managed-memory-engine-test.mjs',

@@ -172,6 +172,7 @@ export default async function activate(pi: ExtensionAPI) {
   const { getPermissionsService } = await import('@gotgenes/pi-permission-system')
   const {
     trustedMetaTool,
+    trustedNativeMcpTool,
     trustedTaskTool,
     trustedRecallTool,
     trustedMemoryTool,
@@ -502,7 +503,8 @@ export default async function activate(pi: ExtensionAPI) {
   }
   unsubscribes.push(
     pi.on('tool_call', (event, ctx) => {
-      const tool = pi.getAllTools().find((tool) => tool.name === event.toolName)
+      const tools = pi.getAllTools()
+      const tool = tools.find((tool) => tool.name === event.toolName)
       if (event.toolName === 'mh_rtk') {
         try {
           const binding = rtkBinding(ctx.cwd)
@@ -605,6 +607,7 @@ export default async function activate(pi: ExtensionAPI) {
       if (
         !supported.has(event.toolName) &&
         !trustedMetaTool(tool) &&
+        !trustedNativeMcpTool(tools, pi.getActiveTools(), event) &&
         !trustedTaskTool(tool) &&
         !trustedRecallTool(tool) &&
         !trustedMemoryTool(tool) &&

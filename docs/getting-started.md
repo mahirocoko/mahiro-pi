@@ -166,5 +166,10 @@ See [bootstrap](bootstrap.md); source loading never provisions a profile.
    [candidate limitations](releases/0.5.0.md) before relying on the new policy action.
 
 A cached old guard paired with a new package can correctly refuse version-bound
-feature provenance. Align source/dependencies/profile and reload intentionally;
-do not forge identity or relax the guard. Publication is not automatic activation.
+feature provenance. Align source/dependencies/profile and fresh-load intentionally;
+do not forge identity or relax the guard. A reload banner alone does not prove
+that transitive helper modules were replaced. If native tool health still fails,
+stop and intentionally close/reopen Pi, resuming the intended conversation when
+appropriate, before retrying a harmless native check. Do not repeatedly reload,
+clear private loader caches or bypass Root/PSS. Process replacement requires its
+own authorization; publication does not authorize it or establish activation.
