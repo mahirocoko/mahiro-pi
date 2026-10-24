@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises'
 import {
   display,
   gitStatus,
+  gitLineChanges,
+  gitSnapshot,
   herdrBinding,
   metadataArgs,
   publishMetadata,
@@ -103,6 +105,100 @@ test('porcelain -z counts changes, rename paths, arbitrary filenames and upstrea
     'git dirty:3 ?:1 ahead:2 behind:3',
   )
   assert.equal(gitStatus('## main\0C  copy\0## fake [ahead 99]\0 D deleted\0'), 'git dirty:2')
+})
+
+test('tracked numstat parses numeric net changes and rename paths, never binary/malformed as zero', () => {
+  assert.deepEqual(gitLineChanges('247\t89\ttracked\0'), { added: 247, deleted: 89 })
+  assert.deepEqual(gitLineChanges('2\t3\t\0old\nname\0new\tname\0'), { added: 2, deleted: 3 })
+  assert.deepEqual(gitLineChanges(''), { added: 0, deleted: 0 })
+  for (const value of ['-\t-\tbinary\0', 'bad\0', '1\t2\t\0old\0', '9007199254740992\t1\tx\0'])
+    assert.equal(gitLineChanges(value), undefined)
+})
+
+test('Git snapshot is sequential, bounded, readonly and cancellable across both jobs', async () => {
+  for (const cancelAt of ['status', 'diff', 'none', 'failure', 'binary']) {
+    const jobs: any[] = []
+    const execute: any = (command: string, args: string[], cwd: string) => {
+      let resolve!: (value: string) => void, reject!: (error: Error) => void
+      const job = {
+        command,
+        args,
+        cwd,
+        cancelled: false,
+        promise: new Promise<string>((yes, no) => {
+          resolve = yes
+          reject = no
+        }),
+        cancel() {
+          job.cancelled = true
+        },
+        resolve: (value: string) => resolve(value),
+        reject: () => reject(new Error('unborn HEAD')),
+      }
+      jobs.push(job)
+      return job
+    }
+    const snapshot = gitSnapshot(execute, '/synthetic/repo')
+    const result = snapshot.promise.then(
+      (value) => value,
+      () => 'cancelled',
+    )
+    assert.equal(jobs.length, 1)
+    if (cancelAt === 'status') snapshot.cancel()
+    jobs[0].resolve('## main\0 M tracked\0?? untracked\0')
+    await flush()
+    if (cancelAt === 'status') {
+      assert.equal(await result, 'cancelled')
+      assert.equal(jobs.length, 1, 'late status cannot spawn diff')
+      assert.equal(jobs[0].cancelled, true)
+      continue
+    }
+    assert.equal(jobs.length, 2)
+    assert.deepEqual(jobs[1].args, [
+      '--no-optional-locks',
+      'diff',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--numstat',
+      '-z',
+      'HEAD',
+      '--',
+    ])
+    assert.equal(jobs[1].cwd, '/synthetic/repo')
+    if (cancelAt === 'diff') snapshot.cancel()
+    if (cancelAt === 'failure') jobs[1].reject()
+    else jobs[1].resolve(cancelAt === 'binary' ? '-\t-\tbinary\0' : '247\t89\ttracked\0')
+    assert.equal(
+      await result,
+      cancelAt === 'diff'
+        ? 'cancelled'
+        : `git dirty:1 ?:1${cancelAt === 'none' ? ' added:247 deleted:89' : ''}`,
+    )
+    if (cancelAt === 'diff') assert.equal(jobs[1].cancelled, true)
+  }
+})
+
+test('Git cwd changes and disposal cancel diff and reject late old-cwd snapshots', async () => {
+  const f = fixture({ env: {} })
+  f.jobs[0].resolve('## main\0 M tracked\0')
+  await flush()
+  const diff = f.jobs[1]
+  f.ctx.cwd = '/synthetic/other'
+  f.controller.tick()
+  assert.equal(diff.cancelled, true)
+  diff.resolve('247\t89\ttracked\0')
+  await flush()
+  assert.ok(!f.writes.some((value) => value?.includes('added:247')))
+  const status = f.jobs[2]
+  status.resolve('## other\0')
+  await flush()
+  const nextDiff = f.jobs[3]
+  f.controller.dispose()
+  assert.equal(nextDiff.cancelled, true)
+  nextDiff.resolve('9\t9\tx\0')
+  const count = f.writes.length
+  await flush()
+  assert.equal(f.writes.length, count)
 })
 
 test('context distinguishes unknown from zero; controls and effort are bounded', () => {
@@ -303,6 +399,58 @@ test('legacy quota still publishes and clears, while pending direct OpenAI selec
   f.controller.dispose()
 })
 
+test('external quota owns no shared q slots on legacy routes; source changes cancel deferred native publication', async () => {
+  let ownsQuota = false
+  const f = fixture({ env: {} })
+  f.ctx.model = { id: 'legacy', name: 'Legacy', provider: 'openai-codex' }
+  const controller = start(f.ctx, {
+    ...f.options,
+    env,
+    publish: publishMetadata,
+    presentation: {
+      render() {},
+      tick() {},
+      dispose() {},
+      tokens: () => ({ mahiro_sidebar_q1_warn: 'must never publish external account' }),
+      ownsQuotaTokens: () => ownsQuota,
+    },
+  })
+  const checks = () => f.jobs.filter((job) => job.args[1] === 'process-info')
+  const reports = () => f.jobs.filter((job) => job.args[1] === 'report-metadata')
+  const foreground = JSON.stringify({
+    result: { process_info: { pane_id: env.HERDR_PANE_ID, foreground_processes: [{ pid: process.pid }] } },
+  })
+  checks().at(-1).resolve(foreground)
+  await flush()
+  assert.ok(
+    !reports()
+      .at(-1)
+      .args.some((value: string) => /^mahiro_sidebar_q[12]_/.test(value)),
+  )
+  reports().at(-1).resolve()
+  await flush()
+  ownsQuota = true
+  controller.tick()
+  const old = checks().at(-1)
+  ownsQuota = false
+  controller.tick()
+  assert.equal(old.cancelled, true)
+  const replacement = checks().at(-1)
+  assert.notEqual(replacement, old)
+  old.resolve(foreground)
+  await flush()
+  assert.equal(reports().length, 1, 'old native source cannot publish after source invalidation')
+  replacement.resolve(foreground)
+  await flush()
+  assert.equal(reports().length, 2)
+  assert.ok(
+    !reports()
+      .at(-1)
+      .args.some((value: string) => /^mahiro_sidebar_q[12]_/.test(value)),
+  )
+  controller.dispose()
+})
+
 test('model invalidation cancels deferred foreground checks before stale legacy quota can publish', async () => {
   for (const change of ['selection', 'poll', 'usage']) {
     const f = fixture({ env: {} })
@@ -403,11 +551,14 @@ test('display-only argv never touches native lifecycle; factory subscribes befor
   assert.equal(args.filter((value) => value === '--clear-token').length, 3)
   assert.ok(!args.some((value) => /quota|account|state-label|report-agent/.test(value)))
   const handlers = new Map<string, Function>()
+  const commands = new Map<string, unknown>()
   extension({
     on: (name: string, handler: Function) => {
       handlers.set(name, handler)
     },
+    registerCommand: (name: string, definition: unknown) => commands.set(name, definition),
   } as any)
+  assert.ok(commands.has('mh-usage'))
   assert.ok(handlers.has('session_start'))
   handlers.get('session_shutdown')!({})
   const source = await readFile(new URL('../extensions/mahiro-status.ts', import.meta.url), 'utf8')

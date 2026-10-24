@@ -1,4 +1,7 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { registerWorkflowCommand } from '../lib/workflow-hub.ts'
+import { registerWorkflowAttention } from '../lib/workflow-attention.ts'
+import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 import {
   CREATE_PARAMETERS,
   GET_PARAMETERS,
@@ -10,11 +13,14 @@ import { createUXRuntime, uxTools } from '../lib/ux-workflow/runtime.ts'
 
 /** Ordinary installed tools; workflow creation needs human direction. Registration never seeds state, policy, profile or grants. */
 export default function mahiroUXWorkflow(pi: ExtensionAPI) {
+  registerWorkflowPresentation(pi)
+  const attention = registerWorkflowAttention(pi)
   const runtime = createUXRuntime(pi)
   for (const name of uxTools)
     pi.registerTool({
       name,
       label: name,
+      ...workflowRenderers(name),
       description:
         name === 'mh_get_ux_workflow'
           ? 'Read the current native session UX workflow/open blockers and coordinator boundary. Read before mutation; canonical binding and installed tool/feature-data authority required; empty reads never create a workflow.'
@@ -36,14 +42,16 @@ export default function mahiroUXWorkflow(pi: ExtensionAPI) {
       async execute(_id, args, signal, _update, ctx) {
         if (name === 'mh_update_ux_workflow') validateUpdate(args)
         else validateInput(name === 'mh_get_ux_workflow' ? GET_PARAMETERS : CREATE_PARAMETERS, args)
+        const observe = attention.capture(ctx)
         const result = await runtime.run(name, args, ctx, signal)
+        observe('ux', result)
         return {
           content: [{ type: 'text', text: JSON.stringify(result) }],
           details: result,
         }
       },
     })
-  pi.registerCommand('mh-ux', {
+  registerWorkflowCommand(pi, 'mh-ux', {
     description:
       'UX metadata status/help and public-UI-confirmed human direction/review/reopen/clear gates; no force unlock or moves',
     async handler(args, ctx) {

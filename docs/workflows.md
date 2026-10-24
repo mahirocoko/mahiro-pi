@@ -21,6 +21,52 @@ workflow stores below. They do not execute workers or replace task-board/human
 acceptance. The shared storage/primary-session rules in this guide apply to the
 four workflow features above, not those session-local utilities.
 
+## On-demand workflow inspector
+
+`/mh` opens a bounded navigation picker in the primary interactive session. Session
+steps, staging, usage, appearance and workflow entries delegate their existing
+owner handlers. Goal, Code Evidence, UX, Execution Run, RTK and maintained-memory
+status entries use the **same existing feature command handler** with `status`;
+steps/staging open their existing picker and appearance opens its existing settings. The feature owner still
+performs its own authorization/read path; the hub does not read state files,
+execute tools, send slash strings to the model or maintain a second database.
+Missing entries mean unavailable navigation, not empty or completed workflows.
+Closing or selecting the picker creates nothing and does not accept human gates.
+Callbacks are bound to exact session-manager/session/cwd ownership and checked
+again after asynchronous selection. Before-navigation events invalidate pending
+pickers, not future navigation if another extension cancels the transition.
+Actual replacement rebinds surfaces; shutdown permanently retires old factories.
+
+Tool cards use structured result details for bounded state, revision and blocker
+summaries. Partial results remain pending and failures remain errors; neutral card framing
+does not turn an ordinary returned result into green workflow success. A returned
+result is not worker completion or human acceptance. Native expansion exposes
+captured text and details without changing tool execution or stored raw results.
+Public TUI geometry loads at session lifecycle; until available the renderer uses
+a width-safe placeholder. No footer/header colors, persistent feature rows,
+provider/auth lookup or appearance Save behavior are changed. Appearance Save
+must never persist workflow, policy or memory state.
+
+A single shared, at-most-two-row attention widget appears for meaningful structured
+blocker, stale, setup or unavailable observations returned by an existing owner
+operation. It says **last observed** and links back to `/mh`; it is not a live
+state monitor, worker signal or acceptance record. It does not poll, perform
+additional reads, parse command prose, or persist another workflow store. Plain
+text responses and thrown exceptions are not converted into invented metadata.
+A healthy/empty observation clears only that feature's own displayed attention.
+The next agent run, navigation and shutdown expire the projection; generation,
+manager/session/cwd and observation ordering prevent stale callbacks from
+replacing or clearing a newer owner's projection. Task and staging widgets
+retain their own existing bounded owners.
+
+Integration owners can use `registerWorkflowSurface(pi, { id, label, open })` from
+`lib/workflow-hub.ts`; `open` must delegate an existing owner-authorized handler.
+The returned disposer permanently retires that registration. The public command
+API exposes discovery metadata, not a command invoker, so this explicit callback
+registration is deliberate. Tools can spread `workflowRenderers(name)` from
+`lib/workflow-ui.ts` and register `registerWorkflowPresentation(pi)` for lazy
+geometry initialization. These are presentation APIs, not execution wrappers.
+
 ## Shared authority and storage
 
 Read the current native-session record before mutation. Updates use fresh

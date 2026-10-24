@@ -277,7 +277,8 @@ test('public TUI geometry: width/outputPad, ANSI, Thai/CJK/ZWJ/combining, long l
 })
 
 function harness() {
-  const handlers = new Map<string, (event: any, ctx: any) => any>()
+  const handlers = new Map<string, (event: any, ctx: any) => Promise<void>>()
+  const listeners = new Map<string, Array<(event: any, ctx: any) => any>>()
   let resolver: any
   let command: any
   let header: any
@@ -318,7 +319,12 @@ function harness() {
   }
   const pi = {
     on(name: string, handler: any) {
-      handlers.set(name, handler)
+      const ordered = listeners.get(name) ?? []
+      ordered.push(handler)
+      listeners.set(name, ordered)
+      handlers.set(name, async (event, ctx) => {
+        for (const listener of ordered) await listener(event, ctx)
+      })
     },
     registerToolRenderer(value: any) {
       resolver = value
@@ -336,7 +342,16 @@ function harness() {
   const ctx = {
     mode: 'tui',
     hasUI: true,
-    sessionManager: { getSessionId: () => 'synthetic-ui-panel-only' },
+    sessionManager: {
+      getSessionId: () => 'synthetic-ui-panel-only',
+      getHeader: () => ({
+        type: 'session' as const,
+        version: 3,
+        id: 'synthetic-ui-panel-only',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        cwd: '/fixture/current',
+      }),
+    },
     cwd: '/fixture/current',
     model: { provider: 'test', id: 'actual-model' },
     thinkingLevel: 'high',
@@ -359,6 +374,22 @@ function harness() {
     },
   }
 }
+
+test('UI harness delivers all public lifecycle listeners in registration order', async () => {
+  const h = harness()
+  const delivered: string[] = []
+  h.pi.on('session_tree', async () => {
+    delivered.push('first')
+    await Promise.resolve()
+    delivered.push('first settled')
+  })
+  h.pi.on('session_tree', () => delivered.push('second'))
+  await h.handlers.get('session_tree')!({}, h.ctx)
+  assert.deepEqual(delivered, ['first', 'first settled', 'second'])
+  assert.equal(h.ctx.sessionManager.getHeader().id, h.ctx.sessionManager.getSessionId())
+  assert.equal(h.ctx.sessionManager.getHeader().cwd, h.ctx.cwd)
+  await h.handlers.get('session_shutdown')!({}, h.ctx)
+})
 
 test('resolver is native outside TUI; custom/specialized/codemode stay native; public builtins adapt', async () => {
   const h = harness()
@@ -403,6 +434,18 @@ test('non-TUI events cannot displace an existing TUI presentation; late startup 
   const renderer = h.resolve('read', createReadToolDefinition('/fixture'))
   const child = {
     mode: 'rpc',
+    cwd: '/fixture/child',
+    sessionManager: {
+      getSessionId: () => 'synthetic-ui-child',
+      getHeader: () => ({
+        type: 'session' as const,
+        version: 3,
+        id: 'synthetic-ui-child',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        cwd: '/fixture/child',
+        parentSession: '/fixture/parent.jsonl',
+      }),
+    },
     ui: new Proxy(
       {},
       {
@@ -658,13 +701,21 @@ test('non-TUI startup imports no runtime SDK/TUI, publishes nothing and handles 
     const extension = (await import('./extensions/mahiro-claude-ui.ts')).default;
     for (const mode of ['rpc','json','print']) {
       const handlers = new Map(); let command;
-      const pi = { on(n,h){handlers.set(n,h)}, registerToolRenderer(){}, registerCommand(n,c){command=c} };
+      const pi = { on(n,h){
+        const ordered = handlers.get(n) ?? [];
+        ordered.push(h); handlers.set(n,ordered);
+      }, registerToolRenderer(){}, registerCommand(n,c){command=c} };
+      const emit = async (n,e,c) => {for (const h of handlers.get(n) ?? []) await h(e,c)};
       extension(pi);
-      const ctx = {mode, ui: new Proxy({}, {get(){throw Error('non-TUI UI access')}})};
-      await handlers.get('session_start')({},ctx);
+      const header = {type:'session', version:3, id:'non-tui-'+mode,
+        timestamp:'2026-01-01T00:00:00.000Z', cwd:process.cwd()};
+      const ctx = {mode, hasUI:false, cwd:header.cwd,
+        sessionManager:{getHeader:()=>header, getSessionId:()=>header.id},
+        ui: new Proxy({}, {get(){throw Error('non-TUI UI access')}})};
+      await emit('session_start',{},ctx);
       await command.handler('theme claude',ctx);
       await command.handler('settings',ctx);
-      await handlers.get('session_shutdown')({},ctx);
+      await emit('session_shutdown',{},ctx);
     }`
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
     cwd: new URL('..', import.meta.url),

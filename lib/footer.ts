@@ -1,5 +1,4 @@
 import { basename } from 'node:path'
-import { homedir } from 'node:os'
 import type { ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent'
 import { text } from './status.ts'
 
@@ -20,6 +19,48 @@ export interface Geometry {
 export interface Segment {
   text: string
   color: string
+}
+// Presentation ranges refer only to sanitized plain cell text. Keep Segment's
+// public shape unchanged; only this footer's authored cells carry highlights.
+type Highlight = { start: number; end: number; color: string }
+const highlights = new WeakMap<Segment, Highlight[]>()
+const highlight = (part: Segment, ranges: Highlight[]): Segment => {
+  highlights.set(part, ranges)
+  return part
+}
+const paintCell = (part: Segment, value: string, offset = 0): string => {
+  const ranges = highlights.get(part)
+  if (!ranges?.length) return paint(value, part.color)
+  // Public geometry can append ANSI resets even to plain truncated input.
+  const plain = value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+  let result = '',
+    cursor = 0
+  for (const range of ranges) {
+    const start = Math.max(0, range.start - offset)
+    const end = Math.min(plain.length, range.end - offset)
+    if (end <= start) continue
+    if (start > cursor) result += paint(plain.slice(cursor, start), part.color)
+    result += paint(plain.slice(start, end), range.color)
+    cursor = end
+  }
+  if (cursor < plain.length) result += paint(plain.slice(cursor), part.color)
+  return result
+}
+// Called only for the context/quota projection, never arbitrary identity/status
+// cells. Anchor to the final ten-cell bar and percentage, not label-like text.
+const footerBar = (part: Segment): Segment => {
+  const bar = /[▰▱]{10} \d+(?:\.\d+)?%(?: stale)?$/.exec(part.text)
+  if (!bar) return part
+  const empty = bar[0].indexOf('▱')
+  return empty < 0
+    ? part
+    : highlight(part, [
+        {
+          start: bar.index + empty,
+          end: bar.index + 10,
+          color: COLORS.label,
+        },
+      ])
 }
 export const paint = (value: string, hex: string) => {
   const rgb = hex
@@ -85,11 +126,12 @@ export function routeLabel(ctx: Pick<ExtensionContext, 'model' | 'sessionManager
 export function pack(parts: Segment[], width: number, geometry: Geometry): string[] {
   if (width <= 0) return []
   const lines: string[] = []
-  const separator = paint(' · ', COLORS.separator)
+  const separator = paint(' | ', COLORS.separator)
   let line = ''
   for (const part of parts) {
     let value = part.text
-    const colored = () => paint(value, part.color)
+    let offset = 0
+    const colored = () => paintCell(part, value, offset)
     if (geometry.visibleWidth(value) <= width) {
       if (line && geometry.visibleWidth(line + separator + colored()) > width) {
         lines.push(line)
@@ -109,7 +151,8 @@ export function pack(parts: Segment[], width: number, geometry: Geometry): strin
       // that generated suffix before consuming the plain source prefix.
       const chunk = geometry.truncateToWidth(value, width, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
       if (!chunk) break // terminal narrower than a single grapheme
-      lines.push(paint(chunk, part.color))
+      lines.push(paintCell(part, chunk, offset))
+      offset += chunk.length
       value = value.slice(chunk.length)
     }
   }
@@ -171,6 +214,8 @@ export interface FooterState {
   activity: string
   hideContext: boolean
   quota: Segment[]
+  quotaCompact?: Segment[]
+  usageDisplay?: { quota: boolean; style: 'bar' | 'compact' }
 }
 export interface FooterData {
   getGitBranch(): string | null
@@ -185,28 +230,55 @@ export function renderFooter(
   geometry: Geometry,
   totals = sessionTotals(),
 ): string[] {
+  if (width <= 0) return []
   const cell = (value: string, color: string = COLORS.label): Segment => ({ text: value, color })
+  // Core rows never wrap. Truncation and measurement use the host's public geometry.
+  const line = (parts: Segment[], budget = width): string => {
+    let remaining = Math.max(0, budget)
+    const output: string[] = []
+    for (const part of parts.filter((part) => part.text)) {
+      if (output.length) {
+        if (remaining <= 3) break
+        output.push(paint(' | ', COLORS.separator))
+        remaining -= 3
+      }
+      const value = geometry.truncateToWidth(text(part.text, 4096), remaining, '')
+      output.push(paintCell(part, value))
+      remaining -= geometry.visibleWidth(value)
+      if (remaining <= 0) break
+    }
+    return output.join('')
+  }
+  const pair = (left: Segment[], right: Segment[]): string => {
+    const r = line(right)
+    const available = width - geometry.visibleWidth(r) - 3
+    if (available <= 0) return r
+    const l = line(left, available)
+    return l + ' '.repeat(width - geometry.visibleWidth(l) - geometry.visibleWidth(r)) + r
+  }
   const model = ctx.model
-  const effort = ctx.thinkingLevel
-    ? ` r:${ctx.thinkingLevel === 'medium' ? 'med' : text(ctx.thinkingLevel)}`
-    : ''
-  const identity = [
-    cell('Pi', COLORS.folder),
-    cell(
-      `[${text(model?.name) || text(model?.id) || 'no-model'}${effort}]`,
-      effort ? COLORS.dirty : COLORS.label,
-    ),
-    ...(model ? [cell(text(model.provider))] : []),
-  ]
-  const route = routeLabel(ctx)
-  if (route) identity.push(cell(route, COLORS.context))
-  const home = homedir()
-  const cwd =
-    ctx.cwd === home ? '~' : ctx.cwd.startsWith(`${home}/`) ? `~${ctx.cwd.slice(home.length)}` : ctx.cwd
-  const project = [cell(`📁 ${text(width >= 120 ? cwd : basename(ctx.cwd))}`, COLORS.folder)]
+  const effort = ctx.thinkingLevel ? ` | ${text(ctx.thinkingLevel)}` : ''
+  const identity = (budget: number) => {
+    const suffix = budget >= geometry.visibleWidth(effort) + 4 ? effort : ''
+    const name = geometry.truncateToWidth(
+      text(model?.name) || text(model?.id) || 'no-model',
+      Math.max(1, budget - geometry.visibleWidth(suffix)),
+      '',
+    )
+    const cleanName = text(name, 4096)
+    return highlight(
+      cell(cleanName + suffix, effort ? COLORS.dirty : COLORS.label),
+      suffix
+        ? [
+            { start: cleanName.length, end: cleanName.length + 3, color: COLORS.separator },
+            { start: cleanName.length + 3, end: cleanName.length + suffix.length, color: COLORS.label },
+          ]
+        : [],
+    )
+  }
   const branch = text(data.getGitBranch())
   const changes = [
-    ['?', '+'],
+    ['?', '?'],
     ['dirty', '~'],
     ['ahead', '↑'],
     ['behind', '↓'],
@@ -215,57 +287,76 @@ export function renderFooter(
     return count ? [`${label}${count}`] : []
   })
   const git =
-    [branch ? `🌿 ${branch}` : '', ...changes].filter(Boolean).join(' ') || state.git.replace(/^git /, '')
-  project.push(cell(git, /dirty:|\?:/.test(state.git) ? COLORS.dirty : COLORS.git))
-  const session = text(ctx.sessionManager.getSessionName())
-  if (session) project.push(cell(`💬 ${session}`))
-  project.push(cell(state.activity.replace(/^tool /, '🔧 '), COLORS.activity))
-  const left = pack(project, width, geometry),
-    right = pack(identity, width, geometry)
-  let rows: string[]
-  if (
-    left.length === 1 &&
-    right.length === 1 &&
-    geometry.visibleWidth(left[0]) + geometry.visibleWidth(right[0]) + 3 <= width
-  ) {
-    rows = [
-      left[0] +
-        ' '.repeat(width - geometry.visibleWidth(left[0]) - geometry.visibleWidth(right[0])) +
-        right[0],
-    ]
-  } else {
-    // Model first on narrow screens; optional project/session never crowds it out.
-    rows = [...right, ...left]
+    [branch ? `🌿 ${branch}` : '', ...changes].filter(Boolean).join(' ') ||
+    text(state.git.replace(/^git /, ''))
+  const gitCell = cell(git, /dirty:|\?:/.test(state.git) ? COLORS.dirty : COLORS.git)
+  // Counts are generated operands after the branch, never matches inside a name.
+  let changeOffset = branch ? `🌿 ${branch}`.length + 1 : 0
+  const countRanges: Highlight[] = []
+  for (const change of changes) {
+    if (change.startsWith('?') || change.startsWith('~')) {
+      countRanges.push({ start: changeOffset, end: changeOffset + change.length, color: COLORS.label })
+    }
+    changeOffset += change.length + 1
   }
+  highlight(gitCell, countRanges)
+  const project = [
+    cell(`📁 ${text(basename(ctx.cwd))}`, COLORS.folder),
+    gitCell,
+    ...(['added', 'deleted'] as const).flatMap((key) => {
+      const count = state.git.match(new RegExp(`\\b${key}:(\\d+)`))?.[1]
+      return count === undefined
+        ? []
+        : [cell(`${key === 'added' ? '+' : '−'}${count}`, key === 'added' ? COLORS.git : '#FF6068')]
+    }),
+  ]
   const { stats, context } = totals(ctx)
   const percent = !state.hideContext && finite(context?.percent) ? context.percent : undefined
-  const capacity = context?.contextWindow ?? model?.contextWindow
-  const contextText = `ctx ${percent === undefined ? '?' : `${percent.toFixed(1)}%`}/${finite(capacity) && capacity > 0 ? tokens(capacity) : '?'} (${settings.compaction?.enabled === false ? 'auto off' : 'auto'})`
-  const usage = [
-    cell(
-      contextText,
-      percent !== undefined && percent > 90
-        ? COLORS.error
-        : percent !== undefined && percent > 70
-          ? COLORS.dirty
-          : COLORS.context,
-    ),
-  ]
-  usage.push(cell(`↑${tokens(stats.input)} ↓${tokens(stats.output)}`))
-  if (stats.cacheRead) usage.push(cell(`R${tokens(stats.cacheRead)}`))
-  if (stats.cacheWrite) usage.push(cell(`W${tokens(stats.cacheWrite)}`))
-  if ((stats.cacheRead || stats.cacheWrite) && stats.cacheHit !== undefined)
-    usage.push(cell(`CH${stats.cacheHit.toFixed(1)}%`))
-  const subscription =
-    model &&
-    (model.provider === 'kimi-coding' ||
-      (ctx.modelRegistry.isUsingOAuth(model) &&
-        ctx.modelRegistry.getProvider(model.provider)?.auth?.oauth?.isSubscription === true))
-  usage.push(cell(`$${stats.cost.toFixed(3)}${subscription ? ' (sub)' : ''}`))
-  rows.push(...pack(usage, width, geometry))
-  rows.push(...pack(state.quota, width, geometry))
-  const others = [...data.getExtensionStatuses()]
-    .filter(([key]) => key !== 'mahiro-status')
+  const contextCompact = `ctx ${percent === undefined ? '?' : `${percent.toFixed(1)}%`}`
+  const filled = percent === undefined ? 0 : Math.round(Math.min(100, percent) / 10)
+  const contextLabel =
+    percent === undefined
+      ? contextCompact
+      : `ctx ${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)} ${percent.toFixed(1)}%`
+  const contextColor =
+    percent !== undefined && percent > 90
+      ? COLORS.error
+      : percent !== undefined && percent > 70
+        ? COLORS.dirty
+        : COLORS.context
+  const warning = settings.compaction?.enabled === false ? [cell('auto off', COLORS.error)] : []
+  const statuses = data.getExtensionStatuses()
+  const rtk = text(statuses.get('mahiro-rtk'))
+  const native = cell(`↑${tokens(stats.input)} ↓${tokens(stats.output)}`)
+  const modelBudget = Math.min(width, Math.max(30, Math.floor(width / 2)))
+  const rows =
+    width >= 80 ? [pair(project, [identity(modelBudget)])] : [line(project), line([identity(width)])]
+  const contextCell = footerBar(
+    cell(geometry.visibleWidth(contextLabel) <= width ? contextLabel : contextCompact, contextColor),
+  )
+  const quota =
+    state.usageDisplay?.quota === false
+      ? []
+      : state.quota.map((part, index) => {
+          const full = text(part.text, 4096)
+          const compact = text(state.quotaCompact?.[index]?.text ?? full, 4096)
+          return footerBar({
+            ...part,
+            text:
+              state.usageDisplay?.style === 'compact' || geometry.visibleWidth(full) > width ? compact : full,
+          })
+        })
+  // Context USED and quota LEFT are adjacent semantic cells. Pack whole cells
+  // before wrapping, so narrow terminals never lose a known percentage behind
+  // a long label. Native totals/RTK remain visible on additional rows if needed.
+  rows.push(
+    ...pack([...warning, contextCell, ...quota, native, ...(rtk ? [cell(rtk)] : [])], width, geometry),
+  )
+  // A virtual route is exceptional evidence, not a repeated ordinary provider.
+  const route = routeLabel(ctx)
+  if (route) rows.push(...pack([cell(route, COLORS.context)], width, geometry))
+  const others = [...statuses]
+    .filter(([key]) => key !== 'mahiro-status' && key !== 'mahiro-rtk')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, value]) => cell(text(value, 4096)))
   rows.push(...pack(others, width, geometry))

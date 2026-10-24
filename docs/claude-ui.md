@@ -73,6 +73,9 @@ Matching public factory renderers for read, bash, powershell, edit, write, grep,
 find and ls are adapted. Same-name custom renderers remain native; codemode,
 subagents and MCP/custom tools deliberately retain their own renderers.
 Image-bearing results and image-path reads also delegate to native rendering.
+Own session/workflow tools supply their separate
+[structured cards and inspector](workflows.md#on-demand-workflow-inspector);
+this native-tool adapter does not replace those renderers or execute their actions.
 PowerShell presentation does not override [Root's execution restriction](guards.md).
 
 Each call has its own title/path or command and result arm. Pending/partial

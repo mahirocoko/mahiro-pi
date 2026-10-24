@@ -14,6 +14,18 @@ process.env.GIT_AUTHOR_EMAIL = 'fixture@example.invalid'
 process.env.GIT_COMMITTER_NAME = 'Memory fixture'
 process.env.GIT_COMMITTER_EMAIL = 'fixture@example.invalid'
 const parent = new URL('../.agent-state/runtime/', import.meta.url).pathname
+// Native before_agent_start observers may return nothing. Only prompt-bearing
+// results replace the prompt; a later observer must not erase that replacement.
+function promptResult(results: unknown[]) {
+  return results.findLast(
+    (result): result is { systemPrompt: string } =>
+      typeof result === 'object' &&
+      result !== null &&
+      'systemPrompt' in result &&
+      typeof result.systemPrompt === 'string',
+  )
+}
+
 function fixture(twoProjects = false) {
   const dir = mkdtempSync(join(parent, 'managed-memory-runtime-'))
   const previousProfile = process.env.PI_CODING_AGENT_DIR
@@ -158,14 +170,18 @@ function fixture(twoProjects = false) {
     for (const fn of events.get(name) ?? []) fn(payload)
   }
   const child = () => {
-    const childSM = { getSessionId: () => 'child' }
+    const childSM = {
+      getSessionId: () => 'child',
+      getHeader: () => ({ type: 'session', id: 'child', parentSession: 'primary' }),
+    }
     binding.sm = childSM
     nodes.set('child', {
       generation,
       healthy: () => healthy,
       managedMemory: abi,
     })
-    // Deliberate context double: this unit runtime reads only cwd/session identity.
+    // Deliberate context double: memory binds by SessionManager identity, while
+    // workflow lifecycle observers also inspect the native child-session header.
     // Full public host contexts are exercised by the separate SDK fixtures.
     return { cwd, sessionManager: childSM } as ExtensionContext
   }
@@ -177,6 +193,9 @@ function fixture(twoProjects = false) {
     runtime,
     pi,
     emit,
+    async prompt(systemPrompt: string, context = ctx) {
+      return promptResult(await emit('before_agent_start', { systemPrompt }, context))
+    },
     nativeEvent,
     branch,
     tools,
@@ -530,15 +549,36 @@ test('project management preserves other projects now and through future source 
   }
 })
 
+test('prompt fixture retains memory owner results across no-op and message-only observers', async () => {
+  const f = fixture()
+  try {
+    let observed = 0
+    f.pi.on('before_agent_start', () => {
+      observed++
+    })
+    f.pi.on('before_agent_start', () => ({ message: { content: 'Observer only' } }))
+    await f.emit('session_start')
+    const result = await f.prompt('Native authority')
+    assert.ok(result)
+    assert.match(result.systemPrompt, /Established companion identity/)
+    assert.equal(observed, 1)
+    f.setGranted(false)
+    const revoked = await f.prompt(result.systemPrompt)
+    assert.ok(revoked)
+    assert.equal(revoked.systemPrompt, 'Native authority')
+    assert.equal(await f.prompt('Native authority'), undefined)
+    assert.equal(observed, 3)
+  } finally {
+    f.close()
+  }
+})
+
 test('primary tools edit maintained Markdown and refresh existing/fresh request system context by committed revision', async () => {
   const f = fixture()
   try {
     await f.emit('session_start')
-    const before = (
-      await f.emit('before_agent_start', {
-        systemPrompt: 'Existing native instructions',
-      })
-    )[0]
+    const before = await f.prompt('Existing native instructions')
+    assert.ok(before)
     assert.match(before.systemPrompt, /Established companion identity/)
     const assertDelegation = (prompt: string, native: string) => {
       assert.equal(prompt.split('\n<mahiro-managed-memory>')[0], native)
@@ -570,25 +610,20 @@ test('primary tools edit maintained Markdown and refresh existing/fresh request 
       },
       f.ctx,
     )
-    const unchanged = (
-      await f.emit('before_agent_start', {
-        systemPrompt: 'Existing native instructions',
-      })
-    )[0]
+    const unchanged = await f.prompt('Existing native instructions')
+    assert.ok(unchanged)
     assert.doesNotMatch(unchanged.systemPrompt, /Prefer B/)
     assertDelegation(unchanged.systemPrompt, 'Existing native instructions')
     const commit = await f.runtime.run('agent_memory_commit', { revision: (core as any).revision }, f.ctx)
     assert.equal((commit as any).contextActivation, 'next-primary-request')
-    const next = (await f.emit('before_agent_start', { systemPrompt: before.systemPrompt }))[0]
+    const next = await f.prompt(before.systemPrompt)
+    assert.ok(next)
     assert.match(next.systemPrompt, /Prefer B rather than A/)
-    assert.equal(next.systemPrompt.match(/<mahiro-managed-memory>/g).length, 1)
+    assert.equal(next.systemPrompt.match(/<mahiro-managed-memory>/g)?.length, 1)
     assertDelegation(next.systemPrompt, 'Existing native instructions')
     await f.emit('session_start')
-    const fresh = (
-      await f.emit('before_agent_start', {
-        systemPrompt: 'Fresh native instructions',
-      })
-    )[0]
+    const fresh = await f.prompt('Fresh native instructions')
+    assert.ok(fresh)
     assert.match(fresh.systemPrompt, /Prefer B/)
     assertDelegation(fresh.systemPrompt, 'Fresh native instructions')
   } finally {
@@ -601,7 +636,9 @@ test('primary delegation leaves native authorities intact and disappears with un
   try {
     await f.emit('session_start')
     const native = 'Native default prompt\nCurrent repository authority\nCurrent human instruction'
-    const projected = (await f.emit('before_agent_start', { systemPrompt: native }))[0].systemPrompt
+    const projection = await f.prompt(native)
+    assert.ok(projection)
+    const projected = projection.systemPrompt
     assert.equal(projected.split('\n<mahiro-managed-memory>')[0], native)
     const node = f.nodes.get('primary')
     for (const unavailable of ['permission', 'Root', 'health', 'ABI', 'foreign']) {
@@ -615,13 +652,14 @@ test('primary delegation leaves native authorities intact and disappears with un
       }
       if (unavailable === 'foreign') f.nodes.set('foreign', node)
       const context = unavailable === 'foreign' ? foreign : f.ctx
-      const result = (await f.emit('before_agent_start', { systemPrompt: projected }, context))[0]
+      const result = await f.prompt(projected, context)
+      assert.ok(result, unavailable)
       assert.equal(result.systemPrompt, native, unavailable)
       assert.doesNotMatch(
         result.systemPrompt,
         /Primary delegation guidance|Established companion identity|mahiro-managed-memory/,
       )
-      assert.equal((await f.emit('before_agent_start', { systemPrompt: native }, context))[0], undefined)
+      assert.equal(await f.prompt(native, context), undefined)
       f.setGranted(true)
       f.setHealthy(true)
       f.setVersion(1)
@@ -637,11 +675,9 @@ test('bound writer replacement keeps its exact separate prompt and never receive
   let worker: ReturnType<typeof activateAgentMemory> | undefined
   try {
     await f.emit('session_start')
-    const parentPrompt = (
-      await f.emit('before_agent_start', {
-        systemPrompt: 'Native default and repository authorities\nPRIVATE_PARENT_CONTEXT',
-      })
-    )[0].systemPrompt
+    const projection = await f.prompt('Native default and repository authorities\nPRIVATE_PARENT_CONTEXT')
+    assert.ok(projection)
+    const parentPrompt = projection.systemPrompt
     await dispatchWriter(f)
     const child = f.child()
     // Real workers have their own extension runtime, but share this same Root ABI,
@@ -657,10 +693,12 @@ test('bound writer replacement keeps its exact separate prompt and never receive
       },
       { root: f.root, nodes: f.nodes },
     )
+    // A trailing lifecycle observer cannot erase the identity-bound replacement.
+    handlers.get('before_agent_start')!.push(() => undefined)
     const emit = async (name: string, event = {}) => {
-      let result: any
-      for (const handler of handlers.get(name) ?? []) result = await handler(event, child)
-      return result
+      const results: unknown[] = []
+      for (const handler of handlers.get(name) ?? []) results.push(await handler(event, child))
+      return promptResult(results)
     }
     await emit('session_start')
     const body = readFileSync(join(process.cwd(), 'agents/managed-memory-writer.md'), 'utf8').replace(
@@ -673,6 +711,7 @@ test('bound writer replacement keeps its exact separate prompt and never receive
       const result = await emit('before_agent_start', {
         systemPrompt: inherited,
       })
+      assert.ok(result)
       assert.equal(result.systemPrompt, expected)
       assert.doesNotMatch(
         result.systemPrompt,
@@ -686,6 +725,7 @@ test('bound writer replacement keeps its exact separate prompt and never receive
     const denied = await emit('before_agent_start', {
       systemPrompt: `${parentPrompt}\n${marker}`,
     })
+    assert.ok(denied)
     assert.equal(
       denied.systemPrompt,
       'Managed memory worker unavailable. Do not access memory or infer from inherited context. Report the missing binding/permission and stop.',
@@ -696,9 +736,11 @@ test('bound writer replacement keeps its exact separate prompt and never receive
       sessionManager: { getSessionId: () => 'foreign-worker' },
     }
     f.nodes.set('foreign-worker', f.nodes.get('primary'))
-    let unbound: any
+    const unboundResults: unknown[] = []
     for (const handler of handlers.get('before_agent_start') ?? [])
-      unbound = await handler({ systemPrompt: `${parentPrompt}\n${marker}` }, foreign)
+      unboundResults.push(await handler({ systemPrompt: `${parentPrompt}\n${marker}` }, foreign))
+    const unbound = promptResult(unboundResults)
+    assert.ok(unbound)
     assert.equal(unbound.systemPrompt, denied.systemPrompt)
     assert.equal(f.binding.active(), true)
   } finally {
@@ -843,7 +885,7 @@ test('missing/revoked permission, obsolete ABI, cancellation and unknown argumen
     const projection = await f.emit('before_agent_start', {
       systemPrompt: 'Native',
     })
-    assert.equal(projection[0], undefined)
+    assert.equal(promptResult(projection), undefined)
     await assert.rejects(f.runtime.run('arbitrary', {}, f.ctx))
   } finally {
     f.close()

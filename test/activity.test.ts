@@ -298,12 +298,22 @@ test('non-TUI sessions never touch the working message or indicator', () => {
 
 test('status owns the activity line and does not register a new resource or usage estimate', async () => {
   const handlers = new Map<string, Function>()
+  const listeners = new Map<string, Function[]>()
+  const commands: string[] = []
   extension({
     on: (name: string, handler: Function) => {
-      handlers.set(name, handler)
-      return () => {}
+      const ordered = listeners.get(name) ?? []
+      ordered.push(handler)
+      listeners.set(name, ordered)
+      handlers.set(name, async (event: unknown, ctx: unknown) => {
+        for (const listener of ordered) await listener(event, ctx)
+      })
     },
+    registerCommand: (name: string) => commands.push(name),
   } as never)
+  assert.deepEqual(commands, ['mh-usage'])
+  assert.equal(listeners.get('session_start')!.length, 2)
+  assert.equal(listeners.get('session_shutdown')!.length, 3)
   for (const name of [
     'session_start',
     'session_shutdown',
@@ -321,6 +331,18 @@ test('status owns the activity line and does not register a new resource or usag
     { reason: 'startup' },
     {
       mode: 'print',
+      hasUI: false,
+      cwd: '/fixture/activity',
+      sessionManager: {
+        getSessionId: () => 'synthetic-activity',
+        getHeader: () => ({
+          type: 'session',
+          version: 3,
+          id: 'synthetic-activity',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          cwd: '/fixture/activity',
+        }),
+      },
       ui: {
         setWorkingMessage() {
           throw new Error('activity message')
@@ -345,7 +367,7 @@ test('status owns the activity line and does not register a new resource or usag
   handlers.get('agent_end')!({ messages: [] })
   handlers.get('agent_settled')!({ aborted: true })
   handlers.get('message_end')!({ message: { role: 'assistant', stopReason: 'aborted' } })
-  handlers.get('session_shutdown')!({ reason: 'quit' })
+  await handlers.get('session_shutdown')!({ reason: 'quit' })
 
   const activitySource = await readFile(new URL('../lib/activity.ts', import.meta.url), 'utf8')
   const extensionSource = await readFile(new URL('../extensions/mahiro-status.ts', import.meta.url), 'utf8')

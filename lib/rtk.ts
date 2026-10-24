@@ -2,6 +2,9 @@
 // No settings hooks, history DB, permission bypass or native usage mutation.
 import { execFile } from 'node:child_process'
 import { join, resolve } from 'node:path'
+import { registerWorkflowCommand } from './workflow-hub.ts'
+import { registerWorkflowAttention } from './workflow-attention.ts'
+import { registerWorkflowPresentation, workflowRenderers } from './workflow-ui.ts'
 import {
   assertRTKBinding,
   rtkBinding,
@@ -308,7 +311,10 @@ export function registerRTK(
       projects: args.operation === 'projects' ? [b.project] : undefined,
     }
   }
+  registerWorkflowPresentation(pi)
+  const attention = registerWorkflowAttention(pi)
   pi.registerTool({
+    ...workflowRenderers('mh_rtk'),
     name: 'mh_rtk',
     label: 'Mahiro RTK',
     description:
@@ -329,14 +335,16 @@ export function registerRTK(
     },
     async execute(_id: string, args: any, signal: AbortSignal, _update: any, ctx: any) {
       if (signal?.aborted) throw Error('RTK cancelled')
+      const observe = attention.capture(ctx)
       const details = await run(args, { ...ctx, signal: signal ?? ctx.signal })
+      observe('rtk', details)
       return {
         content: [{ type: 'text', text: JSON.stringify(details) }],
         details,
       }
     },
   })
-  pi.registerCommand('mh-rtk', {
+  registerWorkflowCommand(pi, 'mh-rtk', {
     description:
       'Native RTK status | mode <off|suggest|rewrite-safe|rewrite-rtk> <sequence> | rewrite <command> | log | doctor | guidance',
     handler: async (input: string, ctx: any) => {

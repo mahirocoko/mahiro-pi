@@ -14,23 +14,27 @@
 ## Use the package
 
 - [UI and theme](claude-ui.md) — header, tool rows, edit/write previews and appearance Save.
-- [Status and notifications](status.md) — usage, activity, quota boundaries and completion voice.
+- [Status and notifications](status.md) — compact footer, `/mh-usage`, activity,
+  supported cached quota boundaries and completion voice.
 - [RTK](rtk.md) — modes, resolver bounds and guarded failure behavior.
 - [Memory and historical recall](agent-memory.md) — maintained knowledge, discovery,
   editable starter, ordinary engine, readiness/policy limits, scoped writing,
   conflict recovery and separate quotation controls.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
-- [Workflow tools](workflows.md) — [Goals](workflows.md#goals),
+- [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),
+  readable tool cards, [Goals](workflows.md#goals),
   [Code Evidence](workflows.md#code-evidence), [UX workflow](workflows.md#ux-workflow)
   and [Execution Run](workflows.md#execution-run).
-- [Utilities and Code Map](utilities.md) — [session steps](utilities.md#session-steps),
+- [Utilities and Code Map](utilities.md) — natural multi-step tracking and [session steps](utilities.md#session-steps),
   [editable staging](utilities.md#editable-staging-queue), guidance, copy, clock and navigation.
 - [Herdr integrations](integrations.md) — optional worker counts and private Web observation.
 
 ## Develop and release
 
 - [Development and release](development.md) — dependency supply, checks and source artifacts.
-- [v0.5.0 source release record](releases/0.5.0.md) — ordinary memory installation,
+- [v0.6.0 source release record](releases/0.6.0.md) — workflow cards and owner navigation,
+  task adoption, cached usage and explicit read-only CLI quota, inline footer hierarchy.
+- [v0.5.0 source release record](releases/0.5.0.md) — historical ordinary memory installation,
   editable starter and portable writer route; bounded policy recovery limits and
   source/SDK verification does not imply installed or human acceptance.
 - [v0.4.0 source record](releases/0.4.0.md) — historical branch-local steps and

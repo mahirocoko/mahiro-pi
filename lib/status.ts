@@ -126,6 +126,60 @@ export const run: Run = (command, args, cwd, env) => {
   }
 }
 
+// --numstat -z uses two extra path records for renames. Binary or malformed
+// records make line totals unknown; never turn unsupported data into zero.
+export function gitLineChanges(output: string): { added: number; deleted: number } | undefined {
+  const records = output.split('\0')
+  let added = 0,
+    deleted = 0
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]
+    if (!record && i === records.length - 1) continue
+    const match = /^(\d+)\t(\d+)\t([\s\S]*)$/.exec(record)
+    if (!match) return
+    added += Number(match[1])
+    deleted += Number(match[2])
+    if (!Number.isSafeInteger(added) || !Number.isSafeInteger(deleted)) return
+    if (!match[3] && (!records[++i] || !records[++i])) return
+  }
+  return { added, deleted }
+}
+
+// One bounded sequential producer owns both subprocesses, including cancellation.
+// HEAD diff is net tracked staged + unstaged change, not untracked file counts.
+export function gitSnapshot(execute: Run, cwd: string): Job {
+  let cancelled = false
+  let active = execute(
+    'git',
+    ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--branch', '--untracked-files=normal'],
+    cwd,
+  )
+  const promise = active.promise.then(async (output) => {
+    if (cancelled) throw new Error('Git snapshot cancelled')
+    const status = gitStatus(output)
+    try {
+      active = execute(
+        'git',
+        ['--no-optional-locks', 'diff', '--no-ext-diff', '--no-textconv', '--numstat', '-z', 'HEAD', '--'],
+        cwd,
+      )
+      const totals = gitLineChanges(await active.promise)
+      if (cancelled) throw new Error('Git snapshot cancelled')
+      return totals ? `${status} added:${totals.added} deleted:${totals.deleted}` : status
+    } catch {
+      if (cancelled) throw new Error('Git snapshot cancelled')
+      return status // unborn HEAD, binary/unsupported or diff failure
+    }
+  })
+  return {
+    promise,
+    cancel() {
+      cancelled = true
+      active.cancel()
+    },
+  }
+}
+
 export function herdrBinding(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
   if (env.HERDR_ENV !== '1') return
   // Keep the exact inherited socket, pane and session routing. Never infer a
@@ -227,6 +281,7 @@ interface Options {
     render(state: { git: string; activity: string; hideContext: boolean }): void
     tick(): void
     tokens(): Record<string, string>
+    ownsQuotaTokens?(): boolean
     invalidate?(model?: SnapshotContext['model']): void
     dispose(): void
   }
@@ -258,10 +313,12 @@ export function start(ctx: Context, options: Options = {}) {
     gitAt = -Infinity,
     metadataAt = -Infinity
   let gitJob: Job | undefined, metadataJob: Job | undefined
+  let gitCwd = ctx.cwd
   let lastValues = '',
     identity = '',
     hideContext = false
   let revision = 0
+  let quotaOwnership = options.presentation?.ownsQuotaTokens?.() ?? true
   let pendingModel: SnapshotContext['model']
   let stopTimer = () => {}
 
@@ -295,25 +352,36 @@ export function start(ctx: Context, options: Options = {}) {
       }
       identity = nextIdentity
       options.presentation?.tick()
+      const nextQuotaOwnership = options.presentation?.ownsQuotaTokens?.() ?? true
+      if (nextQuotaOwnership !== quotaOwnership) {
+        quotaOwnership = nextQuotaOwnership
+        revision++
+        cancelMetadata()
+        lastValues = ''
+      }
+      if (gitCwd !== ctx.cwd) {
+        gitJob?.cancel()
+        gitJob = undefined
+        gitCwd = ctx.cwd
+        gitAt = -Infinity
+        git = 'git unknown'
+      }
       render()
       if (!gitJob && now() - gitAt >= GIT_INTERVAL_MS) {
         gitAt = now()
-        const job = execute(
-          'git',
-          ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--branch', '--untracked-files=normal'],
-          ctx.cwd,
-        )
+        const cwd = ctx.cwd
+        const job = gitSnapshot(execute, cwd)
         gitJob = job
         job.promise
           .then(
             (output) => {
-              if (alive) {
-                git = gitStatus(output)
+              if (alive && gitJob === job && ctx.cwd === cwd) {
+                git = output
                 render()
               }
             },
             () => {
-              if (alive) {
+              if (alive && gitJob === job && ctx.cwd === cwd) {
                 git = 'git unknown'
                 render()
               }
@@ -326,13 +394,18 @@ export function start(ctx: Context, options: Options = {}) {
       if (!binding || metadataJob) return
       const values = display(ctx, hideContext)
       const quota = options.presentation?.tokens() ?? {}
-      const serialized = JSON.stringify([values, quota])
+      const serialized = JSON.stringify([values, quota, quotaOwnership])
       if (serialized === lastValues && now() - metadataAt < HEARTBEAT_MS) return
       const sentRevision = revision
       const args = metadataArgs(binding.HERDR_PANE_ID!, values, ++owner.seq)
       // Direct OpenAI sidebar quota belongs to Herdr's shared Codex adapter,
       // including model_select before the host refreshes ctx.model.
-      if (options.presentation && ctx.model?.provider !== 'openai' && pendingModel?.provider !== 'openai')
+      if (
+        options.presentation &&
+        quotaOwnership &&
+        ctx.model?.provider !== 'openai' &&
+        pendingModel?.provider !== 'openai'
+      )
         for (const i of [1, 2])
           for (const severity of ['ok', 'warn', 'critical']) {
             const key = `mahiro_sidebar_q${i}_${severity}`

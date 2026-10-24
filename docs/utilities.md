@@ -53,6 +53,22 @@ utilities feature. It is not a task-board replacement, worker scheduler, RPC
 service, Goal or acceptance record. Loading creates no steps or configuration.
 No separate upstream task package or executor is installed.
 
+The assistant can naturally choose tracking for useful multi-step work without
+being asked to name commands: investigate/fix/test a bug, implement across files
+and verify, or compare alternatives and deliver a change. It should list/reuse
+relevant steps before creating more. Casual chat, explanations, quick lookups and
+single-step edits do not need tasks. Actual user instructions not to track win;
+this guidance does not expand authorized scope or create a Goal.
+
+A bounded generated advisory is appended to the **current run's** system prompt
+before an ordinary primary user run, even when the journal is empty. It preserves
+the latest prompt (including maintained memory/persona) and is not human evidence,
+a synthetic user message or a persisted transcript entry. It does not parse the
+request, create/update steps, change reminder settings or execute work. Custom
+message runs and known child/worker contexts skip this proactive guidance.
+Explicit view `off` also disables this advisory and reminders, without deleting
+steps or disabling explicit inspection.
+
 Four namespaced model tools provide the same core operations:
 
 | Tool | Arguments and result |
@@ -62,7 +78,10 @@ Four namespaced model tools provide the same core operations:
 | `mh_task_list` | `{}`; returns this branch's steps and view configuration |
 | `mh_task_update` | `id`, latest `expected_revision`, optional fields, `blockedBy`, `status` or `delete: true` |
 
-Read before updating. Status is `pending`, `in_progress` or `completed`; setting
+Read `mh_task_get` or `mh_task_list` before updating with the latest revision;
+reread after a conflict. Mark in-progress when actually starting and completed
+only after doing the scoped step and checking its result; record evidence or
+remaining limitations in the description. Status is `pending`, `in_progress` or `completed`; setting
 pending/in-progress reopens a completed step. Metadata null removes that key.
 Dependencies must reference existing other steps; cycles reject. Starting despite
 open blockers returns a warning, not a refusal or worker launch. Deletion,
@@ -74,7 +93,9 @@ The picker supports create, title/description edits, dependencies, status/reopen
 delete, clear completed and session-local settings:
 
 - **View:** default `quiet` (up to three open steps), `compact` (up to five) or
-  `off`. Completed/overflow steps are summarized; full records remain in the picker.
+  `off`. Open batches summarize completed/overflow steps. A completed-only batch
+  hides the widget rather than leaving permanent clutter; full completed records
+  remain in the picker and `mh_task_list`/`mh_task_get`, and can be reopened.
 - **Retention:** default `never`. Optional `four-turns` expires a completed step
   at its fourth subsequent native `turn_start`, including the final assistant
   turn following a tool call. Explicit creation after a fully settled completed

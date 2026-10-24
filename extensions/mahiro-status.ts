@@ -1,10 +1,13 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { startActivity } from '../lib/activity.ts'
+import { codexCliSource } from '../lib/codex-cli-quota.ts'
 import { footerRepaint, renderFooter, sessionTotals, type FooterState } from '../lib/footer.ts'
 import { quotaController } from '../lib/quota.ts'
 import { sharedOwner, start } from '../lib/status.ts'
+import { initUsage } from '../lib/usage.ts'
 
 export default function mahiroStatus(pi: ExtensionAPI) {
+  const usage = initUsage(pi)
   let current: ReturnType<typeof start> | undefined
   let activity: ReturnType<typeof startActivity> | undefined
   let generation = 0
@@ -12,6 +15,7 @@ export default function mahiroStatus(pi: ExtensionAPI) {
   // tests need no installed host peer, and non-TUI children never own the UI.
   pi.on('session_start', async (_event, ctx) => {
     const revision = ++generation
+    usage.dispose()
     current?.dispose()
     current = undefined
     activity?.dispose()
@@ -23,22 +27,36 @@ export default function mahiroStatus(pi: ExtensionAPI) {
     let requestRender = () => {}
     let footerChanged = () => {}
     let state: FooterState = { git: 'git unknown', activity: 'idle', hideContext: false, quota: [] }
-    const quota = quotaController(ctx, () => requestRender())
+    const quota = quotaController(ctx, () => requestRender(), { external: codexCliSource(ctx) })
+    usage.attach(
+      ctx,
+      quota,
+      () => footerChanged(),
+      geometry,
+      () => !state.hideContext,
+    )
     ctx.ui.setStatus('mahiro-status', undefined)
     ctx.ui.setFooter((tui, _theme, data) => {
       requestRender = () => tui.requestRender()
       const totals = sessionTotals()
       const footer = footerRepaint(
-        (width) =>
-          renderFooter(
+        (width) => {
+          const view = quota.view()
+          return renderFooter(
             ctx,
             pi.getSettings(),
             data,
-            { ...state, quota: quota.view().segments },
+            {
+              ...state,
+              quota: view.footerSegments,
+              quotaCompact: view.footerCompact,
+              usageDisplay: usage.display(),
+            },
             width,
             geometry,
             totals,
-          ),
+          )
+        },
         () => requestRender(),
       )
       footerChanged = footer.changed
@@ -61,8 +79,10 @@ export default function mahiroStatus(pi: ExtensionAPI) {
         },
         tick: () => quota.tick(),
         tokens: () => quota.view().tokens,
+        ownsQuotaTokens: () => quota.snapshot().source !== 'codex-cli',
         invalidate: (model) => quota.invalidate(model),
         dispose() {
+          usage.dispose()
           quota.dispose()
           ctx.ui.setFooter(undefined)
         },
@@ -83,6 +103,7 @@ export default function mahiroStatus(pi: ExtensionAPI) {
   })
   pi.on('session_shutdown', () => {
     generation++
+    usage.dispose()
     current?.dispose()
     current = undefined
     activity?.dispose()

@@ -8,9 +8,18 @@ import {
   sessionTotals,
   usageStats,
   COLORS,
+  paint,
+  type FooterState,
   type Segment,
 } from '../lib/footer.ts'
-import { parseQuota, quotaController, SUCCESS_TTL, STALE_BOUND, quotaSegments } from '../lib/quota.ts'
+import {
+  parseQuota,
+  quotaController,
+  SUCCESS_TTL,
+  STALE_BOUND,
+  quotaSegments,
+  quotaFooterSegments,
+} from '../lib/quota.ts'
 import { start, text } from '../lib/status.ts'
 
 const plain = (value: string) => value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
@@ -20,13 +29,15 @@ const widthOf = (value: string) =>
   graphemes(plain(value)).reduce((n, g) => n + (/\p{Extended_Pictographic}/u.test(g) ? 2 : 1), 0)
 const geometry = {
   visibleWidth: widthOf,
-  truncateToWidth(value: string, width: number) {
+  truncateToWidth(value: string, width: number, ellipsis = '') {
     let result = ''
-    for (const g of graphemes(value)) {
-      if (widthOf(result + g) > width) break
+    const source = plain(value)
+    const limit = widthOf(source) > width ? Math.max(0, width - widthOf(ellipsis)) : width
+    for (const g of graphemes(source)) {
+      if (widthOf(result + g) > limit) break
       result += g
     }
-    return result + '\x1b[0m' // Pi TUI also emits a reset for plain input.
+    return result + (widthOf(source) > width && widthOf(ellipsis) <= width ? ellipsis : '') + '\x1b[0m' // Pi emits a reset too.
   },
 }
 const usage = (input = 10, cacheRead = 20) => ({
@@ -125,6 +136,169 @@ const payload = (reset: number) => ({
   },
 })
 
+test('Git numeric line totals are distinct green/red cells; untracked remains a file count', () => {
+  const f = fixture()
+  f.state.git += ' added:247 deleted:89'
+  const first = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)[0]
+  assert.match(plain(first), /🌿 main \?2 ~1 ↑3 ↓4 \| \+247 \| −89/)
+  assert.ok(first.includes('\x1b[38;2;100;207;100m+247\x1b[0m'))
+  assert.ok(first.includes('\x1b[38;2;255;96;104m−89\x1b[0m'))
+  f.state.git = 'git dirty:1 ?:247'
+  const unknown = plain(renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)[0])
+  assert.match(unknown, /\?247/)
+  assert.doesNotMatch(unknown, /\+247|−0|\+0/)
+})
+
+test('context USED and quota LEFT ten-cell bars have independent endpoints and rounding', () => {
+  const f = fixture()
+  for (const [percent, filled] of [
+    [0, 0],
+    [100, 10],
+    [24.9, 2],
+    [25, 3],
+    [84, 8],
+  ]) {
+    f.ctx.getContextUsage = () => ({ percent })
+    const quota = quotaFooterSegments([{ label: 'P:7d', remaining: 100 - percent, reset: null }], false)
+    const state = { ...f.state, quota: quota.expanded, quotaCompact: quota.compact }
+    const all = renderFooter(f.ctx, {}, f.data, state, 160, geometry).map(plain).join('\n')
+    assert.ok(all.includes(`ctx ${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)} ${percent.toFixed(1)}%`))
+    const quotaFilled = Math.round(Math.round(100 - percent) / 10)
+    assert.ok(
+      all.includes(
+        `Codex Weekly ${'▰'.repeat(quotaFilled)}${'▱'.repeat(10 - quotaFilled)} ${Math.round(100 - percent)}%`,
+      ),
+    )
+    assert.deepEqual(
+      all.match(/[▰▱]+/g)?.map((bar) => bar.length),
+      [10, 10],
+    )
+  }
+  f.ctx.getContextUsage = () => undefined
+  const unknown = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry).map(plain).join('\n')
+  assert.match(unknown, /ctx \?/)
+  assert.doesNotMatch(unknown, /[▰▱]|0\.0%/)
+})
+
+test('restrained highlights paint generated counts and suffix only, never lookalike names', () => {
+  const f = fixture()
+  const name = '?2 ~1 medium | ▱ กิשלום👩🏽‍💻'
+  f.ctx.model.name = name
+  f.data.getGitBranch = () => name
+  f.ctx.getContextUsage = () => ({ percent: 84 })
+  const quota = quotaFooterSegments([{ label: 'P:7d', remaining: 84, reset: null }], false)
+  const state = { ...f.state, quota: quota.expanded, quotaCompact: quota.compact }
+  const rows = renderFooter(f.ctx, {}, f.data, state, 160, geometry)
+  assert.ok(rows[0].includes(paint(`🌿 ${name} `, COLORS.dirty)))
+  assert.ok(rows[0].includes(paint(name, COLORS.dirty)))
+  for (const count of ['?2', '~1']) {
+    assert.ok(rows[0].includes(paint(count, COLORS.label)))
+    assert.ok(!rows[0].includes(paint(count, COLORS.dirty)))
+  }
+  assert.ok(rows[0].includes(paint(' ↑3 ↓4', COLORS.dirty)))
+  assert.ok(rows[0].includes(paint(' | ', COLORS.separator) + paint('medium', COLORS.label)))
+  assert.ok(!rows[0].includes(paint('medium', COLORS.dirty)))
+  assert.ok(!rows[0].includes(paint('▱', COLORS.label)), 'lookalike glyph in names keeps accent')
+  assert.ok(rows[1].includes(paint('ctx ▰▰▰▰▰▰▰▰', COLORS.dirty)))
+  assert.ok(rows[1].includes(paint('Codex Weekly ▰▰▰▰▰▰▰▰', COLORS.git)))
+  assert.equal(rows[1].split(paint('▱▱', COLORS.label)).length - 1, 2)
+  assert.ok(!rows[1].includes(paint('▱▱', COLORS.separator)))
+  assert.ok(!rows[1].includes(paint('▱▱', COLORS.dirty)))
+  assert.ok(!rows[1].includes(paint('▱▱', COLORS.git)))
+  assert.deepEqual(
+    quota.expanded,
+    quotaFooterSegments([{ label: 'P:7d', remaining: 84, reset: null }], false).expanded,
+  )
+  f.state.git = 'git ahead:3 behind:4'
+  const clean = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)[0]
+  assert.ok(clean.includes(paint(`🌿 ${name} ↑3 ↓4`, COLORS.git)))
+})
+
+test('empty-bar paint leaves filled thresholds, stale and compact projections unchanged', () => {
+  const f = fixture()
+  for (const [percent, color] of [
+    [25, COLORS.context],
+    [84, COLORS.dirty],
+    [94, COLORS.error],
+  ] as const) {
+    f.ctx.getContextUsage = () => ({ percent })
+    const row = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)[1]
+    const filled = Math.round(percent / 10)
+    assert.ok(row.includes(paint(`ctx ${'▰'.repeat(filled)}`, color)))
+    if (filled < 10) assert.ok(row.includes(paint('▱'.repeat(10 - filled), COLORS.label)))
+  }
+  for (const [remaining, color] of [
+    [10, COLORS.error],
+    [40, COLORS.dirty],
+    [84, COLORS.git],
+  ] as const) {
+    for (const stale of [false, true]) {
+      const quota = quotaFooterSegments([{ label: 'P:7d', remaining, reset: null }], stale)
+      const state = { ...f.state, quota: quota.expanded, quotaCompact: quota.compact }
+      const row = renderFooter(f.ctx, {}, f.data, state, 160, geometry)[1]
+      const filled = Math.round(remaining / 10)
+      assert.ok(row.includes(paint(`Codex Weekly ${'▰'.repeat(filled)}`, stale ? COLORS.label : color)))
+      assert.ok(row.includes(paint('▱'.repeat(10 - filled), COLORS.label)))
+      const compact = renderFooter(
+        f.ctx,
+        {},
+        f.data,
+        {
+          ...state,
+          usageDisplay: { quota: true, style: 'compact' },
+        },
+        160,
+        geometry,
+      )[1]
+      assert.ok(
+        compact.includes(
+          paint(`Codex Weekly ${remaining}%${stale ? ' stale' : ''}`, stale ? COLORS.label : color),
+        ),
+      )
+    }
+  }
+})
+
+test('highlighted cells preserve plain geometry, sanitization and semantics at widths 1..160', () => {
+  const f = fixture()
+  f.ctx.model.name = 'กิשלום👩🏽‍💻 medium ?2 ~1 \x1b[31mname\x1b[0m\n\u202e'
+  f.data.getGitBranch = () => 'กิשלום👩🏽‍💻 ?2 ~1 \x1b[31mbranch\x1b[0m\n\u2066'
+  f.data.getExtensionStatuses = () => new Map([['other', 'NekoStack ▱ medium ?2 ~1']])
+  for (const percent of [undefined, 0, 25, 84, 100]) {
+    f.ctx.getContextUsage = () => (percent === undefined ? undefined : { percent })
+    for (const stale of [false, true]) {
+      const quota = quotaFooterSegments([{ label: 'P:7d', remaining: 84, reset: null }], stale)
+      for (const style of ['bar', 'compact'] as const) {
+        const state = {
+          ...f.state,
+          quota: quota.expanded,
+          quotaCompact: quota.compact,
+          usageDisplay: { quota: true, style },
+        }
+        for (let width = 1; width <= 160; width++) {
+          const rows = renderFooter(f.ctx, {}, f.data, state, width, geometry)
+          assert.ok(
+            rows.every((row) => widthOf(row) <= width),
+            `width ${width}`,
+          )
+          const visible = rows.map(plain).join('\n')
+          assert.doesNotMatch(visible, /\x1b|\u202e|\u2066|�/)
+          assert.ok(!rows.join('').includes('\x1b[31m'), 'source ANSI is sanitized before painting')
+          if (width >= 80) {
+            assert.ok(visible.includes('NekoStack ▱ medium ?2 ~1'))
+            assert.ok(
+              visible.includes(
+                `Codex Weekly ${style === 'bar' ? '▰▰▰▰▰▰▰▰▱▱ ' : ''}84%${stale ? ' stale' : ''}`,
+              ),
+            )
+            assert.ok(visible.includes(percent === undefined ? 'ctx ?' : `${percent.toFixed(1)}%`))
+          }
+        }
+      }
+    }
+  }
+})
+
 test('full-session stats count each native usage type once across compaction, latest cache rate only', () => {
   const entries: any[] = [
     { type: 'usage', usage: usage() },
@@ -147,63 +321,149 @@ test('full-session stats count each native usage type once across compaction, la
   assert.equal(usageStats(entries).cacheHit, undefined)
 })
 
-test('cohesive palette, native metrics, context zero/unknown, auto off, API/subscription and other slots', () => {
+test('minimal core rows retain native input/output, context semantics, palette and status ownership', () => {
   const f = fixture()
-  let rows = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)
+  f.data.getExtensionStatuses = () =>
+    new Map([
+      ['other', 'another extension'],
+      ['mahiro-status', 'DUPLICATE'],
+      ['mahiro-rtk', 'RTK rewrite-rtk'],
+    ])
+  const rows = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)
   const all = rows.map(plain).join('\n')
+  assert.equal(rows.length, 3, 'two core rows plus the other extension')
   for (const fragment of [
-    '📁',
-    '🌿 main +2 ~1 ↑3 ↓4',
-    'ชื่อเซสชัน',
-    '🔧 read',
-    'Pi',
-    '[gpt-6.1-sol r:med]',
-    'openai',
-    'ctx 0.0%/272k (auto)',
+    '🌿 main ?2 ~1 ↑3 ↓4',
+    'gpt-6.1-sol | medium',
+    'ctx ▱▱▱▱▱▱▱▱▱▱ 0.0%',
     '↑10 ↓3',
-    'R20',
-    'W2',
-    'CH62.5%',
-    '$0.001 (sub)',
+    'RTK rewrite-rtk',
     'another extension',
   ])
     assert.ok(all.includes(fragment), fragment)
-  assert.ok(!all.includes('DUPLICATE'))
+  for (const removed of [
+    '/synthetic/',
+    'ชื่อเซสชัน',
+    'read',
+    'Pi',
+    'openai',
+    '/272k',
+    '(auto)',
+    'R20',
+    'W2',
+    'CH62.5%',
+    '$0.001',
+    'DUPLICATE',
+  ])
+    assert.ok(!all.includes(removed), removed)
+  assert.equal(all.split('RTK rewrite-rtk').length - 1, 1)
+  assert.equal(all.split('another extension').length - 1, 1)
   assert.match(rows[0], /\x1b\[38;2;140;140;249m/)
-  f.ctx.getContextUsage = () => ({ percent: null, contextWindow: 272000 })
-  f.oauth(false)
-  rows = renderFooter(f.ctx, { compaction: { enabled: false } }, f.data, f.state, 80, geometry)
-  assert.match(rows.map(plain).join('\n'), /ctx \?\/272k \(auto off\)/)
-  assert.ok(!rows.map(plain).join('\n').includes('(sub)'))
-  f.ctx.getContextUsage = () => undefined
-  f.ctx.model = undefined
-  assert.match(renderFooter(f.ctx, {}, f.data, f.state, 80, geometry).map(plain).join('\n'), /ctx \?\/\?/)
+  assert.deepEqual(COLORS, {
+    folder: '#8C8CF9',
+    git: '#64CF64',
+    dirty: '#FEE19C',
+    activity: '#20B2AA',
+    context: '#BEBEEE',
+    separator: '#46484A',
+    label: '#A5A8AB',
+    error: '#F1689F',
+  })
+  f.ctx.modelRegistry = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error('footer must not inspect auth')
+      },
+    },
+  )
+  renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)
 })
 
-test('40/60/80/120/160-column packing keeps native data, graphemes and ANSI resets', () => {
+test('semantic rows, narrow fallback, unknown/hidden context and explicit compaction warning', () => {
   const f = fixture()
+  f.data.getExtensionStatuses = () => new Map()
   for (const width of [40, 60, 80, 120, 160]) {
     const rows = renderFooter(f.ctx, {}, f.data, f.state, width, geometry)
-    assert.ok(rows.every((row) => geometry.visibleWidth(row) <= width))
-    const all = rows.map(plain).join('\n')
-    for (const fragment of [
-      'gpt-6.1-sol',
-      'ctx 0.0%/272k',
-      '↑10 ↓3',
-      'R20',
-      'W2',
-      'CH62.5%',
-      '$0.001 (sub)',
-      'งานไทย👩🏽‍💻',
-    ])
-      assert.ok(all.includes(fragment), `${width}: ${fragment}`)
-    assert.ok(rows.every((row) => row.endsWith('\x1b[0m')))
+    assert.equal(rows.length, width < 80 ? 3 : 2)
+    assert.ok(
+      rows.every((row) => geometry.visibleWidth(row) <= width),
+      `${width}: overflow`,
+    )
+    assert.ok(plain(rows[0]).includes('งานไทย👩🏽‍💻'))
+    assert.ok(plain(rows[width < 80 ? 1 : 0]).includes('gpt-6.1-sol | medium'))
+    assert.ok(rows.map(plain).join('\n').includes('ctx ▱▱▱▱▱▱▱▱▱▱ 0.0%'))
+    if (width >= 80) assert.ok(plain(rows[1]).includes('↑10 ↓3'))
+    if (width < 80) assert.ok(plain(rows[0]).includes('🌿 main'))
   }
-  const value = 'กิ👩🏽‍💻'.repeat(30)
+  f.ctx.getContextUsage = () => ({ percent: null, contextWindow: 272000 })
+  assert.match(renderFooter(f.ctx, {}, f.data, f.state, 80, geometry).map(plain).join('\n'), /ctx \?/)
+  f.ctx.getContextUsage = () => ({ percent: 72, contextWindow: 272000 })
+  f.state.hideContext = true
+  assert.match(renderFooter(f.ctx, {}, f.data, f.state, 80, geometry).map(plain).join('\n'), /ctx \?/)
+  f.state.hideContext = false
+  f.ctx.model = { ...f.ctx.model, id: 'long-model-'.repeat(30) }
+  for (const width of [1, 2, 4, 8, 12, 20, 40, 60, 80, 120, 160]) {
+    const rows = renderFooter(f.ctx, { compaction: { enabled: false } }, f.data, f.state, width, geometry)
+    assert.ok(rows.length >= 2)
+    assert.ok(
+      rows.every((row) => geometry.visibleWidth(row) <= width),
+      `${width}: overflow`,
+    )
+    if (width >= 12) assert.ok(rows.map(plain).join('\n').includes('auto off'), `${width}: warning`)
+    if (width >= 20) assert.ok(rows.map(plain).join('\n').includes('long'), `${width}: identity`)
+  }
+  assert.deepEqual(renderFooter(f.ctx, {}, f.data, f.state, 0, geometry), [])
+})
+
+test('public geometry preserves Unicode pack round-trip and sanitizes core control input', () => {
+  const f = fixture()
+  const value = 'กิ👩🏽‍💻שלום'.repeat(30)
   const rows = pack([{ text: value, color: COLORS.folder }], 4, geometry)
   assert.equal(rows.map(plain).join(''), value)
   assert.equal(text('กิ👩🏽‍💻', 1), 'กิ')
   assert.equal(text('\x1b[31mred\x1b[0m'), 'red')
+  f.ctx.cwd = '/synthetic/' + value + '\n\x1b[31mbad'
+  f.ctx.model.name = value + '\r\x1b[2J'
+  f.data.getGitBranch = () => value + '\t\x1b[31m'
+  for (const width of [1, 4, 20, 40, 80, 160]) {
+    const output = renderFooter(f.ctx, {}, f.data, f.state, width, geometry)
+    assert.ok(output.every((row) => widthOf(row) <= width))
+    assert.ok(output.every((row) => !/[\x00-\x1f]/.test(plain(row))))
+  }
+})
+
+test('ctx precedes quota inline when wide; real 48-column fallback retains bars, percentages and native metrics', () => {
+  const f = fixture()
+  f.ctx.getContextUsage = () => ({ percent: 41.2 })
+  f.data.getExtensionStatuses = () => new Map([['mahiro-rtk', 'RTK rewrite-rtk']])
+  const quota = quotaFooterSegments([{ label: 'P:7d', remaining: 84, reset: null }], false)
+  const state: FooterState = { ...f.state, quota: quota.expanded, quotaCompact: quota.compact }
+  const wide = renderFooter(f.ctx, {}, f.data, state, 160, geometry).map(plain)
+  assert.equal(wide.length, 2)
+  assert.match(wide[0], /งานไทย👩🏽‍💻 \| 🌿 main/)
+  assert.match(wide[0], /gpt-6.1-sol \| medium$/)
+  assert.match(wide[1], /^ctx ▰▰▰▰▱▱▱▱▱▱ 41\.2% \| Codex Weekly ▰▰▰▰▰▰▰▰▱▱ 84% \| ↑10 ↓3 \| RTK rewrite-rtk$/)
+  const narrow = renderFooter(f.ctx, {}, f.data, state, 48, geometry).map(plain)
+  assert.ok(narrow.includes('ctx ▰▰▰▰▱▱▱▱▱▱ 41.2%'))
+  assert.ok(narrow.some((row) => row.startsWith('Codex Weekly ▰▰▰▰▰▰▰▰▱▱ 84%')))
+  assert.ok(narrow.some((row) => row.includes('↑10 ↓3')))
+  assert.ok(narrow.some((row) => row.includes('RTK rewrite-rtk')))
+  assert.ok(narrow.every((row) => widthOf(row) <= 48))
+  for (const width of [1, 4, 20, 40, 80, 160]) {
+    const rows = renderFooter(f.ctx, {}, f.data, state, width, geometry)
+    assert.ok(rows.every((row) => widthOf(row) <= width))
+    if (width >= 20) assert.ok(rows.map(plain).join('\n').includes('84%'))
+    if (width === 20) assert.ok(rows.map(plain).join('\n').includes('Codex Weekly 84%'))
+  }
+  state.usageDisplay = { quota: false, style: 'bar' }
+  assert.doesNotMatch(renderFooter(f.ctx, {}, f.data, state, 160, geometry).map(plain).join('\n'), /Codex/)
+  state.usageDisplay.quota = true
+  state.quota = [{ text: 'Codex CLI unavailable | sign-in denied', color: COLORS.label }]
+  state.quotaCompact = state.quota
+  const unavailable = renderFooter(f.ctx, {}, f.data, state, 48, geometry).map(plain).join('\n')
+  assert.match(unavailable, /Codex CLI unavailable \| sign-in denied/)
+  assert.doesNotMatch(unavailable, /Codex.*0%/)
 })
 
 test('route label requires virtual selection plus successful active-branch evidence', () => {
@@ -211,6 +471,9 @@ test('route label requires virtual selection plus successful active-branch evide
   assert.equal(routeLabel(f.ctx), '')
   f.ctx.model.api = 'pi-virtual'
   assert.equal(routeLabel(f.ctx), '→ openai/gpt')
+  assert.ok(
+    renderFooter(f.ctx, {}, f.data, f.state, 80, geometry).map(plain).join('\n').includes('→ openai/gpt'),
+  )
   f.entries.push({
     type: 'message',
     message: { role: 'assistant', model: 'wrong', provider: 'wrong', stopReason: 'error' },
@@ -218,6 +481,9 @@ test('route label requires virtual selection plus successful active-branch evide
   assert.equal(routeLabel(f.ctx), '→ openai/gpt')
   f.entries.push({ type: 'model_change', modelId: 'new' })
   assert.equal(routeLabel(f.ctx), '→ route unknown')
+  assert.ok(
+    renderFooter(f.ctx, {}, f.data, f.state, 40, geometry).map(plain).join('\n').includes('→ route unknown'),
+  )
 })
 
 test('quota parser matches remaining labels, durations, additional limits, reset times; rejects malformed values', () => {
@@ -550,21 +816,21 @@ test('idle polls request a whole-TUI repaint only when the rendered footer chang
   assert.equal(requests, 1, 'unchanged idle ticks must not repaint the transcript')
   f.state.activity = 'idle'
   footer.changed()
-  assert.equal(requests, 2)
+  assert.equal(requests, 1, 'unpainted activity changes must not repaint')
   footer.render(100)
   footer.changed()
-  assert.equal(requests, 2)
+  assert.equal(requests, 1)
   // Quota staleness and context come from time/host state, not status events.
   quota = quotaSegments([{ label: 'P:7d', remaining: 59, reset: null }], true)
   footer.changed()
-  assert.equal(requests, 3)
+  assert.equal(requests, 2)
   footer.render(100)
   f.ctx.getContextUsage = () => ({ tokens: 1, percent: 42, contextWindow: 272000 })
   footer.changed()
-  assert.equal(requests, 4)
+  assert.equal(requests, 3)
   footer.render(80)
   footer.changed()
-  assert.equal(requests, 4, 'comparison uses the last painted width')
+  assert.equal(requests, 3, 'comparison uses the last painted width')
   let fail = false
   const fragile = footerRepaint(
     () => {
@@ -578,7 +844,7 @@ test('idle polls request a whole-TUI repaint only when the rendered footer chang
   fragile.render(10)
   fail = true
   fragile.changed()
-  assert.equal(requests, 5, 'a footer that cannot be compared still repaints')
+  assert.equal(requests, 4, 'a footer that cannot be compared still repaints')
 })
 
 test('append-only session totals are recomputed only for new entries, leaf moves, model or session changes', () => {
@@ -614,7 +880,7 @@ test('append-only session totals are recomputed only for new entries, leaf moves
       usage: usage(40, 0),
     },
   })
-  assert.match(paint(), /ctx 55\.0%/)
+  assert.match(paint(), /ctx ▰▰▰▰▰▰▱▱▱▱ 55\.0%/)
   assert.match(paint(), /↑50/)
   assert.equal(estimates, 1, 'an appended entry recomputes once')
   percent = 60

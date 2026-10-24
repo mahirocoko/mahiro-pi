@@ -13,7 +13,13 @@ import { registerSessionTasks } from '../lib/session-work/tasks.ts'
 import { registerSessionQueue } from '../lib/session-work/queue.ts'
 
 /** Real public SDK/Faux; scripted public UI is not a native terminal or human acceptance. */
-export async function sessionWorkFixture(options: { memory?: boolean } = {}) {
+export async function sessionWorkFixture(
+  options: {
+    memory?: boolean
+    extensions?: Array<(pi: ExtensionAPI) => void>
+    extensionPaths?: string[]
+  } = {},
+) {
   const sdk = await import('@earendil-works/pi-coding-agent')
   const ai = await import('@earendil-works/pi-ai')
   const tui = await import('@earendil-works/pi-tui')
@@ -328,6 +334,7 @@ export async function sessionWorkFixture(options: { memory?: boolean } = {}) {
       settingsManager,
       resourceLoaderOptions: {
         noExtensions: true,
+        additionalExtensionPaths: options.extensionPaths ?? [],
         noSkills: true,
         noContextFiles: true,
         noThemes: true,
@@ -349,6 +356,7 @@ export async function sessionWorkFixture(options: { memory?: boolean } = {}) {
               context = ctx
             })
           },
+          ...(options.extensions ?? []),
         ],
       },
     })

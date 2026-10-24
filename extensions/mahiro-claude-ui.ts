@@ -15,6 +15,7 @@ import {
   type UIPreferences,
 } from '../lib/claude-ui-settings.ts'
 import { ownUIOwner, type UIStoredPreferences } from '../lib/claude-ui-owner.ts'
+import { registerWorkflowSurface } from '../lib/workflow-hub.ts'
 
 // Runtime presentation remains separate from explicit Root-owned Save. No native
 // settings, profile provisioning, transcript, auth or model writes.
@@ -191,7 +192,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     liveTail = false
     requestRender = () => {}
   })
-  pi.registerCommand('mh-ui', {
+  const uiCommand: Parameters<ExtensionAPI['registerCommand']>[1] = {
     description:
       'Mahiro UI live preview and explicit own-UI Save; theme status | follow | claude is runtime-only',
     handler: async (args, ctx) => {
@@ -322,5 +323,11 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
         'info',
       )
     },
+  }
+  pi.registerCommand('mh-ui', uiCommand)
+  registerWorkflowSurface(pi, {
+    id: 'appearance',
+    label: 'Appearance settings',
+    open: (ctx) => uiCommand.handler('settings', ctx),
   })
 }

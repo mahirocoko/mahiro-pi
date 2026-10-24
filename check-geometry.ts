@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { pack, renderFooter, COLORS } from './lib/footer.ts'
+import { quotaFooterSegments } from './lib/quota.ts'
 
 const args = process.argv.slice(2).filter((arg) => arg !== '--')
 assert.ok(
@@ -57,20 +58,53 @@ for (const width of [40, 60, 80, 120, 160]) {
     `${width}: overflow`,
   )
   const all = rows.map(plain).join('\n')
-  for (const fragment of [
-    'gpt-6.1-sol',
-    'ctx 0.0%/272k',
-    '↑10 ↓3',
-    'R20',
-    'W2',
-    'CH62.5%',
-    '$0.001 (sub)',
-    'งานไทย👩🏽‍💻',
-  ]) {
+  assert.equal(rows.length, width < 80 ? 3 : 2, `${width}: semantic core rows`)
+  for (const fragment of ['gpt-6.1-sol | medium', 'ctx ▱▱▱▱▱▱▱▱▱▱ 0.0%', 'งานไทย👩🏽‍💻']) {
     assert.ok(all.includes(fragment), `${width}: missing ${fragment}`)
   }
+  if (width >= 80) assert.ok(all.includes('↑10 ↓3'))
+  else {
+    assert.ok(plain(rows[0]).includes('🌿 main'))
+    assert.ok(plain(rows[1]).includes('gpt-6.1-sol'))
+  }
+  for (const removed of ['/synthetic/', 'ชื่อเซสชัน', 'R20', 'W2', 'CH62.5%', '$0.001', '/272k'])
+    assert.ok(!all.includes(removed), `${width}: removed ${removed}`)
 }
-const value = 'กิ👩🏽‍💻'.repeat(30)
+for (const width of [1, 2, 4, 8, 12, 20, 40, 60, 80, 120, 160]) {
+  const long = { ...ctx, model: { ...ctx.model, id: 'long-model-'.repeat(30) } }
+  const output = renderFooter(long, { compaction: { enabled: false } }, data, state, width, geometry)
+  const expectedRows: Record<number, number> = {
+    1: 24,
+    2: 13,
+    4: 8,
+    8: 5,
+    12: 5,
+    20: 5,
+    40: 3,
+    60: 3,
+    80: 2,
+    120: 2,
+    160: 2,
+  }
+  assert.equal(output.length, expectedRows[width])
+  assert.ok(
+    output.every((row) => geometry.visibleWidth(row) <= width),
+    `${width}: tiny/long overflow`,
+  )
+  if (width >= 12) assert.ok(output.map(plain).join('\n').includes('auto off'), `${width}: warning`)
+}
+const quota = quotaFooterSegments([{ label: 'P:7d', remaining: 84, reset: null }], false)
+const quotaState = { ...state, quota: quota.expanded, quotaCompact: quota.compact }
+for (const width of [48, 160]) {
+  const output = renderFooter(ctx, {}, data, quotaState, width, geometry)
+  assert.ok(output.every((row) => geometry.visibleWidth(row) <= width))
+  const lines = output.map(plain)
+  assert.ok(lines.some((row) => row.includes('Codex Weekly ▰▰▰▰▰▰▰▰▱▱ 84%')))
+  assert.ok(lines.some((row) => row.includes('ctx ▱▱▱▱▱▱▱▱▱▱ 0.0%')))
+  assert.ok(lines.some((row) => row.includes('↑10 ↓3')))
+  if (width === 160) assert.match(lines[1], /ctx .* \| Codex Weekly/)
+}
+const value = 'กิ👩🏽‍💻שלום'.repeat(30)
 const rows = pack([{ text: value, color: COLORS.folder }], 4, geometry)
 assert.ok(rows.every((row) => geometry.visibleWidth(row) <= 4))
 assert.equal(rows.map(plain).join(''), value)

@@ -14,6 +14,7 @@ import {
   type QueueRow,
 } from './queue-model.ts'
 import { editStagedText, label, workWidget } from './view.ts'
+import { registerWorkflowSurface } from '../workflow-hub.ts'
 
 export function registerSessionQueue(pi: ExtensionAPI) {
   const journal = createBranchJournal(
@@ -127,7 +128,7 @@ export function registerSessionQueue(pi: ExtensionAPI) {
   pi.on('session_shutdown', (_event, ctx) => {
     if (ctx.hasUI) ctx.ui.setWidget('mahiro-session-queue', undefined)
   })
-  pi.registerCommand('mh-queue', {
+  const queueCommand: Parameters<ExtensionAPI['registerCommand']>[1] = {
     description:
       'Editable extension staging, not native atomic queue editing. capture off|steer|followUp; otherwise open staging.',
     async handler(args, ctx) {
@@ -254,6 +255,12 @@ export function registerSessionQueue(pi: ExtensionAPI) {
           ctx.ui.notify(error instanceof Error ? error.message : 'Staging unavailable.', 'error')
       }
     },
+  }
+  pi.registerCommand('mh-queue', queueCommand)
+  registerWorkflowSurface(pi, {
+    id: 'queue',
+    label: 'Queue / staging',
+    open: (ctx) => queueCommand.handler('', ctx),
   })
   return { view, stage, change, handoff }
 }

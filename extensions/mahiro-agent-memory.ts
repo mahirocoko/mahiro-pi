@@ -1,11 +1,16 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { registerWorkflowCommand } from '../lib/workflow-hub.ts'
+import { registerWorkflowAttention } from '../lib/workflow-attention.ts'
+import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 import { memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
 import { createAgentMemoryRouter } from '../lib/agent-memory/runtime-router.ts'
 import { memoryReadSchema } from '../lib/agent-memory/retrieval.ts'
 
 export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}) {
+  registerWorkflowPresentation(pi)
+  const attention = registerWorkflowAttention(pi)
   const runtime = createAgentMemoryRouter(pi, config)
-  pi.registerCommand('mh-memory', {
+  registerWorkflowCommand(pi, 'mh-memory', {
     description: 'Memory readiness, route and lifecycle status (no setup or credential lookup)',
     handler: async (args, ctx) => {
       if (args.trim() && !['status', 'help'].includes(args.trim())) {
@@ -22,7 +27,10 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         )
         return
       }
-      ctx.ui.notify(JSON.stringify(await runtime.diagnose(ctx), null, 2), 'info')
+      const observe = attention.capture(ctx)
+      const result = await runtime.diagnose(ctx)
+      observe('memory', result)
+      ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
     },
   })
   const string = { type: 'string' }
@@ -83,6 +91,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
     pi.registerTool({
       name,
       label: name,
+      ...workflowRenderers(name),
       description: {
         agent_memory_read:
           "Read maintained knowledge within the authenticated view. Mutually exclusive modes: {} legacy file list; path with original Unicode code-point offset/limit (4096 max); query for bounded English/Thai lexical AND search (256 UTF-8 bytes, 16 terms, limit 8); topic='' for namespaces, topic='*' for all files, or a namespace (limit 32). Query/topic offset pages scan/files; follow nextOffset until complete. Search scans at most 1 MiB per page and returns at most 32 KiB, with original snippet offsets, whole-file hashes and source IDs. basis/baseRevision/currentRevision/freshness distinguish private drafts and stale snapshots from current truth. Current forgetting/authority changes make old views unavailable, never successful no-match. Read all path pages before replacement. No arbitrary root/project selection or filesystem access.",
@@ -106,7 +115,9 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       executionMode: 'sequential',
       async execute(_id, args, signal, _update, ctx) {
         try {
+          const observe = attention.capture(ctx)
           const result = await runtime.run(name, args, ctx, signal)
+          observe('memory', result)
           return {
             content: [{ type: 'text', text: JSON.stringify(result) }],
             details: result,

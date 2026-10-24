@@ -46,8 +46,21 @@ test('bounded deterministic RTK grammar: shell/control/env/quotes/options/write 
   assert.equal(rtkCandidate('ls safe', 'off'), null)
 })
 
+function eventFixture() {
+  const handlers = new Map<string, ((...args: unknown[]) => unknown)[]>()
+  return {
+    on(name: string, handler: (...args: unknown[]) => unknown) {
+      if (!handlers.has(name)) handlers.set(name, [])
+      handlers.get(name)!.push(handler)
+    },
+    async emit(name: string, ...args: unknown[]) {
+      for (const handler of handlers.get(name) ?? []) await handler(...args)
+    },
+  }
+}
+
 test('RTK off transform touches no filesystem-owner/helper/probe/log collaborator, including disposed state', async () => {
-  const handlers = new Map()
+  const events = eventFixture()
   let touched = 0
   const unavailable = () => {
     touched++
@@ -55,7 +68,7 @@ test('RTK off transform touches no filesystem-owner/helper/probe/log collaborato
   }
   const runtime = registerRTK(
     {
-      on: (name: string, fn: (...args: unknown[]) => unknown) => handlers.set(name, fn),
+      on: events.on,
       registerTool() {},
       registerCommand() {},
     },
@@ -69,7 +82,7 @@ test('RTK off transform touches no filesystem-owner/helper/probe/log collaborato
   const input = { command: 'ls safe' }
   assert.equal(await runtime.transform(input, {}), input)
   assert.equal(touched, 0)
-  handlers.get('session_shutdown')()
+  await events.emit('session_shutdown')
   assert.equal(await runtime.transform(input, {}), input)
   assert.equal(touched, 0)
 })
@@ -173,12 +186,12 @@ function statusFixture() {
     },
   }
   const create = () => {
-    const handlers = new Map(),
+    const events = eventFixture(),
       commands = new Map()
     let allowed = true
     const runtime = registerRTK(
       {
-        on: (name: string, fn: (...args: unknown[]) => unknown) => handlers.set(name, fn),
+        on: events.on,
         registerCommand: (
           name: string,
           command: { handler: (input: string, context: typeof ctx) => unknown },
@@ -196,7 +209,7 @@ function statusFixture() {
     )
     return {
       runtime,
-      handlers,
+      ...events,
       command: (input: string, context = ctx) => commands.get('mh-rtk').handler(input, context),
       deny() {
         allowed = false
@@ -218,6 +231,32 @@ function statusFixture() {
   }
 }
 
+test('RTK fixture delivers every ordered lifecycle listener without crossing events', async () => {
+  const f = statusFixture()
+  try {
+    const a = f.create()
+    const observed: string[] = []
+    a.on('session_start', () => {
+      assert.fail('shutdown must not deliver another event')
+    })
+    a.on('session_shutdown', async () => {
+      assert.equal(f.statuses.has('mahiro-rtk'), false, 'canonical cleanup ran before later observers')
+      await Promise.resolve()
+      observed.push('first')
+    })
+    a.on('session_shutdown', () => {
+      observed.push('second')
+    })
+    a.runtime.initialize(f.ctx)
+    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK rewrite-rtk')
+    await a.emit('session_shutdown')
+    assert.deepEqual(observed, ['first', 'second'])
+    assert.equal(f.statuses.size, 0)
+  } finally {
+    f.restore()
+  }
+})
+
 test('RTK bare and whitespace commands report status, not an empty operation', async () => {
   const f = statusFixture()
   try {
@@ -237,7 +276,7 @@ test('RTK bare and whitespace commands report status, not an empty operation', a
         'controls other than a blank spaces/tabs command stay rejected',
       )
     }
-    a.handlers.get('session_shutdown')()
+    await a.emit('session_shutdown')
   } finally {
     f.restore()
   }
@@ -271,10 +310,10 @@ test('RTK publishes initialized and committed active modes; decline/cancel never
     assert.match(f.notifications.at(-1).text, /replaced/)
     assert.equal(f.calls.length, calls)
     assert.equal(fs.readFileSync(f.file, 'utf8'), bytes)
-    a.handlers.get('session_shutdown')()
+    await a.emit('session_shutdown')
     assert.equal(f.statuses.has('mahiro-rtk'), false)
     const cleared = f.calls.length
-    a.handlers.get('session_shutdown')()
+    await a.emit('session_shutdown')
     a.runtime.initialize(f.ctx)
     assert.equal(f.calls.length, cleared, 'shutdown is final and idempotent')
   } finally {
@@ -290,23 +329,23 @@ test('RTK unavailable initialization replaces old mode; off is explicit; non-TUI
     a.deny()
     a.runtime.initialize(f.ctx)
     assert.equal(f.statuses.get('mahiro-rtk'), 'RTK unavailable')
-    a.handlers.get('session_shutdown')()
+    await a.emit('session_shutdown')
     f.state('off')
     const off = f.create()
     off.runtime.initialize(f.ctx)
     assert.equal(f.statuses.get('mahiro-rtk'), 'RTK off')
-    off.handlers.get('session_shutdown')()
+    await off.emit('session_shutdown')
     const count = f.calls.length
     for (const mode of ['rpc', 'json', 'print']) {
       const b = f.create(),
         ctx = { ...f.ctx, mode }
       b.runtime.initialize(ctx)
       if (mode === 'rpc') await b.command('mode suggest 0', ctx)
-      b.handlers.get('session_shutdown')()
+      await b.emit('session_shutdown')
     }
     const noUI = f.create()
     noUI.runtime.initialize({ ...f.ctx, hasUI: false })
-    noUI.handlers.get('session_shutdown')()
+    await noUI.emit('session_shutdown')
     assert.equal(f.calls.length, count)
   } finally {
     f.restore()
@@ -328,13 +367,13 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
     const replacement = f.create()
     replacement.runtime.initialize(f.ctx)
     const calls = f.calls.length
-    old.handlers.get('session_shutdown')()
+    await old.emit('session_shutdown')
     confirm(true)
     await pending
     assert.equal(f.calls.length, calls)
     assert.equal(f.statuses.get('mahiro-rtk'), 'RTK suggest')
     assert.equal(JSON.parse(fs.readFileSync(f.file, 'utf8')).mode, 'suggest')
-    replacement.handlers.get('session_shutdown')()
+    await replacement.emit('session_shutdown')
     assert.equal(f.statuses.size, 0)
     // Two still-healthy managers sharing a UI need a presentation-sink lease.
     const a = f.create()
@@ -344,9 +383,9 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
       ...f.ctx,
       sessionManager: { getSessionId: () => 'new' },
     })
-    a.handlers.get('session_shutdown')()
+    await a.emit('session_shutdown')
     assert.equal(f.statuses.get('mahiro-rtk'), 'RTK suggest')
-    b.handlers.get('session_shutdown')()
+    await b.emit('session_shutdown')
     assert.equal(f.statuses.size, 0)
 
     const independentStatuses = new Map()
@@ -361,10 +400,10 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
       d = f.create()
     c.runtime.initialize(f.ctx)
     d.runtime.initialize({ ...f.ctx, ui: independentUI })
-    c.handlers.get('session_shutdown')()
+    await c.emit('session_shutdown')
     assert.equal(f.statuses.size, 0)
     assert.equal(independentStatuses.get('mahiro-rtk'), 'RTK suggest')
-    d.handlers.get('session_shutdown')()
+    await d.emit('session_shutdown')
     assert.equal(independentStatuses.size, 0)
   } finally {
     f.restore()

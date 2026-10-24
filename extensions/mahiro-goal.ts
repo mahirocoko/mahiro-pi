@@ -1,4 +1,7 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { registerWorkflowCommand } from '../lib/workflow-hub.ts'
+import { registerWorkflowAttention } from '../lib/workflow-attention.ts'
+import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 import {
   CLEAR_PARAMETERS,
   CREATE_PARAMETERS,
@@ -10,6 +13,8 @@ import { createGoalRuntime, goalTools } from '../lib/goal/runtime.ts'
 
 /** Ordinary installed tools; Goal creation needs human direction. Registration grants nothing and has no profile, state, policy or network I/O. */
 export default function mahiroGoal(pi: ExtensionAPI) {
+  registerWorkflowPresentation(pi)
+  const attention = registerWorkflowAttention(pi)
   const runtime = createGoalRuntime(pi)
   const parameters = {
     mh_get_goal: GET_PARAMETERS,
@@ -21,6 +26,7 @@ export default function mahiroGoal(pi: ExtensionAPI) {
     pi.registerTool({
       name,
       label: name,
+      ...workflowRenderers(name),
       description: {
         mh_get_goal:
           'Read the canonical Goal assigned to this native session and obtain an internal revision ticket before mutation. Canonical project binding; explicit installation grants narrow tool/feature-data authority. Empty reads never create Goals. Branches do not rewind state; new/fork sessions have no Goal until explicitly moved.',
@@ -41,7 +47,9 @@ export default function mahiroGoal(pi: ExtensionAPI) {
       },
       async execute(_id, args, signal, _update, ctx) {
         validateGoalInput(parameters[name], args)
+        const observe = attention.capture(ctx)
         const result = await runtime.run(name, args, ctx, signal)
+        observe('goal', result)
         return {
           content: [{ type: 'text', text: JSON.stringify(result) }],
           details: result,
@@ -55,7 +63,7 @@ export default function mahiroGoal(pi: ExtensionAPI) {
       ctx.ui.notify(error instanceof Error ? error.message : 'Goal unavailable', 'error')
     }
   }
-  pi.registerCommand('mh-goal', {
+  registerWorkflowCommand(pi, 'mh-goal', {
     description:
       'Native Goal: status/list; human-directed create/revise/move, plan/rules and confirmed human gates',
     handler,
