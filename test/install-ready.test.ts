@@ -28,7 +28,11 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
   const profile = path.join(dir, 'profile')
   const projectA = path.join(dir, 'project-a')
   const projectB = path.join(dir, 'project-b')
-  for (const p of [profile, projectA, projectB]) fs.mkdirSync(p, { mode: 0o755 })
+  for (const p of [profile, projectA, projectB]) {
+    fs.mkdirSync(p, { mode: 0o755 })
+    // This preservation fixture intentionally starts at 0755, independent of inherited umask.
+    fs.chmodSync(p, 0o755)
+  }
   const unrelated = path.join(dir, 'unrelated-halo')
   fs.mkdirSync(unrelated)
   fs.writeFileSync(
@@ -139,6 +143,11 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     assert.equal(provisioned.yoloMode, false)
     for (const [key, value] of Object.entries(originalPolicy.permission))
       if (key !== '*') assert.deepEqual(provisioned.permission[key], value)
+    assert.equal(
+      Object.keys(provisioned.permission).some((key) => key.startsWith('continuity_learning_')),
+      false,
+      'standard installation does not opt into optional historical quote learning',
+    )
     const upgradedSettingsBytes = fs.readFileSync(path.join(profile, 'settings.json'))
     assert.equal(fs.statSync(profile).mode & 0o777, 0o755, 'safe host container is not chmodded')
     const root = path.join(profile, 'memory')
@@ -146,7 +155,11 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     const originalConfig = fs.readFileSync(path.join(root, 'config.json'))
     const originalLedger = fs.readFileSync(path.join(root, '.memory.json'))
     const core = store.snapshot().files['Core.md'].text
-    assert.match(core, /No personal identity or imported corpus/)
+    assert.match(core, /^# Companion\n/)
+    assert.match(core, /## Editable persona/)
+    assert.match(core, /- Name: Companion/)
+    assert.match(core, /No personal identity, preferences, project facts or imported corpus are assumed\./)
+    assert.doesNotMatch(core, /Mahiro|mahirocoko|\/Users\/|SYNTHETIC_BOOTSTRAP_IDENTITY/i)
     const settings = sdk.SettingsManager.inMemory({
       ...JSON.parse(fs.readFileSync(path.join(profile, 'settings.json'), 'utf8')),
       cacheWarming: 'off',
@@ -161,9 +174,11 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     })
     const faux = ai.fauxProvider({
       provider: 'openai',
-      models: [{ id: 'gpt-6.1-sol' }],
+      models: [{ id: 'gpt-6.1-sol', reasoning: true }],
     })
     runtime.registerNativeProvider(faux.provider)
+    const initialRefresh = await runtime.refresh({ allowNetwork: false })
+    assert.equal(initialRefresh.aborted, false)
     let results: any[] = [],
       context: any,
       tools: any[],
@@ -259,6 +274,25 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       assert.ok(result, `${tool}: native result required`)
       assert.equal(result.error, error, result.value)
       return result
+    }
+    const waitForIntegration = async () => {
+      const manage = definitions!.find((t: any) => t.name === 'agent_memory_manage')
+      let status: any
+      for (let i = 0; i < 200; i++) {
+        const result = await manage.execute(
+          'fixture-integration-status',
+          { action: 'status' },
+          undefined,
+          undefined,
+          context,
+        )
+        assert.notEqual(result.isError, true, JSON.stringify(result))
+        status = JSON.parse(result.content[0].text)
+        if (status.worker === 'idle' && status.latestAttempt?.outcome === 'integrated') break
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      assert.equal(status.worker, 'idle', JSON.stringify(status))
+      assert.equal(status.latestAttempt?.outcome, 'integrated', JSON.stringify(status))
     }
     session = await open(projectA)
     // Documented public service slot (cross-extension-api.md); the installed
@@ -473,6 +507,8 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     )
     assert.match(reflection.content[0].text, /native-dispatched/)
     await service.waitForAll()
+    // Native completion and parent publication are distinct public settlement boundaries.
+    await waitForIntegration()
     assert.ok(store.snapshot().files['procedures/idle-check.md'])
     assert.ok(writerContexts.some((c) => c.includes('Managed memory unavailable')))
     assert.ok(
@@ -592,6 +628,11 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       assert.equal(readUXState(resolveUXBinding(p)!).sequence, 0)
       assert.equal(readRunState(resolveRunBinding(p)!).sequence, 0)
     }
+    // Explicit test-only opt-in for the optional historical owner; standard
+    // installation above must not grant this authority implicitly.
+    const learningPolicy = JSON.parse(fs.readFileSync(policyFile, 'utf8'))
+    learningPolicy.permission[`continuity_learning_${sha(path.join(profile, 'continuity'))}`] = 'allow'
+    fs.writeFileSync(policyFile, JSON.stringify(learningPolicy), { mode: 0o600 })
     // Both automatic owners receive one genuine observed idle settlement. They
     // share the exact native parent's bounded queue, not a last-child singleton.
     const automaticService = node.managedMemory.parentService()
@@ -632,11 +673,15 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     )
     await session.prompt('Synthetic observation for bounded queue coexistence.', { source: 'interactive' })
     await automaticService.waitForAll()
+    await waitForIntegration()
     const automaticRecords = automaticService.listAgents()
     assert.ok(
       automaticRecords.some((r: any) => r.type === 'managed-memory-writer' && r.status === 'completed'),
     )
-    assert.ok(automaticRecords.some((r: any) => r.type === 'memory-reflector' && r.status === 'completed'))
+    assert.ok(
+      automaticRecords.some((r: any) => r.type === 'memory-reflector' && r.status === 'completed'),
+      JSON.stringify(automaticRecords),
+    )
     assert.ok(store.snapshot().files['procedures/auto-coexist.md'])
     assert.ok(
       archive.inspect().cursor > 0,

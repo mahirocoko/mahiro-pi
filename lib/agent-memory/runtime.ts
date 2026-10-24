@@ -10,6 +10,7 @@ import { memoryCurationDoctrine } from './guidance.ts'
 import type { ManagedMemoryABI } from './experimental-contracts.ts'
 
 import { primaryDelegationDoctrine } from './prompt.ts'
+import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 
 type Store = ReturnType<typeof createMemoryStore>
 interface NativeService {
@@ -23,7 +24,7 @@ interface NativeService {
         locked?: true | readonly string[]
         inheritContext?: boolean
         runInBackground?: boolean
-        promptMode: string
+        promptMode: 'replace' | 'append'
       }
     | undefined
   spawn(name: string, prompt: string, options: object): string
@@ -403,6 +404,10 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
               }
             : null,
           historicalErasure: false,
+          automatic: p.store.config().automatic,
+          engineABI: 1,
+          publication: draft ? 'private-draft-not-published' : 'committed-head',
+          contextActivation: 'next-primary-request',
         }
       }
       if (args.action === 'conflicts') {
@@ -518,22 +523,10 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     if (!assignment && !episodes.length) return { skipped: 'no-unreviewed-episodes' }
     const service = f.abi.parentService()
     const role = service?.getAgentType('managed-memory-writer')
-    const tools = memoryTools.slice(0, 3)
-    if (
-      !service ||
-      service.supportsInitialOutcomeClaim !== true ||
-      !role ||
-      role.name !== 'managed-memory-writer' ||
-      role.model !== 'openai/gpt-6.1-sol' ||
-      role.thinking !== 'medium' ||
-      role.locked !== true ||
-      role.promptMode !== 'replace' ||
-      role.inheritContext !== false ||
-      role.runInBackground !== true ||
-      role.toolNames?.length !== tools.length ||
-      tools.some((t) => !role.toolNames!.includes(t))
-    )
+    if (!service || service.supportsInitialOutcomeClaim !== true || !role)
       throw new Error('Locked native managed-memory writer unavailable')
+    const approved = installedWriter(resolveAgentDir(), role)
+    preflightWriterRoute(ctx, approved)
     const view = f.store.createView(f.project)
     const value: WorkerValue = {
       view,
@@ -775,6 +768,11 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         }
       }, 120000)
       timer.unref?.()
+      const currentRole = service.getAgentType('managed-memory-writer')
+      if (!currentRole) throw Error('Locked native managed-memory writer unavailable')
+      const route = installedWriter(resolveAgentDir(), currentRole)
+      if (route.text !== approved.text) throw Error('Approved writer route changed before dispatch')
+      preflightWriterRoute(ctx, route)
       own.id = service.spawn(
         'managed-memory-writer',
         JSON.stringify({
@@ -787,6 +785,8 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           evidence: 'observed-native-unverified; user role/source is not authenticated human identity',
         }),
         {
+          model: route.model,
+          thinkingLevel: route.thinking,
           foreground: false,
           bypassQueue: false,
           inheritContext: false,
@@ -841,7 +841,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
       if (access.access.kind === 'worker') {
         await access.abi.authorize(access.tool, ctx, root, 'read', ctx.signal)
         access.current()
-        const source = readFileSync(new URL('../../agents/managed-memory-writer.md', import.meta.url), 'utf8')
+        const source = installedWriter(resolveAgentDir()).text
         if (bytes(source) > 16384 || !source.startsWith('---\n')) throw new Error('Writer prompt unavailable')
         const prompt = source.replace(/^---\n[\s\S]*?\n---\n/, '')
         return {

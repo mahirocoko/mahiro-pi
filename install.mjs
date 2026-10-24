@@ -6,40 +6,55 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveAgentDir } from './lib/setup.ts'
 import { applyBootstrap, bootstrapSummary, inspectBootstrap } from './lib/bootstrap.ts'
+import { starterCore } from './lib/agent-memory/starter.ts'
+import { validateWriterRoute } from './lib/agent-memory/writer-route.ts'
+import { readMemorySelection } from './lib/agent-memory/profile.ts'
 
 let scaffoldDirectory
 try {
   const args = process.argv.slice(2)
   if (args.includes('--help') || args.includes('-h')) {
     console.log(
-      'Usage: pnpm install:profile [--agent-dir /canonical/profile] [--preview] [--remove-default-deny] [--native-basic-file-policy]\nExplicitly compose one Root guard owner, pinned public permission/subagents resources, three owned system roles, ordinary feature DATA authority and rewrite-rtk default. Retains restrictions, existing RTK off, Core/data and unrelated settings. --remove-default-deny explicitly deletes ONLY scalar permission["*"]="deny" (unset falls back to public ask, never blanket allow). Retained required tool/DATA restrictions refuse before writes; this flag cannot override them. Fresh memory gets a minimal neutral scaffold through guarded native initialization; existing memory is never reseeded. No dependency install, provider call or reload. Startup grants nothing. --native-basic-file-policy independently opts in to finite BASIC read-deny defaults; not a sandbox or complete secret protection. Public runtime policy, project overrides and yolo remain authoritative.',
+      'Usage: pnpm install:profile [--agent-dir /canonical/profile] [--preview] [--remove-default-deny] [--native-basic-file-policy] [--managed-writer-model exact-provider/model-id --managed-writer-thinking off|minimal|low|medium|high|xhigh|max]\nExplicitly compose one Root guard owner, pinned public permission/subagents resources, three owned system roles, ordinary feature DATA authority and rewrite-rtk default. Retains restrictions, existing RTK off, Core/data and unrelated settings. --remove-default-deny explicitly deletes ONLY scalar permission["*"]="deny" (unset falls back to public ask, never blanket allow). Retained required tool/DATA restrictions refuse before writes; this flag cannot override them. Standard installation selects ordinary ABI2 per profile; explicit legacy/off records are preserved. Fresh memory gets an editable starter persona through guarded native initialization; existing Core/customization is never reseeded. Existing canonical writer routes survive; explicit route flags review only model/thinking slots. Reflection denies remain intact; historical quote-learning is optional and never granted here. No dependency install, provider call or reload. Startup grants nothing. --native-basic-file-policy independently opts in to finite BASIC read-deny defaults; not a sandbox or complete secret protection. Public runtime policy, project overrides and yolo remain authoritative.',
     )
   } else {
     let agentDir,
       preview = false,
       removeDefaultDeny = false,
-      nativeBasicFilePolicy = false
+      nativeBasicFilePolicy = false,
+      managedWriterModel,
+      managedWriterThinking
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--preview' && !preview) preview = true
       else if (args[i] === '--remove-default-deny' && !removeDefaultDeny) removeDefaultDeny = true
       else if (args[i] === '--native-basic-file-policy' && !nativeBasicFilePolicy)
         nativeBasicFilePolicy = true
       else if (args[i] === '--agent-dir' && !agentDir && args[i + 1]) agentDir = args[++i]
+      else if (args[i] === '--managed-writer-model' && !managedWriterModel && args[i + 1])
+        managedWriterModel = args[++i]
+      else if (args[i] === '--managed-writer-thinking' && !managedWriterThinking && args[i + 1])
+        managedWriterThinking = args[++i]
       else throw Error('Invalid install arguments; use --help')
     }
+    if (!!managedWriterModel !== !!managedWriterThinking)
+      throw Error('Route review requires both --managed-writer-model and --managed-writer-thinking')
+    const managedWriterRoute = managedWriterModel
+      ? validateWriterRoute(managedWriterModel, managedWriterThinking)
+      : undefined
     const profile = resolveAgentDir(agentDir)
     const root = join(profile, 'memory')
     const project = realpathSync(process.cwd())
     const fresh = !existsSync(root)
+    const selected = readMemorySelection(profile)
+    if (fresh && selected && selected.mode !== 'engine')
+      throw Error(
+        'Explicit legacy/off engine selection has no initialized root. Selection preserved; standard install wrote nothing. Review that explicit selection or use an authorized legacy initializer before retrying.',
+      )
     let seedFile
     if (fresh) {
       scaffoldDirectory = mkdtempSync(join(realpathSync(tmpdir()), 'mahiro-install-'))
       seedFile = join(scaffoldDirectory, 'scaffold.md')
-      writeFileSync(
-        seedFile,
-        '# Core\n\nAgent-maintained, fallible knowledge. Current human and repository instructions take precedence. No personal identity or imported corpus has been assumed.\n',
-        { mode: 0o600, flag: 'wx' },
-      )
+      writeFileSync(seedFile, starterCore, { mode: 0o600, flag: 'wx' })
     }
     const plan = inspectBootstrap({
       version: 1,
@@ -50,6 +65,8 @@ try {
       components: {
         packages: true,
         roles: true,
+        memoryEngine: true,
+        ...(managedWriterRoute ? { managedWriterRoute } : {}),
         featureData: true,
         ...(removeDefaultDeny ? { removeDefaultDeny: true } : {}),
         ...(nativeBasicFilePolicy ? { nativeBasicFilePolicy: true } : {}),

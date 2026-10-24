@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source preparation](releases/0.4.0.md)
+[← Documentation](README.md) · [Source release record](releases/0.5.0.md)
 
 ## Dependencies and checks
 
@@ -66,15 +66,28 @@ Focused maintained-memory checks (also serialize with SDK/heavy jobs):
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory*.test.ts
 ```
 
-Experimental memory ABI2 is selected only by an owned disposable fixture, never
-by an installed environment/profile toggle. Core tests include isolated lease
+Standard explicit installation selects ordinary memory ABI2 through private
+per-profile selection metadata; an absent record retains ABI1 compatibility and
+explicit off/legacy are preserved. Disposable fixtures additionally exercise
+controlled lifecycle failures. Core tests include isolated lease
 resolver inputs, separate OS fault actors and native directory-fsync fault
 injection; these do not substitute for canonical Root/PSS authority proof. The
 required public SDK suite separately exercises genuine Faux native children,
 actual output/launch-context binding, physical policy flips and retirement with
 replacement-generation overlap. Conservative external-quiescence and orphan-CAS
 unavailability remain documented limits, not automatic recovery promises. See
-[maintained memory](agent-memory.md#experimental-fixture-only-engine) for its boundary.
+[maintained memory](agent-memory.md#ordinary-memory-engine) for its boundary.
+Policy-only interruption recovery has its own typed identity and actual
+process-local drain reference, status classification and explicit primary
+`policy-reconcile`; publication reconciliation remains separate. Focused policy
+fixtures cover abort/revoke/retire at acquisition/staging/pre/post-rename,
+paused-recovery refusal, identity/state tampering and restart-without-reference
+refusal. The ordinary SDK journey directly exercises registered runtime-tool
+AbortController cancellation, fresh status and reconciliation under actual
+Root/PSS. Bounded synthetic correction/no-learning/forgetting controls are not
+real-model semantic efficacy. See the [policy interruption limit](agent-memory.md#policy-interruption-limit)
+for retained unknown/incomplete/restart limits; these focused checks do not replace
+fresh independent QA or the final aggregate gates.
 
 Geometry uses public TUI helpers from an explicitly supplied host manifest; it
 makes no model/auth calls and does not substitute for rendered testing.
@@ -91,6 +104,12 @@ harvests another runtime's state. SDK fixtures use genuine public packages,
 guarded native dispatch, disposable profiles and deterministic Faux transport,
 not provider inference. Missing required supply fails, rather than counting as a
 successful skip. Old or unattested owners remain fail-closed.
+The required SDK suite has no supervisor timeout or output-overflow termination:
+its asynchronous runner drains both pipes until natural close, then flushes bounded
+private logs and console writes. Capture truncation or I/O failure fails the gate
+only after settlement; the private receipt records status/signal, PID/available
+PGID, drain certainty and a null timeout. The nonmutating standalone `--plan`
+preview retains its separate bounded timeout and absent-profile assertion.
 
 Keep one writer per checkout and serialize heavy tests/SDK/format/geometry jobs.
 Independent verification must use a fresh reviewer, not only writer assertions.

@@ -10,13 +10,16 @@ pnpm install:profile
 ```
 
 `install.mjs` composes one canonical source checkout, pinned public owners,
-three package roles, narrow feature-data authority and the absent-state RTK
-`rewrite-rtk` default. The manifest is guards-first13: bootstrap, one Root guard,
+three package roles, ordinary ABI2 memory selection, narrow feature-data authority
+and the absent-state RTK `rewrite-rtk` default. The manifest is guards-first13:
+bootstrap, one Root guard,
 ten features and the rendering-only UI adapter. Worker activity is optional and
 outside that default graph. No theme is automatically selected.
 
 Dependencies must already be installed. This command does not install packages,
-copy auth, select models, modify personal roles or reload Pi. Loading resources
+copy auth, change primary models, modify personal roles or reload Pi. Paired
+[managed-writer route flags](agents.md#managed-writer-route) explicitly review only
+that canonical descriptor's model/thinking slots. Loading resources
 or starting a session never provisions a profile.
 
 The target is `--agent-dir`, otherwise `PI_CODING_AGENT_DIR` (including `~/`
@@ -40,6 +43,10 @@ not generic filesystem, HOME, external-directory or Bash authority.
 - Continuity and managed memory retain separate capabilities; historical recall
   authority does not authorize maintained writes. Code Map tool authority is
   separate from feature-data installation.
+- Reflection denial is retained without blocking manual-memory installation.
+  Unrelated `continuity_learning` authority is neither granted nor required.
+  A targeted deny changes only through supported public PSS configuration/approval
+  under human authority, never via an installer bypass.
 - Exact winning-surface attestation is required at execution. A source declaration,
   installed role or successful receipt does not guarantee every call is permitted.
 
@@ -66,15 +73,25 @@ restrictions remain intact and are reported by surface name.
 Unrelated settings/package entries, explicit RTK `off`, subagent configuration,
 personal roles, existing Core/config/ledger/data and existing automatic-memory
 policy are preserved. Missing package-owned roles are created; identical bodies
-are no-op; differing bodies block rather than being overwritten.
+are no-op; differing bodies block rather than being overwritten, except the
+managed writer's supported model/thinking slots. Its canonical selected route
+survives ordinary upgrades; all other descriptor bytes remain fixed.
 
 The installer registers public permission/subagent packages before this package.
 Children retain guards and permission ownership; duplicate/conflicting owners,
 unsupported aliases and required-resource exclusions refuse. A source path change
 must align with public native-factory provenance, not be bypassed with a second guard.
 
-An absent memory root receives a neutral scaffold and automatic reflection policy
-through guarded public SDK initialization. Faux is deterministic simulated
+Standard installation writes a private 0600 `<profile>/.mahiro-memory-engine.json`
+with exactly `version: 2`, `root: <profile>/memory` and `mode: "engine"`. It is
+separate from the closed memory config schema and grants no authority. An absent
+record retains ABI1; explicit `legacy`/`off` records are preserved, invalid records refuse.
+Absent-root off/legacy standard installation refuses before writes. Existing
+Core/persona/policy/data stay intact; dirty or uncertain storage is not repaired.
+
+An absent memory root receives an editable generic coding-companion starter and
+automatic reflection policy through guarded public SDK initialization.
+Faux is deterministic simulated
 transport, **not provider inference**; no external model request occurs.
 Existing memory is never reseeded, imported or repaired. Invalid existing storage
 blocks. See [memory](agent-memory.md) for authority, Git hooks and retention limits.
@@ -141,6 +158,8 @@ Optional components:
 | `nativeBasicFilePolicy: true` | Independent finite BASIC read defaults |
 | `skillPolicy: true` | Calls the existing default skill-policy owner |
 | `skills: ["skill-name"]` | Requires explicit `sources.skills`; that skill owner's CLI handles copying/receipts, never implicit overwrite |
+| `memoryEngine: true` | Selects the ordinary per-profile engine, preserving explicit off/legacy |
+| `managedWriterRoute: {"model": "exact-provider/model-id", "thinking": "medium"}` | Requires roles; varies only canonical managed-writer route slots |
 | `memory: {...}` | Requires packages/roles; guarded absent-root initialization with explicit root/project/projectId/seedFile and optional automatic flag |
 
 An explicit memory seed is nonempty UTF-8, at most 8192 bytes and exactly 0600.
@@ -164,6 +183,11 @@ exclusive temporaries and CAS protect publication, not a whole-profile rollback.
 After failure, inspect the exact step receipt and current owner state. Retain
 backups, proposals and any initialized memory revision. A receipt-write failure
 or interruption can leave a running step. Do not delete/reseed memory, steal
-locks or restore an entire old profile over concurrent edits. Resolve the named
-owner failure and review a fresh plan. Installed dependencies and cached sessions
+locks or restore an entire old profile over concurrent edits. A runtime policy
+interruption is separate from installer recovery: authorized policy status and
+fresh explicit `policy-reconcile` can clean only verified owned files after actual
+same-process drain, never replay/revert config. Restart/missing-reference or
+mismatched evidence remains retained for owner review; see the
+[policy interruption limit](agent-memory.md#policy-interruption-limit).
+Resolve the named owner failure and review a fresh plan. Installed dependencies and cached sessions
 remain separate: publication or offline tests do not prove runtime activation.

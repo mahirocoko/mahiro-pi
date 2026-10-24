@@ -18,9 +18,9 @@ export interface EngineWorkerValue {
 export interface MemoryABIV2
   extends Omit<MemoryABI, 'version' | 'assertAccess' | 'authorize' | 'bindWorker'> {
   version: 2
-  fixtureRoot: string
-  fixtureLive: () => boolean
-  fixtureHold(owner: object): () => void
+  root: string
+  live: () => boolean
+  hold(owner: object): () => void
   onRetire(callback: () => Promise<void>): () => void
   assertTargets(
     tool: ToolInfo,
@@ -116,9 +116,9 @@ export function buildManagedMemoryABI(
   return {
     ...common,
     version: 2,
-    fixtureRoot: selection.root,
-    fixtureLive: selection.live,
-    fixtureHold: selection.hold,
+    root: selection.root,
+    live: selection.live,
+    hold: selection.hold,
     onRetire: selection.onRetire,
     assertTargets: selection.assertTargets,
     assertAccess: (...args) => engine(common.assertAccess(...args)),

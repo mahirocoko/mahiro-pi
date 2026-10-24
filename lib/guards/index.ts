@@ -24,6 +24,8 @@ import { registerRTK } from '../rtk.ts'
 import { createOwnUIOwner } from './own-ui.ts'
 import { resolveAgentDir } from '../setup.ts'
 import { selectMemoryLease } from './memory-lease.ts'
+import { createInstalledMemoryOwner, readMemorySelection } from '../agent-memory/profile.ts'
+import { installedWriter, preflightWriterRoute } from '../agent-memory/writer-route.ts'
 import { resolveRunBinding } from '../execution-run/store.ts'
 import { featureCapability } from '../feature-data.ts'
 import {
@@ -208,6 +210,8 @@ export default async function activate(pi: ExtensionAPI) {
         assertTargets: MemoryABIV2['assertTargets']
       }
     | undefined
+  let installedMemoryOwner: ReturnType<typeof createInstalledMemoryOwner> | undefined
+  let memoryDisabled = false
   let memoryRetiring = false
   let memoryRootRelease: (() => void) | undefined
   const memoryRetirements = new Set<() => Promise<void>>()
@@ -631,15 +635,20 @@ export default async function activate(pi: ExtensionAPI) {
         const parent = parentId ? nodes.get(parentId) : undefined
         const inherited =
           parent?.healthy() && parent.managedMemory.version === 2 ? parent.managedMemory : undefined
+        // A native child inherits only its actual parent; no profile reselection.
+        // Explicit fixture capability remains separate and test-only.
+        const selection = !selected && !parentId ? readMemorySelection(resolveGoalProfile()) : undefined
+        memoryDisabled = selection?.mode === 'off'
+        if (selection?.mode === 'engine') installedMemoryOwner = createInstalledMemoryOwner(selection)
         const source =
           selected ??
           (inherited
             ? {
-                root: inherited.fixtureRoot,
-                live: inherited.fixtureLive,
-                hold: inherited.fixtureHold,
+                root: inherited.root,
+                live: inherited.live,
+                hold: inherited.hold,
               }
-            : undefined)
+            : installedMemoryOwner)
         if (source) {
           memoryRootRelease = selected?.release ?? source.hold(generation)
           memorySelection = {
@@ -1076,7 +1085,8 @@ export default async function activate(pi: ExtensionAPI) {
                 memorySelection?.root ??
                 process.env.MAHIRO_AGENT_MEMORY_ROOT ??
                 join(resolveGoalProfile(), 'memory')
-              if (memorySelection && !memorySelection.live()) throw Error('Disposable memory fixture retired')
+              if (memoryDisabled || (memorySelection && !memorySelection.live()))
+                throw Error('Memory engine off or retired')
               if (
                 !ownsContext(ctx) ||
                 ctx.sessionManager !== sessionManager ||
@@ -1191,24 +1201,16 @@ export default async function activate(pi: ExtensionAPI) {
               throw new Error('Managed memory binding unavailable')
             const record = parentService.getRecord(jobId)
             const role = parentService.getAgentType('managed-memory-writer')
-            const tools = ['agent_memory_read', 'agent_memory_edit', 'agent_memory_commit']
             if (
+              !role ||
               !record ||
               record.type !== 'managed-memory-writer' ||
               !['running', 'queued'].includes(record.status) ||
-              !role ||
-              role.name !== 'managed-memory-writer' ||
-              role.locked !== true ||
-              role.inheritContext !== false ||
-              role.promptMode !== 'replace' ||
-              role.runInBackground !== true ||
-              role.model !== 'openai/gpt-6.1-sol' ||
-              role.thinking !== 'medium' ||
-              role.toolNames?.length !== tools.length ||
-              tools.some((name) => !role.toolNames!.includes(name)) ||
               memoryLeases.has(jobId)
             )
               throw new Error('Managed memory role binding unavailable')
+            const route = installedWriter(resolveGoalProfile(), role)
+            preflightWriterRoute(ctx, route)
             const lease = {
               ownerId: sessionId,
               generation,
@@ -1386,6 +1388,7 @@ export default async function activate(pi: ExtensionAPI) {
     // ABI2 retirement fences admission BEFORE node removal, independently of hook order.
     // Callbacks must fence synchronously, then join only already-started work.
     memoryRetiring = true
+    installedMemoryOwner?.retire()
     const drains: Promise<void>[] = []
     if (memorySelection)
       for (const callback of memoryRetirements) {
@@ -1402,9 +1405,10 @@ export default async function activate(pi: ExtensionAPI) {
     host.dispose()
     for (const unsubscribe of unsubscribes.splice(0)) unsubscribe?.()
     if (memorySelection) {
-      memoryDisposed = Promise.all(drains).then(() => {
+      memoryDisposed = Promise.all(drains).then(async () => {
         memoryRootRelease?.()
         memoryRetirements.clear()
+        await installedMemoryOwner?.drain()
       })
       return memoryDisposed
     }

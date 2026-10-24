@@ -6,9 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import type { BootstrapRequest } from '../lib/bootstrap.ts'
 import { stageBootstrapCandidate } from './bootstrap-candidate-fixture.ts'
-const candidate = await stageBootstrapCandidate({
-  skillsSupply: resolve(import.meta.dirname, '../../mahiro-skills'),
-})
+const candidate = await stageBootstrapCandidate({ skills: true })
 const { applyBootstrap, bootstrapSummary, inspectBootstrap } = candidate.bootstrap
 import { setupTarget } from '../lib/setup.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
@@ -110,10 +108,13 @@ test('private bootstrap native SDK/Faux smoke: guarded initialize, role/skill di
     // Locked native child routing remains authored; only this process's transport is Faux.
     const faux = ai.fauxProvider({
       provider: 'openai',
-      models: [{ id: 'gpt-6.1-sol' }],
+      models: [{ id: 'gpt-6.1-sol', reasoning: true }],
     })
     runtime.registerNativeProvider(faux.provider)
+    const refreshed = await runtime.refresh({ allowNetwork: false })
+    assert.equal(refreshed.aborted, false)
     const captured: string[] = []
+    const toolResults: unknown[] = []
     const bindings: any[] = []
     let reflect = false
     faux.setResponses(
@@ -195,6 +196,9 @@ test('private bootstrap native SDK/Faux smoke: guarded initialize, role/skill di
               ]?.get(ctx.sessionManager.getSessionId())
             })
             pi.events.on('subagents:child:bound', (event: any) => bindings.push(event))
+            pi.on('tool_result', (event: any) => {
+              toolResults.push({ tool: event.toolName, error: event.isError, content: event.content })
+            })
           },
         ],
       })
@@ -276,7 +280,7 @@ test('private bootstrap native SDK/Faux smoke: guarded initialize, role/skill di
     const childService = node.managedMemory.parentService()
     await childService.waitForAll()
     const records = childService.listAgents()
-    assert.equal(records.length, 1)
+    assert.equal(records.length, 1, JSON.stringify({ records, toolResults }))
     assert.equal(records[0].type, 'managed-memory-writer')
     assert.equal(records[0].status, 'completed', records[0].error)
     assert.ok(records[0].outputFile.startsWith(`${fixture}/`))

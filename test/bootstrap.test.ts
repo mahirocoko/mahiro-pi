@@ -25,9 +25,7 @@ import {
 } from '../lib/bootstrap.ts'
 import { CONTINUITY_FILE_MAX_BYTES } from '../lib/continuity/store.ts'
 import { stageBootstrapCandidate } from './bootstrap-candidate-fixture.ts'
-const candidate = await stageBootstrapCandidate({
-  skillsSupply: resolve(import.meta.dirname, '../../mahiro-skills'),
-})
+const candidate = await stageBootstrapCandidate({ skills: true })
 const {
   applyBootstrap,
   assertBootstrapNativeContract: assertBootstrapModsContract,

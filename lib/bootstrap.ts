@@ -23,6 +23,13 @@ import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { assertPrivatePath, CONTINUITY_FILE_MAX_BYTES } from './continuity/store.ts'
 import { createMemoryStore } from './agent-memory/store.ts'
+import { memorySelectionPath, parseMemorySelection } from './agent-memory/profile.ts'
+import {
+  renderWriterTemplate,
+  validateWriterRoute,
+  validateWriterTemplate,
+  type WriterRoute,
+} from './agent-memory/writer-route.ts'
 import { hasSecret } from './continuity/records.ts'
 import { assertSafeContainer, featureGrants } from './feature-data.ts'
 import { createStore as createContinuityStore } from './continuity/store.ts'
@@ -290,6 +297,10 @@ export interface BootstrapRequest {
   components: {
     packages?: true
     roles?: true
+    /** Standard installer-owned ABI2 selection; absent preserves ABI1 compatibility. */
+    memoryEngine?: true
+    /** Explicit reviewed route-only update; existing canonical routes otherwise survive. */
+    managedWriterRoute?: WriterRoute
     skills?: string[]
     skillPolicy?: true
     /** Opt-in finite BASIC read-deny defaults; public runtime policy is authoritative. */
@@ -376,6 +387,8 @@ const validateRequest = (value: unknown): BootstrapRequest => {
         ![
           'packages',
           'roles',
+          'memoryEngine',
+          'managedWriterRoute',
           'skills',
           'skillPolicy',
           'nativeBasicFilePolicy',
@@ -389,12 +402,24 @@ const validateRequest = (value: unknown): BootstrapRequest => {
   for (const key of [
     'packages',
     'roles',
+    'memoryEngine',
     'skillPolicy',
     'nativeBasicFilePolicy',
     'featureData',
     'removeDefaultDeny',
   ] as const)
     if (c[key] !== undefined && c[key] !== true) throw new Error('Unsupported component selection')
+  if (c.managedWriterRoute !== undefined) {
+    if (
+      !object(c.managedWriterRoute) ||
+      Object.keys(c.managedWriterRoute).sort().join() !== 'model,thinking' ||
+      !c.roles
+    )
+      throw Error('Writer route requires explicit roles and exact model/thinking slots')
+    validateWriterRoute(c.managedWriterRoute.model, c.managedWriterRoute.thinking)
+  }
+  if (c.memoryEngine && (!c.packages || !c.roles || !c.featureData))
+    throw Error('Ordinary engine installation requires guarded packages, roles and core DATA')
   if (c.removeDefaultDeny && !c.featureData)
     throw Error('removeDefaultDeny requires explicit featureData installation')
   if (
@@ -458,6 +483,14 @@ const existingMemoryState = (root: string) => {
   // No direct initialize/repair/write path exists here; only the guarded native tool initializes.
   const store = createMemoryStore(root)
   const snapshot = store.snapshot()
+  if (
+    existsSync(join(root, '.lock')) ||
+    existsSync(join(root, '.bootstrap-v2.json')) ||
+    run('git', ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal'], root).trim()
+  )
+    throw Error(
+      'Existing memory is dirty or has uncertain active publication; preserve it and recover before engine installation',
+    )
   return sha(
     JSON.stringify({
       config: config.hash,
@@ -837,13 +870,34 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     )
   }
   if (r.components.roles)
-    for (const role of roles)
-      change(
-        join(r.agentDir, 'agents', `${role}.md`),
-        readBootstrapFile(join(product, 'agents', `${role}.md`))!.text,
-        'role',
-        true,
-      )
+    for (const role of roles) {
+      const path = join(r.agentDir, 'agents', `${role}.md`)
+      const template = readBootstrapFile(join(product, 'agents', `${role}.md`))!.text
+      if (role === 'managed-memory-writer') {
+        const existing = readBootstrapFile(path)
+        if (existing) validateWriterTemplate(existing.text)
+        const next = r.components.managedWriterRoute
+          ? renderWriterTemplate(r.components.managedWriterRoute, existing?.text ?? template)
+          : (existing?.text ?? template)
+        // Previous bytes are part of the reviewed plan and publish's final CAS.
+        change(path, next, 'role')
+      } else change(path, template, 'role', true)
+    }
+  if (r.components.memoryEngine) {
+    const path = memorySelectionPath(r.agentDir)
+    const existing = readBootstrapFile(path)
+    if (existing) {
+      if (existing.mode !== 0o600) throw Error('Private memory engine selection required')
+      const selected = parseMemorySelection(existing.text, r.agentDir)
+      if (selected.mode !== 'engine' && r.components.memory && !existsSync(selected.root))
+        throw Error(
+          'Explicit legacy/off selection has no initialized root; review selection before initialization; nothing written',
+        )
+    }
+    const root = join(r.agentDir, 'memory')
+    if (existsSync(root)) existingMemoryState(root) // dirty/corrupt/uncertain stores reject; no migration
+    change(path, existing?.text ?? json({ version: 2, root, mode: 'engine' }), 'memory-engine')
+  }
   const skillPolicy = r.components.skillPolicy ? inspectSetup(r.agentDir) : null
   // Structural installation preconditions, not a policy resolver. Runtime queries
   // remain exclusively with the public Root permission service. PSS 40.2.2's
@@ -897,6 +951,9 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       const config = JSON.parse(installationPolicy ?? skillPolicy?.next ?? previous?.text ?? '{}')
       const permission = config.permission ?? {}
       for (const key of [...tools, `managed_memory_${sha(m.root)}`]) {
+        // Reflection is optional admission, never a prerequisite for manual memory.
+        if (key === 'agent_memory_reflect' && permission[key] !== undefined && permission[key] !== 'allow')
+          continue
         if (
           !r.components.featureData &&
           permission[key] === undefined &&
@@ -981,12 +1038,16 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
         'continuity-state',
       )
     }
-    grants.push(
-      'recall_search',
-      'recall_read',
-      `continuity_learning_${sha(continuityRoot)}`,
-      `continuity_data_${sha(continuityRoot)}`,
-    )
+    grants.push('recall_search', 'recall_read', `continuity_data_${sha(continuityRoot)}`)
+    // Historical quotation learning is unrelated and opt-in; never grant it here.
+    // Keep an explicit reflection deny/ask intact while installing manual memory.
+    for (let i = grants.length - 1; i >= 0; i--)
+      if (
+        grants[i] === 'agent_memory_reflect' &&
+        permission[grants[i]] !== undefined &&
+        permission[grants[i]] !== 'allow'
+      )
+        grants.splice(i, 1)
     // Exact capabilities must be provisionable, not silently omitted while a
     // successful receipt implies usability. Preserve all specific restrictions.
     const restricted = grants.filter((key) => permission[key] !== undefined && permission[key] !== 'allow')

@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { createAgentMemoryRuntime, type MemoryNode, type RuntimeConfig } from './runtime.ts'
 import { createExperimentalMemoryRuntime } from './experimental-runtime.ts'
+import { memoryReadiness } from './readiness.ts'
 
 type Handler = (event: never, ctx: ExtensionContext) => unknown
 // ExtensionAPI.on is overloaded; the proxy retains that public signature while
@@ -65,8 +66,66 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
     // a selected prompt transformation or register late lifecycle callbacks.
     pi.on(event, dispatch as Parameters<ExtensionAPI['on']>[1])
   }
+  const diagnose = async (ctx: ExtensionContext, primaryOnly = false) => {
+    const node = (config.nodes ?? (globalThis as Record<symbol, Map<string, MemoryNode>>)[key])?.get(
+      ctx.sessionManager.getSessionId(),
+    )
+    if (primaryOnly && !node?.managedMemory?.isPrimarySession(ctx))
+      throw Error('Primary memory management required')
+    const readiness = memoryReadiness(pi, ctx, node)
+    if (mode === undefined || readiness.engine.mode === 'off') return readiness
+    if (
+      readiness.causes.some((entry) =>
+        [
+          'agent_memory_read-authority-unavailable',
+          'agent_memory_manage-authority-unavailable',
+          'healthy-root-unavailable',
+        ].includes(entry.cause),
+      )
+    )
+      return { ...readiness, storage: 'unavailable' }
+    // Public prerequisite diagnosis never depends on denied storage. Only the
+    // normal Root-authorized operation may add private lifecycle information.
+    try {
+      const data = (await selected().run('agent_memory_manage', { action: 'status' }, ctx)) as Record<
+        string,
+        unknown
+      >
+      return {
+        ...readiness,
+        ...data,
+        storage: 'authorized',
+        readiness: readiness.readiness,
+        causes: readiness.causes,
+      }
+    } catch {
+      return {
+        ...readiness,
+        readiness: readiness.readiness === 'Ready' ? 'Needs setup' : readiness.readiness,
+        causes: [
+          ...readiness.causes,
+          {
+            state: 'Needs setup',
+            cause: 'storage-status-unavailable',
+            next: 'Readiness could not certify the existing store; preserve it and review authorized storage/CAS/recovery diagnostics, never reseed.',
+          },
+        ].slice(0, 5),
+        storage: 'unavailable',
+        publication: 'unknown',
+      }
+    }
+  }
   return {
-    run: (...args: Parameters<typeof legacy.run>) => selected().run(...args),
+    run: (...args: Parameters<typeof legacy.run>) =>
+      args[0] === 'agent_memory_manage' &&
+      args[1] &&
+      typeof args[1] === 'object' &&
+      'action' in args[1] &&
+      args[1].action === 'status' &&
+      Object.keys(args[1]).length === 1
+        ? diagnose(args[2], true)
+        : selected().run(...args),
+    diagnose,
     cancel: () => selected().cancel(),
     startWriter: (...args: Parameters<typeof legacy.startWriter>) => selected().startWriter(...args),
     status: () => selected().status(),

@@ -5,6 +5,26 @@ import { memoryReadSchema } from '../lib/agent-memory/retrieval.ts'
 
 export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}) {
   const runtime = createAgentMemoryRouter(pi, config)
+  pi.registerCommand('mh-memory', {
+    description: 'Memory readiness, route and lifecycle status (no setup or credential lookup)',
+    handler: async (args, ctx) => {
+      if (args.trim() && !['status', 'help'].includes(args.trim())) {
+        ctx.ui.notify(
+          'Use /mh-memory status or /mh-memory help. This command never enables memory or changes permissions.',
+          'warning',
+        )
+        return
+      }
+      if (args.trim() === 'help') {
+        ctx.ui.notify(
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Use action policy with current revision + configHash + automatic true/false for explicit automatic admission control; off is preserved on upgrade. Status policyOperation classifies retained policy locks; only a fresh primary policy-reconcile with target + revision=digest may remove verified owned files after actual process-local drain, never replay/revert config. Unknown/restarted operations require owner review, not lock stealing. Reflection uses eligible settled interactive/RPC episodes, never every turn; explicit agent_memory_reflect assignments remain separate. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion; context activates next request. Cancel/conflicts/forget/rollback use existing management tools. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'info',
+        )
+        return
+      }
+      ctx.ui.notify(JSON.stringify(await runtime.diagnose(ctx), null, 2), 'info')
+    },
+  })
   const string = { type: 'string' }
   const schemas = {
     agent_memory_read: memoryReadSchema,
@@ -25,9 +45,21 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       properties: {
         action: {
           type: 'string',
-          enum: ['status', 'cancel', 'forget', 'rollback', 'initialize', 'conflicts', 'discard', 'reconcile'],
+          enum: [
+            'status',
+            'policy',
+            'policy-reconcile',
+            'cancel',
+            'forget',
+            'rollback',
+            'initialize',
+            'conflicts',
+            'discard',
+            'reconcile',
+          ],
         },
         revision: string,
+        configHash: string,
         paths: { type: 'array', items: string, maxItems: 128 },
         sources: { type: 'array', items: string, maxItems: 128 },
         target: string,
@@ -59,7 +91,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         agent_memory_commit:
           'Commit/integrate the current private memory draft against its base revision. Disjoint edits merge automatically; overlapping edits preserve a conflict. Native workers mark ready; the healthy parent integrates only after successful completion. Active primary context refreshes on the next request.',
         agent_memory_manage:
-          'Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files. Experimental disposable ABI2 only: reconcile observes one existing operation (target UUID, revision plan digest); never replays publication, returns chunks, steals locks or initializes an existing root.',
+          'Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files. ABI2: policy changes automatic admission only with current revision/configHash; it never changes permissions, engine or writer route. Status policyOperation diagnoses policy lock retention and observed outcome, not unchanged-on-abort. policy-reconcile uses target UUID and revision=policy digest from status, only after actual executor drain under fresh primary authority; removes verified owned staging/lock only, never changes config. Missing references/restart/mismatches retain unknown evidence for owner review. Reconcile observes one existing publication operation (target UUID, revision plan digest); never replays publication, returns chunks, steals locks or initializes an existing root.',
         agent_memory_reflect:
           'Assign a locked native background writer to maintain the SAME private memory using current scoped episodes. No caller-chosen role/model/path. Registration, authority and native identity binding must already exist. Does not claim provider proof or semantic correctness.',
       }[name],

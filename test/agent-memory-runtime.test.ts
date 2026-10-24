@@ -16,6 +16,14 @@ process.env.GIT_COMMITTER_EMAIL = 'fixture@example.invalid'
 const parent = new URL('../.agent-state/runtime/', import.meta.url).pathname
 function fixture(twoProjects = false) {
   const dir = mkdtempSync(join(parent, 'managed-memory-runtime-'))
+  const previousProfile = process.env.PI_CODING_AGENT_DIR
+  process.env.PI_CODING_AGENT_DIR = dir
+  mkdirSync(join(dir, 'agents'), { mode: 0o700 })
+  writeFileSync(
+    join(dir, 'agents/managed-memory-writer.md'),
+    readFileSync(new URL('../agents/managed-memory-writer.md', import.meta.url)),
+    { mode: 0o600 },
+  )
   const root = join(dir, 'memory')
   const cwd = join(dir, 'project')
   mkdirSync(cwd)
@@ -50,6 +58,7 @@ function fixture(twoProjects = false) {
       if (!handlers.has(name)) handlers.set(name, [])
       handlers.get(name)!.push(fn)
     },
+    registerCommand() {},
     registerTool(t: any) {
       tools.push(t)
     },
@@ -63,7 +72,18 @@ function fixture(twoProjects = false) {
     getBranch: () => branch,
     getHeader: () => ({ type: 'session', id: 'primary' }),
   }
-  const ctx: any = { cwd, sessionManager: sm }
+  const physical = {
+    provider: 'openai',
+    id: 'gpt-6.1-sol',
+    api: 'openai-responses',
+    baseUrl: 'https://example.invalid',
+    reasoning: true,
+  }
+  const ctx: any = {
+    cwd,
+    sessionManager: sm,
+    modelRegistry: { getAll: () => [physical], getAvailable: () => [physical], find: () => physical },
+  }
   let granted = true,
     healthy = true,
     revoked = false,
@@ -192,10 +212,49 @@ function fixture(twoProjects = false) {
     nodes,
     close() {
       runtime.cancel()
+      if (previousProfile === undefined) delete process.env.PI_CODING_AGENT_DIR
+      else process.env.PI_CODING_AGENT_DIR = previousProfile
       rmSync(dir, { recursive: true, force: true })
     },
   }
 }
+
+test('writer preflight forbids fallback and pins explicit reviewed options before delayed queue admission', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const physical = f.ctx.modelRegistry.getAll()[0]
+    const similar = { ...physical, id: 'gpt-6.1-sol-similar' }
+    f.ctx.modelRegistry.getAvailable = () => [similar]
+    await assert.rejects(
+      f.runtime.run('agent_memory_reflect', { assignment: 'A synthetic explicit request.' }, f.ctx),
+      /unavailable/,
+    )
+    assert.equal(Boolean(f.spawned), false, 'available parent/similar is never a fallback')
+    f.ctx.modelRegistry.getAvailable = () => [physical]
+    const spawn = f.service.spawn.bind(f.service)
+    f.service.spawn = (name, prompt, options) => {
+      const id = spawn(name, prompt, options)
+      f.record.status = 'queued'
+      return id
+    }
+    await f.runtime.run('agent_memory_reflect', { assignment: 'Queue the reviewed synthetic route.' }, f.ctx)
+    assert.equal(f.record.status, 'queued')
+    f.ctx.modelRegistry.getAvailable = () => [similar]
+    f.setRole({ ...f.service.getAgentType(), model: 'openai/gpt-6.1-sol-similar' })
+    assert.equal(f.spawned.options.model, 'openai/gpt-6.1-sol')
+    assert.equal(
+      f.spawned.options.thinkingLevel,
+      'medium',
+      'native queue receives explicit options, not a late descriptor default',
+    )
+    assert.equal(f.spawned.options.bypassQueue, false)
+    await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
+    assert.equal(f.record.status, 'stopped')
+  } finally {
+    f.close()
+  }
+})
 
 test('registered query/topic and legacy paths describe the same private draft and reject old-view current forgetting', async () => {
   const f = fixture(true)
@@ -854,6 +913,8 @@ test('native writer uses bound private view and automatic same-owner integration
     assert.equal(dispatch.providerProof, false)
     assert.equal(f.spawned.name, 'managed-memory-writer')
     assert.deepEqual(f.spawned.options, {
+      model: 'openai/gpt-6.1-sol',
+      thinkingLevel: 'medium',
       foreground: false,
       bypassQueue: false,
       inheritContext: false,
@@ -2338,7 +2399,10 @@ test('no attempt is null only on authorized status; record and event secrets nev
     status.latestAttempt.backlog.selectedLowerBound = 200
     assert.equal((await managedStatus(f)).latestAttempt.backlog.selectedLowerBound, 0)
     f.setGranted(false)
-    await assert.rejects(managedStatus(f))
+    const denied = await managedStatus(f)
+    assert.equal(denied.readiness, 'Denied')
+    assert.equal(denied.storage, 'unavailable')
+    assert.equal(denied.latestAttempt, 'unknown')
   } finally {
     f.close()
   }
@@ -2621,7 +2685,14 @@ test('reset project identity node generation and revocation suppress observation
         if (change === 'unhealthy') f.setHealthy(false)
         f.record.status = 'completed'
         f.nativeEvent('subagents:completed')
-        await assert.rejects(managedStatus(f))
+        const deniedStatus = await managedStatus(f)
+        assert.equal(deniedStatus.storage, 'unavailable')
+        assert.equal(
+          deniedStatus.latestAttempt,
+          'unknown',
+          'public prerequisites do not expose denied observations',
+        )
+        assert.notEqual(deniedStatus.readiness, 'Ready')
         assert.equal(f.runtime.status().worker, false)
         assert.equal(f.store.snapshot().revision, before)
         if (change !== 'revocation') {

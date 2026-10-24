@@ -53,7 +53,11 @@ dated source records, not current installation instructions.
   private views and public prompt replacement, not cwd overrides, shell tools or
   inherited private corpus. Preserve existing memory; initialize only absent roots.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
-  Preserve their authored route/lock/tool contracts; other roles remain local.
+  Preserve their authored route/lock/tool contracts; only the canonical installed
+  managed-memory-writer model/thinking slots may vary through explicit paired
+  installer route selection. Preserve that selected route on ordinary upgrades;
+  other descriptor differences block. Reflector/git-commit defaults and other
+  local roles remain unchanged.
   Loading or discussing the paired commit skill never authorizes a commit.
 - Workflow state is revision-guarded metadata, not worker execution or human
   acceptance. Preserve primary-session checks, read-before-write, explicit

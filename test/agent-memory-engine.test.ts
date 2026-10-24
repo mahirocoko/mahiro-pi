@@ -996,7 +996,7 @@ test('retained v2 and legacy conflicts recover after restart with code-point pag
   }
 })
 
-test('bounded child episodes match old admission/selection and reviewed metadata-only publication cursor', async () => {
+test('bounded synthetic non-learning/uncertainty episodes checkpoint reviewed metadata without knowledge changes', async () => {
   const f = fixture(0)
   try {
     const episodes: Episode[] = Array.from({ length: 5 }, (_, i) => ({
@@ -1006,7 +1006,13 @@ test('bounded child episodes match old admission/selection and reviewed metadata
       evidence: 'observed-native-unverified',
       observedAt: `2026-01-01T00:00:0${i}.000Z`,
       entryHash: digest(`entry-${i}`),
-      input: { text: 'Synthetic bounded input', source: 'rpc' },
+      input: {
+        text:
+          i % 2 === 0
+            ? 'For this one response only, use a shorter explanation.'
+            : 'Maybe use a different formatter; I have not decided on a durable preference.',
+        source: 'rpc',
+      },
       actions: [{ text: 'Verified outcome', tools: ['bash'] }],
       results: [{ tool: 'bash', error: false, text: 'ok' }],
       outcome: 'completed',
@@ -1021,6 +1027,7 @@ test('bounded child episodes match old admission/selection and reviewed metadata
     )
     const pending = f.store.pendingEpisodes('project')
     assert.equal(pending.length, 4)
+    const knowledgeBefore = f.store.snapshot().files
     const { view } = await f.engine.request('create', { project: 'project' }, f.context)
     await f.engine.request('ready', { view }, f.context)
     const prepared = await f.engine.request(
@@ -1039,6 +1046,11 @@ test('bounded child episodes match old admission/selection and reviewed metadata
     )
     assert.equal(f.store.pendingEpisodes('project').length, 1)
     assert.deepEqual(
+      f.store.snapshot().files,
+      knowledgeBefore,
+      'reviewed no-change checkpoint is not invented learning',
+    )
+    assert.deepEqual(
       await f.engine.request('episodes', { project: 'project' }, f.context),
       f.store.pendingEpisodes('project'),
     )
@@ -1051,6 +1063,62 @@ test('bounded child episodes match old admission/selection and reviewed metadata
     const changed = { ...episodes[0], input: { text: 'Changed', source: 'rpc' } }
     assert.throws(() => f.store.recordEpisode(changed.id, changed), /changed/)
     await assert.rejects(f.engine.request('observe', { episode: changed }, f.context), /changed/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('bounded synthetic durable correction replaces its existing owner, not an incident append', async () => {
+  const f = fixture(1)
+  try {
+    const episode: Episode = {
+      id: digest('synthetic-durable-correction'),
+      project: 'project',
+      session: 'synthetic-session',
+      evidence: 'observed-native-unverified',
+      observedAt: '2026-01-01T00:00:00.000Z',
+      entryHash: digest('synthetic-correction-entry'),
+      input: {
+        text: 'Correct the reusable method: verify the current owner before changing shared state, because stale observations can mislead.',
+        source: 'rpc',
+      },
+      actions: [{ text: 'Verified the owner against current source.', tools: ['bash'] }],
+      results: [{ tool: 'bash', error: false, text: 'Current owner verified.' }],
+      outcome: 'completed',
+    }
+    await f.engine.request('observe', { episode }, f.context)
+    const before = f.store.snapshot()
+    const { view } = await f.engine.request('create', { project: 'project' }, f.context)
+    const owner = await read(f, view, 'global/file-0.md')
+    assert.ok('hash' in owner && typeof owner.hash === 'string')
+    const correction =
+      '# Reusable method\nVerify the current owner before changing shared state. Stale observations can mislead.\n'
+    await f.engine.request(
+      'edit',
+      { view, path: 'global/file-0.md', expectedHash: owner.hash, text: correction, sources: [episode.id] },
+      f.context,
+    )
+    await f.engine.request('ready', { view }, f.context)
+    const prepared = await f.engine.request('prepare', { view, reviewed: [episode.id] }, f.context)
+    assert.ok('plan' in prepared)
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    const after = f.store.snapshot()
+    assert.deepEqual(
+      Object.keys(after.files).sort(),
+      Object.keys(before.files).sort(),
+      'no dated incident file added',
+    )
+    assert.equal(after.files['global/file-0.md'].text, correction)
+    assert.deepEqual(after.files['global/file-0.md'].sources, [episode.id])
+    assert.equal(after.files['Core.md'].text, before.files['Core.md'].text)
+    assert.equal(f.store.pendingEpisodes('project').length, 0)
+    assert.ok(
+      !Object.values(after.files).some((file) => file.text.includes('Synthetic body')),
+      'contradicted owner text replaced rather than accumulated',
+    )
   } finally {
     await f.close()
   }

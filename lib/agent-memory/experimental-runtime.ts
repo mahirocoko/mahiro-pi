@@ -1,10 +1,13 @@
-import { readFile, realpath } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
+import { resolveAgentDir } from '../setup.ts'
+import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 import { join } from 'node:path'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
 import { MemoryEngineController, assertCurrent, type OperationContext } from './engine/controller.ts'
 import { MemoryPublisher } from './engine/publisher.ts'
+import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from './engine/policy.ts'
 import { MemoryLifetime } from './engine/lifetime.ts'
 import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
 import { createAttempt, type AttemptOutcome } from './engine/attempt.ts'
@@ -122,15 +125,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     const node = pinned
     const abi = node?.managedMemory
     const tool = pi.getAllTools().find((entry) => entry.name === name)
-    if (!active || !node || abi?.version !== 2 || !tool || !abi.fixtureRoot)
+    if (!active || !node || abi?.version !== 2 || !tool || !abi.root)
       throw Error('Experimental memory unavailable')
-    const root = abi.fixtureRoot
+    const root = abi.root
     const token = epoch
     const manager = ctx.sessionManager
     let expected: ReturnType<MemoryABIV2['assertAccess']> | undefined
     const context: OperationContext = {
       signal,
-      hold: (identity) => abi.fixtureHold(identity),
+      hold: (identity) => abi.hold(identity),
       current(targets) {
         if (
           !active ||
@@ -140,7 +143,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           !node.healthy() ||
           node.generation !== abi.generation ||
           node.managedMemory !== abi ||
-          !abi.fixtureLive() ||
+          !abi.live() ||
           ctx.signal?.aborted ||
           signal?.aborted ||
           ctx.sessionManager !== manager ||
@@ -165,7 +168,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     const access = abi.assertAccess(tool, ctx, root, operation)
     expected = access
     if (access.kind === 'primary' && !primaryEngine) {
-      releaseController = abi.fixtureHold({ controller: token })
+      releaseController = abi.hold({ controller: token })
       primaryEngine = new MemoryEngineController(root)
     }
     const engine = access.kind === 'worker' ? access.value.engine : primaryEngine!
@@ -245,21 +248,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       if (assignment === undefined && !episodes.length) return { skipped: 'no-unreviewed-episodes' }
       const service = f.abi.parentService()
       const role = service?.getAgentType('managed-memory-writer')
-      const tools = ['agent_memory_read', 'agent_memory_edit', 'agent_memory_commit']
-      if (
-        !service ||
-        service.supportsInitialOutcomeClaim !== true ||
-        role?.name !== 'managed-memory-writer' ||
-        role.locked !== true ||
-        role.promptMode !== 'replace' ||
-        role.inheritContext !== false ||
-        role.runInBackground !== true ||
-        role.model !== 'openai/gpt-6.1-sol' ||
-        role.thinking !== 'medium' ||
-        role.toolNames?.length !== 3 ||
-        tools.some((name) => !role.toolNames!.includes(name))
-      )
+      if (!service || service.supportsInitialOutcomeClaim !== true || !role)
         throw Error('Locked native writer unavailable')
+      const approved = installedWriter(resolveAgentDir(), role)
+      preflightWriterRoute(ctx, approved)
       const prefix = await branch(ctx)
       const created = await f.request('create', { project: f.project })
       const value: EngineWorkerValue = {
@@ -306,7 +298,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         Date.now() < value.deadline &&
         !ctx.signal?.aborted
       const jobContext: OperationContext = {
-        hold: (identity) => f.abi.fixtureHold(identity),
+        hold: (identity) => f.abi.hold(identity),
         current(targets) {
           if (identityLive() !== true) return false
           const record = service.getRecord(own.id!)
@@ -408,6 +400,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       timer.unref()
       try {
         assertCurrent(f.context)
+        // No await between final installed/loaded-role/physical-route validation
+        // and public synchronous spawn. Explicit options survive queue delays.
+        const currentRole = service.getAgentType('managed-memory-writer')
+        if (!currentRole) throw Error('Locked native writer unavailable')
+        const route = installedWriter(resolveAgentDir(), currentRole)
+        if (route.text !== approved.text) throw Error('Approved writer route changed before dispatch')
+        preflightWriterRoute(ctx, route)
         own.id = service.spawn(
           'managed-memory-writer',
           JSON.stringify({
@@ -419,7 +418,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             episodes,
             evidence: 'observed-native-unverified; user role/source is not authenticated human identity',
           }),
-          { foreground: false, bypassQueue: false, inheritContext: false, maxTurns: 8, claimOutcome: true },
+          {
+            model: route.model,
+            thinkingLevel: route.thinking,
+            foreground: false,
+            bypassQueue: false,
+            inheritContext: false,
+            maxTurns: 8,
+            claimOutcome: true,
+          },
         )
         attempt.bind(() => service.getRecord(own.id!))
         revoke = f.abi.bindWorker(f.tool, ctx, f.root, own.id, value, identityLive)
@@ -486,6 +493,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         !objectShape(args, [
           'action',
           'revision',
+          'configHash',
           'paths',
           'sources',
           'target',
@@ -513,9 +521,60 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           lastError,
           latestAttempt: latestAttempt?.value.snapshot() ?? null,
           historicalErasure: false,
-          experimental: true,
+          automatic: (await f.barrier()).config.automatic,
+          policyOperation: await memoryPolicyStatus(f.engine, f.context),
+          configHash: f.configHash,
+          engineABI: 2,
+          publication: draft ? 'private-draft-not-published' : 'committed-head',
+          contextActivation: 'next-primary-request',
           unsupportedManagement: [],
         }
+      }
+      const policyContext = () => {
+        const ids = ctx.sessionManager.getBranch().map((entry) => entry.id)
+        if (ids.length > 8192) throw Error('Policy branch capacity exceeded')
+        return {
+          ...f.context,
+          current: (targets: Parameters<OperationContext['current']>[0]) => {
+            const branch = ctx.sessionManager.getBranch()
+            return (
+              branch.length <= 8192 &&
+              ids.every((id, index) => branch[index]?.id === id) &&
+              f.context.current(targets)
+            )
+          },
+        }
+      }
+      if (args.action === 'policy-reconcile') {
+        if (
+          !f.abi.isPrimarySession(ctx) ||
+          typeof args.target !== 'string' ||
+          typeof args.revision !== 'string' ||
+          Object.keys(args).some((key) => !['action', 'target', 'revision'].includes(key))
+        )
+          throw Error('Explicit primary policy target/digest required')
+        return await reconcileMemoryPolicy(f.engine, policyContext(), args.target, args.revision)
+      }
+      if (args.action === 'policy') {
+        if (
+          !f.abi.isPrimarySession(ctx) ||
+          typeof args.revision !== 'string' ||
+          typeof args.configHash !== 'string' ||
+          typeof args.automatic !== 'boolean' ||
+          Object.keys(args).some((key) => !['action', 'revision', 'configHash', 'automatic'].includes(key))
+        )
+          throw Error('Explicit primary policy revision/configHash/automatic required')
+        admissionSerial++
+        pending = undefined
+        job?.cancel()
+        draft = undefined // retained proposal, never silently reset or published
+        return await setMemoryAutomatic(
+          f.engine,
+          policyContext(),
+          args.revision,
+          args.configHash,
+          args.automatic,
+        )
       }
       if (args.action === 'reconcile') {
         if (
@@ -636,7 +695,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     await retire()
     const next = nodes()?.get(ctx.sessionManager.getSessionId())
     if (next?.managedMemory?.version !== 2) throw Error('Experimental ABI2 required')
-    releaseRuntime = next.managedMemory.fixtureHold({ runtime: epoch })
+    releaseRuntime = next.managedMemory.hold({ runtime: epoch })
     retirement = undefined
     pinned = next
     unregisterRetire = next.managedMemory.onRetire(retire)
@@ -657,11 +716,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       try {
         const f = await resolve(ctx, 'agent_memory_read', 'read', ctx.signal)
         if (f.access.kind === 'worker') {
-          const source = await readFile(
-            new URL('../../agents/managed-memory-writer.md', import.meta.url),
-            'utf8',
-          )
-          if (bytes(source) > 16384 || !source.startsWith('---\n')) throw Error('Writer prompt unavailable')
+          const source = installedWriter(resolveAgentDir()).text
           await f.barrier()
           return {
             systemPrompt: `${source.replace(/^---\n[\s\S]*?\n---\n/, '')}\n${memoryCurationDoctrine}\nPrivate project scope: ${f.access.value.project}. Read only your leased memory view. No primary transcript, bootstrap or corpus is inherited.`,
@@ -809,7 +864,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     run: (...args: Parameters<typeof run>) =>
       lifetime.track(async () => {
         const abi = pinned?.managedMemory
-        const root = abi?.version === 2 ? abi.fixtureRoot : undefined
+        const root = abi?.version === 2 ? abi.root : undefined
         try {
           return await run(...args)
         } catch (error) {

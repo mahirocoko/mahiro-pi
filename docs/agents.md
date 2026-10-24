@@ -11,17 +11,42 @@ Pi package resource loading does not automatically install agent roles.
 | Role | Route and limits | Responsibility |
 | --- | --- | --- |
 | [memory-reflector](../agents/memory-reflector.md) | OpenAI gpt-6.1-sol / medium; locked; no tools; background; no inherited context; replace prompt; two turns | Literal low-authority quotes only |
-| [managed-memory-writer](../agents/managed-memory-writer.md) | OpenAI gpt-6.1-sol / medium; locked; read/edit/commit only; background; replace prompt; eight turns | Scoped maintained knowledge in the same private store |
+| [managed-memory-writer](../agents/managed-memory-writer.md) | Default OpenAI gpt-6.1-sol / medium; explicit model/thinking slots selectable; locked; read/edit/commit only; background; replace prompt; eight turns | Scoped maintained knowledge in the same private store |
 | [git-commit](../agents/git-commit.md) | OpenAI gpt-6-luna / low; model/thinking locked; Bash only | One explicitly authorized scoped commit |
 
-These are authored role contracts, not authority to select a different model,
-borrow credentials or fall back to another provider. They use the configured Pi
-authentication profile; required route availability remains a runtime prerequisite.
+These are authored role contracts, not authority to borrow credentials or fall
+back to another provider. Reflector and git-commit source routes remain unchanged.
+They use your configured Pi authentication profile; each role's route availability
+is a separate prerequisite when you use it. Unrelated local roles are preserved.
 
 `install:profile` or reviewed bootstrap explicitly registers the three bodies
-beneath `<profile>/agents/`. Missing files are created, byte-identical files
-are no-op and different existing files block. Unrelated local roles are preserved,
-not synchronized or tested as a package-owned roster.
+beneath `<profile>/agents/`. Missing files are created; identical files are no-op.
+Differences block except the managed writer's explicitly supported route slots.
+
+## Managed writer route
+
+The installed canonical `managed-memory-writer.md` is the route owner. Only its
+`model` and `thinking` slots may vary; lock, tools, prompt, isolation and all other
+bytes must match the package template. Ordinary upgrades preserve that selected
+canonical route. Review both flags together on preview and apply:
+
+```sh
+pnpm install:profile --managed-writer-model exact-provider/model-id --managed-writer-thinking medium --preview
+pnpm install:profile --managed-writer-model exact-provider/model-id --managed-writer-thinking medium
+```
+
+Replace the placeholder with your actual exact provider/model ID and a supported
+thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Not every
+model supports every level. Choose deliberately for provider authorization,
+cost and privacy; use your own Pi provider setup. This does not change your primary
+model or the other package roles, and copies no credentials.
+
+Readiness and final spawn preflight require the exact physical registry entry,
+matching public availability and supported thinking. Virtual aliases, fuzzy or
+similar models and parent-model fallback are rejected. The final native spawn
+pins explicit model/thinking options and rechecks the loaded canonical role.
+After route changes, start a fresh session. Local **Ready** is not a provider
+request, successful execution or semantic learning.
 
 ## Memory isolation
 

@@ -95,8 +95,21 @@ attestation. Missing, old, malformed, wildcard-only or yolo-substituted authorit
 does not become an exact DATA grant. Primary control does not transfer policy to
 a native child or authorize maintained-memory writes.
 
+Memory engine selection and automatic policy are not grants. ABI2 retains the
+canonical Root/PSS, exact-root DATA authority, actual native output binding and
+fresh current execution/publication barriers. Data work runs in a Node child;
+model workers remain in-process, not an OS sandbox. A canonical installed writer
+route must pass exact physical model/availability checks and is explicitly pinned
+at spawn; no virtual/fuzzy/parent-model fallback or credential copying occurs.
+
 Installation may register reviewed owners and grants but preserves targeted
-restrictions. `--remove-default-deny` removes only scalar
+restrictions. Reflection denial permits manual-memory installation; unrelated
+historical quote-learning authority is neither required nor granted. Targeted
+denies must be changed only through supported public PSS configuration/approval
+under human authority. The memory automatic-policy tool changes no permissions;
+its current [interruption limitation](agent-memory.md#policy-interruption-limit)
+must not be confused with publication reconciliation.
+`--remove-default-deny` removes only scalar
 `permission["*"]: "deny"` with explicit consent; it never grants blanket allow.
 See [bootstrap](bootstrap.md) for refusal and recovery behavior.
 

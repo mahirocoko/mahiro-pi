@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { runNaturalCheck } from './lib/guards/test/natural-check-runner.mjs'
 import {
   stagePermissionFixture,
   productRoot,
@@ -56,6 +57,7 @@ const files = [
   'managed-memory-test.mjs',
   'managed-memory-engine-test.mjs',
   'managed-memory-engine-operations-test.mjs',
+  'managed-memory-install-test.mjs',
   'permission-patch-test.mjs',
   'bash-approval-patch-test.mjs',
   'code-map-blocked-test.mjs',
@@ -73,23 +75,21 @@ const files = [
   'own-ui-patch-test.mjs',
   'candidate-patch-test.mjs',
 ]
-const result = spawnSync(
+const evidenceParent = path.join(productRoot, '.agent-state/runtime/candidate-isolation')
+fs.mkdirSync(evidenceParent, { recursive: true, mode: 0o700 })
+const proof = fs.mkdtempSync(path.join(evidenceParent, 'required-sdk-'))
+fs.chmodSync(proof, 0o700)
+console.log(`Public SDK receipts: ${proof}`)
+const result = await runNaturalCheck(
   process.execPath,
   ['--test', '--test-concurrency=1', ...files.map((name) => path.join(stage.adapter, 'test', name))],
   {
-    encoding: 'utf8',
-    timeout: 300000,
-    maxBuffer: 16 * 1024 * 1024,
+    logPath: path.join(proof, 'required-sdk.log'),
     env: { ...process.env, MAHIRO_PI_TEST_MODULES: publicModules },
   },
 )
 const receipt = {
-  pid: result.pid,
-  status: result.status,
-  signal: result.signal,
-  error: String(result.error ?? ''),
-  timeoutMs: 300000,
-  externalWait: 'spawnSync returned',
+  ...result,
   bootstrapPreview: { pid: preview.pid, status: preview.status, signal: preview.signal, timeoutMs: 240000 },
   sourceOwner: productRoot,
   stage: stage.root,
@@ -97,13 +97,9 @@ const receipt = {
   actualPublicSDK: true,
   liveInstall: false,
 }
-const evidenceParent = path.join(productRoot, '.agent-state/runtime/candidate-isolation')
-fs.mkdirSync(evidenceParent, { recursive: true })
-const proof = fs.mkdtempSync(path.join(evidenceParent, 'required-sdk-'))
-console.log(`Public SDK receipts: ${proof}`)
-fs.writeFileSync(path.join(proof, 'required-sdk.log'), result.stdout + result.stderr)
-fs.writeFileSync(path.join(proof, 'required-sdk-exit.json'), JSON.stringify(receipt, null, 2))
-process.stdout.write(result.stdout)
-process.stderr.write(result.stderr)
+fs.writeFileSync(path.join(proof, 'required-sdk-exit.json'), JSON.stringify(receipt, null, 2), {
+  mode: 0o600,
+})
 assert.equal(result.status, 0, JSON.stringify(receipt))
+assert.equal(result.ok, true, JSON.stringify(receipt))
 console.log('Required Root-owned public SDK suite completed with natural exit; no Mods checkout in fixture.')

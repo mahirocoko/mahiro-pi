@@ -9,8 +9,10 @@
 - Explicitly installed declared dependencies. The repository pins public
   permission-system **40.2.2** and subagents **23.4.1**, including its authored
   patches; public Pi SDK/AI/TUI **1.3.0** are development dependencies.
-- Your own Pi provider/auth setup. Installation never copies credentials, selects
-  a provider/model or changes personal roles.
+- Your own Pi provider/auth setup, including an available exact physical model
+  for the [managed writer](agents.md#managed-writer-route). Review provider access,
+  cost and privacy intentionally. Local readiness is not provider execution.
+  Installation never copies credentials or changes personal roles/primary models.
 
 No sibling runtime or legacy checkout is required. Source releases are on
 [GitHub](https://github.com/mahirocoko/mahiro-pi/releases), not npm.
@@ -41,11 +43,20 @@ pnpm install:profile --agent-dir /absolute/canonical/profile --preview
 pnpm install:profile --agent-dir /absolute/canonical/profile
 ```
 
-A fresh memory root receives only a neutral scaffold through the guarded native
-SDK pipeline with deterministic Faux transport: **zero external inference**.
-Standard installation enables automatic reflection for that new root only;
-existing memory policy is preserved.
-Existing Core/config/ledger/data are preserved, not imported or reseeded.
+Standard installation explicitly selects the ordinary ABI2 memory engine in
+`<profile>/.mahiro-memory-engine.json`, separate from the closed memory-store
+configuration. An absent selection record retains ABI1 compatibility; explicit `off`
+or `legacy` selections are preserved. Invalid selection fails closed. For an
+absent root with explicit off/legacy, standard installation refuses before writes;
+review that selection or use an authorized legacy initializer, not a silent reset.
+Selection is not a permission grant.
+
+A fresh memory root receives a generic editable coding-companion starter through
+the guarded native SDK pipeline with deterministic Faux transport:
+**zero external inference**. Standard installation sets automatic reflection true
+for that new root only; existing Core/persona/config/ledger/data and automatic
+policy are preserved, not imported or reseeded.
+[Customize the starter](agent-memory.md#customize-the-starter) using root-bound tools.
 RTK defaults to `rewrite-rtk` only when no existing selection prevents it;
 explicit `off` remains off. Review [memory](agent-memory.md) and [RTK](rtk.md).
 
@@ -53,6 +64,16 @@ Keep the checkout at that canonical path. Start Pi in the project where you want
 to work. Goal/Evidence/UX/Run derive project state without per-repository feature
 configuration. Existing sessions need an intentional fresh load; source
 publication alone does not update their cached extensions.
+
+## Check memory readiness
+
+After a fresh load, run `/mh-memory status` (or `/mh-memory help`). **Ready** means
+local prerequisites are satisfied, not that a provider ran or learning succeeded.
+**Needs setup** identifies missing selection/route/native resources; **Denied**
+identifies unavailable memory authority. When permitted, status also merges the
+storage lifecycle: automatic on/off, draft/publication and latest observed attempt.
+Unknown storage or attempt state is not idle or zero. Automatic policy is separate
+from readiness and from engine off. See [lifecycle](agent-memory.md#readiness-and-lifecycle).
 
 ## If installation refuses
 
@@ -65,8 +86,18 @@ Do not disable guards or add a blanket allow. Retained restrictions are real:
 - Already provisioned exact grants retain default deny without needing that flag.
 - Specific required tool/DATA restrictions and uncertain wildcard restrictions
   still refuse. The flag cannot override them.
-- Different existing owned role bodies, unsafe filesystem paths or stale plans
-  need review. No automatic chmod, role overwrite or auth repair is performed.
+- A managed writer may vary only its canonical model/thinking slots. Other role
+  body differences, unsafe filesystem paths or stale plans need review. No
+  automatic chmod, unrelated role overwrite or auth repair is performed.
+- Reflection denial is preserved and does not prevent manual-memory installation.
+  Change a targeted deny only through supported public PSS configuration/approval
+  under human authority. Historical quote-learning is not required or granted.
+- An unavailable writer route needs your provider setup or an explicitly reviewed
+  [paired route selection](agents.md#managed-writer-route), never fuzzy fallback.
+- After an interrupted policy change, read authorized `policyOperation` status.
+  `retained+recoverable` supports a fresh explicit primary `policy-reconcile`;
+  active work must drain first and unknown/restarted operations stay retained for
+  owner review. See the [policy interruption limit](agent-memory.md#policy-interruption-limit).
 
 See [policy, preservation and recovery](bootstrap.md) for exact semantics.
 Installation receipts describe applied owner steps, not a cross-owner atomic
@@ -126,9 +157,13 @@ See [bootstrap](bootstrap.md); source loading never provisions a profile.
 2. Update the canonical checkout using an ordinary fast-forward when possible;
    resolve local differences instead of resetting them.
 3. Explicitly refresh declared dependencies if the lock/patches changed.
-4. Preview profile installation again. Review changed owned roles, restrictions
-   and source identity before any apply.
-5. Fresh-load only the session(s) you intend to update, then check their controls.
+4. Preview profile installation again. Review source identity, engine selection,
+   role prerequisites and restrictions before apply. Ordinary upgrades preserve
+   an installed canonical writer's selected route, Core/customization, data,
+   automatic policy and explicit engine off/legacy. Non-route role differences block.
+5. Fresh-load only intended sessions; run `/mh-memory status`. A prior cached
+   session or an installation receipt is not proof of activation. Read the
+   [candidate limitations](releases/0.5.0.md) before relying on the new policy action.
 
 A cached old guard paired with a new package can correctly refuse version-bound
 feature provenance. Align source/dependencies/profile and reload intentionally;

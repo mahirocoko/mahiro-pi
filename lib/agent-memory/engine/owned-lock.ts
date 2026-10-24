@@ -60,11 +60,7 @@ export async function acquireOperationLock(
   }
   return owner
 }
-export async function releaseOperationLock(
-  root: string,
-  expected: LockOwner,
-  context: OperationContext,
-): Promise<boolean> {
+export async function verifyOperationLock(root: string, expected: LockOwner, context: OperationContext) {
   const owner = parseLockOwner(expected)
   const lock = join(root, '.lock')
   const file = join(lock, 'owner.json')
@@ -80,7 +76,19 @@ export async function releaseOperationLock(
     !isDeepStrictEqual(actual, owner)
   )
     throw Error('Exact operation lock ownership changed')
-  current() // nonce + inode rechecked immediately before fixed native unlink, no intervening await
+  current()
+  return owner
+}
+export async function releaseOperationLock(
+  root: string,
+  expected: LockOwner,
+  context: OperationContext,
+): Promise<boolean> {
+  const owner = await verifyOperationLock(root, expected, context)
+  const lock = join(root, '.lock')
+  const file = join(lock, 'owner.json')
+  const current = () => assertCurrent(context, { physical: [lock, file], logical: [], kind: 'data' })
+  current() // nonce + inode verified before fixed native unlink, no intervening await
   await unlink(file)
   const after = await lstat(lock)
   if (!after.isDirectory() || identity(after) !== owner.directory) throw Error('Operation lock replaced')

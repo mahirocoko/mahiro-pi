@@ -5,7 +5,7 @@
 ## Install and configure
 
 - [Installation and upgrades](getting-started.md) — requirements, preview/apply,
-  profile selection and intentional fresh loading.
+  profile selection, memory readiness, customization and intentional fresh loading.
 - [Profile installation contract](bootstrap.md) — exact grants, default-deny
   consent, optional BASIC read policy and reviewed advanced composition.
 - [Guards and permissions](guards.md) — public PSS, effective Bash approval,
@@ -17,7 +17,8 @@
 - [Status and notifications](status.md) — usage, activity, quota boundaries and completion voice.
 - [RTK](rtk.md) — modes, resolver bounds and guarded failure behavior.
 - [Memory and historical recall](agent-memory.md) — maintained knowledge, discovery,
-  scoped writing, conflict recovery and separate quotation controls.
+  editable starter, ordinary engine, readiness/policy limits, scoped writing,
+  conflict recovery and separate quotation controls.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [Goals](workflows.md#goals),
   [Code Evidence](workflows.md#code-evidence), [UX workflow](workflows.md#ux-workflow)
@@ -29,8 +30,11 @@
 ## Develop and release
 
 - [Development and release](development.md) — dependency supply, checks and source artifacts.
-- [v0.4.0 source preparation](releases/0.4.0.md) — branch-local steps and editable staging;
-  publication and native acceptance remain separate gates.
+- [v0.5.0 source release record](releases/0.5.0.md) — ordinary memory installation,
+  editable starter and portable writer route; bounded policy recovery limits and
+  source/SDK verification does not imply installed or human acceptance.
+- [v0.4.0 source record](releases/0.4.0.md) — historical branch-local steps and
+  editable staging; not the current installation contract.
 - [v0.3.0 release record](releases/0.3.0.md) — dated delivered scope. Its historical
   runtime-only appearance limitation predates the current guarded Save contract;
   use [UI documentation](claude-ui.md) for current behavior.
