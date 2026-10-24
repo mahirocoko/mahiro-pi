@@ -23,8 +23,14 @@ import { rtkBinding } from '../rtk-state.ts'
 import { registerRTK } from '../rtk.ts'
 import { createOwnUIOwner } from './own-ui.ts'
 import { resolveAgentDir } from '../setup.ts'
+import { selectMemoryLease } from './memory-lease.ts'
 import { resolveRunBinding } from '../execution-run/store.ts'
 import { featureCapability } from '../feature-data.ts'
+import {
+  buildManagedMemoryABI,
+  type MemoryABIV2,
+  type ManagedMemoryABI,
+} from '../agent-memory/experimental-contracts.ts'
 
 const registryKey = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
 const shared = globalThis as typeof globalThis & { [registryKey]?: GuardRegistry }
@@ -120,6 +126,8 @@ export default async function activate(pi: ExtensionAPI) {
     powershell: nativeFactory(sdk.createPowerShellToolDefinition),
   }
   const require = createRequire(import.meta.url)
+  const { consumeManagedMemoryFixture, recordMemoryDiagnostic } =
+    require('./memory-fixture.mjs') as typeof import('./memory-fixture.mjs')
   const missing = []
   for (const name of ['@gotgenes/pi-subagents', '@gotgenes/pi-permission-system']) {
     try {
@@ -184,6 +192,26 @@ export default async function activate(pi: ExtensionAPI) {
   const children = new Set<string>()
   const unsubscribes: (() => void)[] = []
   let registered = false
+  type Lease = NonNullable<GuardRegistry['memoryLeases']> extends Map<string, infer L> ? L : never
+  // Private validator function, not retained authority. Its lease result lives only on the caller's stack.
+  let validateMemoryAccess: (...args: Parameters<ManagedMemoryABI['assertAccess']>) => {
+    access: ReturnType<ManagedMemoryABI['assertAccess']>
+    lease?: Lease
+  }
+  let memoryModeBound = false
+  let memorySelection:
+    | {
+        root: string
+        live: () => boolean
+        hold(owner: object): () => void
+        onRetire(callback: () => Promise<void>): () => void
+        assertTargets: MemoryABIV2['assertTargets']
+      }
+    | undefined
+  let memoryRetiring = false
+  let memoryRootRelease: (() => void) | undefined
+  const memoryRetirements = new Set<() => Promise<void>>()
+  let memoryDisposed: Promise<void> | undefined
   const healthy = (id: string) => nodes.get(id)?.healthy?.() === true
   const ownsContext = (ctx: Pick<ExtensionContext, 'sessionManager'>) =>
     !!sessionId &&
@@ -597,6 +625,109 @@ export default async function activate(pi: ExtensionAPI) {
       // Repeated starts must validate, never reset, the already pinned owner.
       getParentService()
       if (!registered) return
+      if (!memoryModeBound) {
+        const selected = consumeManagedMemoryFixture(ctx.sessionManager, resolveGoalProfile())
+        const parentId = nativeParents.get(id)
+        const parent = parentId ? nodes.get(parentId) : undefined
+        const inherited =
+          parent?.healthy() && parent.managedMemory.version === 2 ? parent.managedMemory : undefined
+        const source =
+          selected ??
+          (inherited
+            ? {
+                root: inherited.fixtureRoot,
+                live: inherited.fixtureLive,
+                hold: inherited.fixtureHold,
+              }
+            : undefined)
+        if (source) {
+          memoryRootRelease = selected?.release ?? source.hold(generation)
+          memorySelection = {
+            root: source.root,
+            live: () => !memoryRetiring && source.live(),
+            hold: (owner) => {
+              if (memoryRetiring) throw Error('Memory Root retiring')
+              return source.hold(owner)
+            },
+            assertTargets(tool, ctx, root, operation, targets) {
+              if (!Array.isArray(targets) || targets.length > 32)
+                throw Error('Bounded memory targets required')
+              const abi = nodes.get(sessionId)?.managedMemory
+              if (abi?.version !== 2) throw Error('Memory Root2 required')
+              const validated = validateMemoryAccess(tool, ctx, root, operation)
+              const access = validated.access
+              let ownerId = sessionId
+              if (access.kind === 'worker') {
+                const parentId = nativeParents.get(sessionId)
+                const parent = parentId ? nodes.get(parentId) : undefined
+                const lease = validated.lease
+                if (!lease || parent?.managedMemory.version !== 2)
+                  throw Error('Actual memory parent lease required')
+                parent.managedMemory.assertTargets(
+                  lease.parentTool,
+                  lease.parentContext,
+                  root,
+                  'write',
+                  targets,
+                )
+                ownerId = lease.ownerId
+              }
+              const policies = new Set([getPermissionsService(ownerId), getPermissionsService(sessionId)])
+              const policyStart = performance.now()
+              let checks = 0
+              for (const target of targets) {
+                if (
+                  typeof target !== 'string' ||
+                  !isAbsolute(target) ||
+                  resolve(target) !== target ||
+                  (target !== root && !target.startsWith(`${root}/`))
+                )
+                  throw Error('Memory target unavailable')
+                for (const policy of policies) {
+                  if (!policy) throw Error('Memory policy unavailable')
+                  for (const surface of operation === 'read'
+                    ? ['read', 'path_read']
+                    : ['read', 'path_read', 'path_write']) {
+                    const decision = policy.checkPermission(surface, target)
+                    checks++
+                    if (decision?.matchedPattern !== undefined && decision.state !== 'allow') {
+                      recordMemoryDiagnostic(root, 'public-pss-denial', {
+                        surface,
+                        target: relative(root, target),
+                      })
+                      throw Error('Managed memory path authority required')
+                    }
+                  }
+                }
+              }
+              recordMemoryDiagnostic(root, 'public-pss-batch', {
+                checks,
+                duration: performance.now() - policyStart,
+              })
+              const revalidated = validateMemoryAccess(tool, ctx, root, operation)
+              const after = revalidated.access
+              if (
+                revalidated.lease !== validated.lease ||
+                after.kind !== access.kind ||
+                (after.kind === 'worker' && access.kind === 'worker' && after.value !== access.value)
+              )
+                throw Error('Memory batch identity changed')
+              if (after.kind === 'primary') return { kind: 'primary' }
+              if (!after.value || !('version' in after.value) || after.value.version !== 2)
+                throw Error('Memory batch ABI mismatch')
+              return { kind: 'worker', value: after.value }
+            },
+            onRetire(callback) {
+              if (memoryRetiring) throw Error('Memory Root retiring')
+              memoryRetirements.add(callback)
+              return () => {
+                memoryRetirements.delete(callback)
+              }
+            },
+          }
+        }
+        memoryModeBound = true
+      }
       // Pi may reject a conflicting tool after its factory has returned while
       // retaining the extension's event handlers. Confirm actual public tool
       // ownership before publishing any health assurance.
@@ -933,80 +1064,110 @@ export default async function activate(pi: ExtensionAPI) {
             assert()
           },
         },
-        managedMemory: {
-          version: 1,
+        managedMemory: buildManagedMemoryABI(memorySelection, {
           generation,
           permission: memoryPermission,
           trustedTool: trustedMemoryTool,
           isPrimarySession,
           parentService: () => (isPrimarySession({ sessionManager }) ? getParentService() : undefined),
-          assertAccess(tool, ctx, root, operation = 'read', target = root) {
-            const expected = process.env.MAHIRO_AGENT_MEMORY_ROOT ?? join(resolveGoalProfile(), 'memory')
-            if (
-              !ownsContext(ctx) ||
-              ctx.sessionManager !== sessionManager ||
-              ctx.signal?.aborted ||
-              !trustedMemoryTool(tool) ||
-              !['read', 'write'].includes(operation) ||
-              !isAbsolute(root) ||
-              root !== resolve(root) ||
-              !isAbsolute(expected) ||
-              root !== resolve(expected) ||
-              !isAbsolute(ctx.cwd) ||
-              ctx.cwd !== resolve(ctx.cwd)
-            )
-              throw new Error('Managed memory unavailable')
-            if (
-              typeof target !== 'string' ||
-              !isAbsolute(target) ||
-              target !== resolve(target) ||
-              (target !== root && !target.startsWith(`${root}/`))
-            )
-              throw new Error('Managed memory path unavailable')
-            const primary = isPrimarySession(ctx)
-            let ownerId = sessionId
-            let lease
-            if (!primary) {
-              if (['agent_memory_manage', 'agent_memory_reflect'].includes(tool.name))
-                throw new Error('Managed worker operation unavailable')
-              ownerId = nativeParents.get(sessionId)
-              const owner = nodes.get(ownerId)
-              const outputFile = sessionManager.getSessionFile?.()
-              if (!ownerId || !owner?.healthy() || typeof outputFile !== 'string')
-                throw new Error('Native memory binding unavailable')
-              const matches = [...memoryLeases.values()].filter((item) => {
-                if (
-                  item.ownerId !== ownerId ||
-                  item.generation !== owner.generation ||
-                  item.root !== root ||
-                  !item.active()
-                )
-                  return false
-                const record = item.service.getRecord(item.jobId)
-                return (
-                  record?.type === 'managed-memory-writer' &&
-                  record.status === 'running' &&
-                  typeof record.outputFile === 'string' &&
-                  record.outputFile === outputFile
-                )
-              })
-              if (matches.length !== 1) throw new Error('Native memory binding unavailable')
-              lease = matches[0]
+          assertAccess: (() => {
+            validateMemoryAccess = (tool, ctx, root, operation = 'read', target = root) => {
+              const expected =
+                memorySelection?.root ??
+                process.env.MAHIRO_AGENT_MEMORY_ROOT ??
+                join(resolveGoalProfile(), 'memory')
+              if (memorySelection && !memorySelection.live()) throw Error('Disposable memory fixture retired')
+              if (
+                !ownsContext(ctx) ||
+                ctx.sessionManager !== sessionManager ||
+                ctx.signal?.aborted ||
+                !trustedMemoryTool(tool) ||
+                !['read', 'write'].includes(operation) ||
+                !isAbsolute(root) ||
+                root !== resolve(root) ||
+                !isAbsolute(expected) ||
+                root !== resolve(expected) ||
+                !isAbsolute(ctx.cwd) ||
+                ctx.cwd !== resolve(ctx.cwd)
+              )
+                throw new Error('Managed memory unavailable')
+              if (
+                typeof target !== 'string' ||
+                !isAbsolute(target) ||
+                target !== resolve(target) ||
+                (target !== root && !target.startsWith(`${root}/`))
+              )
+                throw new Error('Managed memory path unavailable')
+              const primary = isPrimarySession(ctx)
+              let ownerId = sessionId
+              let lease
+              if (!primary) {
+                if (['agent_memory_manage', 'agent_memory_reflect'].includes(tool.name))
+                  throw new Error('Managed worker operation unavailable')
+                ownerId = nativeParents.get(sessionId)
+                const owner = nodes.get(ownerId)
+                const outputFile = sessionManager.getSessionFile?.()
+                if (!ownerId || !owner?.healthy() || typeof outputFile !== 'string')
+                  throw new Error('Native memory binding unavailable')
+                lease = selectMemoryLease(memoryLeases.values(), {
+                  ownerId,
+                  generation: owner.generation,
+                  root,
+                  version: memorySelection ? 2 : 1,
+                  outputFile,
+                })
+                if (memorySelection) {
+                  // ABI2 identity is IO-free. The removed active→store chain does NOT
+                  // remove the actual parent's launch-tool/context/path authority.
+                  owner.managedMemory.assertAccess(
+                    lease.parentTool,
+                    lease.parentContext,
+                    root,
+                    'write',
+                    target,
+                  )
+                }
+              }
+              const service = getPermissionsService(ownerId)
+              const grant = service?.checkPermission(memoryPermission(root))
+              const toolGrant = getPermissionsService(sessionId)?.checkPermission(tool.name)
+              const path = service?.checkPermission(operation === 'read' ? 'path_read' : 'path_write', target)
+              if (
+                !service ||
+                grant?.state !== 'allow' ||
+                grant.source === 'default' ||
+                toolGrant?.state !== 'allow' ||
+                (path?.matchedPattern !== undefined && path.state !== 'allow')
+              )
+                throw new Error('Managed memory requires separate existing permission')
+              if (memorySelection) {
+                const childService = getPermissionsService(sessionId)
+                const childRoot =
+                  childService === service ? grant : childService?.checkPermission(memoryPermission(root))
+                if (childRoot?.state !== 'allow' || childRoot.source === 'default')
+                  throw Error('Managed memory child root authority required')
+                // A primary policy object occupies both roles. Within this synchronous call,
+                // check each identical policy/surface once; no verdict survives an await/call.
+                for (const policy of new Set([service, childService])) {
+                  for (const surface of operation === 'read'
+                    ? ['read', 'path_read']
+                    : ['read', 'path_read', 'path_write']) {
+                    const decision =
+                      policy === service && surface === (operation === 'read' ? 'path_read' : 'path_write')
+                        ? path
+                        : policy?.checkPermission(surface, target)
+                    if (decision?.matchedPattern !== undefined && decision.state !== 'allow')
+                      throw Error('Managed memory path authority required')
+                  }
+                }
+              }
+              return {
+                access: primary ? { kind: 'primary' } : { kind: 'worker', value: lease!.value },
+                lease,
+              }
             }
-            const service = getPermissionsService(ownerId)
-            const grant = service?.checkPermission(memoryPermission(root))
-            const toolGrant = getPermissionsService(sessionId)?.checkPermission(tool.name)
-            const path = service?.checkPermission(operation === 'read' ? 'path_read' : 'path_write', target)
-            if (
-              !service ||
-              grant?.state !== 'allow' ||
-              grant.source === 'default' ||
-              toolGrant?.state !== 'allow' ||
-              (path?.matchedPattern !== undefined && path.state !== 'allow')
-            )
-              throw new Error('Managed memory requires separate existing permission')
-            return primary ? { kind: 'primary' } : { kind: 'worker', value: lease.value }
-          },
+            return (...args) => validateMemoryAccess(...args).access
+          })(),
           async authorize(tool, ctx, root, operation = 'read', signal) {
             const access = nodes.get(sessionId)!.managedMemory.assertAccess(tool, ctx, root, operation)
             const args = await host.finalArgs(operation === 'read' ? 'read' : 'write', { path: root }, ctx)
@@ -1020,6 +1181,10 @@ export default async function activate(pi: ExtensionAPI) {
             if (
               !isPrimarySession(ctx) ||
               typeof active !== 'function' ||
+              (memorySelection && active() !== true) ||
+              (memorySelection
+                ? !('version' in value) || value.version !== 2
+                : 'version' in value && value.version === 2) ||
               !parentService ||
               parentService.supportsInitialOutcomeClaim !== true
             )
@@ -1052,13 +1217,16 @@ export default async function activate(pi: ExtensionAPI) {
               service: parentService,
               value,
               active,
+              version: memorySelection ? (2 as const) : (1 as const),
+              parentTool: tool,
+              parentContext: ctx,
             }
             memoryLeases.set(jobId, lease)
             return () => {
               if (memoryLeases.get(jobId) === lease) memoryLeases.delete(jobId)
             }
           },
-        },
+        }),
         continuity: {
           version: 1,
           generation,
@@ -1214,12 +1382,32 @@ export default async function activate(pi: ExtensionAPI) {
     }),
   )
   const dispose = () => {
+    if (memoryDisposed) return memoryDisposed
+    // ABI2 retirement fences admission BEFORE node removal, independently of hook order.
+    // Callbacks must fence synchronously, then join only already-started work.
+    memoryRetiring = true
+    const drains: Promise<void>[] = []
+    if (memorySelection)
+      for (const callback of memoryRetirements) {
+        try {
+          drains.push(callback())
+        } catch (error) {
+          drains.push(Promise.reject(error))
+        }
+      }
     registered = false
     if (nodes.get(sessionId)?.generation === generation) nodes.delete(sessionId)
     for (const [jobId, lease] of memoryLeases)
       if (lease.ownerId === sessionId && lease.generation === generation) memoryLeases.delete(jobId)
     host.dispose()
     for (const unsubscribe of unsubscribes.splice(0)) unsubscribe?.()
+    if (memorySelection) {
+      memoryDisposed = Promise.all(drains).then(() => {
+        memoryRootRelease?.()
+        memoryRetirements.clear()
+      })
+      return memoryDisposed
+    }
   }
   unsubscribes.push(pi.on('session_shutdown', dispose))
   registered = true

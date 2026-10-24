@@ -1,9 +1,10 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { createAgentMemoryRuntime, memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
+import { memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
+import { createAgentMemoryRouter } from '../lib/agent-memory/runtime-router.ts'
 import { memoryReadSchema } from '../lib/agent-memory/retrieval.ts'
 
 export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}) {
-  const runtime = createAgentMemoryRuntime(pi, config)
+  const runtime = createAgentMemoryRouter(pi, config)
   const string = { type: 'string' }
   const schemas = {
     agent_memory_read: memoryReadSchema,
@@ -24,7 +25,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       properties: {
         action: {
           type: 'string',
-          enum: ['status', 'cancel', 'forget', 'rollback', 'initialize', 'conflicts', 'discard'],
+          enum: ['status', 'cancel', 'forget', 'rollback', 'initialize', 'conflicts', 'discard', 'reconcile'],
         },
         revision: string,
         paths: { type: 'array', items: string, maxItems: 128 },
@@ -58,7 +59,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         agent_memory_commit:
           'Commit/integrate the current private memory draft against its base revision. Disjoint edits merge automatically; overlapping edits preserve a conflict. Native workers mark ready; the healthy parent integrates only after successful completion. Active primary context refreshes on the next request.',
         agent_memory_manage:
-          'Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files.',
+          'Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files. Experimental disposable ABI2 only: reconcile observes one existing operation (target UUID, revision plan digest); never replays publication, returns chunks, steals locks or initializes an existing root.',
         agent_memory_reflect:
           'Assign a locked native background writer to maintain the SAME private memory using current scoped episodes. No caller-chosen role/model/path. Registration, authority and native identity binding must already exist. Does not claim provider proof or semantic correctness.',
       }[name],

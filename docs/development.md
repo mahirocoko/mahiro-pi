@@ -60,6 +60,22 @@ duplicate receipt correlation. A fresh reviewer and native TUI checks must still
 assess composer/attachments, native queue coexistence and rendered narrow layouts.
 No provider inference or execution/RPC package interoperability is established.
 
+Focused maintained-memory checks (also serialize with SDK/heavy jobs):
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory*.test.ts
+```
+
+Experimental memory ABI2 is selected only by an owned disposable fixture, never
+by an installed environment/profile toggle. Core tests include isolated lease
+resolver inputs, separate OS fault actors and native directory-fsync fault
+injection; these do not substitute for canonical Root/PSS authority proof. The
+required public SDK suite separately exercises genuine Faux native children,
+actual output/launch-context binding, physical policy flips and retirement with
+replacement-generation overlap. Conservative external-quiescence and orphan-CAS
+unavailability remain documented limits, not automatic recovery promises. See
+[maintained memory](agent-memory.md#experimental-fixture-only-engine) for its boundary.
+
 Geometry uses public TUI helpers from an explicitly supplied host manifest; it
 makes no model/auth calls and does not substitute for rendered testing.
 

@@ -207,6 +207,7 @@ test('registered query/topic and legacy paths describe the same private draft an
     const read = (args: any) => f.runtime.run('agent_memory_read', args, f.ctx)
     const first = await read({ query: 'violet' })
     assert.ok('results' in first)
+    assert.ok(Array.isArray(first.results))
     await f.runtime.run(
       'agent_memory_edit',
       {
@@ -220,6 +221,7 @@ test('registered query/topic and legacy paths describe the same private draft an
     const queried = await read({ query: 'silver' })
     const path = await read({ path: 'global/fictional.md' })
     assert.ok('results' in queried && 'basis' in queried)
+    assert.ok(Array.isArray(queried.results))
     assert.ok('hash' in path && 'text' in path && 'sources' in path)
     assert.equal(queried.basis, 'private-draft')
     assert.equal(queried.results[0].hash, path.hash)

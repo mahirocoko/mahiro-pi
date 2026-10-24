@@ -1,6 +1,6 @@
 import type { ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
 import type { SubagentsService } from '@gotgenes/pi-subagents'
-import type { MemoryABI } from '../agent-memory/runtime.ts'
+import type { ManagedMemoryABI } from '../agent-memory/experimental-contracts.ts'
 import type { IGuardNode } from '../continuity/runtime.ts'
 import type { OwnUIOwner } from '../claude-ui-owner.ts'
 import type { createGuardHost } from './host.mjs'
@@ -44,7 +44,7 @@ export interface GuardNode {
   uxWorkflow: StateABI
   executionRun: StateABI
   evidence: EvidenceABI
-  managedMemory: MemoryABI & { permission(root: string): string }
+  managedMemory: ManagedMemoryABI & { permission(root: string): string }
   continuity: IGuardNode['continuity'] & { learningPermission(root: string): string }
 }
 interface MemoryLease {
@@ -53,8 +53,11 @@ interface MemoryLease {
   root: string
   jobId: string
   service: SubagentsService
-  value: Parameters<MemoryABI['bindWorker']>[4]
+  value: Parameters<ManagedMemoryABI['bindWorker']>[4]
   active(): boolean
+  version: 1 | 2
+  parentTool: NonNullable<Tool>
+  parentContext: ExtensionContext
 }
 export type GuardRegistry = Map<string, GuardNode> & {
   nativeChildren?: Set<string>

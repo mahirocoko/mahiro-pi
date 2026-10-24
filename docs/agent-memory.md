@@ -133,6 +133,58 @@ silently evicted to make space. Unsafe/corrupt/revoked data is unavailable, not 
 empty store to reseed. These are cooperative local protections, not isolation
 from hostile same-user code, unlimited retention or an OS sandbox.
 
+## Experimental fixture-only engine
+
+The production/default path remains the existing store and managed-memory ABI1.
+An explicit package-owned disposable fixture can select experimental ABI2 before
+native Root binding. This is not an installation, environment or permission
+selector; loading source does not activate it or inspect/migrate a live corpus.
+The same canonical Root, public policy, native manager and opaque worker lease
+remain authority. Synthetic tests are not installed or human acceptance.
+
+ABI2 runs bounded data work in an owned Node child. Only the parent starts fixed
+canonical filesystem/Git publication actions, immediately after current authority
+checks. The child cannot publish, initialize canonical files, select argv or
+receive a reusable publish grant. Initializing an absent fixture root uses a
+parent-exclusive create and durable intent; interrupted existing roots are
+unavailable, never automatically repaired or reseeded. Normal Git identity and
+hooks remain in effect. Already-started mutating Git/hooks drain on retirement;
+retirement is not permission to finish journals or remove uncertain locks.
+
+The shared management schema additionally advertises **ABI2-only**
+`{action: "reconcile", target: "<operation UUID>", revision: "<plan SHA-256 digest>"}`.
+ABI1 refuses this action and does not start the experimental engine. A fresh
+primary owner can inspect/reconcile only that persisted operation: exact HEAD
+ancestry/tree/ledger and index/worktree matter, not command exit or a stored stage.
+Recovered plans never gain publish, chunk or resume capability. Unknown outcomes
+retain evidence and block new mutation; no commit replay, lock stealing or
+uncertain eviction is provided. A same-process executor drain reference, not a
+PID or parent death, is required to establish quiescence. Observing the expected
+commit alone does not authorize removal of its exact lock. Revocation/crash during
+an operation-record CAS update can also retain its private `.cas` directory;
+subsequent reconciliation refuses that collision rather than stealing it, even
+when the expected commit is observable. There is no automatic CAS repair or
+universal crash-recovery claim. Authorized committed reads and projection remain
+HEAD-only while uncertain worktree/index, operation locks or orphan CAS entries
+block mutation admission. A fresh primary read does not create a draft or obtain
+a publication capability; an existing private draft retains its explicit snapshot
+semantics and never reads partially published worktree bytes.
+
+Experimental status reports only newly observed native attempt metadata.
+`latestAttempt` is null when absent or invalidated; unknown progress and
+unobserved tool ends remain null. It does not inspect historical private attempts,
+prove provider execution or establish successful semantic learning.
+
+Disposable fixtures cover representative abrupt parent exits before canonical
+start, after staging and after HEAD observation; late-journal authority loss,
+parent-directory fsync failure, and genuine running native-child retirement with
+an overlapping replacement generation. These are finite source/SDK fault cases,
+not arbitrary OS/hardware crash guarantees or orphan-lock repair. Final aggregate
+checks, independent QA and responsiveness/I/O measurements are separate gates. Facade blob counters do not prove zero unchanged
+OS/Git body reads: index refresh and ordinary hooks may read worktree content.
+No live cutover, memory-use performance, rendered or learning acceptance follows
+from these source contracts.
+
 ## Historical recall and quoted notes
 
 Continuity (C1) searches a separately accepted, screened archive:

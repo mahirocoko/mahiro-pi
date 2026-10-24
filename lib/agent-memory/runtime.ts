@@ -7,10 +7,9 @@ import { createMemoryStore, allowedPath, type View, type Episode } from './store
 import { resolveAgentDir } from '../setup.ts'
 import { parseMemoryRead, retrieveMemory } from './retrieval.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
+import type { ManagedMemoryABI } from './experimental-contracts.ts'
 
-// Primary-only handoff advice, not a capability grant or worker context mechanism.
-const primaryDelegationDoctrine =
-  'Primary delegation guidance: Before dispatch, verify the selected role, tools and capabilities are actually available and permitted for the scope. Give workers a concise brief: outcome, constraints, only relevant decisions/conventions with provenance, and expected result. If a capability is missing or uncertain, say so; never assume ask_parent, notify_parent or other parent helpers exist. Return ordinary terminal results when appropriate and report missing capabilities or failed execution honestly. Do not broaden permissions, inherit the primary private corpus or dump private memory into worker prompts. Current user/repository authorities remain controlling. This is handoff guidance, not automatic context delivery or enforcement.'
+import { primaryDelegationDoctrine } from './prompt.ts'
 
 type Store = ReturnType<typeof createMemoryStore>
 interface NativeService {
@@ -40,6 +39,7 @@ interface NativeService {
       }
     | undefined
   hasRunning(): boolean
+  waitForAll(): Promise<void>
   abort(id: string): boolean
 }
 interface ToolEndObservation {
@@ -125,7 +125,7 @@ const observationTime = (fallback = 0) => {
     : fallback
 }
 export interface MemoryABI {
-  version: number
+  version: 1
   generation: unknown
   trustedTool(tool: ToolInfo): boolean
   isPrimarySession(ctx: ExtensionContext): boolean
@@ -156,7 +156,7 @@ export interface MemoryABI {
 export interface MemoryNode {
   generation: unknown
   healthy(): boolean
-  managedMemory?: MemoryABI
+  managedMemory?: ManagedMemoryABI
 }
 export interface RuntimeConfig {
   root?: string
@@ -245,6 +245,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     const abi = node?.managedMemory
     const tool = lookup(toolName)
     const token = epoch
+    if (abi?.version !== 1) throw Error('Managed memory unavailable: legacy ABI1 required')
     const current = (target = root) => {
       if (
         !active ||
