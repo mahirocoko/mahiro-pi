@@ -40,7 +40,7 @@ export function parseProjects(raw: string) {
 export interface IGuardNode {
   generation: unknown
   healthy(): boolean
-  host: {
+  context: {
     finalArgs(name: string, args: unknown, ctx: ExtensionContext): Promise<unknown>
   }
   continuity: {
@@ -126,7 +126,7 @@ export function createRuntime(config: IRuntimeConfig = {}) {
         if (excludedCwd(ctx.cwd)) throw new Error('Continuity unavailable')
         current()
         let args = name === 'context' ? {} : closedArgs(name, input)
-        if (name !== 'context') args = closedArgs(name, await node!.host.finalArgs(name, args, ctx))
+        if (name !== 'context') args = closedArgs(name, await node!.context.finalArgs(name, args, ctx))
         current()
         const root =
           config.root ?? process.env.MAHIRO_CONTINUITY_ROOT ?? join(resolveAgentDir(), 'continuity')

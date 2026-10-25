@@ -17,7 +17,8 @@ export type ReadSelection =
   | { mode: 'path'; path: string; offset: number; limit: number }
   | { mode: 'query'; query: string; offset: number; limit: number }
   | { mode: 'topic'; topic: string; offset: number; limit: number }
-const namespacePattern = '^(?:\\*|global|procedures|deferred/[a-z0-9][a-z0-9-]{0,63})?$'
+const namespacePattern =
+  '^(?:\\*|global|procedures|system|system/human|reference|deferred/[a-z0-9][a-z0-9-]{0,63}|projects/[a-z0-9][a-z0-9-]{0,63}/(?:system|reference))?$'
 const pageProperties = (max: number) => ({
   offset: { type: 'integer', minimum: 0 },
   limit: { type: 'integer', minimum: 1, maximum: max },
@@ -102,14 +103,62 @@ export function parseMemoryRead(args: unknown): ReadSelection {
 export const topicFor = (path: string) =>
   path.startsWith('deferred/')
     ? path.split('/').slice(0, 2).join('/')
-    : path.includes('/')
-      ? path.split('/')[0]
-      : 'core'
+    : path.startsWith('projects/')
+      ? path.split('/').slice(0, 3).join('/')
+      : path.startsWith('system/human/')
+        ? 'system/human'
+        : path.includes('/')
+          ? path.split('/')[0]
+          : 'core'
 export function topicMetadata(paths: string[]) {
   const counts = new Map<string, number>()
-  for (const path of paths)
-    if (topicFor(path) !== 'core') counts.set(topicFor(path), (counts.get(topicFor(path)) ?? 0) + 1)
+  for (const path of paths) {
+    const topic = topicFor(path)
+    if (topic !== 'core' && topic !== 'archives') counts.set(topic, (counts.get(topic) ?? 0) + 1)
+  }
   return [...counts].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([topic, files]) => ({ topic, files }))
+}
+export function extractFrontmatterAndLinks(text: string): {
+  name?: string
+  description?: string
+  links: string[]
+} {
+  let name: string | undefined
+  let description: string | undefined
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(text)
+  if (fm) {
+    for (const line of fm[1].split('\n')) {
+      const m = /^([a-zA-Z0-9_-]+):\s*(.+?)\s*$/.exec(line)
+      if (!m) continue
+      const val = m[2].replace(/^['"]|['"]$/g, '').trim()
+      if (m[1] === 'name' && val) name = val
+      if (m[1] === 'description' && val) description = val
+    }
+  }
+  const links = [
+    ...new Set(
+      [...text.matchAll(/\[\[([^\][\n]{1,128})\]\]/g)]
+        .map((m) => m[1].trim())
+        .filter((link) => link.length > 0),
+    ),
+  ]
+  return { ...(name ? { name } : {}), ...(description ? { description } : {}), links }
+}
+export function directoryIndex(files: Record<string, MemoryFile>, prefix: string) {
+  const clean = prefix.replace(/\/+$/, '')
+  const entries = Object.keys(files)
+    .filter((p) => p.startsWith(`${clean}/`))
+    .sort()
+    .map((p) => {
+      const meta = extractFrontmatterAndLinks(files[p].text)
+      return {
+        path: p,
+        ...(meta.name ? { name: meta.name } : {}),
+        ...(meta.description ? { description: meta.description } : {}),
+        ...(meta.links.length ? { links: meta.links } : {}),
+      }
+    })
+  return { directory: clean, entries, total: entries.length, hash: null as string | null }
 }
 
 // Map folded UTF-16 positions back to ORIGINAL code-point offsets. Grapheme-local
@@ -140,7 +189,15 @@ function retrieveMemoryImpl(
         ? topicMetadata(paths)
         : paths
             .filter((path) => selection.topic === '*' || topicFor(path) === selection.topic)
-            .map((path) => ({ path }))
+            .map((path) => {
+              const meta = extractFrontmatterAndLinks(files[path].text)
+              return {
+                path,
+                ...(meta.name ? { name: meta.name } : {}),
+                ...(meta.description ? { description: meta.description } : {}),
+                ...(meta.links.length ? { links: meta.links } : {}),
+              }
+            })
     return {
       discoveryVersion,
       topic: selection.topic,

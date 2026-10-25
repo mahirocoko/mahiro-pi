@@ -19,7 +19,7 @@ test('retired Saved Models has no executable, manifest, guard ABI, provenance or
   assert.deepEqual(pkg.pi.extensions, declaration.active)
   assert.equal(declaration.candidate.length, 13)
   assert.deepEqual(declaration.candidate, declaration.active)
-  assert.deepEqual(declaration.active.slice(0, 2), ['./lib/guards/bootstrap.mjs', './lib/guards/index.ts'])
+  assert.deepEqual(declaration.active.slice(0, 2), ['./lib/guards/bootstrap.ts', './lib/guards/index.ts'])
   assert.equal(declaration.active.slice(2, 12).length, 10)
   assert.equal(declaration.active[12], './extensions/mahiro-claude-ui.ts')
   for (const file of [
@@ -44,7 +44,8 @@ test('retired Saved Models has no executable, manifest, guard ABI, provenance or
     fs.existsSync(path.join(root, 'test/oracles/letta/mahiro-model-profiles.ts')),
     'historical oracle must not be erased',
   )
-  assert.match(text('lib/guards/provenance.mjs'), /export function trustedRTKTool/)
+  assert.match(text('lib/kernel/index.ts'), /requireFeaturePermission\('mh_rtk'\)/)
+  assert.doesNotMatch(text('lib/guards/index.ts'), /owned-provenance|createMetaProvenance/)
   const biome = JSON.parse(text('biome.json'))
   assert.equal(pkg.scripts.format, 'biome format --write .')
   assert.equal(pkg.scripts['check:format'], 'biome format .')
@@ -64,9 +65,9 @@ test('current context owns real RTK helper semantics and retirement, not the his
   // migration tables are not RTK behavior or security guarantees.
   const rtk = text('docs/rtk.md').replace(/\s+/g, ' ')
   const guards = text('docs/guards.md').replace(/\s+/g, ' ')
-  // Architecture contracts retain the exact graph label; the product README
-  // navigates to those owners instead of repeating an internal migration token.
-  for (const owner of ['AGENTS.md', 'docs/bootstrap.md']) assert.match(text(owner), /guards-first13/, owner)
+  // Assert the graph contract, not an internal migration label in every guide.
+  assert.match(text('AGENTS.md'), /13-entry order/)
+  assert.match(text('docs/bootstrap.md'), /guards-first13/)
   assert.match(text('README.md'), /\(docs\/guards\.md\)/)
   assert.match(text('README.md'), /\(docs\/rtk\.md\)/)
   assert.match(text('docs/README.md'), /\(rtk\.md\)/)
@@ -78,7 +79,7 @@ test('current context owns real RTK helper semantics and retirement, not the his
     )
   assert.doesNotMatch(
     `${rtk} ${guards}`,
-    /candidate13|saved Models last|no .*rewrite.*subprocess|Both rewrite modes use a bounded deterministic grammar/,
+    /candidate13|saved Models last|no (?:RTK )?rewrite (?:helper )?subprocess|Both rewrite modes use a bounded deterministic grammar/,
   )
   for (const [claim, contract] of [
     ['argv-only resolver', /execFile\("rtk", \["rewrite", "--", original\]\)/],
@@ -106,7 +107,7 @@ test('current context owns real RTK helper semantics and retirement, not the his
     ],
     [
       'fixed private RTK state owner',
-      /<profile>\/preferences\/rtk.*exact DATA authority.*0700\/0600.*sequence\/CAS/,
+      /<profile>\/preferences\/rtk.*standard PSS authority.*0700\/0600.*sequence\/CAS/,
     ],
     [
       'rewrites cannot borrow effective approval',

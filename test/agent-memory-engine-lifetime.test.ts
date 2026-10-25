@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { MemoryLifetime } from '../lib/agent-memory/engine/lifetime.ts'
 import { startGitMutation } from '../lib/agent-memory/engine/native-git.ts'
-import { selectMemoryLease } from '../lib/guards/memory-lease.ts'
+import { selectMemoryLease } from '../lib/kernel/memory-lease.ts'
 
 // These are resolver/join/OS-start units, not substitutes for canonical SDK authority proof.
 test('isolated lease resolver returns exact unique record, never first equal value; strict ABI2 identity', () => {

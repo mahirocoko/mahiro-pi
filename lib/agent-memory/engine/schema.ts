@@ -7,12 +7,168 @@ export const limits = Object.freeze({ files: 512, file: 262144, total: 8388608, 
 export const revisionPattern = /^[a-f0-9]{40,64}$/
 export const idPattern = /^[a-z0-9][a-z0-9-]{0,63}$/
 export const uuidPattern = /^[a-f0-9-]{36}$/
+export const projectOfPath = (path: string): string | null => {
+  const m = /^(?:deferred|projects)\/([a-z0-9][a-z0-9-]{0,63})\//.exec(path)
+  return m ? m[1] : null
+}
 export const allowedPath = (path: string, project?: string) => {
   if (typeof path !== 'string') return false
-  if (['Core.md', 'index.md'].includes(path)) return true
+  if (['Core.md', 'index.md', 'system/persona.md'].includes(path)) return true
   if (/^(global|procedures)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
-  const match = /^deferred\/([a-z0-9][a-z0-9-]{0,63})\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
-  return !!match && (!project || match[1] === project)
+  if (/^system\/human\/(?:prefs\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
+  if (/^reference\/(?:[a-z0-9][a-z0-9-]{0,63}\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
+  if (/^archives\/[a-z0-9][a-z0-9-]{0,63}(?:\/[a-z0-9][a-z0-9-]{0,63}){1,3}\.md$/.test(path) && !project)
+    return true
+  if (
+    /^archives\/([a-z0-9][a-z0-9-]{0,63})\/(?:[a-z0-9][a-z0-9-]{0,63}\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(
+      path,
+    )
+  ) {
+    const seg = path.split('/')[1]
+    return !project || seg === project || seg.startsWith('legacy-v1')
+  }
+  const deferred = /^deferred\/([a-z0-9][a-z0-9-]{0,63})\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
+  if (deferred) return !project || deferred[1] === project
+  const tieredProject =
+    /^projects\/([a-z0-9][a-z0-9-]{0,63})\/(?:system|reference)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
+  return !!tieredProject && (!project || tieredProject[1] === project)
+}
+export const isAlwaysLoadedTieredPath = (path: string, project?: string) => {
+  if (path === 'system/persona.md') return true
+  if (/^system\/human\/(?:prefs\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
+  const m = /^projects\/([a-z0-9][a-z0-9-]{0,63})\/system\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
+  return !!m && (!project || m[1] === project)
+}
+export const isProtectedRetentionPath = (path: string) =>
+  path === 'Core.md' ||
+  path === 'system/persona.md' ||
+  path.startsWith('system/human/') ||
+  /^projects\/[a-z0-9][a-z0-9-]{0,63}\/system\//.test(path)
+
+export interface EditModeOptions {
+  mode?: 'replace' | 'patch' | 'append'
+  oldText?: string
+  newText?: string
+  section?: string
+}
+
+export function applySurgicalEdit(
+  currentText: string | undefined,
+  text: string | null,
+  options?: EditModeOptions,
+): string | null {
+  const mode = options?.mode ?? 'replace'
+  if (mode === 'replace') return text
+  if (mode === 'patch') {
+    if (typeof currentText !== 'string') throw Error('Surgical patch requires an existing file')
+    const oldText = options?.oldText
+    const newText = options?.newText ?? text
+    if (typeof oldText !== 'string' || !oldText.length || typeof newText !== 'string')
+      throw Error('Surgical patch requires non-empty oldText and newText')
+    const first = currentText.indexOf(oldText)
+    if (first === -1) throw Error('Surgical patch target not found')
+    if (currentText.indexOf(oldText, first + oldText.length) !== -1)
+      throw Error('Surgical patch target is ambiguous')
+    const patched = `${currentText.slice(0, first)}${newText}${currentText.slice(first + oldText.length)}`
+    return patched.endsWith('\n') ? patched : `${patched}\n`
+  }
+  if (mode === 'append') {
+    const addition = typeof text === 'string' ? text : options?.newText
+    if (typeof addition !== 'string' || !addition.trim().length)
+      throw Error('Surgical append requires non-empty text')
+    const trimmed = addition.trimEnd()
+    if (!currentText) {
+      if (options?.section) {
+        const heading = options.section.startsWith('#') ? options.section : `## ${options.section}`
+        return `${heading}\n\n${trimmed}\n`
+      }
+      return `${trimmed}\n`
+    }
+    if (options?.section) {
+      const normalizedSection = options.section
+        .replace(/^#+\s*/, '')
+        .trim()
+        .toLowerCase()
+      const lines = currentText.split('\n')
+      let sectionIdx = -1
+      let sectionLevel = 2
+      for (let i = 0; i < lines.length; i++) {
+        const m = /^(#{1,6})\s+(.+?)\s*$/.exec(lines[i])
+        if (m && m[2].toLowerCase() === normalizedSection) {
+          sectionIdx = i
+          sectionLevel = m[1].length
+          break
+        }
+      }
+      if (sectionIdx !== -1) {
+        let insertIdx = lines.length
+        while (insertIdx > sectionIdx + 1 && lines[insertIdx - 1] === '') insertIdx--
+        for (let i = sectionIdx + 1; i < lines.length; i++) {
+          const m = /^(#{1,6})\s+/.exec(lines[i])
+          if (m && m[1].length <= sectionLevel) {
+            insertIdx = i
+            while (insertIdx > sectionIdx + 1 && lines[insertIdx - 1] === '') insertIdx--
+            break
+          }
+        }
+        lines.splice(insertIdx, 0, ...trimmed.split('\n'))
+        const joined = lines.join('\n')
+        return joined.endsWith('\n') ? joined : `${joined}\n`
+      }
+      const heading = options.section.startsWith('#') ? options.section : `## ${options.section}`
+      const base = currentText.endsWith('\n') ? currentText : `${currentText}\n`
+      return `${base}\n${heading}\n\n${trimmed}\n`
+    }
+    const base = currentText.endsWith('\n') ? currentText : `${currentText}\n`
+    return `${base}${trimmed}\n`
+  }
+  throw Error('Invalid edit mode')
+}
+
+const extractHeadings = (text: string): string[] =>
+  text
+    .split('\n')
+    .map((line) => /^(#{1,6}\s+.+?)\s*$/.exec(line)?.[1])
+    .filter((h): h is string => Boolean(h))
+
+export function assertLosslessRetention(
+  baseFiles: Record<string, { text: string } | undefined>,
+  nextFiles: Record<string, { text: string } | undefined>,
+  changedPaths: Iterable<string>,
+  allowShrink = false,
+) {
+  if (allowShrink) return
+  const changed = [...changedPaths]
+  const archivedAlongside = changed.some((p) => {
+    if (!p.startsWith('reference/') && !p.startsWith('archives/') && !/^projects\/[^/]+\/reference\//.test(p))
+      return false
+    const beforeLen = baseFiles[p]?.text.length ?? 0
+    const afterLen = nextFiles[p]?.text.length ?? 0
+    return afterLen > beforeLen
+  })
+  if (archivedAlongside) return
+  for (const path of changed) {
+    if (!isProtectedRetentionPath(path)) continue
+    const before = baseFiles[path]?.text
+    const after = nextFiles[path]?.text
+    if (!before) continue
+    if (!after)
+      throw Error(
+        `Lossless retention guard: cannot remove protected memory ${path} without archiving to reference/ or archives/`,
+      )
+    const beforeHeadings = extractHeadings(before)
+    if (path === 'Core.md' && beforeHeadings.length < 2 && before.length < 160) continue
+    const afterHeadings = new Set(extractHeadings(after))
+    const dropped = beforeHeadings.filter((h) => !afterHeadings.has(h))
+    if (dropped.length)
+      throw Error(
+        `Lossless retention guard: ${path} dropped section heading(s) (${dropped.join(', ')}) without archiving to reference/ or archives/`,
+      )
+    if (before.length >= 160 && after.length < before.length * 0.8)
+      throw Error(
+        `Lossless retention guard: ${path} shrank by >20% (${before.length} -> ${after.length} bytes) without archiving to reference/ or archives/`,
+      )
+  }
 }
 export function parseConfig(raw: string): MemoryConfig {
   const c = JSON.parse(raw)
@@ -137,9 +293,5 @@ export function validateFile(path: string, file: MemoryFile, c: MemoryConfig) {
 export const suppressed = (ledger: Ledger, path: string, sources: string[]) =>
   ledger.forgottenPaths.includes(path) ||
   sources.some((source) =>
-    ledger.forgottenSources.some(
-      (entry) =>
-        entry.source === source &&
-        entry.project === (path.startsWith('deferred/') ? path.split('/')[1] : null),
-    ),
+    ledger.forgottenSources.some((entry) => entry.source === source && entry.project === projectOfPath(path)),
   )

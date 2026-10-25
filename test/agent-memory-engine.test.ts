@@ -21,7 +21,11 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { parseOperation } from '../lib/agent-memory/engine/operation.ts'
-import { MemoryEngineController, type OperationContext } from '../lib/agent-memory/engine/controller.ts'
+import {
+  engineRequestDeadline,
+  MemoryEngineController,
+  type OperationContext,
+} from '../lib/agent-memory/engine/controller.ts'
 import {
   engineEnvironment,
   gitBlobBatches,
@@ -37,6 +41,13 @@ import { allowedPath, createMemoryStore, parseConfig, type MemoryConfig } from '
 import { digest } from '../lib/continuity/records.ts'
 import type { Episode } from '../lib/agent-memory/store.ts'
 import { parseMemoryRead, retrieveMemory } from '../lib/agent-memory/retrieval.ts'
+
+test('only explicit offline certification is completion-driven beyond the ordinary request deadline', () => {
+  assert.equal(engineRequestDeadline('offlineCertify'), undefined)
+  assert.equal(engineRequestDeadline('projection'), 30000)
+  assert.equal(engineRequestDeadline('status'), 30000)
+  assert.equal(engineRequestDeadline('headRead'), 30000)
+})
 
 // Fixture owns the complete process env while active (tests in this file are serial).
 // No inherited Git discovery/config/index/identity and no ancestor repository commits.
@@ -780,7 +791,8 @@ test('revocation at exact canonical native start leaves unknown, never a buffere
     let live = true
     const context: OperationContext = {
       current: (targets) => {
-        if (targets.physical.some((path) => path.includes('.memory-engine-'))) live = false
+        if (targets.physical.some((path) => path.includes('/.engine-v2/staging/') && path.endsWith('.tmp')))
+          live = false
         return live
       },
     }
@@ -1568,5 +1580,85 @@ test('hook-altered exact tree and foreign/malformed locks remain unknown and ret
     } finally {
       await f.close()
     }
+  }
+})
+
+test('query-loaded publication facades share only actual native sealed executor references', async () => {
+  const url = new URL('../lib/agent-memory/engine/executor.ts', import.meta.url)
+  const a = await import(`${url.href}?generation=a`)
+  const b = await import(`${url.href}?generation=b`)
+  const root = '/synthetic-publication-reference-test'
+  const plan = { id: 'actual-operation', digest: 'actual-digest' } as Plan
+  const owner = a.reserveExecutor(root, plan)
+  assert.equal(b.executorDrained(root, plan.id, plan.digest), false)
+  assert.equal(b.executorOwnsLock(root, plan.id, plan.digest, owner.nonce), false)
+  owner.seal()
+  assert.equal(b.executorDrained(root, plan.id, plan.digest), true)
+  assert.equal(b.executorOwnsLock(root, plan.id, plan.digest, owner.nonce), true)
+  assert.equal(b.executorOwnsLock(root, plan.id, plan.digest, 'invented'), false)
+  assert.throws(() => b.reserveExecutor(root, plan), /already reserved/)
+  const isolated = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import { executorDrained } from ${JSON.stringify(new URL('../lib/agent-memory/engine/publication-executors.mjs', import.meta.url).href)};
+     console.log(executorDrained(${JSON.stringify(root)}, 'actual-operation', 'actual-digest'))`,
+    ],
+    { encoding: 'utf8' },
+  )
+  assert.equal(isolated.trim(), 'false')
+})
+
+test('aborted first chunk retains private staging evidence without untracked canonical temp', async () => {
+  const f = fixture(0)
+  try {
+    const plan = await recoveryPlan(f)
+    const staging = join(f.root, '.views/.engine-v2/staging', plan.id)
+    let live = true
+    let reached = false
+    const context: OperationContext = {
+      current(targets) {
+        if (
+          live &&
+          targets.physical.includes(join(f.root, 'config.json')) &&
+          existsSync(staging) &&
+          readdirSync(staging).some((name) => name.endsWith('.tmp'))
+        ) {
+          reached = true
+          live = false
+        }
+        return live
+      },
+    }
+    const before = f.git('rev-parse', 'HEAD')
+    const result = await new MemoryPublisher(f.engine, f.env).publish(plan, context)
+    assert.equal(reached, true)
+    assert.equal(result.stage, 'unknown')
+    assert.equal(f.git('rev-parse', 'HEAD'), before)
+    assert.equal(f.git('status', '--porcelain', '--untracked-files=all').trim(), '')
+    const files = readdirSync(staging)
+    assert.equal(files.length, 1)
+    assert.match(files[0], /^[a-f0-9-]{36}\.tmp$/)
+    assert.equal(readFileSync(join(staging, files[0])).length, 0)
+    assert.equal(lstatSync(join(staging, files[0])).mode & 0o777, 0o600)
+    const recovered = await new MemoryPublisher(f.engine, f.env).reconcileExisting(
+      plan.id,
+      plan.digest,
+      f.context,
+    )
+    assert.equal(recovered.stage, 'not_committed_dirty')
+    assert.equal(recovered.indexDirty, false)
+    assert.equal(recovered.worktreeDirty, false)
+    assert.equal(recovered.lockRetained, false)
+    // A fresh proposal on the SAME engine must observe the durable recovery.
+    // Replaying the old operation remains forbidden by its actual sealed ref.
+    const next = await recoveryPlan(f)
+    assert.notEqual(next.id, plan.id)
+    const published = await new MemoryPublisher(f.engine, f.env).publish(next, f.context)
+    assert.equal(published.stage, 'reconciled_committed')
+    await assert.rejects(new MemoryPublisher(f.engine, f.env).publish(plan, f.context), /already reserved/)
+  } finally {
+    await f.close()
   }
 })

@@ -27,7 +27,18 @@ const paths = (v: unknown, max: number = limits.files) =>
 const sources = (v: unknown) =>
   Array.isArray(v) && v.length <= 32 && new Set(v).size === v.length && v.every(validId)
 const topic = (v: unknown) =>
-  typeof v === 'string' && /^(?:global|procedures|deferred\/[a-z0-9][a-z0-9-]{0,63})$/.test(v)
+  typeof v === 'string' &&
+  /^(?:global|procedures|system|system\/human|reference|deferred\/[a-z0-9][a-z0-9-]{0,63}|projects\/[a-z0-9][a-z0-9-]{0,63}\/(?:system|reference))$/.test(
+    v,
+  )
+const documents = (value: unknown, prefix: string) => {
+  ensure(objectShape(value, Object.keys(value && typeof value === 'object' ? value : {})))
+  ensure(
+    Object.entries(value as Record<string, unknown>).every(
+      ([path, body]) => path.startsWith(prefix) && allowedPath(path) && text(body, limits.file),
+    ),
+  )
+}
 function topics(value: unknown, max: number) {
   ensure(Array.isArray(value) && value.length <= max)
   for (const entry of value) {
@@ -131,6 +142,11 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       ensure(revision(v.revision) && paths(v.files))
       return
     }
+    case 'offlineCertify': {
+      const v = shape(value, ['revision'])
+      ensure(revision(v.revision) && v.revision === input.revision)
+      return
+    }
     case 'stats': {
       const v = shape(value, ['blobReads', 'overlayReads', 'overlayWrites', 'certifications', 'gitCalls'])
       ensure(integer(v.certifications) && integer(v.gitCalls))
@@ -145,8 +161,14 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       return
     }
     case 'projection': {
-      const v = shape(value, ['revision', 'core', 'index', 'discovery'])
+      const v = shape(
+        value,
+        ['revision', 'core', 'index', 'system', 'projectSystem', 'discovery'],
+        ['revision', 'core', 'index', 'discovery'],
+      )
       ensure(revision(v.revision) && text(v.core, 32768) && text(v.index, 8192))
+      if (v.system !== undefined) documents(v.system, 'system/')
+      if (v.projectSystem !== undefined) documents(v.projectSystem, `projects/${input.project}/system/`)
       const d = shape(
         v.discovery,
         ['version', 'topics', 'totalTopics', 'nextOffset', 'routes'],

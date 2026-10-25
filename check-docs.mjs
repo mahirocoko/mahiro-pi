@@ -102,7 +102,7 @@ for (const name of pages.filter((page) => page.startsWith('docs/')))
 // A new manifest resource must have a deliberate documentation owner. This is
 // an ownership map, not a fixed guide count or a copy of migration history.
 const owners = {
-  './lib/guards/bootstrap.mjs': 'docs/guards.md',
+  './lib/guards/bootstrap.ts': 'docs/guards.md',
   './lib/guards/index.ts': 'docs/guards.md',
   './extensions/mahiro-status.ts': 'docs/status.md',
   './extensions/mahiro-finish-voice.ts': 'docs/status.md#completion-voice',
@@ -127,34 +127,18 @@ assert.ok(texts.get('README.md').includes(`v${manifest.version}`), 'README/versi
 assert.ok(texts.has(`docs/releases/${manifest.version}.md`), 'Missing current release record')
 assert.equal(manifest.private, true, 'Review public distribution documentation before publication')
 assert.equal(manifest.license, 'UNLICENSED', 'Review license documentation before a license change')
-const provenance = await readFile(resolve(root, 'lib/guards/provenance.mjs'), 'utf8')
-const versionPins = (source) =>
-  [...source.matchAll(/\bpkg\s*\.\s*version\s*===\s*(['"])([^'"]+)\1/g)].map((match) => match[2])
-const versions = versionPins(provenance)
-assert.ok(
-  versions.every((version) => version === manifest.version),
-  'Guard/package version drift',
-)
-// Check each security owner, rather than accepting any nonempty subset of pins
-// or hardcoding a total that becomes stale when a feature is added.
-for (const owner of [
-  'trustedRecallTool',
-  'trustedCodeMapTool',
-  'trustedEvidenceTool',
-  'trustedUXWorkflowTool',
-  'trustedExecutionRunTool',
-  'trustedGoalTool',
-  'trustedMemoryTool',
-  'trustedOwnUICommand',
-  'trustedRTKTool',
-  'trustedTaskTool',
-]) {
-  const start = provenance.indexOf(`export function ${owner}(`)
-  assert.ok(start >= 0, `Missing provenance owner: ${owner}`)
-  const next = provenance.indexOf('\nexport ', start + 1)
-  const body = provenance.slice(start, next < 0 ? undefined : next)
-  assert.ok(versionPins(body).includes(manifest.version), `${owner}: missing exact package version pin`)
-}
+// Architecture reminders, not runtime acceptance. The old version/provenance
+// assertions described the retired permission plane and must not resurrect it.
+const rootGuard = await readFile(resolve(root, 'lib/guards/index.ts'), 'utf8')
+const bootstrap = await readFile(resolve(root, 'lib/guards/bootstrap.ts'), 'utf8')
+const kernel = await readFile(resolve(root, 'lib/kernel/index.ts'), 'utf8')
+assert.doesNotMatch(rootGuard, /createOwnedProvenance|unsupported tool\/alias|createPowerShellToolDefinition/)
+assert.doesNotMatch(bootstrap, /pi\.on\(['"]tool_call/)
+assert.match(bootstrap, /ui\.notify/)
+assert.match(kernel, /requireFeaturePermission/)
+assert.doesNotMatch(kernel, /(?:from|import\()\s*['"][^'"]*provenance/)
+assert.match(texts.get('docs/guards.md'), /wildcard and yolo/)
+assert.match(texts.get('docs/guards.md'), /no.*?second dispatch allowlist/s)
 
 // Narrow regressions for omissions that materially change the public contract.
 // These assertions are reminders for semantic review, never proof of execution.

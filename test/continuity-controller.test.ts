@@ -501,3 +501,28 @@ test('unrelated native queue activity does not veto bounded learning; lifecycle 
     f.clean()
   }
 })
+
+test('settled turn ingests bounded assistant response for recall_search without exposing it as historical-user to reflector', () => {
+  const f = fixture()
+  try {
+    f.input('How did we fix the batched projection bottleneck?')
+    f.branch.push({
+      type: 'message',
+      id: 'assistant-entry-1',
+      message: {
+        role: 'assistant',
+        content: 'We replaced N sequential git show calls with a single git cat-file --batch call.',
+      },
+    })
+    f.settle()
+    assert.equal(f.spawned, 1)
+    assert.equal(f.sent.prompt.records.length, 1)
+    assert.equal(f.sent.prompt.records[0].text, 'How did we fix the batched projection bottleneck?')
+    const hits = f.store.search('cat-file', { projectId: 'demo' })
+    assert.equal(hits.length, 1)
+    assert.ok(hits[0].quote.includes('cat-file --batch'))
+    assert.equal(hits[0].evidence, 'UNTRUSTED')
+  } finally {
+    f.clean()
+  }
+})

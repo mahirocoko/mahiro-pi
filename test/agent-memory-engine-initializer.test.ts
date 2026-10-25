@@ -226,6 +226,37 @@ test('deep replies reject malformed nested state, mismatched input, invalid chun
       },
     ],
     ['status', {}, { revision: 'a'.repeat(40), files: ['../escape'] }],
+    ['offlineCertify', { revision: 'a'.repeat(40) }, { revision: 'b'.repeat(40) }],
   ] as const)
     assert.throws(() => validateReply(method, input, reply))
+})
+
+test('deep replies accept exact offline certification and tiered projection namespaces', () => {
+  const revision = 'a'.repeat(40)
+  validateReply('offlineCertify', { revision }, { revision })
+  validateReply(
+    'projection',
+    { project: 'project' },
+    {
+      revision,
+      core: '# Core\n',
+      index: '# index\n',
+      system: { 'system/persona.md': '# Persona\n' },
+      projectSystem: { 'projects/project/system/overview.md': '# Project\n' },
+      discovery: {
+        version: 2,
+        topics: [
+          { topic: 'system', files: 1 },
+          { topic: 'system/human', files: 1 },
+          { topic: 'projects/project/system', files: 1 },
+        ],
+        totalTopics: 3,
+        routes: {
+          namespaces: { topic: '' },
+          allFiles: { topic: '*' },
+          lexical: 'agent_memory_read query',
+        },
+      },
+    },
+  )
 })

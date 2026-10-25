@@ -14,6 +14,7 @@ import {
   rtkModes,
   validateRTKState,
   type RTKMode,
+  type RTKBinding,
 } from './rtk-state.ts'
 export { rtkModes, validateRTKState } from './rtk-state.ts'
 
@@ -58,51 +59,60 @@ export async function resolveRTKRewrite(
   if (helpersInFlight >= RTK_HELPER_BOUNDS.concurrent) return { status: 'unavailable', command: null }
   helpersInFlight++
   return new Promise((resolve, reject) => {
-    execFile(
-      'rtk',
-      ['rewrite', '--', command],
-      {
-        cwd: ctx.cwd,
-        signal: ctx.signal,
-        timeout: RTK_HELPER_BOUNDS.timeoutMs,
-        maxBuffer: RTK_HELPER_BOUNDS.outputBytes,
-        encoding: 'buffer',
-        shell: false,
-        windowsHide: true,
-        killSignal: 'SIGKILL',
-      },
-      (error, stdout) => {
-        helpersInFlight--
-        if (ctx.signal?.aborted) return reject(Error('RTK cancelled'))
-        const code = error ? (error as any).code : 0
-        if (code === 2) return resolve({ status: 'denied', command: null })
-        if (code === 1) return resolve({ status: 'unchanged', command: null })
-        if (code !== 0 && code !== 3)
-          return resolve({
-            status:
-              code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
-                ? 'oversize'
-                : (error as any)?.killed
-                  ? 'timeout'
-                  : 'unavailable',
-            command: null,
+    try {
+      execFile(
+        'rtk',
+        ['rewrite', '--', command],
+        {
+          cwd: ctx.cwd,
+          signal: ctx.signal,
+          timeout: RTK_HELPER_BOUNDS.timeoutMs,
+          maxBuffer: RTK_HELPER_BOUNDS.outputBytes,
+          encoding: 'buffer',
+          shell: false,
+          windowsHide: true,
+          killSignal: 'SIGKILL',
+        },
+        (error, stdout) => {
+          helpersInFlight--
+          if (ctx.signal?.aborted) return reject(Error('RTK cancelled'))
+          const code = error ? (error as any).code : 0
+          if (code === 2) return resolve({ status: 'denied', command: null })
+          if (code === 1) return resolve({ status: 'unchanged', command: null })
+          if (code !== 0 && code !== 3)
+            return resolve({
+              status:
+                code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+                  ? 'oversize'
+                  : (error as any)?.killed
+                    ? 'timeout'
+                    : 'unavailable',
+              command: null,
+            })
+          let output: string
+          try {
+            output = new TextDecoder('utf-8', { fatal: true }).decode(stdout)
+          } catch {
+            return resolve({ status: 'malformed', command: null })
+          }
+          // One shell command line, with at most the helper's trailing line ending.
+          output = output.replace(/\r?\n$/, '')
+          if (!output.trim() || output !== output.trim() || /[\x00-\x1f\x7f]/.test(output))
+            return resolve({ status: 'malformed', command: null })
+          resolve({
+            status: code === 3 ? 'approval-required' : 'candidate',
+            command: output,
           })
-        let output: string
-        try {
-          output = new TextDecoder('utf-8', { fatal: true }).decode(stdout)
-        } catch {
-          return resolve({ status: 'malformed', command: null })
-        }
-        // One shell command line, with at most the helper's trailing line ending.
-        output = output.replace(/\r?\n$/, '')
-        if (!output.trim() || output !== output.trim() || /[\x00-\x1f\x7f]/.test(output))
-          return resolve({ status: 'malformed', command: null })
-        resolve({
-          status: code === 3 ? 'approval-required' : 'candidate',
-          command: output,
-        })
-      },
-    )
+        },
+      )
+    } catch {
+      // execFile can throw before a child exists (invalid launch options, etc.).
+      // No callback will release this slot. Optional acceleration must not poison
+      // all later commands; transform still rechecks current authority afterward.
+      helpersInFlight--
+      if (ctx.signal?.aborted) reject(Error('RTK cancelled'))
+      else resolve({ status: 'unavailable', command: null })
+    }
   })
 }
 
@@ -157,7 +167,7 @@ export function registerRTK(
     permission: (ctx: any, surface: string, value?: string) => any
     current: (ctx: any) => boolean
     executionCurrent?: (ctx: any) => boolean
-    executionAccess?: (ctx: any, root: string) => void
+    executionAccess?: (ctx: any, root: string, binding?: RTKBinding) => void
   },
 ) {
   let mode: RTKMode = 'off',
@@ -187,9 +197,11 @@ export function registerRTK(
   const read = (ctx: any, operation = 'read', execution = false) => {
     const b = rtkBinding(ctx.cwd)
     if (!b) throw Error('Canonical RTK profile/project binding unavailable')
-    if (execution && owner.executionAccess) owner.executionAccess(ctx, b.root)
+    if (execution && owner.executionAccess) owner.executionAccess(ctx, b.root, b)
     else owner.access(ctx, b.root, operation)
-    assertRTKBinding(b)
+    // One fresh full binding per execution barrier, not three synchronous
+    // re-resolutions inside the same read. Publication retains its own checks.
+    if (!execution) assertRTKBinding(b)
     const text = readRTKFile(join(b.root, 'state.json'))
     const defaultsText = text === null ? readRTKFile(join(b.root, 'default.json')) : null
     const defaults = defaultsText === null ? { version: 1, mode: 'off' } : JSON.parse(defaultsText)

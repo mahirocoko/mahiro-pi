@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
-import { spawnSync } from 'node:child_process'
+import childProcess, { spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -24,6 +24,7 @@ import {
   readBootstrapFile as readActiveBootstrapFile,
 } from '../lib/bootstrap.ts'
 import { CONTINUITY_FILE_MAX_BYTES } from '../lib/continuity/store.ts'
+import { createMemoryStore } from '../lib/agent-memory/store.ts'
 import { stageBootstrapCandidate } from './bootstrap-candidate-fixture.ts'
 const candidate = await stageBootstrapCandidate({ skills: true })
 const {
@@ -57,6 +58,13 @@ test('actual authoring graph previews guarded installation without profile write
     [ownUI],
   )
   assert.equal(permission[ownUI], 'allow')
+  const usage = featureCapability('usage_state', join(agentDir, 'preferences/usage'))
+  assert.deepEqual(
+    Object.keys(permission).filter((key) => key.startsWith('usage_state')),
+    [usage],
+  )
+  assert.equal(permission[usage], 'allow')
+  assert.equal(Object.hasOwn(permission, 'mh_usage'), false)
   assert.equal(Object.hasOwn(permission, 'mh_ui'), false)
   assert.ok(
     !plan.changes.some((c) => c.path.includes('preferences/own-ui')),
@@ -454,11 +462,11 @@ test('owned upgrade rejects filtered/unsupported aliases, guard exclusions, syml
       assert.throws(() => inspectBootstrap(r), JSON.stringify(packages))
     }
     for (const entry of [
-      `-${join(guard, 'bootstrap.mjs')}`,
-      `+${join(guard, 'bootstrap.mjs')}`,
+      `-${join(guard, 'bootstrap.ts')}`,
+      `+${join(guard, 'bootstrap.ts')}`,
       join(guard, 'index.ts'),
-      relative(r.agentDir, join(guard, 'bootstrap.mjs')),
-      join(alias, 'lib/guards/bootstrap.mjs'),
+      relative(r.agentDir, join(guard, 'bootstrap.ts')),
+      join(alias, 'lib/guards/bootstrap.ts'),
       `${product}-alternate/extension.ts`,
       '!**/guards/*',
     ]) {
@@ -485,7 +493,7 @@ test('bootstrap Mods preflight rejects wrong dependency pins, missing patch owne
       '@gotgenes/pi-subagents': '23.4.1',
       '@gotgenes/pi-permission-system': '40.2.2',
     },
-    pi: { extensions: ['./lib/guards/bootstrap.mjs', './lib/guards/index.ts'] },
+    pi: { extensions: ['./lib/guards/bootstrap.ts', './lib/guards/index.ts'] },
   }
   const permissionHash = 'c'.repeat(64)
   const permissionMapping =
@@ -533,7 +541,7 @@ test('bootstrap Mods preflight rejects wrong dependency pins, missing patch owne
   assert.throws(
     () =>
       assertBootstrapModsContract(
-        { ...metadata, pi: { extensions: ['./index.ts', './bootstrap.mjs'] } },
+        { ...metadata, pi: { extensions: ['./index.ts', './bootstrap.ts'] } },
         workspace,
         lock,
         hash,
@@ -652,6 +660,273 @@ localTest('bootstrap never treats an empty or malformed existing memory director
     assert.equal(existsSync(r.agentDir), false)
   }),
 )
+
+test('installer refuses a maintenance marker even with absent lock and clean tracked/index state', () => {
+  fixture((root, r) => {
+    const memory = join(root, 'memory'),
+      project = join(root, 'project')
+    mkdirSync(project, { mode: 0o700 })
+    const store = createMemoryStore(memory)
+    store.initialize(
+      {
+        version: 1,
+        automatic: false,
+        coreBytes: 8192,
+        indexBytes: 2048,
+        fileBytes: 8192,
+        totalBytes: 65536,
+        projects: [{ cwd: project, id: 'fixture' }],
+      },
+      '# Fixture\n',
+    )
+    r.components = {
+      packages: true,
+      roles: true,
+      memory: { root: memory, project, projectId: 'fixture', seedFile: join(root, 'unused.md') },
+    }
+    const marker = join(memory, '.views/.maintenance-active.json')
+    put(marker, JSON.stringify({ version: 1, id: '00000000-0000-4000-8000-000000000001' }))
+    const before = readFileSync(marker)
+    assert.equal(existsSync(join(memory, '.lock')), false)
+    const status = spawnSync('git', ['status', '--porcelain'], { cwd: memory, encoding: 'utf8' })
+    assert.equal(status.status, 0)
+    assert.equal(status.stdout, '')
+    assert.throws(() => inspectBootstrap(r), /offline maintenance checkpoint/)
+    assert.deepEqual(readFileSync(marker), before)
+  })
+})
+
+test('bootstrap existing memory diagnostics distinguish independent blockers without writes or content disclosure', () => {
+  for (const blocker of ['clean', 'lock', 'bootstrap', 'dirty', 'all'])
+    fixture((root, r) => {
+      const memory = join(root, 'memory')
+      const project = join(root, 'project')
+      mkdirSync(project, { mode: 0o700 })
+      createMemoryStore(memory).initialize(
+        {
+          version: 1,
+          projects: [{ cwd: project, id: 'fixture' }],
+          coreBytes: 8192,
+          indexBytes: 2048,
+          fileBytes: 8192,
+          totalBytes: 65536,
+          automatic: false,
+        },
+        '# Core\nSynthetic diagnostic identity.\n',
+      )
+      r.components = {
+        packages: true,
+        roles: true,
+        memory: { root: memory, project, projectId: 'fixture', seedFile: join(root, 'not-read-seed.md') },
+      }
+      // Isolate publication-marker presence from worktree dirtiness in disposable Git metadata only.
+      put(join(memory, '.git/info/exclude'), '.bootstrap-v2.json\n')
+      const lock = blocker === 'lock' || blocker === 'all'
+      const bootstrap = blocker === 'bootstrap' || blocker === 'all'
+      const dirty = blocker === 'dirty' || blocker === 'all'
+      if (lock) {
+        mkdirSync(join(memory, '.lock'), { mode: 0o700 })
+        put(join(memory, '.lock/payload'), 'Synthetic lock payload withheld.\n')
+      }
+      if (bootstrap) put(join(memory, '.bootstrap-v2.json'), 'Synthetic publication payload withheld.\n')
+      if (dirty) put(join(memory, 'synthetic-private-filename.md'), 'Synthetic private content withheld.\n')
+      const status = () => {
+        const result = spawnSync(
+          'git',
+          ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal'],
+          { cwd: memory, encoding: 'utf8' },
+        )
+        assert.equal(result.status, 0, result.stderr)
+        return result.stdout
+      }
+      assert.equal(Boolean(status().trim()), dirty)
+      const beforeStatus = status()
+      const beforeFiles = readdirSync(memory, { recursive: true }).map((path) => {
+        const full = join(memory, String(path))
+        return [path, lstatSync(full).isFile() ? readFileSync(full) : null]
+      })
+      if (blocker === 'clean') {
+        const plan = inspectBootstrap(r)
+        assert.equal(plan.memory?.action, 'preserve-existing')
+      } else {
+        assert.throws(() => inspectBootstrap(r), {
+          message:
+            'Existing memory is dirty or has uncertain active publication; preserve it and recover before engine installation' +
+            `; lock=${lock ? 'present' : 'absent'}, bootstrap=${bootstrap ? 'present' : 'absent'}, worktree=${dirty ? 'dirty' : 'clean'}`,
+        })
+      }
+      assert.equal(status(), beforeStatus)
+      assert.deepEqual(
+        readdirSync(memory, { recursive: true }).map((path) => {
+          const full = join(memory, String(path))
+          return [path, lstatSync(full).isFile() ? readFileSync(full) : null]
+        }),
+        beforeFiles,
+      )
+      assert.equal(existsSync(r.agentDir), false)
+    })
+})
+
+test('explicit memory inspection exposes bounded typed metadata only and preserves every disposable byte', () => {
+  for (const kind of ['valid', 'malformed', 'symlink', 'oversize', 'public', 'hardlink', 'lock-symlink'])
+    fixture((root, r) => {
+      const memory = join(root, 'memory')
+      const project = join(root, 'project')
+      mkdirSync(project, { mode: 0o700 })
+      const store = createMemoryStore(memory)
+      store.initialize(
+        {
+          version: 1,
+          projects: [{ cwd: project, id: 'fixture' }],
+          coreBytes: 8192,
+          indexBytes: 2048,
+          fileBytes: 8192,
+          totalBytes: 65536,
+          automatic: false,
+        },
+        '# Core\nSynthetic corpus must never escape.\n',
+      )
+      r.components = {
+        packages: true,
+        roles: true,
+        memory: { root: memory, project, projectId: 'fixture', seedFile: join(root, 'not-read.md') },
+      }
+      const lock = join(memory, '.lock')
+      const outside = join(root, 'outside')
+      mkdirSync(outside, { mode: 0o700 })
+      if (kind === 'lock-symlink') symlinkSync(outside, lock)
+      else mkdirSync(lock, { mode: 0o700 })
+      const stat = lstatSync(lock)
+      const owner = {
+        version: 1,
+        operation: '12345678-1234-4234-8234-123456789abc',
+        digest: 'a'.repeat(64),
+        nonce: '12345678-1234-4234-8234-123456789abd',
+        directory: `${stat.dev}:${stat.ino}`,
+      }
+      put(join(outside, 'payload'), 'Synthetic outside secret must never escape.')
+      const ownerPath = join(kind === 'lock-symlink' ? outside : lock, 'owner.json')
+      if (kind === 'symlink') symlinkSync(join(outside, 'payload'), ownerPath)
+      else if (kind === 'hardlink') linkSync(join(outside, 'payload'), ownerPath)
+      else
+        put(
+          ownerPath,
+          kind === 'malformed'
+            ? '{Synthetic malformed secret'
+            : kind === 'oversize'
+              ? 'x'.repeat(2049)
+              : JSON.stringify(owner),
+        )
+      if (kind === 'public') chmodSync(ownerPath, 0o644)
+      // Marker presence deliberately says nothing about marker type or executor drain.
+      mkdirSync(join(kind === 'lock-symlink' ? outside : lock, 'policy.json'), { mode: 0o700 })
+      put(join(kind === 'lock-symlink' ? outside : lock, 'config.next'), 'Synthetic config values withheld.')
+      for (let i = 0; i < 70; i++) put(join(memory, `diagnostic-${i}.md`), 'Synthetic file body withheld.')
+      put(join(memory, 'diagnostic-\nodd.md'), 'Synthetic odd body withheld.')
+      const bytes = () =>
+        readdirSync(root, { recursive: true }).map((path) => {
+          const full = join(root, String(path))
+          const s = lstatSync(full)
+          return [path, s.mode, s.ino, s.isFile() ? readFileSync(full) : null]
+        })
+      const before = bytes()
+      const revision = store.snapshot().revision
+      assert.throws(
+        () => inspectBootstrap(r),
+        (error: any) => {
+          assert.equal(Object.hasOwn(error, 'memoryInspection'), false)
+          assert.equal(error.message.includes('diagnostic-'), false)
+          return true
+        },
+      )
+      assert.throws(
+        () => inspectBootstrap(r, { inspectMemory: true }),
+        (error: any) => {
+          const metadata = error.memoryInspection
+          assert.equal(metadata.protocol, 1)
+          assert.equal(metadata.revision, revision)
+          assert.deepEqual(metadata.facts, { lock: true, bootstrap: false, dirty: true })
+          assert.equal(metadata.git.entries.length, 64)
+          assert.equal(metadata.git.total, kind === 'lock-symlink' ? 72 : 71)
+          assert.equal(metadata.git.truncated, true)
+          for (const entry of metadata.git.entries) {
+            assert.equal(entry.index, '?')
+            assert.equal(entry.worktree, '?')
+            assert.equal(
+              entry.path.startsWith('diagnostic-') || (kind === 'lock-symlink' && entry.path === '.lock'),
+              true,
+            )
+          }
+          if (kind === 'valid') {
+            assert.deepEqual(metadata.lock.owner, owner)
+            assert.equal(metadata.lock.directory, owner.directory)
+            assert.equal(metadata.lock.type, 'directory')
+            assert.deepEqual(metadata.lock.markers, {
+              'owner.json': true,
+              'policy.json': true,
+              'config.next': true,
+            })
+          } else {
+            assert.equal(metadata.lock.state, 'unavailable')
+            assert.equal(
+              metadata.lock.reason,
+              kind === 'malformed' ? 'malformed' : kind === 'oversize' ? 'oversize' : 'unsafe',
+            )
+            assert.equal(Object.hasOwn(metadata.lock, 'owner'), false)
+          }
+          assert.doesNotMatch(JSON.stringify(metadata), /Synthetic|outside|file body|config values/)
+          return true
+        },
+      )
+      if (kind === 'valid') {
+        for (const inspect of [false, true]) {
+          const result = spawnSync(
+            process.execPath,
+            [
+              join(activeProduct, 'install.mjs'),
+              '--agent-dir',
+              root,
+              '--preview',
+              ...(inspect ? ['--inspect-memory'] : []),
+            ],
+            {
+              cwd: activeProduct,
+              encoding: 'utf8',
+              env: { ...process.env, MAHIRO_PI_TEST_MODULES: candidate.modules },
+              timeout: 60000,
+            },
+          )
+          assert.equal(result.status, 1)
+          assert.equal(result.stdout, '')
+          const lines = result.stderr.trim().split('\n')
+          assert.match(lines[0], /^Existing memory is dirty or has uncertain active publication/)
+          assert.equal(lines.length, inspect ? 2 : 1)
+          if (inspect) assert.deepEqual(JSON.parse(lines[1]).lock.owner, owner)
+          assert.doesNotMatch(result.stderr, /Synthetic|outside|file body|config values/)
+        }
+      }
+      assert.deepEqual(bytes(), before)
+      assert.equal(existsSync(r.agentDir), false)
+    })
+})
+
+test('install CLI refuses memory inspection without preview before creating a profile or scaffold', () => {
+  const agentDir = join(candidate.root, 'inspect-without-preview')
+  const result = spawnSync(
+    process.execPath,
+    [join(activeProduct, 'install.mjs'), '--agent-dir', agentDir, '--inspect-memory'],
+    {
+      cwd: activeProduct,
+      encoding: 'utf8',
+      env: { ...process.env, MAHIRO_PI_TEST_MODULES: candidate.modules },
+      timeout: 60000,
+    },
+  )
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /--inspect-memory requires --preview; nothing written/)
+  assert.equal(result.stdout, '')
+  assert.equal(existsSync(agentDir), false)
+})
 
 localTest(
   'bootstrap memory preflight rejects restricted grants, unsafe seeds and malformed prior policy without writes',
@@ -1052,6 +1327,7 @@ test('revocation cannot override required tool/DATA restrictions, ambiguous defa
     'tool',
     'data',
     'own-ui-data',
+    'usage-data',
     'ask',
     'allow',
     'map',
@@ -1074,6 +1350,8 @@ test('revocation cannot override required tool/DATA restrictions, ambiguous defa
       }
       if (restriction === 'own-ui-data')
         permission[featureCapability('own_ui_state', join(r.agentDir, 'preferences/own-ui'))] = 'deny'
+      if (restriction === 'usage-data')
+        permission[featureCapability('usage_state', join(r.agentDir, 'preferences/usage'))] = 'deny'
       if (['ask', 'allow'].includes(restriction)) permission['*'] = restriction
       if (restriction === 'map') permission['*'] = { '*': 'deny' }
       if (restriction === 'wildcard') permission['mh_*'] = 'deny'
@@ -1143,4 +1421,110 @@ test('revocation preserves explicit RTK off and execution-time policy mutation w
     assert.deepEqual(parse(off), { version: 1, mode: 'off' })
     assert.ok(!readdirSync(resolve(target, '..')).some((n) => /\.bak$|\.tmp$/.test(n)))
   })
+})
+
+test('inspection accepts worktree/index type changes and binds exact owner read mode', () => {
+  for (const kind of ['worktree-T', 'index-T', 'owner-mode-change'])
+    fixture((root, r) => {
+      const memory = join(root, 'memory'),
+        project = join(root, 'project')
+      mkdirSync(project, { mode: 0o700 })
+      createMemoryStore(memory).initialize(
+        {
+          version: 1,
+          automatic: false,
+          projects: [{ cwd: project, id: 'fixture' }],
+          coreBytes: 8192,
+          indexBytes: 2048,
+          fileBytes: 8192,
+          totalBytes: 65536,
+        },
+        '# Core\nSynthetic.\n',
+      )
+      r.components = {
+        packages: true,
+        roles: true,
+        memory: { root: memory, project, projectId: 'fixture', seedFile: join(root, 'unused.md') },
+      }
+      const ownerPath = join(memory, '.lock/owner.json')
+      const savedLstat = fs.lstatSync
+      const savedSpawn = childProcess.spawnSync
+      let reads = 0
+      try {
+        if (kind === 'owner-mode-change') {
+          mkdirSync(join(memory, '.lock'), { mode: 0o700 })
+          const stat = lstatSync(join(memory, '.lock'))
+          put(
+            ownerPath,
+            JSON.stringify({
+              version: 1,
+              operation: '12345678-1234-4234-8234-123456789abc',
+              digest: 'a'.repeat(64),
+              nonce: '12345678-1234-4234-8234-123456789abd',
+              directory: `${stat.dev}:${stat.ino}`,
+            }),
+          )
+          Reflect.set(fs, 'lstatSync', ((path: any, ...args: any[]) => {
+            if (String(path) === ownerPath && ++reads === 2) chmodSync(ownerPath, 0o644)
+            return (savedLstat as any)(path, ...args)
+          }) as typeof fs.lstatSync)
+          syncBuiltinESMExports()
+        } else {
+          put(join(memory, 'diagnostic-trigger.md'), 'Synthetic dirty trigger.\n')
+          fs.unlinkSync(join(memory, 'Core.md'))
+          symlinkSync('index.md', join(memory, 'Core.md'))
+          if (kind === 'index-T') {
+            const result = spawnSync('git', ['add', '--', 'Core.md'], {
+              cwd: memory,
+              encoding: 'utf8',
+            })
+            assert.equal(result.status, 0, result.stderr)
+          }
+        }
+        if (kind !== 'owner-mode-change') {
+          // Capture genuine Git porcelain, then restore the fixture before owner
+          // validation (which independently refuses symlinks). Only the parser's
+          // fixed status subprocess consumes the captured type-change record.
+          const porcelain = savedSpawn(
+            'git',
+            ['status', '--porcelain=v1', '-z', '--untracked-files=normal'],
+            { cwd: memory, encoding: 'utf8' },
+          )
+          assert.equal(porcelain.status, 0)
+          fs.unlinkSync(join(memory, 'Core.md'))
+          put(join(memory, 'Core.md'), '# Core\nSynthetic.\n')
+          assert.equal(savedSpawn('git', ['add', '--', 'Core.md'], { cwd: memory }).status, 0)
+          childProcess.spawnSync = ((command: any, args: any, options: any) => {
+            const result = savedSpawn(command, args, options)
+            return command === 'git' && args.includes('--porcelain=v1')
+              ? { ...result, stdout: porcelain.stdout }
+              : result
+          }) as typeof childProcess.spawnSync
+          syncBuiltinESMExports()
+        }
+        assert.throws(
+          () => inspectBootstrap(r, { inspectMemory: true }),
+          (error: any) => {
+            const metadata = error.memoryInspection
+            assert.ok(metadata, `${kind}: ${error.message}`)
+            assert.equal(metadata.protocol, 1)
+            if (kind === 'owner-mode-change') {
+              assert.ok(reads >= 2)
+              assert.equal(metadata.lock.state, 'unavailable')
+              assert.equal(metadata.lock.reason, 'unsafe')
+              assert.equal(Object.hasOwn(metadata.lock, 'owner'), false)
+            } else {
+              const entry = metadata.git.entries.find((item: any) => item.path === 'Core.md')
+              assert.ok(entry, JSON.stringify(metadata))
+              assert.equal(kind === 'index-T' ? entry.index : entry.worktree, 'T')
+            }
+            return true
+          },
+        )
+      } finally {
+        Reflect.set(fs, 'lstatSync', savedLstat)
+        childProcess.spawnSync = savedSpawn
+        syncBuiltinESMExports()
+      }
+    })
 })

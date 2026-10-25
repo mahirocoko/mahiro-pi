@@ -1,6 +1,6 @@
 {
   "active": [
-    "./lib/guards/bootstrap.mjs",
+    "./lib/guards/bootstrap.ts",
     "./lib/guards/index.ts",
     "./extensions/mahiro-status.ts",
     "./extensions/mahiro-finish-voice.ts",
@@ -15,7 +15,7 @@
     "./extensions/mahiro-claude-ui.ts"
   ],
   "candidate": [
-    "./lib/guards/bootstrap.mjs",
+    "./lib/guards/bootstrap.ts",
     "./lib/guards/index.ts",
     "./extensions/mahiro-status.ts",
     "./extensions/mahiro-finish-voice.ts",

@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { MemoryEngineController, assertCurrent, type OperationContext } from './controller.ts'
-import { engineEnvironment, gitSafety, runGit, safePath } from './io.ts'
+import { engineEnvironment, gitSafety, privateDirectory, runGit, safePath } from './io.ts'
 import type { Plan, Receipt, Stage } from './protocol.ts'
 import { startGitMutation } from './native-git.ts'
 import { allowedPath } from './schema.ts'
@@ -152,7 +152,29 @@ export class MemoryPublisher {
         await mkdir(directory, { mode: 0o700, recursive: true })
         for (let parent = directory; parent !== root; parent = dirname(parent))
           await syncDirectory(dirname(parent), [change.path])
-        const temp = join(directory, `.memory-engine-${randomUUID()}.tmp`)
+        // Uncertain bytes stay in the existing ignored private engine tree, never
+        // as untracked canonical files. No failure-finally cleanup without authority.
+        const engineDirectory = join(root, '.views', '.engine-v2')
+        for (const parent of [join(root, '.views'), engineDirectory]) {
+          current([parent], [change.path])
+          await privateDirectory(parent)
+        }
+        const staging = join(engineDirectory, 'staging', plan.id)
+        for (const parent of [dirname(staging), staging]) {
+          current([parent], [change.path])
+          await privateDirectory(parent, true)
+          await syncDirectory(dirname(parent), [change.path])
+        }
+        const temp = join(staging, `${randomUUID()}.tmp`)
+        current([directory, staging, temp], [change.path])
+        if ((await lstat(directory)).dev !== (await lstat(staging)).dev)
+          throw Error('Publication staging must share canonical filesystem')
+        assertCurrent(context, {
+          physical: [root, join(root, '.git'), temp],
+          logical: [change.path],
+          kind: 'git',
+        })
+        await runGit(root, ['check-ignore', '-q', '--', temp], engineEnvironment(this.environment))
         await safePath(temp)
         await fence()
         current([path, temp], [change.path])
@@ -201,6 +223,7 @@ export class MemoryPublisher {
         await fence()
         current([path, temp], [change.path])
         await rename(temp, path)
+        await syncDirectory(staging, [change.path])
         await syncDirectory(directory, [change.path])
       }
       if (plan.changes.length) {

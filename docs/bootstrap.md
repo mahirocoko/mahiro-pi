@@ -28,6 +28,82 @@ Source/profile paths must be canonical and non-symlinked, with safe ancestors;
 profiles cannot overlap source roots. Safe profile containers may be 0755;
 owned private data directories/files remain 0700/0600.
 
+## Read-only memory blocker inspection
+
+```sh
+pnpm install:profile --preview --inspect-memory
+```
+
+`--inspect-memory` requires `--preview`; without it the command refuses before
+creating a scaffold or writing a profile. Dependencies and the ordinary canonical,
+private, initialized-store validators remain prerequisites. This is inspection,
+not repair: an existing memory blocker still refuses installation with the same
+message prefix and lock/publication/worktree facts. Ordinary previews do not print
+additional metadata.
+
+On that blocker, explicit inspection adds protocol-1 JSON with the observed snapshot
+revision, those three facts, and read-only Git porcelain `-z` relative paths plus
+index/worktree status (at most 64 entries, with total/truncated indicators). It may
+also show the private lock directory's type and device/inode identity, fixed marker
+presence (`owner.json`, `policy.json`, `config.next`), and a schema-validated owner
+operation/digest/nonce/directory. Owner input must be a private regular 0600,
+single-link, non-symlink file of at most 2048 bytes; unsafe, malformed or oversized
+input yields only generic unavailable reasons, never raw payloads or parser errors.
+No arbitrary lock contents, corpus text, config values or credentials are printed.
+Filenames are untrusted diagnostic metadata, not command operands or authority;
+review output privacy before sharing it. Marker presence does not prove marker
+type, executor drain, lock ownership validity or recovery safety. Observations are
+not an atomic recovery proof. No cleanup, archive, reset, Git write, permission
+change, native operation or reload is performed by inspection.
+
+## Offline memory operator
+
+Installation never repairs uncertain memory. A separate explicit owner entry is
+available for the narrow clean-tracked/index legacy-unknown incident described in
+[memory adoption](agent-memory.md#explicit-offline-owner-adoption). No actual
+operator window is implied by source installation, testing or these examples.
+
+After explicitly closing known sessions/workers for the target profile and
+assuring that no cooperative external writers will start during the window:
+
+```sh
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --inspect
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --apply --offline \
+  --target <reviewed-operation-UUID> --expect <exact-inspection-SHA256>
+```
+
+The target must already have the three canonical public owners installed, a
+private standard ABI2 selection, and current exact DATA/tool authority. This CLI
+writes no settings or grants and does not call installation. It starts one genuine
+ephemeral headless public SDK primary with deterministic Faux transport and zero
+external inference; ordinary persistent primaries and native children cannot
+adopt. A live Main's data child is an **unexpected** Root holder to this new
+operator and causes refusal. `--offline` is operator assurance, never permission,
+PID-death evidence or an override for the fixed system `lsof` tree-FD/cwd check.
+
+Inspect returns bounded metadata/fingerprints and admission counts, not corpus or
+raw configuration. Review before apply; changed bytes or identity require a new
+review, not blind refresh. Dirty/staged/unknown user work, malformed evidence,
+nonempty/foreign CAS, remaining namespace capacity blockers, unsafe archive
+inputs, incomplete holder inspection or unexpected holders refuse. Do not kill
+holders, reset memory or remove markers to make installation pass.
+
+After interruption, retain the complete private archive/workspace and marker.
+Run the same `--inspect`, review its transaction/checkpoint target and digest, then
+explicitly select `--resume --offline --target <transaction-UUID> --expect <digest>`.
+There is no automatic replay, lost-executor drain inference or rollback. A malformed
+checkpoint remains unavailable. Even with an absent `.lock` and clean Git, a
+maintenance marker blocks the installer until supported owner completion.
+Completed receipts say prior outcome unknown; they do not claim human acceptance.
+The explicit operator is completion-driven: it retains fixed resource, output,
+Git-command and holder-inspection bounds but does not terminate a valid large
+archive on an arbitrary whole-operation wall clock. Its dedicated cold
+certification remains cancellable and fully fenced while ordinary engine requests
+keep their 30-second deadline. Success is the validated maintenance receipt; a
+separate profile reload/runtime check owns later projection and activation proof.
+
 ## Grants and retained restrictions
 
 The public permission service (PSS) is the sole runtime resolver. Explicit
@@ -37,9 +113,13 @@ not generic filesystem, HOME, external-directory or Bash authority.
 - Goal, Evidence, UX and Run receive separate namespace DATA grants. Projects
   derive private leaves without per-project configuration. Legacy leaf/tool/path
   restrictions still apply.
-- RTK and own-UI use fixed profile-wide preference roots. The exact
+- RTK, own-UI and usage use separate fixed profile-wide preference roots. The exact
   `own_ui_state_data_<sha256(canonical profile/preferences/own-ui)>` capability
   covers appearance only, with no synthetic `mh_ui` tool grant or global theme write.
+  Usage has its own exact `usage_state_data_<sha256(canonical profile/preferences/usage)>`
+  grant, no synthetic command-tool grant and no own-UI/settings authority. Explicit
+  installation alone composes it; loading source or reading absent preferences
+  provisions nothing. Previously installed profiles may require an approved update.
 - Continuity and managed memory retain separate capabilities; historical recall
   authority does not authorize maintained writes. Code Map tool authority is
   separate from feature-data installation.

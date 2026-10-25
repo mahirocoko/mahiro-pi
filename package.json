@@ -1,6 +1,6 @@
 {
   "name": "@mahirocoko/mahiro-pi",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Native Pi companion UI, maintained memory, guarded RTK, explicit workflow tools and parent-scoped Herdr metadata.",
@@ -37,6 +37,7 @@
     "setup": "node setup.mjs",
     "bootstrap": "node bootstrap.mjs",
     "install:profile": "node install.mjs",
+    "memory:maintenance": "node memory-maintenance.mjs",
     "goal:preview": "node goal-preview.mjs",
     "test": "node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts",
     "check:docs": "node check-docs.mjs",
@@ -53,7 +54,7 @@
       "./skills"
     ],
     "extensions": [
-      "./lib/guards/bootstrap.mjs",
+      "./lib/guards/bootstrap.ts",
       "./lib/guards/index.ts",
       "./extensions/mahiro-status.ts",
       "./extensions/mahiro-finish-voice.ts",

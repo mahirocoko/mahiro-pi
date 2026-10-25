@@ -22,6 +22,13 @@ export interface MemoryABIV2
   live: () => boolean
   hold(owner: object): () => void
   onRetire(callback: () => Promise<void>): () => void
+  maintenanceAccess(
+    tool: ToolInfo,
+    ctx: ExtensionContext,
+    root: string,
+    operation: 'read' | 'write',
+    targets: readonly string[],
+  ): EngineAccess
   assertTargets(
     tool: ToolInfo,
     ctx: ExtensionContext,
@@ -90,6 +97,7 @@ export function buildManagedMemoryABI(
         hold(owner: object): () => void
         onRetire(callback: () => Promise<void>): () => void
         assertTargets: MemoryABIV2['assertTargets']
+        maintenanceAccess: MemoryABIV2['maintenanceAccess']
       }
     | undefined,
   common: Common,
@@ -121,6 +129,7 @@ export function buildManagedMemoryABI(
     hold: selection.hold,
     onRetire: selection.onRetire,
     assertTargets: selection.assertTargets,
+    maintenanceAccess: selection.maintenanceAccess,
     assertAccess: (...args) => engine(common.assertAccess(...args)),
     authorize: async (...args) => engine(await common.authorize(...args)),
   }

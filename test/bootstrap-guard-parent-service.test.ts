@@ -5,8 +5,9 @@ import ts from 'typescript'
 
 // Unit-level state-machine checks execute the actual production closure/prefix,
 // not a copied implementation. This is not SDK dispatch or native assurance;
-// worker-activity-sdk-test.mjs owns the genuine Root-first positive regression.
-const source = readFileSync(new URL('../lib/guards/index.ts', import.meta.url), 'utf8')
+// worker-activity-sdk-test.mjs owns genuine public-owner lifecycle coverage.
+// Kernel, not the optional Root, owns this production closure.
+const source = readFileSync(new URL('../lib/kernel/index.ts', import.meta.url), 'utf8')
 const parsed = ts.createSourceFile('index.ts', source, ts.ScriptTarget.Latest, true)
 let getterSource: string | undefined
 let startSource: string | undefined

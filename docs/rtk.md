@@ -16,7 +16,7 @@ verified savings dashboard.
 | `rewrite-rtk` | Use the installed resolver's candidate only after required native checks |
 
 Explicit profile installation selects absent-state `rewrite-rtk` without
-overwriting an existing explicit `off`. Uninstalled/unattested scopes remain
+overwriting an existing explicit `off`. Unconfigured or unavailable scopes remain
 disabled. The footer status cell shows the current mode, explicit off or
 unavailability; unavailable authority is not a claim that rewriting is active.
 
@@ -35,8 +35,9 @@ unavailability; unavailable authority is not a claim that rewriting is active.
 ```
 
 Bare or spaces/tabs-only input means status, never a mode write. `mh_rtk` exposes
-the equivalent operation schema. Mode mutation requires primary identity, exact
-tool/DATA authority, the fresh expected sequence and actual public UI confirmation.
+the equivalent operation schema. Mode mutation requires primary identity,
+standard PSS authority (including wildcard/yolo), the fresh expected sequence
+and actual public UI confirmation.
 Do not invent a sequence or bypass a declined/stale confirmation.
 
 `rewrite` explicitly invokes the resolver for a preview, but does not execute its
@@ -65,8 +66,12 @@ native spawn. Public PSS owns applicable file-access policy; the retired mandato
 custom secret checker is not a second policy resolver. Native children execute
 under their own policy; primary RTK control does not transfer authority.
 
-State uses the fixed `<profile>/preferences/rtk` owner, exact DATA authority,
+State uses the fixed `<profile>/preferences/rtk` owner, standard PSS authority,
 0700/0600 private storage and sequence/CAS checks; no generic preference writer.
+One fresh full binding is reused within each synchronous execution-read barrier;
+no shared permission cache replaces live PSS or final argument authorization.
+Small configuration reads allocate from the opened file size plus a growth
+sentinel, retaining final identity, size, timestamp and ownership checks.
 Public effective Bash approval can authorize only the identical approved command;
 changed candidates/final commands require independent non-yolo allow. See the
 [exact receipt contract](guards.md#effective-bash-approval). This does not add

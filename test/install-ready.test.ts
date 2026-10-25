@@ -88,6 +88,10 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
         fs.realpathSync(path.join(product, 'node_modules/@gotgenes/pi-subagents')),
         product,
       ],
+      extensions: [
+        path.join(product, 'lib/guards/bootstrap.ts'),
+        path.join(product, 'extensions/mahiro-worker-activity.ts'),
+      ],
     })
   }
   const prior = {
@@ -221,7 +225,7 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       assert.deepEqual(loader.getExtensions().errors, [])
       const loaded = loader.getExtensions().extensions
       for (const owned of [
-        'lib/guards/bootstrap.mjs',
+        'lib/guards/bootstrap.ts',
         'lib/guards/index.ts',
         'extensions/mahiro-worker-activity.ts',
       ])
@@ -364,11 +368,19 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     assert.match(prompts.at(-1)!, /Curation doctrine v1/)
     assert.ok(prompts.at(-1)!.includes(store.snapshot().revision))
     assert.equal(store.snapshot().files['Core.md'].text, core)
-    // Namespace authority MUST NOT mask exact legacy leaf, tool or path denies.
+    // Goal follows ordinary named PSS; obsolete DATA leaves are no second plane.
+    // Private memory authority above remains separately exact-root bound.
     const policy = JSON.parse(fs.readFileSync(policyFile, 'utf8'))
     const leaf = resolveGoalBinding(projectA)!
+    fs.writeFileSync(
+      policyFile,
+      JSON.stringify({
+        ...policy,
+        permission: { ...policy.permission, [`goal_state_${sha(leaf.root)}`]: 'deny' },
+      }),
+    )
+    await call('mh_get_goal', {})
     for (const extra of [
-      { [`goal_state_${sha(leaf.root)}`]: 'deny' },
       { mh_get_goal: 'deny' },
       { path_read: { [path.join(leaf.root, 'state.json')]: 'deny' } },
     ]) {

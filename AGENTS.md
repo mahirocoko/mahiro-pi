@@ -23,8 +23,10 @@ dated source records, not current installation instructions.
 
 ## Protected contracts
 
-- Preserve the manifest's guards-first13 order: bootstrap, one Root guard,
-  ten features, then the rendering-only UI adapter. The optional theme never
+- Preserve the manifest's 13-entry order: the existing bootstrap (TypeScript,
+  for Pi's public loader), one Root guard, ten features, then the rendering-only
+  UI adapter. Bootstrap activates `lib/kernel/` independently before optional
+  Root enforcement. The optional theme never
   activates itself. See `docs/claude-ui.md` for runtime Apply versus explicit
   authorized Save to the fixed `preferences/own-ui` owner.
 - Preserve authored colors, spacing, footer cells and native usage semantics.
@@ -33,8 +35,22 @@ dated source records, not current installation instructions.
 - Preserve foreground PID gating, non-TUI isolation, shared generation ownership,
   monotonic sequence, bounded producers and stale-callback protection.
   Herdr owns its renderer/lifecycle; display metadata is not completion truth.
-- `lib/guards/` owns final native execution enforcement. Public PSS alone
-  resolves policy. File rules apply to recognized file operands, not arbitrary
+- `lib/kernel/` alone owns the shared feature registry/ABIs, actual manager and
+  primary/child identity, generation readiness and memory retirement/drain. Root
+  consumes it, never initializes or removes its nodes. Kernel readiness is not
+  guard-host health or provenance; feature policy checks belong to their real
+  ABI boundaries. Keep one native-MJS shared registry across Jiti/native loaders,
+  generation-conditional cleanup and exact private-memory authority. Startup
+  provisions nothing. Missing kernel readiness is a diagnostic, never a global
+  tool-call gate. Goal, Evidence, UX, Execution Run, Code Map and RTK use ordinary
+  public PSS permissions, including wildcard/yolo, not exact DATA attestation.
+  Preserve primary-session, revision, root binding and owner-lock invariants.
+- `lib/guards/` owns thin final native execution enforcement: lightweight secret
+  file-operand rules, four standalone filtered inspectors, commit-attribution
+  stripping and RTK final-argument authorization. It has no tool dispatch
+  allowlist, package realpath/version permission pins or throwing PowerShell
+  wrapper. Ordinary native execution does not require feature-kernel readiness.
+  Public PSS alone resolves policy. File rules apply to recognized file operands, not arbitrary
   prompt/query/comment/content text. PSS's first recognized Bash operand gate
   and Root's final command-policy recheck are distinct, not a universal sandbox.
   Preserve effective Bash approval binding/revocation and exact-command rewrite

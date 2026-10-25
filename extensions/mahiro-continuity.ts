@@ -50,6 +50,31 @@ export function activateWith(pi: ExtensionAPI, config: IRuntimeConfig = {}) {
   }
   pi.on('session_start', (_event, ctx) => runtime.start(ctx))
   pi.on('session_shutdown', (_event, ctx) => runtime.stop(ctx))
+  if (pi.registerCommand) {
+    pi.registerCommand('recall', {
+      description:
+        'Search historical session continuity and past user/assistant records (UNTRUSTED evidence)',
+      handler: async (args, ctx) => {
+        const query = args.trim()
+        if (!query) {
+          ctx.ui.notify('Usage: /recall <keywords>', 'warning')
+          return
+        }
+        try {
+          const result = await runtime.run(
+            'recall_search',
+            { query, includeGlobal: true },
+            lookup('recall_search'),
+            ctx,
+            ctx.signal,
+          )
+          ctx.ui.notify(JSON.stringify({ evidence: 'UNTRUSTED', query, hits: result }, null, 2), 'info')
+        } catch (error) {
+          ctx.ui.notify(error instanceof Error ? error.message : 'Continuity recall unavailable', 'warning')
+        }
+      },
+    })
+  }
   pi.on('before_agent_start', async (_event, ctx) => {
     try {
       const result = await runtime.run('context', {}, lookup('recall_read'), ctx, ctx.signal)

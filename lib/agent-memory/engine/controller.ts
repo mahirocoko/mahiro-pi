@@ -42,6 +42,9 @@ interface Pending {
   timer?: NodeJS.Timeout
 }
 const empty: Checkpoint = { physical: [], logical: [], kind: 'data' }
+export function engineRequestDeadline(method: Method) {
+  return method === 'offlineCertify' ? undefined : 30000
+}
 export function assertCurrent(context: OperationContext, targets: Checkpoint = empty) {
   context.signal?.throwIfAborted()
   if (context.current(targets) !== true) throw Error('Current parent authority required (strict boolean)')
@@ -251,12 +254,14 @@ export class MemoryEngineController {
       }
       recordMemoryDiagnostic(this.root, 'dispatch', { id: p.id, method: p.method })
       this.send(message)
-      p.timer = setTimeout(() => {
-        p.cancelled = true
-        this.send({ v: 2, epoch: this.epoch, id: p.id, cancel: true })
-        // No restart/replay. If a child cannot drain, caller teardown owns it.
-        p.reject(Error('Engine request deadline; channel draining'))
-      }, 30000)
+      const deadline = engineRequestDeadline(p.method)
+      if (deadline !== undefined)
+        p.timer = setTimeout(() => {
+          p.cancelled = true
+          this.send({ v: 2, epoch: this.epoch, id: p.id, cancel: true })
+          // No restart/replay. If a child cannot drain, caller teardown owns it.
+          p.reject(Error('Engine request deadline; channel draining'))
+        }, deadline)
     } catch (error) {
       this.active = undefined
       this.finish(p, error instanceof Error ? error : Error('Engine start failed'))

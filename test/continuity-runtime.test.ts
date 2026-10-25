@@ -34,7 +34,7 @@ function fixture() {
   const node: IGuardNode = {
     generation,
     healthy: () => healthy,
-    host: { finalArgs: async (_name, args) => args },
+    context: { finalArgs: async (_name, args) => args },
     continuity: {
       version: 1,
       generation,
@@ -303,10 +303,10 @@ test('missing ABI, stale health, foreign tools, child ownership and final argume
       sessionManager: { getSessionId: () => 'child' },
     }
     await assert.rejects(f.runtime.run('recall_read', { recordId: 'late' }, f.tool, child))
-    f.node.host.finalArgs = async () => ({ query: 'tea', root: '/unexpected' })
+    f.node.context.finalArgs = async () => ({ query: 'tea', root: '/unexpected' })
     await assert.rejects(call())
     assert.equal(f.paths.length, 0)
-    f.node.host.finalArgs = async (_name, args) => {
+    f.node.context.finalArgs = async (_name, args) => {
       f.runtime.stop(f.ctx)
       return args
     }

@@ -12,7 +12,7 @@ import {
   validateUIState,
 } from '../lib/claude-ui-preferences.ts'
 import { featureCapability, featureGrants, featureNamespaces } from '../lib/feature-data.ts'
-import { trustedOwnUICommand } from '../lib/guards/provenance.mjs'
+import { trustedOwnUICommand } from '../lib/guards/test/legacy-provenance.mjs'
 
 test('own-UI closed state: absence, raw-byte CAS, bounded strict UTF-8 and fixed errors', () => {
   const initial = decodeUIState(null)
@@ -56,7 +56,7 @@ test('own-UI DATA grant hashes the exact profile-wide root and has no model tool
   assert.equal(featureGrants(profile).includes('mh_ui'), false)
 })
 
-test('own-UI registered command: sole canonical package identity, all bare-name collisions deny', () => {
+test('own-UI registered entry accepts package/top-level loading; bare-name collisions still deny', () => {
   const baseDir = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '')
   const good = {
     name: 'mh-ui',
@@ -69,6 +69,14 @@ test('own-UI registered command: sole canonical package identity, all bare-name 
     },
   }
   assert.equal(trustedOwnUICommand([good]), true)
+  assert.equal(
+    trustedOwnUICommand([{ ...good, sourceInfo: { ...good.sourceInfo, origin: 'top-level' } }]),
+    true,
+  )
+  assert.equal(
+    trustedOwnUICommand([{ ...good, sourceInfo: { ...good.sourceInfo, baseDir: `${baseDir}/.` } }]),
+    true,
+  )
   assert.equal(trustedOwnUICommand([{ ...good, name: 'skill:mh-ui', source: 'skill' }, good]), true)
   for (const commands of [
     [],
@@ -79,8 +87,6 @@ test('own-UI registered command: sole canonical package identity, all bare-name 
     [good, { name: 'mh-ui', source: 'prompt' }],
     [{ name: 'mh-ui', source: 'prompt' }, good],
     [{ ...good, source: 'prompt' }],
-    [{ ...good, sourceInfo: { ...good.sourceInfo, origin: 'top-level' } }],
-    [{ ...good, sourceInfo: { ...good.sourceInfo, baseDir: `${baseDir}/.` } }],
     [
       {
         ...good,

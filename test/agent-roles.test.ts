@@ -37,7 +37,7 @@ test('guards register first and managed/C1 retain their feature registration ord
   // SDK 1.3.0 preserves declared entry order and awaits each settled handler.
   // Keep status/voice order and both memory owners; each uses the parent queue.
   assert.deepEqual(manifest.pi.extensions, [
-    './lib/guards/bootstrap.mjs',
+    './lib/guards/bootstrap.ts',
     './lib/guards/index.ts',
     './extensions/mahiro-status.ts',
     './extensions/mahiro-finish-voice.ts',

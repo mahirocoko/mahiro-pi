@@ -11,26 +11,70 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
   const attention = registerWorkflowAttention(pi)
   const runtime = createAgentMemoryRouter(pi, config)
   registerWorkflowCommand(pi, 'mh-memory', {
-    description: 'Memory readiness, route and lifecycle status (no setup or credential lookup)',
+    description:
+      'Memory readiness, status, doctor, remember, dream and tiered v2 init (no setup or credential lookup)',
     handler: async (args, ctx) => {
-      if (args.trim() && !['status', 'help'].includes(args.trim())) {
+      const trimmed = args.trim()
+      const [subcommand, ...rest] = trimmed ? trimmed.split(/\s+/) : ['status']
+      const restText = rest.join(' ').trim()
+      if (!['status', 'help', 'remember', 'dream', 'doctor', 'init'].includes(subcommand)) {
         ctx.ui.notify(
-          'Use /mh-memory status or /mh-memory help. This command never enables memory or changes permissions.',
+          'Use /mh-memory [status|help|remember <text>|dream|doctor|init]. This command never enables memory or changes permissions.',
           'warning',
         )
         return
       }
-      if (args.trim() === 'help') {
+      if (subcommand === 'help') {
         ctx.ui.notify(
-          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Use action policy with current revision + configHash + automatic true/false for explicit automatic admission control; off is preserved on upgrade. Status policyOperation classifies retained policy locks; only a fresh primary policy-reconcile with target + revision=digest may remove verified owned files after actual process-local drain, never replay/revert config. Unknown/restarted operations require owner review, not lock stealing. Reflection uses eligible settled interactive/RPC episodes, never every turn; explicit agent_memory_reflect assignments remain separate. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion; context activates next request. Cancel/conflicts/forget/rollback use existing management tools. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory doctor runs health, budget and link checks. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Use action policy with current revision + configHash + automatic true/false for explicit automatic admission control; off is preserved on upgrade. Status policyOperation classifies retained policy locks; only a fresh primary policy-reconcile with target + revision=digest may remove verified owned files after actual process-local drain, never replay/revert config. Unknown/restarted operations require owner review, not lock stealing. Reflection uses eligible settled interactive/RPC episodes, never every turn; explicit agent_memory_reflect assignments remain separate. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion; context activates next request. Cancel/conflicts/forget/rollback use existing management tools. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
           'info',
         )
         return
       }
       const observe = attention.capture(ctx)
-      const result = await runtime.diagnose(ctx)
-      observe('memory', result)
-      ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+      if (subcommand === 'status') {
+        const result = await runtime.diagnose(ctx)
+        observe('memory', result)
+        ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+        return
+      }
+      try {
+        if (subcommand === 'doctor') {
+          const result = await runtime.run('agent_memory_manage', { action: 'doctor' }, ctx)
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'init') {
+          const migrated = await runtime.run('agent_memory_manage', { action: 'migrate-v2' }, ctx)
+          const inited = await runtime.run('agent_memory_manage', { action: 'init-project' }, ctx)
+          const result = { migrated, initialized: inited }
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'remember') {
+          if (!restText) {
+            ctx.ui.notify('Usage: /mh-memory remember <concise durable note>', 'warning')
+            return
+          }
+          const result = await runtime.run('agent_memory_manage', { action: 'remember', text: restText }, ctx)
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'dream') {
+          const assignment =
+            restText ||
+            'Review unreviewed episodes and consolidate durable project/user lessons into tiered memory files without losing existing facts.'
+          const result = await runtime.run('agent_memory_reflect', { assignment }, ctx)
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+      } catch (error) {
+        ctx.ui.notify(error instanceof Error ? error.message : 'Memory command unavailable', 'warning')
+      }
     },
   })
   const string = { type: 'string' }
@@ -42,11 +86,18 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         expectedHash: { type: ['string', 'null'] },
         text: { type: ['string', 'null'] },
         sources: { type: 'array', items: string, maxItems: 32 },
+        mode: { type: 'string', enum: ['replace', 'patch', 'append'] },
+        oldText: string,
+        newText: string,
+        section: string,
       },
       required: ['path', 'expectedHash', 'text', 'sources'],
     },
     agent_memory_commit: {
-      properties: { revision: string },
+      properties: {
+        revision: string,
+        allowShrink: { type: 'boolean' },
+      },
       required: ['revision'],
     },
     agent_memory_manage: {
@@ -55,8 +106,15 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           type: 'string',
           enum: [
             'status',
+            'doctor',
+            'init-project',
+            'migrate-v2',
+            'remember',
             'policy',
             'policy-reconcile',
+            'offline-inspect',
+            'offline-adopt',
+            'offline-resume',
             'cancel',
             'forget',
             'rollback',
@@ -68,10 +126,13 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         },
         revision: string,
         configHash: string,
+        offline: { type: 'string', enum: ['known-profile-closed-no-cooperative-writers-start'] },
         paths: { type: 'array', items: string, maxItems: 128 },
         sources: { type: 'array', items: string, maxItems: 128 },
         target: string,
         path: string,
+        text: { type: 'string', maxLength: 4096 },
+        section: string,
         offset: { type: 'integer', minimum: 0 },
         limit: { type: 'integer', minimum: 1, maximum: 4096 },
         core: { type: 'string', maxLength: 8192 },

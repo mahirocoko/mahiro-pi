@@ -53,14 +53,19 @@ export const featureNamespaces = (profile: string) => [
     tools: ['mh_rtk'],
   },
   {
+    prefix: 'usage_state',
+    root: join(profile, 'preferences/usage'),
+    tools: [],
+  },
+  {
     prefix: 'own_ui_state',
     root: join(profile, 'preferences/own-ui'),
     tools: [],
   },
 ]
 export function featureCapability(prefix: string, leaf: string) {
-  // Both preference namespaces are profile-wide ROOTS, not project leaves.
-  const namespace = ['rtk_state', 'own_ui_state'].includes(prefix) ? leaf : dirname(leaf)
+  // Preference namespaces are profile-wide ROOTS, not project leaves.
+  const namespace = ['rtk_state', 'own_ui_state', 'usage_state'].includes(prefix) ? leaf : dirname(leaf)
   return `${prefix}_data_${hash(namespace)}`
 }
 export const sessionTrackingTools = [

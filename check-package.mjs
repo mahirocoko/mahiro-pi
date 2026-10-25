@@ -7,13 +7,31 @@ import ts from 'typescript'
 const root = fileURLToPath(new URL('.', import.meta.url))
 const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@mahirocoko/mahiro-pi')
-assert.equal(manifest.version, '0.6.1')
+assert.equal(manifest.version, '0.7.0')
+const rootGuard = await readFile(resolve(root, 'lib/guards/index.ts'), 'utf8')
+assert.doesNotMatch(rootGuard, /owned-provenance|createMetaProvenance|unsupported tool\/alias/)
+assert.doesNotMatch(
+  rootGuard,
+  /createPowerShellToolDefinition/,
+  'Do not replace a native tool with a throwing wrapper',
+)
+const guardHost = await readFile(resolve(root, 'lib/guards/host.mjs'), 'utf8')
+assert.match(guardHost, /createFilteredTools/)
+assert.match(guardHost, /assertSecretPaths/)
+assert.doesNotMatch(guardHost, /activateSecrets|createChecker|from ['"].*mahiro-secret-read-guard/)
+const filtered = await readFile(resolve(root, 'lib/guards/filtered-config.mjs'), 'utf8')
+assert.doesNotMatch(filtered, /node:child_process|createChecker|const POLICY/)
+const kernel = await readFile(resolve(root, 'lib/kernel/index.ts'), 'utf8')
+assert.doesNotMatch(kernel, /(?:from|import\()\s*['"][^'"]*provenance|createGuardHost|host\.healthy/)
+assert.doesNotMatch(rootGuard, /nodes\.(?:set|delete)\(/, 'Root must not publish or retire feature nodes')
+assert.match(await readFile(resolve(root, 'lib/guards/bootstrap.ts'), 'utf8'), /await activateKernel\(pi\)/)
+
 assert.equal(manifest.private, true)
 assert.equal(manifest.packageManager, 'pnpm@10.33.0')
 assert.equal(manifest.engines.node, '>=22.19.0')
 const extensions = JSON.parse(await readFile(resolve(root, 'test/candidate-extensions.json'), 'utf8'))
 assert.deepEqual(extensions.active, [
-  './lib/guards/bootstrap.mjs',
+  './lib/guards/bootstrap.ts',
   './lib/guards/index.ts',
   './extensions/mahiro-status.ts',
   './extensions/mahiro-finish-voice.ts',

@@ -149,6 +149,33 @@ test('real argv resolver: exit 0/3 broad candidates, 1/2/unknown/error/timeout/b
   }
 })
 
+test('synchronous helper launch failures release the real concurrency slots', async () => {
+  const base = path.resolve('.agent-state/runtime/guard-friction/implementation/rtk-unit')
+  fs.mkdirSync(base, { recursive: true })
+  const cwd = fs.mkdtempSync(path.join(base, 'launch-'))
+  const helper = installRTKHelper(cwd)
+  const previous = process.env.PATH
+  process.env.PATH = `${helper.bin}:/usr/bin:/bin`
+  try {
+    const failures = []
+    for (let n = 0; n < 6; n++) {
+      failures.push(await Promise.allSettled([resolveRTKRewrite('ls safe.txt', { cwd: `${cwd}\0` })]))
+    }
+    helper.set({ code: 0, out: 'rtk ls safe.txt\n' })
+    assert.equal(
+      (await resolveRTKRewrite('ls safe.txt', { cwd })).status,
+      'candidate',
+      'no leaked helper slots',
+    )
+    for (const [failure] of failures)
+      assert.deepEqual(failure, { status: 'fulfilled', value: { status: 'unavailable', command: null } })
+    assert.equal(helper.calls().length, 1, 'bad launches spawn nothing; the subsequent real helper runs')
+  } finally {
+    if (previous === undefined) delete process.env.PATH
+    else process.env.PATH = previous
+  }
+})
+
 // Disposable private storage only; no installed profile, helper or live UI.
 function statusFixture() {
   const base = path.resolve('.agent-state/runtime/rtk-status/unit')

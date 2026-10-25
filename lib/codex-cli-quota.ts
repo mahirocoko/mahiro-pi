@@ -4,7 +4,7 @@ import { lstat, open, readlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
-import type { GuardRegistry } from './guards/types.ts'
+import type { KernelRegistry as GuardRegistry } from './kernel/types.ts'
 
 // Public Mods auth.json format provenance, not an official Codex schema.
 // No auth/login/refresh or keychain subprocess, alternate files or API-key fallback.

@@ -3,9 +3,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
-import { createMemoryStore, allowedPath, type View, type Episode } from './store.ts'
+import { createMemoryStore, allowedPath, type View, type Episode, type EditModeOptions } from './store.ts'
 import { resolveAgentDir } from '../setup.ts'
-import { parseMemoryRead, retrieveMemory } from './retrieval.ts'
+import { directoryIndex, parseMemoryRead, retrieveMemory } from './retrieval.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
 import type { ManagedMemoryABI } from './experimental-contracts.ts'
 
@@ -211,6 +211,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
   let pending: PendingEpisode | undefined
   let outcome: string | undefined
   let lastError: string | undefined
+  let compactionCheckpoint: string | undefined
   let latestAttempt:
     | {
         observation: AttemptObservation
@@ -297,6 +298,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     draft = undefined
     pending = undefined
     outcome = undefined
+    compactionCheckpoint = undefined
     latestAttempt = undefined
     stopJob(own)
   }
@@ -315,7 +317,9 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
   }
   const run = async (name: string, args: unknown, ctx: ExtensionContext, signal?: AbortSignal) => {
     if (!memoryTools.includes(name as (typeof memoryTools)[number])) throw new Error('Unknown memory tool')
-    const operation = name === 'agent_memory_read' ? 'read' : 'write'
+    const doctorRead =
+      name === 'agent_memory_manage' && objectShape(args, ['action']) && args.action === 'doctor'
+    const operation = name === 'agent_memory_read' || doctorRead ? 'read' : 'write'
     const f = owner(ctx, name, operation, signal)
     await f.abi.authorize(f.tool, ctx, root, operation, signal)
     f.current()
@@ -334,6 +338,8 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           'sources',
           'target',
           'path',
+          'text',
+          'section',
           'core',
           'projectId',
           'automatic',
@@ -373,7 +379,39 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           contextActivation: 'next-primary-request',
         }
       }
-      const p = primary(ctx, name, 'write')
+      const p = primary(ctx, name, args.action === 'doctor' ? 'read' : 'write')
+      if (args.action === 'doctor') {
+        return p.store.doctor(p.project)
+      }
+      if (args.action === 'init-project') {
+        return p.store.initProject(p.project)
+      }
+      if (args.action === 'migrate-v2') {
+        return p.store.migrateV2(p.project)
+      }
+      if (args.action === 'remember') {
+        const text = bounded(args.text, 4096)
+        if (!text) throw new Error('Bounded remember text required')
+        const targetPath = typeof args.path === 'string' ? args.path : 'system/human/notes.md'
+        if (!allowedPath(targetPath, p.project)) throw new Error('Memory path outside scope')
+        stopJob()
+        const view = p.store.createView(p.project, 60000, true)
+        const currentFile = p.store.read(view, targetPath)
+        const expectedHash = 'missing' in currentFile && currentFile.missing ? null : currentFile.hash
+        p.store.edit(view, targetPath, expectedHash, `- ${text}`, [], {
+          mode: 'append',
+          ...(typeof args.section === 'string' ? { section: args.section } : {}),
+        })
+        const integrated = p.store.integrate(view)
+        draft = undefined
+        if ('conflict' in integrated) return integrated
+        return {
+          revision: integrated.revision,
+          path: targetPath,
+          remembered: true,
+          contextActivation: 'next-primary-request',
+        }
+      }
       if (args.action === 'status') {
         const s = p.store.snapshot()
         if (latestAttempt && (!latestAttempt.matches(ctx, p) || !latestAttempt.valid()))
@@ -472,6 +510,16 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           }
         if (selection.mode === 'query' || selection.mode === 'topic') return retrieveMemory(files, selection)
         const { path, offset, limit } = selection
+        const cleanDir = path.replace(/\/+$/, '')
+        if (
+          cleanDir === 'system' ||
+          cleanDir === 'system/human' ||
+          cleanDir === 'reference' ||
+          cleanDir === `projects/${view.project}/system` ||
+          cleanDir === `projects/${view.project}/reference`
+        ) {
+          return directoryIndex(files, cleanDir)
+        }
         if (!allowedPath(path, view.scope === 'primary' ? undefined : view.project))
           throw new Error('Memory path outside scope')
         const file = files[path]
@@ -491,14 +539,40 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     }
     if (name === 'agent_memory_edit') {
       if (
-        !objectShape(args, ['path', 'expectedHash', 'text', 'sources']) ||
+        !objectShape(args, [
+          'path',
+          'expectedHash',
+          'text',
+          'sources',
+          'mode',
+          'oldText',
+          'newText',
+          'section',
+        ]) ||
         typeof args.path !== 'string' ||
         !(typeof args.expectedHash === 'string' || args.expectedHash === null) ||
         !(typeof args.text === 'string' || args.text === null) ||
-        !Array.isArray(args.sources)
+        !Array.isArray(args.sources) ||
+        (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
+        (args.oldText !== undefined && typeof args.oldText !== 'string') ||
+        (args.newText !== undefined && typeof args.newText !== 'string') ||
+        (args.section !== undefined && typeof args.section !== 'string')
       )
         throw new Error('Invalid memory edit arguments')
-      const hash = f.store.edit(view, args.path, args.expectedHash, args.text, args.sources as string[])
+      const editOptions: EditModeOptions = {
+        ...(typeof args.mode === 'string' ? { mode: args.mode as EditModeOptions['mode'] } : {}),
+        ...(typeof args.oldText === 'string' ? { oldText: args.oldText } : {}),
+        ...(typeof args.newText === 'string' ? { newText: args.newText } : {}),
+        ...(typeof args.section === 'string' ? { section: args.section } : {}),
+      }
+      const hash = f.store.edit(
+        view,
+        args.path,
+        args.expectedHash,
+        args.text,
+        args.sources as string[],
+        editOptions,
+      )
       return {
         path: args.path,
         hash,
@@ -506,13 +580,17 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         activeContextChanged: false,
       }
     }
-    if (!objectShape(args, ['revision']) || args.revision !== view.base.revision)
+    if (
+      !objectShape(args, ['revision', 'allowShrink']) ||
+      args.revision !== view.base.revision ||
+      (args.allowShrink !== undefined && typeof args.allowShrink !== 'boolean')
+    )
       throw new Error('Expected draft base revision')
     if (value) {
       value.ready = true
       return { readyForIntegration: true, activeContextChanged: false }
     }
-    const result = f.store.integrate(view)
+    const result = f.store.integrate(view, [], { allowShrink: args.allowShrink === true })
     draft = undefined
     return { ...result, contextActivation: 'next-primary-request' }
   }
@@ -829,6 +907,37 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     reset()
     active = false
   })
+  pi.on('session_before_compact', (event) => {
+    compactionCheckpoint = `reason=${event.reason}; tokensBefore=${event.preparation?.tokensBefore ?? 'unknown'}`
+  })
+  pi.on('session_compact', (event, ctx) => {
+    const summaryText = bounded(event.compactionEntry?.summary, 1024)
+    compactionCheckpoint = summaryText
+      ? `reason=${event.reason}; summary=${summaryText.replace(/\s+/g, ' ').slice(0, 320)}`
+      : `reason=${event.reason}; completed=true`
+    try {
+      const f = primary(ctx, 'agent_memory_reflect', 'write')
+      if (!summaryText) return
+      const id = digest(`${ctx.sessionManager.getSessionId()}:compact:${event.compactionEntry.id}`)
+      const episode: Episode = {
+        id,
+        project: f.project,
+        session: ctx.sessionManager.getSessionId(),
+        evidence: 'observed-native-unverified',
+        observedAt: new Date().toISOString(),
+        entryHash: digest(JSON.stringify(event.compactionEntry)),
+        input: { text: `[compaction:${event.reason}] ${summaryText}`, source: 'interactive' },
+        actions: [{ text: summaryText }],
+        results: [],
+        outcome: 'completed',
+      }
+      if (bytes(`${JSON.stringify(episode)}\n`) <= 16384) {
+        f.store.recordEpisode(id, episode)
+      }
+    } catch {
+      /* Compaction continuity checkpoint is best-effort and never blocks compaction. */
+    }
+  })
   pi.on('before_agent_start', async (event, ctx) => {
     stopJob()
     const base = event.systemPrompt.replace(/\n<mahiro-managed-memory>[\s\S]*?<\/mahiro-managed-memory>/g, '')
@@ -852,8 +961,12 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
       await f.abi.authorize(f.tool, ctx, root, 'read', ctx.signal)
       f.current()
       const projection = f.store.projection(f.project, true)
+      const checkpointNote = compactionCheckpoint
+        ? `\nCompaction continuity checkpoint (unverified summary context): ${compactionCheckpoint}`
+        : ''
+      compactionCheckpoint = undefined
       return {
-        systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`,
+        systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.${checkpointNote}\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`,
       }
     } catch {
       fail('projection-unavailable')

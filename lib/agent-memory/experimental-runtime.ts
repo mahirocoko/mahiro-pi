@@ -9,12 +9,14 @@ import { MemoryEngineController, assertCurrent, type OperationContext } from './
 import { MemoryPublisher } from './engine/publisher.ts'
 import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from './engine/policy.ts'
 import { MemoryLifetime } from './engine/lifetime.ts'
+import { offlineMaintenance, type MaintenanceRequest } from './engine/offline-maintenance.ts'
 import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
 import { createAttempt, type AttemptOutcome } from './engine/attempt.ts'
 import type { Input, Method, Output } from './engine/protocol.ts'
 import type { MemoryABIV2, EngineWorkerValue } from './experimental-contracts.ts'
 import type { MemoryNode } from './runtime.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
+import { isOfflineMaintenanceSession } from './offline-bootstrap.ts'
 import { primaryDelegationDoctrine } from './prompt.ts'
 import type { Episode } from './store.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
@@ -85,6 +87,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     | undefined
   let pending: PendingEpisode | undefined
   let outcome: string | undefined
+  let compactionCheckpoint: string | undefined
   const lifetime = new MemoryLifetime()
   let retirement: Promise<void> | undefined
   let releaseRuntime: (() => void) | undefined
@@ -99,6 +102,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     draft = undefined
     pending = undefined
     outcome = undefined
+    compactionCheckpoint = undefined
     latestAttempt = undefined
     const own = job
     job = undefined
@@ -121,7 +125,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     })()
     return retirement
   }
-  const owner = (ctx: ExtensionContext, name: string, operation: 'read' | 'write', signal?: AbortSignal) => {
+  const owner = (
+    ctx: ExtensionContext,
+    name: string,
+    operation: 'read' | 'write',
+    signal?: AbortSignal,
+    maintenance = false,
+  ) => {
     const node = pinned
     const abi = node?.managedMemory
     const tool = pi.getAllTools().find((entry) => entry.name === name)
@@ -150,7 +160,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           !abi.trustedTool(tool)
         )
           return false
-        const access = abi.assertAccess(tool, ctx, root, operation)
+        const access = maintenance
+          ? abi.maintenanceAccess(tool, ctx, root, operation, [])
+          : abi.assertAccess(tool, ctx, root, operation)
         if (
           expected &&
           (access.kind !== expected.kind ||
@@ -160,12 +172,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         // Identical logical/physical target within this synchronous call is one PSS check, not a cache.
         const paths = [...new Set([...targets.physical, ...targets.logical.map((path) => join(root, path))])]
         for (let start = 0; start < paths.length; start += 32)
-          abi.assertTargets(tool, ctx, root, operation, paths.slice(start, start + 32))
+          if (maintenance) abi.maintenanceAccess(tool, ctx, root, operation, paths.slice(start, start + 32))
+          else abi.assertTargets(tool, ctx, root, operation, paths.slice(start, start + 32))
         return true
       },
     }
     assertCurrent(context)
-    const access = abi.assertAccess(tool, ctx, root, operation)
+    const access = maintenance
+      ? abi.maintenanceAccess(tool, ctx, root, operation, [])
+      : abi.assertAccess(tool, ctx, root, operation)
     expected = access
     if (access.kind === 'primary' && !primaryEngine) {
       releaseController = abi.hold({ controller: token })
@@ -481,7 +496,37 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       const plan = prepareInitialization(cwd, args)
       return await initializeMemoryRoot(f.root, plan, context)
     }
-    const f = await resolve(ctx, name, name === 'agent_memory_read' ? 'read' : 'write', signal)
+    if (
+      name === 'agent_memory_manage' &&
+      objectShape(args, ['action', 'target', 'revision', 'offline']) &&
+      ['offline-inspect', 'offline-adopt', 'offline-resume'].includes(args.action as string)
+    ) {
+      const f = owner(ctx, name, args.action === 'offline-inspect' ? 'read' : 'write', signal, true)
+      if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || starting || job || draft)
+        throw Error('Idle ephemeral primary maintenance owner required')
+      // No ordinary config/data barrier, cached recovered plan or manufactured current verdict.
+      // Root maintenanceAccess rechecks the real manager, generation, tool and exact PSS targets.
+      const prefix = await branch(ctx)
+      const current = f.context.current
+      const context: OperationContext = {
+        ...f.context,
+        current: (targets) => {
+          const entries = ctx.sessionManager.getBranch()
+          return (
+            entries.length <= 8192 &&
+            prefix.every((id, index) => entries[index]?.id === id) &&
+            current(targets)
+          )
+        },
+      }
+      assertCurrent(context)
+      return await offlineMaintenance(f.engine, context, args as unknown as MaintenanceRequest)
+    }
+    const statusRead =
+      name === 'agent_memory_manage' &&
+      objectShape(args, ['action']) &&
+      (args.action === 'status' || args.action === 'doctor')
+    const f = await resolve(ctx, name, name === 'agent_memory_read' || statusRead ? 'read' : 'write', signal)
     if (name === 'agent_memory_reflect') {
       if (!objectShape(args, ['assignment']) || typeof args.assignment !== 'string')
         throw Error('Bounded assignment required')
@@ -498,6 +543,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           'sources',
           'target',
           'path',
+          'text',
+          'section',
           'core',
           'projectId',
           'automatic',
@@ -511,6 +558,71 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         (args.action !== 'conflicts' || typeof args.target !== 'string' || typeof args.path !== 'string')
       )
         throw Error('Conflict file required for paging')
+      if (args.action === 'doctor') {
+        const res = await f.request('manage', { action: 'doctor', project: f.project })
+        if ('doctor' in res) return res.doctor
+        throw Error('Doctor result unavailable')
+      }
+      if (args.action === 'init-project' || args.action === 'migrate-v2') {
+        job?.cancel()
+        const prepared = await f.request('manage', { action: args.action, project: f.project })
+        if (!('plan' in prepared)) throw Error('Management plan unavailable')
+        if (!prepared.plan.changes.filter((change) => change.path !== '.memory.json').length) {
+          return {
+            revision: prepared.plan.base,
+            ...(args.action === 'init-project'
+              ? { initialized: [], existing: [] }
+              : { migrated: [], skipped: [] }),
+          }
+        }
+        const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        if (result.stage !== 'reconciled_committed')
+          throw Error('Management publication unavailable; proposal retained')
+        draft = undefined
+        const changedPaths = prepared.plan.changes
+          .map((change) => change.path)
+          .filter((path) => path !== '.memory.json')
+        return {
+          revision: result.revision,
+          ...(args.action === 'init-project'
+            ? { initialized: changedPaths, existing: [] }
+            : { migrated: changedPaths, skipped: [] }),
+        }
+      }
+      if (args.action === 'remember') {
+        const text = bounded(args.text, 4096)
+        if (!text) throw Error('Bounded remember text required')
+        const targetPath = typeof args.path === 'string' ? args.path : 'system/human/notes.md'
+        job?.cancel()
+        const created = await f.request('create', { project: f.project, shared: true, ttlMs: 60000 })
+        const currentFile = (await f.request('read', {
+          view: created.view,
+          selection: { path: targetPath, offset: 0, limit: 1 },
+        })) as { missing?: boolean; hash?: string | null }
+        const expectedHash = currentFile.missing ? null : (currentFile.hash ?? null)
+        await f.request('edit', {
+          view: created.view,
+          path: targetPath,
+          expectedHash,
+          text: `- ${text}`,
+          sources: [],
+          mode: 'append',
+          ...(typeof args.section === 'string' ? { section: args.section } : {}),
+        })
+        await f.request('ready', { view: created.view })
+        const prepared = await f.request('prepare', { view: created.view, reviewed: [] })
+        if ('conflict' in prepared) return prepared
+        const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        if (result.stage !== 'reconciled_committed')
+          throw Error('Remember publication unavailable; proposal retained')
+        draft = undefined
+        return {
+          revision: result.revision,
+          path: targetPath,
+          remembered: true,
+          contextActivation: 'next-primary-request',
+        }
+      }
       if (args.action === 'status') {
         if (latestAttempt && !latestAttempt.matches(ctx, f.configHash, f.project)) latestAttempt = undefined
         return {
@@ -619,6 +731,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           sources: args.sources as string[] | undefined,
           target: args.target as string | undefined,
         })
+        if (!('plan' in prepared)) throw Error('Management plan unavailable')
         const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
         if (result.stage !== 'reconciled_committed')
           throw Error('Management publication unavailable; proposal retained')
@@ -655,12 +768,25 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (name === 'agent_memory_read') return await f.request('read', { view: selected.view, selection: args })
     if (name === 'agent_memory_edit') {
       if (
-        !objectShape(args, ['path', 'expectedHash', 'text', 'sources']) ||
+        !objectShape(args, [
+          'path',
+          'expectedHash',
+          'text',
+          'sources',
+          'mode',
+          'oldText',
+          'newText',
+          'section',
+        ]) ||
         typeof args.path !== 'string' ||
         !(typeof args.expectedHash === 'string' || args.expectedHash === null) ||
         !(typeof args.text === 'string' || args.text === null) ||
         !Array.isArray(args.sources) ||
-        args.sources.some((source) => typeof source !== 'string')
+        args.sources.some((source) => typeof source !== 'string') ||
+        (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
+        (args.oldText !== undefined && typeof args.oldText !== 'string') ||
+        (args.newText !== undefined && typeof args.newText !== 'string') ||
+        (args.section !== undefined && typeof args.section !== 'string')
       )
         throw Error('Invalid edit')
       const result = await f.request('edit', {
@@ -669,10 +795,19 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         expectedHash: args.expectedHash,
         text: args.text,
         sources: args.sources as string[],
+        ...(typeof args.mode === 'string' ? { mode: args.mode as 'replace' | 'patch' | 'append' } : {}),
+        ...(typeof args.oldText === 'string' ? { oldText: args.oldText } : {}),
+        ...(typeof args.newText === 'string' ? { newText: args.newText } : {}),
+        ...(typeof args.section === 'string' ? { section: args.section } : {}),
       })
       return { path: args.path, ...result, draft: true, activeContextChanged: false }
     }
-    if (name !== 'agent_memory_commit' || !objectShape(args, ['revision']) || args.revision !== selected.base)
+    if (
+      name !== 'agent_memory_commit' ||
+      !objectShape(args, ['revision', 'allowShrink']) ||
+      args.revision !== selected.base ||
+      (args.allowShrink !== undefined && typeof args.allowShrink !== 'boolean')
+    )
       throw Error('Expected base revision')
     await f.request('ready', { view: selected.view })
     if (f.access.kind === 'worker') {
@@ -680,7 +815,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       f.access.value.ready = true
       return { readyForIntegration: true, activeContextChanged: false }
     }
-    const prepared = await f.request('prepare', { view: selected.view, reviewed: [] })
+    const prepared = await f.request('prepare', {
+      view: selected.view,
+      reviewed: [],
+      ...(args.allowShrink === true ? { allowShrink: true } : {}),
+    })
     draft = undefined
     if ('conflict' in prepared) return prepared
     const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
@@ -706,6 +845,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   pi.on('session_before_fork', retire)
   pi.on('session_before_tree', retire)
   pi.on('session_shutdown', retire)
+  pi.on('session_before_compact', (event) => {
+    compactionCheckpoint = `reason=${event.reason}; tokensBefore=${event.preparation?.tokensBefore ?? 'unknown'}`
+  })
+  pi.on('session_compact', (event) => {
+    const summaryText = bounded(event.compactionEntry?.summary, 1024)
+    compactionCheckpoint = summaryText
+      ? `reason=${event.reason}; summary=${summaryText.replace(/\s+/g, ' ').slice(0, 320)}`
+      : `reason=${event.reason}; completed=true`
+  })
   pi.on('before_agent_start', (event, ctx) =>
     lifetime.track(async () => {
       const base = event.systemPrompt.replace(
@@ -713,6 +861,12 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         '',
       )
       const workerMarker = event.systemPrompt.includes('<active_agent name="managed-memory-writer"/>')
+      if (
+        !ctx.hasUI &&
+        ctx.sessionManager.getSessionFile() === undefined &&
+        isOfflineMaintenanceSession(ctx.sessionManager.getSessionId())
+      )
+        return base === event.systemPrompt ? undefined : { systemPrompt: base }
       try {
         const f = await resolve(ctx, 'agent_memory_read', 'read', ctx.signal)
         if (f.access.kind === 'worker') {
@@ -724,8 +878,12 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         }
         job?.cancel()
         const projection = await f.request('projection', { project: f.project, shared: true })
+        const checkpointNote = compactionCheckpoint
+          ? `\nCompaction continuity checkpoint (unverified summary context): ${compactionCheckpoint}`
+          : ''
+        compactionCheckpoint = undefined
         return {
-          systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`,
+          systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.${checkpointNote}\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`,
         }
       } catch {
         lastError = 'projection-unavailable'

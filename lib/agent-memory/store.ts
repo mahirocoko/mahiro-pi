@@ -22,7 +22,17 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, hasSecret, objectShape, validId } from '../continuity/records.ts'
 import { assertPrivatePath } from '../continuity/store.ts'
-import { discoveryVersion, topicMetadata } from './retrieval.ts'
+import {
+  type EditModeOptions,
+  allowedPath,
+  applySurgicalEdit,
+  assertLosslessRetention,
+  isAlwaysLoadedTieredPath,
+  projectOfPath,
+} from './engine/schema.ts'
+import { directoryIndex, discoveryVersion, extractFrontmatterAndLinks, topicMetadata } from './retrieval.ts'
+
+export { allowedPath, type EditModeOptions }
 
 export interface MemoryConfig {
   version: 1
@@ -84,13 +94,6 @@ const hash = /^[a-f0-9]{40,64}$/
 const name = /^[a-z0-9][a-z0-9-]{0,63}$/
 const copy = <T>(value: T): T => structuredClone(value)
 const equal = isDeepStrictEqual
-export const allowedPath = (path: string, project?: string) => {
-  if (typeof path !== 'string') return false
-  if (['Core.md', 'index.md'].includes(path)) return true
-  if (/^(global|procedures)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
-  const match = /^deferred\/([a-z0-9][a-z0-9-]{0,63})\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
-  return !!match && (!project || match[1] === project)
-}
 const privateRead = (path: string, max: number, prefixBytes?: number) => {
   assertPrivatePath(path)
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
@@ -337,9 +340,7 @@ export function createMemoryStore(
     s.forgottenSources.some((entry) => entry.project === project && entry.source === source)
   const suppressed = (s: Snapshot, path: string, file: MemoryFile) =>
     s.forgottenPaths.includes(path) ||
-    file.sources.some((source) =>
-      sourceForgotten(s, source, path.startsWith('deferred/') ? path.split('/')[1] : null),
-    )
+    file.sources.some((source) => sourceForgotten(s, source, projectOfPath(path)))
   const managementProject = (project?: string) => {
     const projects = config().projects
     const selected = project ?? (projects.length === 1 ? projects[0].id : undefined)
@@ -485,6 +486,16 @@ export function createMemoryStore(
     git(['add', '--', ...paths])
     current()
     git(['commit', '-m', message])
+    const gitObjects = join(root, '.git', 'objects')
+    if (existsSync(gitObjects)) {
+      let looseDirs = 0
+      try {
+        looseDirs = readdirSync(gitObjects).filter((n) => /^[0-9a-f]{2}$/.test(n)).length
+      } catch {
+        looseDirs = 0
+      }
+      if (looseDirs >= 192) git(['gc', '--auto', '--quiet'])
+    }
     return load()
   }
   const validateView = (v: View) => {
@@ -785,28 +796,46 @@ export function createMemoryStore(
     inspect,
     read(v: View, path: string) {
       return inspect(v, (files) => {
+        const cleanDir = typeof path === 'string' ? path.replace(/\/+$/, '') : ''
+        const allowedDirs = new Set([
+          'system',
+          'system/human',
+          'reference',
+          `projects/${v.project}/system`,
+          `projects/${v.project}/reference`,
+        ])
+        if (cleanDir && !cleanDir.endsWith('.md') && allowedDirs.has(cleanDir))
+          return directoryIndex(files, cleanDir)
         if (!allowedPath(path, v.scope === 'primary' ? undefined : v.project))
           throw new Error('Memory path outside scope')
         const f = files[path]
         return f ? { ...copy(f), hash: digest(f.text) } : { missing: true, hash: null }
       })
     },
-    edit(v: View, path: string, expectedHash: string | null, text: string | null, sources: string[] = []) {
+    edit(
+      v: View,
+      path: string,
+      expectedHash: string | null,
+      text: string | null,
+      sources: string[] = [],
+      options?: EditModeOptions,
+    ) {
       checkView(v)
       if (
         !allowedPath(path, v.scope === 'primary' ? undefined : v.project) ||
         (v.files[path] ? digest(v.files[path].text) : null) !== expectedHash
       )
         throw new Error('Stale file or path outside scope')
-      if (text === null && ['Core.md', 'index.md'].includes(path))
+      const nextText = applySurgicalEdit(v.files[path]?.text, text, options)
+      if (nextText === null && ['Core.md', 'index.md'].includes(path))
         throw new Error('Core and index cannot be removed')
       const next = copy(v)
-      if (text === null) delete next.files[path]
-      else next.files[path] = { text, sources: [...sources].sort() }
+      if (nextText === null) delete next.files[path]
+      else next.files[path] = { text: nextText, sources: [...sources].sort() }
       validate(next.files)
       saveView(next)
       Object.assign(v, next)
-      return text === null ? null : digest(text)
+      return nextText === null ? null : digest(nextText)
     },
     cancel(v: View) {
       checkView(v)
@@ -814,7 +843,7 @@ export function createMemoryStore(
       saveView(next)
       Object.assign(v, next)
     },
-    integrate(v: View, reviewed: string[] = []) {
+    integrate(v: View, reviewed: string[] = [], options?: { allowShrink?: boolean }) {
       checkView(v)
       return lock(() => {
         checkView(v)
@@ -839,6 +868,7 @@ export function createMemoryStore(
           saveView(v)
           return { conflict: conflicts, view: v.id }
         }
+        assertLosslessRetention(v.base.files, v.files, changed, options?.allowShrink)
         for (const p of changed) {
           if (v.files[p]) next.files[p] = copy(v.files[p])
           else delete next.files[p]
@@ -984,14 +1014,37 @@ export function createMemoryStore(
       const revision = head()
       const state = ledger(revision)
       const c = config()
+      const tieredPaths = Object.keys(state.sources)
+        .filter(
+          (p) =>
+            isAlwaysLoadedTieredPath(p, project) &&
+            !suppressed({ ...state, revision, files: {} }, p, {
+              text: '',
+              sources: state.sources[p],
+            }),
+        )
+        .sort()
+      const batchPaths = ['Core.md', 'index.md', ...tieredPaths]
+      for (const path of batchPaths) current(join(root, path))
+      const rawBatch = Buffer.from(
+        git(['cat-file', '--batch'], `${batchPaths.map((p) => `${revision}:${p}`).join('\n')}\n`),
+        'utf8',
+      )
       const selected: Record<string, MemoryFile> = {}
-      for (const path of ['Core.md', 'index.md']) {
-        current(join(root, path))
+      let offset = 0
+      for (const path of batchPaths) {
+        const end = rawBatch.indexOf(10, offset)
+        const header = end < 0 ? '' : rawBatch.subarray(offset, end).toString('utf8')
+        const m = /^([a-f0-9]{40,64}) blob ([0-9]+)$/.exec(header)
+        const size = m ? Number(m[2]) : -1
+        if (!m || size < 0 || rawBatch[end + 1 + size] !== 10) throw new Error('Invalid memory Git object')
         selected[path] = {
-          text: git(['show', `${revision}:${path}`]),
+          text: rawBatch.subarray(end + 1, end + 1 + size).toString('utf8'),
           sources: state.sources[path],
         }
+        offset = end + size + 2
       }
+      if (offset !== rawBatch.length) throw new Error('Invalid memory Git batch')
       validate(selected, c)
       if (
         Object.entries(selected).some(([path, file]) =>
@@ -999,10 +1052,18 @@ export function createMemoryStore(
         )
       )
         throw new Error('Memory projection unavailable: current forgetting')
+      const systemEntries = tieredPaths
+        .filter((p) => p.startsWith('system/'))
+        .map((p) => [p, selected[p].text] as const)
+      const projectSystemEntries = tieredPaths
+        .filter((p) => p.startsWith(`projects/${project}/system/`))
+        .map((p) => [p, selected[p].text] as const)
       return {
         revision,
         core: selected['Core.md'].text,
         index: selected['index.md'].text,
+        ...(systemEntries.length ? { system: Object.fromEntries(systemEntries) } : {}),
+        ...(projectSystemEntries.length ? { projectSystem: Object.fromEntries(projectSystemEntries) } : {}),
         discovery: (() => {
           const paths = Object.keys(state.sources).filter(
             (p) =>
@@ -1033,7 +1094,8 @@ export function createMemoryStore(
       }
     },
     pendingEpisodes(project: string) {
-      const s = load()
+      const revision = head()
+      const s = { ...ledger(revision), revision, files: {} } as Snapshot
       const folder = join(root, '.episodes')
       if (!existsSync(folder)) return []
       assertPrivatePath(folder)
@@ -1056,7 +1118,9 @@ export function createMemoryStore(
       if (e.id !== id || !name.test(e.project as string)) throw new Error('Invalid episode scope')
       const raw = JSON.stringify(e)
       const target = join(root, '.episodes', `${id}.json`)
-      if (sourceForgotten(load(), id, e.project as string))
+      const rev = head()
+      const s = { ...ledger(rev), revision: rev, files: {} } as Snapshot
+      if (sourceForgotten(s, id, e.project as string))
         throw new Error('Forgotten episode cannot be re-admitted')
       if (existsSync(target)) {
         if (read(target, 16384) !== `${raw}\n`) throw new Error('Observed episode changed')
@@ -1068,7 +1132,6 @@ export function createMemoryStore(
         assertPrivatePath(folder)
         const names = readdirSync(folder).filter((p) => /^[a-f0-9]{64}\.json$/.test(p))
         if (names.length >= 256) {
-          const s = load()
           for (const file of names)
             if (
               s.reviewed.includes(file.slice(0, -5)) ||
@@ -1088,6 +1151,142 @@ export function createMemoryStore(
         }
       }
       write(join(root, '.episodes', `${id}.json`), `${raw}\n`)
+    },
+    doctor(project = 'default') {
+      const now = load()
+      const c = config()
+      const pending = [join(root, '.git')]
+      let gitEntries = 0
+      while (pending.length) {
+        const dir = pending.pop()!
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          gitEntries++
+          if (entry.isDirectory()) pending.push(join(dir, entry.name))
+        }
+      }
+      const activePaths = Object.keys(now.files).filter((p) => !suppressed(now, p, now.files[p]))
+      let totalBytesUsed = 0
+      let alwaysLoadedBytes = 0
+      const missingDescriptions: string[] = []
+      const unmigratedV1Paths: string[] = []
+      const brokenLinks: { source: string; target: string }[] = []
+      for (const p of activePaths) {
+        const b = bytes(now.files[p].text)
+        totalBytesUsed += b
+        if (p === 'Core.md' || p === 'index.md' || isAlwaysLoadedTieredPath(p, project))
+          alwaysLoadedBytes += b
+        const meta = extractFrontmatterAndLinks(now.files[p].text)
+        if ((p.startsWith('reference/') || /^projects\/[^/]+\/reference\//.test(p)) && !meta.description) {
+          missingDescriptions.push(p)
+        }
+        for (const link of meta.links ?? []) {
+          const normalized = link.endsWith('.md') ? link : `${link}.md`
+          if (!now.files[link] && !now.files[normalized]) {
+            brokenLinks.push({ source: p, target: link })
+          }
+        }
+        if (p.startsWith('global/') || p.startsWith('deferred/')) unmigratedV1Paths.push(p)
+      }
+      const episodesDir = join(root, '.episodes')
+      const episodeFiles = existsSync(episodesDir)
+        ? readdirSync(episodesDir).filter((p) => /^[a-f0-9]{64}\.json$/.test(p)).length
+        : 0
+      const activeViews = views()
+      return {
+        revision: now.revision,
+        project,
+        healthy: gitEntries <= 8192 && totalBytesUsed <= c.totalBytes && brokenLinks.length === 0,
+        gitEntries,
+        gitEntryCeiling: 8192,
+        fileCount: activePaths.length,
+        fileCeiling: memoryLimits.files,
+        totalBytesUsed,
+        totalBytesCeiling: c.totalBytes,
+        alwaysLoadedBytes,
+        episodes: episodeFiles,
+        views: activeViews.length,
+        conflicts: activeViews.filter((v) => v.state === 'conflict').length,
+        brokenLinks,
+        missingDescriptions,
+        unmigratedV1Paths,
+      }
+    },
+    initProject(project: string) {
+      if (!name.test(project)) throw new Error('Invalid project scope')
+      return lock(() => {
+        const now = load()
+        const next = copy(now)
+        const overviewPath = `projects/${project}/system/overview.md`
+        const conventionsPath = `projects/${project}/system/conventions.md`
+        let changed = 0
+        if (!next.files[overviewPath]) {
+          next.files[overviewPath] = {
+            text: `---\nname: ${project}-overview\ndescription: Architecture and project overview for ${project}\n---\n# Project Overview (${project})\n\n- Active repository context and boundaries.\n`,
+            sources: [],
+          }
+          changed++
+        }
+        if (!next.files[conventionsPath]) {
+          next.files[conventionsPath] = {
+            text: `---\nname: ${project}-conventions\ndescription: Coding conventions and workflow rules for ${project}\n---\n# Project Conventions (${project})\n\n## Rules\n\n- Follow repository-local contracts and verification gates.\n`,
+            sources: [],
+          }
+          changed++
+        }
+        if (!changed) return { revision: now.revision, project, initialized: false, changed: 0 }
+        const committed = writeRevision(now, next, `Initialize tiered project memory for ${project}`)
+        return { revision: committed.revision, project, initialized: true, changed }
+      })
+    },
+    migrateV2(project = 'default') {
+      if (!name.test(project)) throw new Error('Invalid project scope')
+      return lock(() => {
+        const now = load()
+        const next = copy(now)
+        const archivePrefix = `archives/legacy-v1-${now.revision.slice(0, 12)}`
+        const migrated: string[] = []
+        if (!next.files['system/persona.md']) {
+          next.files['system/persona.md'] = {
+            text: `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${now.files['Core.md'].text}`,
+            sources: [...now.files['Core.md'].sources],
+          }
+          migrated.push('system/persona.md')
+        }
+        for (const [p, file] of Object.entries(now.files)) {
+          if (p.startsWith('global/')) {
+            const slug = p.slice('global/'.length)
+            const archivePath = `${archivePrefix}/global-${slug}`
+            const targetPath = `system/human/${slug}`
+            if (!next.files[archivePath]) next.files[archivePath] = copy(file)
+            if (!next.files[targetPath]) {
+              next.files[targetPath] = {
+                text: file.text.startsWith('---\n')
+                  ? file.text
+                  : `---\nname: ${slug.replace(/\.md$/, '')}\ndescription: Shared human preference migrated from ${p}\n---\n${file.text}`,
+                sources: [...file.sources],
+              }
+              migrated.push(targetPath)
+            }
+          } else if (p.startsWith('deferred/')) {
+            const [, proj, slug] = p.split('/')
+            const archivePath = `${archivePrefix}/deferred-${proj}-${slug}`
+            const targetPath = `projects/${proj}/system/${slug}`
+            if (!next.files[archivePath]) next.files[archivePath] = copy(file)
+            if (!next.files[targetPath]) {
+              next.files[targetPath] = {
+                text: file.text.startsWith('---\n')
+                  ? file.text
+                  : `---\nname: ${proj}-${slug.replace(/\.md$/, '')}\ndescription: Project memory migrated from ${p}\n---\n${file.text}`,
+                sources: [...file.sources],
+              }
+              migrated.push(targetPath)
+            }
+          }
+        }
+        if (!migrated.length) return { revision: now.revision, migrated: [], changed: 0 }
+        const committed = writeRevision(now, next, 'Losslessly migrate v1 memory into tiered v2 layout')
+        return { revision: committed.revision, migrated, changed: migrated.length }
+      })
     },
   }
 }

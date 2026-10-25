@@ -75,9 +75,10 @@ actor or override canonical identity. Authorized empty reads create nothing.
 Creation requires explicit human direction, not merely loading a skill or resource.
 
 Explicit profile installation provisions named tools and separate canonical DATA
-namespaces. No per-repository configuration is required. Root checks exact package,
-entry and tool provenance, current SessionManager/header/generation and public
-winning `allow` for both tool and DATA surface: exact `matchedSurface`, source
+namespaces. No per-repository configuration is required. The independently
+bootstrapped feature kernel checks current registered tool identity,
+SessionManager/header/generation and public winning `allow` for both tool and
+DATA surface: exact `matchedSurface`, source
 `tool`, no yolo substitution. Wildcard/default/session, unrelated memory or
 one-sided grants do not suffice. Explicit legacy leaf/tool/path restrictions remain.
 

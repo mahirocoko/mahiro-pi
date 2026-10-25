@@ -2,9 +2,45 @@
 
 [← Documentation](README.md) · [Installation policy](bootstrap.md) · [RTK](rtk.md)
 
-Mahiro Pi uses **one Root native guard** and the public permission-system (PSS)
-as the sole policy resolver. It does not add a second permission engine, borrow
-another host's grants or replace native subagent ownership.
+Mahiro Pi has an independently bootstrapped **feature kernel**, an optional
+**Root native guard**, and the public permission-system (PSS) as the sole policy
+resolver. It does not add a second permission engine, borrow another host's
+grants or replace native subagent ownership.
+
+## Feature kernel and lifecycle
+
+The first existing manifest entry is now `lib/guards/bootstrap.ts`: TypeScript
+keeps kernel and public-owner imports inside Pi's supported extension loader,
+not Node's native `.mjs` strip-types path. It activates `lib/kernel/index.ts`
+before Root. The manifest still has thirteen entries in the same logical order:
+bootstrap, Root, ten features, then the rendering-only UI adapter. No extra entry
+or automatically activated theme is added.
+
+`lib/kernel/registry.mjs` owns the one process-wide service registry shared by
+native ESM and Jiti. Its historical `healthy-nodes` symbol is retained as the same
+object, not a second registry. Kernel readiness means a live bound generation,
+not a healthy guard host, provenance classifier or permission grant. Actual
+SessionManager identity, unparented-primary checks, scoped native parent service,
+child tracking and memory leases/retirement/drain stay together in the kernel.
+Root neither publishes feature nodes nor releases their memory holds.
+
+Features call their kernel ABI at the actual operation boundary. Current public
+registration, context and PSS decisions are checked there, without importing
+Root provenance or its executable host. Status remains available under the
+existing PSS authority when Root is omitted; optional execution transforms are
+separate from feature readiness. Argument copying for recall/memory is a kernel
+context boundary, not a secret checker or guard-health dependency.
+
+Bootstrap does not intercept tool calls. Missing kernel readiness produces a
+warning, not a global lockout. Individual state features refuse a missing or
+retired context at their own ABI boundary; ordinary native tools do not need a
+kernel node. Source loading/startup provisions nothing.
+
+Genuine offline SDK/Faux regressions separately omit Root from kernel resources
+and omit the kernel from native Root resources. They exercise Goal status,
+wildcard/yolo policy, live PSS revocation, native child/fork refusal, generation
+cleanup and ordinary read/grep/Bash execution. These are source tests, not proof
+of an installed session, private-memory recovery or human acceptance.
 
 ## File access and command policy are different
 
@@ -20,15 +56,19 @@ redirection, wrapper or interpreter program. Root's final Bash recheck evaluates
 An allowed command is not proof that every file it might access was inspected.
 
 These are cooperating native execution checks, **not an OS sandbox** or
-protection against hostile same-user extensions. PowerShell execution is currently
-blocked by Root because its classifier is unsupported; preserving its renderer
-does not imply execution support.
+protection against hostile same-user extensions. Root does not register a
+PowerShell wrapper: normal host support and PSS own its availability. Removing
+an always-throwing wrapper is not a claim that a Bash classifier understands
+PowerShell.
 
 ## Native final execution
 
-The manifest loads `lib/guards/bootstrap.mjs`, then `lib/guards/index.ts`,
-before features. Root checks healthy canonical context, public native-tool
-provenance, cancellation, commit attribution and final arguments before spawn.
+The manifest loads `lib/guards/bootstrap.ts`, then `lib/guards/index.ts`,
+before features. When loaded, Root checks its live native host, public PSS,
+cancellation, secret file operands, commit attribution and final arguments before
+spawn. It does not require kernel presence or package provenance for ordinary
+native execution. Optional RTK transformation uses a live owned kernel context;
+without it, the original sanitized command must still pass final authorization.
 Loading source grants no capability.
 
 For path tools, final execution queries public policy again after argument
@@ -38,55 +78,41 @@ path cannot borrow it. Unmatched universal path fallback stays with the public g
 
 ### Native MCP registry admission
 
-Root admits native MCP calls from a fresh public tool-registry snapshot, not a
-per-server tool-name list. The exact dispatched name must have one current
-registration with the runtime-assigned built-in MCP owner provenance. Caller
-input, MCP-looking names, namespace aliases and copied definition metadata do
-not supply that provenance. Root does not reconstruct names from prefixes;
-legitimate shortened or hash-suffixed native names remain opaque identities.
-
-Admission also preserves public exposure semantics: hidden, withdrawn, missing
-and unknown-exposure entries fail closed. Direct tools require active membership;
-registered codemode/deferred tools can be called by another tool while inactive.
-Model-issued calls require active membership, and model-only tools are never
-nested-callable. Nested identity comes from the host's tool-call event, not input.
-The native MCP owner still checks current server/tool availability at execution.
-
-This classification only lets the ordinary PSS pipeline continue. It does not
-approve a call, override targeted deny/ask decisions, grant a child role tools or
-skip normal codemode dispatch. There is no positive name/provenance cache.
-Public registry metadata assumes a trusted Pi host and loaded extension set; it
-is not cryptographic factory attestation against hostile in-process code or an
-OS sandbox. Source/SDK regressions do not prove that an existing session loaded
-the fix: intentional fresh loading and an appropriate read-only native check remain
-separate gates. See the [upgrade procedure](getting-started.md#upgrade-safely)
-when a same-process reload leaves native tool health unavailable.
+Pi, codemode, the MCP owner and the public subagent package own their actual
+registrations, exposure rules, role tools and execution lifecycle. Root has no
+second dispatch allowlist, alias classifier or exact package realpath/version
+permission plane. Normal PSS decisions still apply to built-ins, tasks, recall,
+memory, subagents, other extensions and native MCP. A tool-looking name does not
+create a registration or bypass the host's own dispatch semantics.
 
 ### Owner-installed child controls
 
-The public subagent creator can install bare `ask_parent` and `notify_parent`
-controls independently of a role's tool list. Root recognizes these only when
-its current healthy parent factory attests the exact child SDK manager and the
-actual currently registered definition through public `AgentSession` APIs.
-The creator separately captures the original execute function; copied names,
-schemas, synthetic SDK source metadata, session IDs or lifecycle events are not
-ownership proof. Events locate a candidate parent only.
+The native parent service still owns child-manager identity and creator-installed
+controls such as `ask_parent` / `notify_parent`. Kernel child tracking preserves
+that relationship, generation fencing and private-memory leases; it does not
+turn communication into generic execution authority. Root neither reconstructs
+these names nor supplies a second permission grant.
 
-This narrow classification exception is **not a grant**: the ordinary public
-PSS pipeline still resolves allow, ask and deny. Missing/legacy attestation,
-failed binding, child disposal or parent replacement fails closed. Stale cleanup
-cannot revoke a replacement registration. Aliases such as
-`functions.notify_parent` are not normalized or admitted. These controls remain
-package-owned communication, not generic child execution or RPC authority.
+Source tests do not prove that a long-lived process loaded changed factories.
+Fresh declared-SDK subprocess checks and live runtime acceptance are distinct.
+See [safe upgrades](getting-started.md#upgrade-safely); reload/profile changes
+still require their own human authorization.
 
 ### Filtered configuration reads
 
-Secret reads use public policy, not a mandatory parallel secret resolver.
-Optional [BASIC read defaults](bootstrap.md#optional-basic-read-defaults) are
-finite and incomplete. Four filtered helpers remain for inspecting configuration
-without exposing values: `mh_npm_config`, `mh_env_config`, `mh_pypi_config`
-and `mh_certificate_info`. Their explicit or default paths still undergo
-native path decisions; a filtered helper is not a policy bypass.
+`secret-paths.mjs` blocks recognized native read operands for `.env*`, npm/PyPI
+and common credential/key paths, including aliases resolving to those paths.
+It inspects operands, not arbitrary query or file-content text. This finite list
+is not recursive shell/interpreter analysis or a universal data-loss-prevention
+sandbox; PSS's supported Bash/file policy remains a separate boundary.
+
+Four standalone bounded inspectors preserve filtered configuration reads:
+`mh_npm_config`, `mh_env_config`, `mh_pypi_config` and `mh_certificate_info`.
+They do not load or instantiate the old secret checker. Their explicit/default
+paths still undergo PSS decisions; only filtered metadata is returned. The
+immutable upstream factory remains source evidence, not a runtime dependency.
+Optional [BASIC read defaults](bootstrap.md#optional-basic-read-defaults) remain
+finite and incomplete.
 
 ## Effective Bash approval
 
@@ -116,13 +142,33 @@ spawn. Direct `git commit` bypasses the RTK helper, not commit-attribution check
 
 ## Feature authority and failures
 
-Private feature data uses separate exact capabilities with public winning-rule
-attestation. Missing, old, malformed, wildcard-only or yolo-substituted authority
-does not become an exact DATA grant. Primary control does not transfer policy to
-a native child or authorize maintained-memory writes.
+Goal, Evidence, UX Workflow, Execution Run, Code Map and `mh_rtk` use standard
+public PSS allow decisions, including wildcard and yolo according to the policy
+owner's precedence. Exact named/DATA winning-surface attestation is not an extra
+permission plane for these tools. Explicit tool and applicable path denials stay
+in force. Direct owner access requires an existing PSS allow; an unresolved ask
+is reported as such rather than treated as an implicit grant.
+
+Policy is distinct from state ownership: actual primary-session restrictions,
+canonical project/root bindings, revisions, public human gates and exclusive
+owner locks remain. Primary control does not transfer to a native child or
+supply private maintained-memory authority. Permission and context failures
+report the relevant tool/owner instead of claiming missing package provenance.
+
+Usage selection has a separate kernel-owned fixed `preferences/usage` namespace.
+Each read/save requires the current live kernel generation and exact primary TUI
+SessionManager, plus the actual registered extension `mh-usage` command. Public PSS must attest the exact usage-root DATA allow;
+wildcard/yolo/other namespaces cannot substitute. Explicit read/path-read/path-write
+restrictions still veto. Authority is checked before binding/filesystem inspection
+and again before publication. The boolean-only bounded record uses private modes,
+no links, one-use manager-bound CAS tickets, exclusive lock, temp file, atomic rename
+and qualified durability. No stale-lock stealing, automatic retry, read-time repair
+or native settings write occurs. This assumes trusted same-UID code, not cryptographic
+isolation from hostile loaded extensions. Selection never supplies credential-read
+permission; the existing guarded CLI collector remains a separate boundary.
 
 Memory engine selection and automatic policy are not grants. ABI2 retains the
-canonical Root/PSS, exact-root DATA authority, actual native output binding and
+canonical kernel/PSS binding, exact-root DATA authority, actual native output binding and
 fresh current execution/publication barriers. Data work runs in a Node child;
 model workers remain in-process, not an OS sandbox. A canonical installed writer
 route must pass exact physical model/availability checks and is explicitly pinned
@@ -139,14 +185,14 @@ must not be confused with publication reconciliation.
 `permission["*"]: "deny"` with explicit consent; it never grants blanket allow.
 See [bootstrap](bootstrap.md) for refusal and recovery behavior.
 
-A denial, unsupported alias, unhealthy context or missing provenance is not
-permission to retry through a helper or another executor. Resolve the named
+A real PSS denial or invalid state-owner context is not permission to retry
+through a helper or another executor. Resolve the named
 owner rather than disabling guards or forging metadata.
 
-Owners: [Root guard](../lib/guards/index.ts) and the authored
+Owners: [feature kernel](../lib/kernel/index.ts), [Root guard](../lib/guards/index.ts) and the authored
 [PSS patch](../patches/@gotgenes__pi-permission-system@40.2.2.patch), with child-control
 attestation in the authored [subagents patch](../patches/@gotgenes__pi-subagents@23.4.1.patch).
 Source declarations and offline SDK/Faux fixtures do not prove that installed
 dependencies are patched or a running session loaded them. Installation and an
-intentional fresh load must align source, public factories and version-bound
-provenance.
+intentional fresh load must align source and public factories. Retired provenance
+classifiers are not runtime authority.

@@ -51,7 +51,16 @@ assert.equal(preview.status, 0, preview.stderr)
 assert.equal(fs.existsSync(profile), false, 'Root-only CLI preview writes no profile')
 assert.ok(JSON.parse(preview.stdout).steps.some((s) => s.kind === 'packages'))
 const stage = stagePermissionFixture({ patched: false })
+// Offline adoption requires the existing public owner's winning-surface attestation.
+// Keep ordinary targets on their unchanged fixture and scope the attested supply to this target.
+const maintenanceStage = stagePermissionFixture({ patched: true })
+fs.copyFileSync(
+  path.join(productRoot, 'memory-maintenance.mjs'),
+  path.join(maintenanceStage.primary, 'memory-maintenance.mjs'),
+)
 const files = [
+  'kernel-patch-test.mjs',
+  'thin-native-patch-test.mjs',
   'test.mjs',
   'native-mcp-sdk-test.mjs',
   'bootstrap-test.mjs',
@@ -59,6 +68,7 @@ const files = [
   'managed-memory-engine-test.mjs',
   'managed-memory-engine-operations-test.mjs',
   'managed-memory-install-test.mjs',
+  'offline-maintenance-sdk-test.mjs',
   'permission-patch-test.mjs',
   'bash-approval-patch-test.mjs',
   'code-map-blocked-test.mjs',
@@ -74,6 +84,7 @@ const files = [
   'worker-activity-sdk-test.mjs',
   'rtk-patch-test.mjs',
   'own-ui-patch-test.mjs',
+  'usage-patch-test.mjs',
   'candidate-patch-test.mjs',
 ]
 const evidenceParent = path.join(productRoot, '.agent-state/runtime/candidate-isolation')
@@ -83,7 +94,17 @@ fs.chmodSync(proof, 0o700)
 console.log(`Public SDK receipts: ${proof}`)
 const result = await runNaturalCheck(
   process.execPath,
-  ['--test', '--test-concurrency=1', ...files.map((name) => path.join(stage.adapter, 'test', name))],
+  [
+    '--test',
+    '--test-concurrency=1',
+    ...files.map((name) =>
+      path.join(
+        name === 'offline-maintenance-sdk-test.mjs' ? maintenanceStage.adapter : stage.adapter,
+        'test',
+        name,
+      ),
+    ),
+  ],
   {
     logPath: path.join(proof, 'required-sdk.log'),
     env: { ...process.env, MAHIRO_PI_TEST_MODULES: publicModules },

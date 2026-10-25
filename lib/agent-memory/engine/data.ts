@@ -3,7 +3,14 @@ import { lstat, mkdir, readdir, rmdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
-import { parseMemoryRead, retrieveMemory, retrievalLimits, topicMetadata } from '../retrieval.ts'
+import {
+  directoryIndex,
+  extractFrontmatterAndLinks,
+  parseMemoryRead,
+  retrieveMemory,
+  retrievalLimits,
+  topicMetadata,
+} from '../retrieval.ts'
 import type { MemoryConfig, MemoryFile, View } from '../store.ts'
 import { legacyView, recoveryCeiling, validateFiles } from './recovery.ts'
 import { observedEpisode } from './episodes.ts'
@@ -29,15 +36,18 @@ import {
 import type { Change, Counters, Input, Method, Operations, Plan, Receipt, Stage } from './protocol.ts'
 import {
   allowedPath,
+  applySurgicalEdit,
+  assertLosslessRetention,
   fileLimit,
+  idPattern,
+  isAlwaysLoadedTieredPath,
   limits,
   parseConfig,
   parseLedger,
   revisionPattern,
   suppressed,
-  validateFile,
-  idPattern,
   uuidPattern,
+  validateFile,
   type Ledger,
 } from './schema.ts'
 
@@ -305,10 +315,147 @@ export class MemoryDataEngine {
   private async management(args: Input<'manage'>) {
     const { config, configHash } = await this.config()
     const now = await this.certify(config, configHash)
-    if (now.revision !== args.revision) throw Error('Stale memory revision')
     const scope = args.project
+    if (args.action === 'doctor') {
+      const activePaths = Object.keys(now.refs).filter((p) => !suppressed(now.ledger, p, now.refs[p].sources))
+      let totalBytesUsed = 0
+      let alwaysLoadedBytes = 0
+      const missingDescriptions: string[] = []
+      const unmigratedV1Paths: string[] = []
+      for (const p of activePaths) {
+        totalBytesUsed += now.refs[p].size
+        if (p === 'Core.md' || p === 'index.md' || isAlwaysLoadedTieredPath(p, scope))
+          alwaysLoadedBytes += now.refs[p].size
+        if (p.startsWith('reference/') || /^projects\/[^/]+\/reference\//.test(p)) {
+          const text = await this.body(p, now.refs[p])
+          if (!extractFrontmatterAndLinks(text).description) missingDescriptions.push(p)
+        }
+        if (p.startsWith('global/') || p.startsWith('deferred/')) unmigratedV1Paths.push(p)
+      }
+      const episodes = (await this.episodeNames()).length
+      const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
+      const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
+      const conflicts = (await this.retainedConflicts(scope)).length
+      return {
+        revision: now.revision,
+        project: scope,
+        healthy: totalBytesUsed <= config.totalBytes,
+        fileCount: activePaths.length,
+        fileCeiling: limits.files,
+        totalBytesUsed,
+        totalBytesCeiling: config.totalBytes,
+        alwaysLoadedBytes,
+        episodes,
+        views: legacy.length + modern.length,
+        conflicts,
+        missingDescriptions,
+        unmigratedV1Paths,
+      }
+    }
+    if (args.revision !== undefined && now.revision !== args.revision) throw Error('Stale memory revision')
     let ledger = structuredClone(now.ledger)
     let next = { ...now.refs }
+    const writeNewOverlay = async (v: Draft, path: string, text: string, sources: string[]) => {
+      validateFileText(path, text, sources, config)
+      const blob = randomUUID()
+      const physical = join(this.folder, 'blobs', blob)
+      await this.write(physical, text, [path])
+      bump(this.counters.overlayWrites, path)
+      v.overlay[path] = {
+        blob,
+        hash: digest(text),
+        size: bytes(text),
+        sources,
+        identity: stamp(await lstat(physical)),
+      }
+    }
+    if (args.action === 'init-project' || args.action === 'migrate-v2') {
+      const created = (await this.dispatch('create', { project: scope, shared: true, ttlMs: 600000 })) as {
+        view: string
+        base: string
+      }
+      const v = this.drafts.get(created.view)!.value
+      const added: string[] = []
+      if (args.action === 'init-project') {
+        const overviewPath = `projects/${scope}/system/overview.md`
+        const conventionsPath = `projects/${scope}/system/conventions.md`
+        if (!now.refs[overviewPath]) {
+          await writeNewOverlay(
+            v,
+            overviewPath,
+            `---\nname: ${scope}-overview\ndescription: Architecture and project overview for ${scope}\n---\n# Project Overview (${scope})\n\n- Active repository context and boundaries.\n`,
+            [],
+          )
+          added.push(overviewPath)
+        }
+        if (!now.refs[conventionsPath]) {
+          await writeNewOverlay(
+            v,
+            conventionsPath,
+            `---\nname: ${scope}-conventions\ndescription: Coding conventions and workflow rules for ${scope}\n---\n# Project Conventions (${scope})\n\n## Rules\n\n- Follow repository-local contracts and verification gates.\n`,
+            [],
+          )
+          added.push(conventionsPath)
+        }
+      } else {
+        const archivePrefix = `archives/legacy-v1-${now.revision.slice(0, 12)}`
+        if (!now.refs['system/persona.md']) {
+          const coreText = await this.body('Core.md', now.refs['Core.md'])
+          await writeNewOverlay(
+            v,
+            'system/persona.md',
+            `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${coreText}`,
+            [...now.refs['Core.md'].sources],
+          )
+          added.push('system/persona.md')
+        }
+        for (const [p, ref] of Object.entries(now.refs)) {
+          if (p.startsWith('global/')) {
+            const slug = p.slice('global/'.length)
+            const archivePath = `${archivePrefix}/global-${slug}`
+            const targetPath = `system/human/${slug}`
+            const text = await this.body(p, ref)
+            if (!now.refs[archivePath]) await writeNewOverlay(v, archivePath, text, [...ref.sources])
+            if (!now.refs[targetPath]) {
+              await writeNewOverlay(
+                v,
+                targetPath,
+                text.startsWith('---\n')
+                  ? text
+                  : `---\nname: ${slug.replace(/\.md$/, '')}\ndescription: Shared human preference migrated from ${p}\n---\n${text}`,
+                [...ref.sources],
+              )
+              added.push(targetPath)
+            }
+          } else if (p.startsWith('deferred/')) {
+            const [, proj, slug] = p.split('/')
+            const archivePath = `${archivePrefix}/deferred-${proj}-${slug}`
+            const targetPath = `projects/${proj}/system/${slug}`
+            const text = await this.body(p, ref)
+            if (!now.refs[archivePath]) await writeNewOverlay(v, archivePath, text, [...ref.sources])
+            if (!now.refs[targetPath]) {
+              await writeNewOverlay(
+                v,
+                targetPath,
+                text.startsWith('---\n')
+                  ? text
+                  : `---\nname: ${proj}-${slug.replace(/\.md$/, '')}\ndescription: Project memory migrated from ${p}\n---\n${text}`,
+                [...ref.sources],
+              )
+              added.push(targetPath)
+            }
+          }
+        }
+      }
+      v.state = 'ready'
+      await this.save(v)
+      const result = (await this.dispatch('prepare', { view: v.id, reviewed: [] })) as
+        | { plan: Plan }
+        | { conflict: string[] }
+      if (!('plan' in result)) throw Error('Management revision conflict; proposal retained')
+      return { ...result, added }
+    }
+    if (now.revision !== args.revision) throw Error('Stale memory revision')
     if (args.action === 'forget') {
       const { paths, sources } = args
       if (
@@ -826,15 +973,36 @@ export class MemoryDataEngine {
         const { config, configHash } = await this.config()
         const revision = await this.head()
         const ledger = await this.ledger(revision)
-        const selected: Record<string, string> = {}
-        for (const path of ['Core.md', 'index.md']) {
+        const tieredPaths = Object.keys(ledger.sources)
+          .filter(
+            (p) => isAlwaysLoadedTieredPath(p, args.project) && !suppressed(ledger, p, ledger.sources[p]),
+          )
+          .sort()
+        const batchPaths = ['Core.md', 'index.md', ...tieredPaths]
+        for (const path of batchPaths) {
           if (suppressed(ledger, path, ledger.sources[path]))
             throw Error('Memory projection unavailable: current forgetting')
-          const text = await this.git(['show', `${revision}:${path}`], [path])
+        }
+        const rawBatch = await this.gitBytes(
+          ['cat-file', '--batch'],
+          batchPaths,
+          `${batchPaths.map((p) => `${revision}:${p}`).join('\n')}\n`,
+        )
+        const selected: Record<string, string> = {}
+        let offset = 0
+        for (const path of batchPaths) {
+          const end = rawBatch.indexOf(10, offset)
+          const header = end < 0 ? '' : rawBatch.subarray(offset, end).toString('utf8')
+          const m = /^([a-f0-9]{40,64}) blob ([0-9]+)$/.exec(header)
+          const size = m ? Number(m[2]) : -1
+          if (!m || size < 0 || rawBatch[end + 1 + size] !== 10) throw Error('Invalid memory Git object')
+          const text = rawBatch.subarray(end + 1, end + 1 + size).toString('utf8')
           bump(this.counters.blobReads, path)
           validateFileText(path, text, ledger.sources[path], config)
           selected[path] = text
+          offset = end + size + 2
         }
+        if (offset !== rawBatch.length) throw Error('Invalid memory Git batch')
         const paths = Object.keys(ledger.sources).filter(
           (path) =>
             allowedPath(path, args.shared ? undefined : args.project) &&
@@ -847,10 +1015,18 @@ export class MemoryDataEngine {
         const topics = topicMetadata(paths)
         if ((await this.config()).configHash !== configHash || (await this.head()) !== revision)
           throw Error('Memory projection unavailable: current state changed')
+        const systemEntries = tieredPaths
+          .filter((p) => p.startsWith('system/'))
+          .map((p) => [p, selected[p]] as const)
+        const projectSystemEntries = tieredPaths
+          .filter((p) => p.startsWith(`projects/${args.project}/system/`))
+          .map((p) => [p, selected[p]] as const)
         return {
           revision,
           core: selected['Core.md'],
           index: selected['index.md'],
+          ...(systemEntries.length ? { system: Object.fromEntries(systemEntries) } : {}),
+          ...(projectSystemEntries.length ? { projectSystem: Object.fromEntries(projectSystemEntries) } : {}),
           discovery: {
             version: 2,
             topics: topics.slice(0, 8),
@@ -870,6 +1046,14 @@ export class MemoryDataEngine {
         const { config, configHash } = await this.config()
         const base = await this.certify(config, configHash)
         return { revision: base.revision, files: Object.keys(base.refs) }
+      }
+      case 'offlineCertify': {
+        const args = input as Input<'offlineCertify'>
+        const { config, configHash } = await this.config()
+        const base = await this.certify(config, configHash, args.revision)
+        if ((await this.config()).configHash !== configHash || (await this.head()) !== base.revision)
+          throw Error('Offline certification state changed')
+        return { revision: base.revision }
       }
       case 'episodes':
         return await this.episodes((input as Input<'episodes'>).project)
@@ -959,7 +1143,7 @@ export class MemoryDataEngine {
         }
         const { v, refs, revision } = committed
           ? await snapshot()
-          : await this.active((input as Input<'read'>).view)
+          : await this.active((input as Input<'read'>).view, true)
         const paths = Object.keys(refs).sort()
         const envelope = {
           revision: v.base.revision,
@@ -973,24 +1157,39 @@ export class MemoryDataEngine {
         let result: object
         if (selection.mode === 'list') result = { files: paths, project: v.project, state: v.state }
         else if (selection.mode === 'path') {
-          if (!allowedPath(selection.path, v.shared ? undefined : v.project))
-            throw Error('Memory path outside scope')
-          const ref = refs[selection.path]
-          const points = ref ? [...(await this.body(selection.path, ref))] : []
-          result = !ref
-            ? { path: selection.path, hash: null, missing: true }
-            : {
-                path: selection.path,
-                hash: ref.hash,
-                text: points.slice(selection.offset, selection.offset + selection.limit).join(''),
-                sources: ref.sources,
-                offset: selection.offset,
-                totalCharacters: points.length,
-                truncated: selection.offset > 0 || selection.offset + selection.limit < points.length,
-                ...(selection.offset + selection.limit < points.length
-                  ? { nextOffset: selection.offset + selection.limit }
-                  : {}),
-              }
+          const cleanDir = selection.path.replace(/\/+$/, '')
+          const allowedDirs = new Set([
+            'system',
+            'system/human',
+            'reference',
+            `projects/${v.project}/system`,
+            `projects/${v.project}/reference`,
+          ])
+          if (cleanDir && !cleanDir.endsWith('.md') && allowedDirs.has(cleanDir)) {
+            const dirFiles: Record<string, MemoryFile> = {}
+            for (const p of paths.filter((p) => p.startsWith(`${cleanDir}/`)))
+              dirFiles[p] = { text: await this.body(p, refs[p]), sources: refs[p].sources }
+            result = directoryIndex(dirFiles, cleanDir)
+          } else {
+            if (!allowedPath(selection.path, v.shared ? undefined : v.project))
+              throw Error('Memory path outside scope')
+            const ref = refs[selection.path]
+            const points = ref ? [...(await this.body(selection.path, ref))] : []
+            result = !ref
+              ? { path: selection.path, hash: null, missing: true }
+              : {
+                  path: selection.path,
+                  hash: ref.hash,
+                  text: points.slice(selection.offset, selection.offset + selection.limit).join(''),
+                  sources: ref.sources,
+                  offset: selection.offset,
+                  totalCharacters: points.length,
+                  truncated: selection.offset > 0 || selection.offset + selection.limit < points.length,
+                  ...(selection.offset + selection.limit < points.length
+                    ? { nextOffset: selection.offset + selection.limit }
+                    : {}),
+                }
+          }
         } else if (selection.mode === 'topic') {
           const files = Object.fromEntries(
             paths.map((path) => [path, { text: '', sources: refs[path].sources }]),
@@ -1035,30 +1234,40 @@ export class MemoryDataEngine {
       }
       case 'edit': {
         const args = input as Input<'edit'>
-        const { v, refs, config, revision, ledger } = await this.active(args.view)
+        const { v, refs, config, revision, ledger } = await this.active(args.view, true)
         const old = refs[args.path]
         if (
           !allowedPath(args.path, v.shared ? undefined : v.project) ||
           (old?.hash ?? null) !== args.expectedHash
         )
           throw Error('Stale file or path outside scope')
-        if (args.text === null && ['Core.md', 'index.md'].includes(args.path))
+        const oldText = old ? await this.body(args.path, old) : undefined
+        const nextText = applySurgicalEdit(oldText, args.text, {
+          mode: args.mode,
+          oldText: args.oldText,
+          newText: args.newText,
+          section: args.section,
+        })
+        if (nextText === null && ['Core.md', 'index.md'].includes(args.path))
           throw Error('Core and index cannot be removed')
-        if (old) await this.body(args.path, old)
         const next = structuredClone(v)
-        if (args.text === null) next.overlay[args.path] = null
+        // A failed prepare retains the proposal as ready. A current primary may
+        // revise it after the actionable diagnostic; worker runtimes refuse edits
+        // after marking ready. Any successful revision returns it to open.
+        next.state = 'open'
+        if (nextText === null) next.overlay[args.path] = null
         else {
           const sources = [...args.sources].sort()
-          validateFileText(args.path, args.text, sources, config)
+          validateFileText(args.path, nextText, sources, config)
           if (suppressed(ledger, args.path, sources)) throw Error('Forgotten knowledge cannot be revived')
           const blob = randomUUID()
           const physical = join(this.folder, 'blobs', blob)
-          await this.write(physical, args.text, [args.path])
+          await this.write(physical, nextText, [args.path])
           bump(this.counters.overlayWrites, args.path)
           next.overlay[args.path] = {
             blob,
-            hash: digest(args.text),
-            size: bytes(args.text),
+            hash: digest(nextText),
+            size: bytes(nextText),
             sources,
             identity: stamp(await lstat(physical)),
           }
@@ -1073,11 +1282,12 @@ export class MemoryDataEngine {
         await this.final(v, revision)
         await this.save(next)
         await this.final(next, revision)
-        return { hash: args.text === null ? null : digest(args.text) }
+        return { hash: nextText === null ? null : digest(nextText) }
       }
       case 'ready': {
-        const { v, revision } = await this.active((input as Input<'ready'>).view)
+        const { v, revision } = await this.active((input as Input<'ready'>).view, true)
         await this.final(v, revision)
+        if (v.state === 'ready') return { ready: true }
         v.state = 'ready'
         await this.save(v)
         await this.final(v, revision)
@@ -1111,6 +1321,13 @@ export class MemoryDataEngine {
           await this.save(v)
           return { conflict }
         }
+        const baseBodies: Record<string, { text: string } | undefined> = {}
+        const nextBodies: Record<string, { text: string } | undefined> = {}
+        for (const path of changed) {
+          if (v.base.refs[path]) baseBodies[path] = { text: await this.body(path, v.base.refs[path]) }
+          if (refs[path]) nextBodies[path] = { text: await this.body(path, refs[path]) }
+        }
+        assertLosslessRetention(baseBodies, nextBodies, changed, args.allowShrink)
         if (args.reviewed.length > 4096 || args.reviewed.some((id) => !validId(id)))
           throw Error('Invalid episode cursor')
         const next: Record<string, Ref | Overlay> = { ...current.refs }
@@ -1254,6 +1471,16 @@ export class MemoryDataEngine {
           ? await this.outcome(record, drained)
           : { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
         const next = await this.updateOperation(record, receipt)
+        const cached = this.plans.get(args.plan)
+        if (
+          cached?.plan.id === args.plan &&
+          cached.plan.digest === args.digest &&
+          cached.record.immutableHash === next.immutableHash &&
+          same(cached.record.immutable, next.immutable)
+        ) {
+          cached.record = next
+          cached.receipt = next.receipt
+        }
         const lock = join(this.root, '.lock')
         await this.gate([lock])
         let lockPresent = true

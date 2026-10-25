@@ -21,15 +21,17 @@ it never imports a personal corpus or overwrites existing Core/data.
 | --- | --- |
 | `Core.md` | Concise identity, confirmed preferences and reusable methods |
 | `index.md` | Navigation to selectively read detail |
-| `global/<name>.md` | Shared detailed knowledge |
-| `deferred/<project-id>/<name>.md` | Project-owned detail |
-| `procedures/<name>.md` | Reusable workflows |
+| `system/persona.md` | Tiered v2 always-loaded agent identity |
+| `system/human/<name>.md` | Tiered v2 always-loaded human context and `prefs/<name>.md` |
+| `projects/<project-id>/system/<name>.md` | Tiered v2 always-loaded project system context |
+| `projects/<project-id>/reference/<name>.md` | Tiered v2 on-demand project reference detail |
+| `reference/<name>.md` | Tiered v2 on-demand global reference detail |
+| `archives/<slug>/<name>.md` | Historical provenance material (never projected into prompt) |
+| `global/<name>.md` | Shared detailed knowledge (legacy compatible) |
+| `deferred/<project-id>/<name>.md` | Project-owned detail (legacy compatible) |
+| `procedures/<name>.md` | Reusable workflows (legacy compatible) |
 
-Core/index project into eligible primary requests. Detailed files are read
-selectively. Authenticated primary views share relevant deferred knowledge across
-canonical projects; native workers and retained legacy views remain scoped.
-Unmapped projects derive collision-checked path identities without rewriting
-the project map. Source registration alone never migrates knowledge.
+Core/index and active tiered `system/**` + `projects/<project-id>/system/**` files project into eligible primary requests via a single batched Git object read. Detailed reference/deferred/global files are read selectively. Authenticated primary views share relevant deferred knowledge across canonical projects; native workers and retained legacy views remain scoped. Unmapped projects derive collision-checked path identities without rewriting the project map. Source registration alone never migrates knowledge.
 
 ## Customize the starter
 
@@ -52,10 +54,10 @@ authority and curation fundamentals separately from editable persona.
 | Input | Result |
 | --- | --- |
 | `{}` | Legacy authorized file list |
-| `{path, offset?, limit?}` | Original Unicode code-point paging, limit 1–4096 |
+| `{path, offset?, limit?}` | Original Unicode code-point paging (limit 1–4096) or tiered directory index (`system`, `system/human`, `reference`, `projects/<id>/system`, `projects/<id>/reference`) |
 | `{topic: "", offset?, limit?}` | Namespace/count discovery, limit 1–32 |
-| `{topic: "*", offset?, limit?}` | All authorized files, limit 1–32 |
-| `{topic: "global"}`, `"procedures"`, `"deferred/<id>"` | A selected namespace |
+| `{topic: "*", offset?, limit?}` | All authorized files with YAML frontmatter `name`/`description` and `[[wiki-links]]`, limit 1–32 |
+| `{topic: "global"}`, `"procedures"`, `"deferred/<id>"`, `"system"`, `"reference"` | A selected namespace |
 | `{query, offset?, limit?}` | Lexical AND search, limit 1–8 results |
 
 Queries are bounded to 256 UTF-8 bytes and 16 distinct word terms. English/Thai
@@ -80,19 +82,24 @@ loaded runtime actually advertises.
 ## Edit, commit and recover
 
 1. Read Core/index and relevant detail through the authenticated view.
-2. `agent_memory_edit` adds/replaces/removes a scoped file in a private draft.
+2. `agent_memory_edit` adds/replaces/removes or surgically patches/appends a scoped file in a private draft.
    Supply its exact whole-file `expectedHash` (`null` for a new file), text and
-   relevant observed episode source IDs. `text: null` removes a detail/procedure
-   file; Core/index cannot be removed.
-3. `agent_memory_commit` integrates against the base revision. Disjoint file
+   relevant observed episode source IDs. Optional `mode: "replace" | "patch" | "append"`
+   supports surgical edits (`oldText`/`newText` for `patch`, optional `section` heading for `append`).
+   `text: null` removes a detail/procedure file; Core/index cannot be removed.
+3. `agent_memory_commit` integrates against the base revision. A Lossless Retention Guard
+   rejects commits that shrink protected files (`Core.md`, `index.md`, `system/**`,
+   `projects/<id>/system/**`) by more than 15% or drop more than 2 bullet/heading lines
+   unless `allowShrink: true` is explicitly passed. Disjoint file
    edits merge; overlapping changes remain private conflicts, not semantic
    auto-merges. Git HEAD is the publication boundary.
 4. Active primary context refreshes on the next request, not retroactively in an
-   already running request.
+   already running request. During context compaction (`session_before_compact` / `session_compact`),
+   a bounded continuity checkpoint is preserved for the next turn without blocking compaction.
 
-`agent_memory_manage` provides primary-only status/cancel, explicit new-root
+`agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `init-project` and `migrate-v2` non-destructive tiered v2 layout seeding, `remember` surgical note appending, explicit new-root
 initialization, revision-guarded forgetting/rollback/discard and bounded conflict
-inspection. Conflict lists page up to eight retained views; proposal text pages
+inspection. `/mh-memory` exposes `status`, `help`, `doctor`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages
 by original code points. Read all pages before recovery; `proposalHash` describes
 the complete proposal. Resolve through current hash/revision tools, then discard
 the selected view explicitly. Never copy a proposal over newer knowledge blindly.
@@ -287,6 +294,91 @@ OS/Git body reads: index refresh and ordinary hooks may read worktree content.
 No installed activation, latency/RAM improvement, rendered quality, full Letta
 parity or learning acceptance follows from these source contracts.
 
+## Explicit offline owner adoption
+
+This separate ABI2 owner operation handles one narrow legacy incident: a typed
+`unknown` publication with its exact retained `.lock`, complete operation evidence,
+a ready private proposal, **already clean tracked worktree and Git index**, and
+only reviewed native `.memory-engine-<UUID>.tmp` untracked files. It never resets,
+stages, commits, restores or adopts user WIP. Ordinary publication, policy and
+same-process reconciliation retain their existing rules. Manual adoption says
+**“manually adopted; prior outcome unknown”**, never “executor drained” or a
+fabricated committed/not-committed outcome.
+
+Use the explicit [offline operator CLI](bootstrap.md#offline-memory-operator), not
+an ordinary persistent Main/model session. Root requires a genuine bound native
+primary with no UI and no session file, current generation, canonical management
+tool provenance, and existing exact winning-surface `agent_memory_manage` plus
+`managed_memory_<sha256(root)>` authority. Wildcard/yolo alone, children and denied
+physical paths cannot authorize it. Loading or calling it grants nothing. The CLI
+uses public SDK `SessionManager.inMemory`, empty in-memory credentials and Faux
+transport with external fetch forbidden; it changes no profile, route, role,
+auth, model, permission, session or Git identity/hook settings.
+
+The operator must explicitly assure that known sessions for this profile are
+closed and no cooperative external writers will start during the window.
+`--offline` records that assurance, **not proof**. A fixed public system `lsof`
+is an additional optional maintenance prerequisite: `/usr/sbin/lsof` on macOS,
+`/usr/bin/lsof` on Linux. Bounded kernel Root-tree FD/cwd inspection includes
+`.git` and detached holders even when their launcher is gone or their cwd moved
+elsewhere. Unexpected holders, warnings, unsupported systems, incomplete output
+or changing inventory stop the operation; it never kills holders. Only its actual
+operator process and actual data-controller child are exempt, not caller PID
+lists. This is cooperative offline maintenance, not a hostile same-user OS sandbox
+or a new way to infer lost executor drain.
+
+Read-only `offline-inspect` returns bounded fingerprints, full HEAD, typed owner
+identity, operation immutable hash/sequence, artifact paths and active journal,
+draft, legacy-view, staging and uncertain-admission counts; never corpus, raw
+configuration or proposal bodies. Apply requires that exact reviewed target and
+fingerprint. All Root file bytes (including raw Git index/config, Core/index,
+ledger, drafts/blobs, journals/CAS, ignored/untracked files and complete Git
+objects/refs/reflogs) participate, not merely porcelain/status. Capacity is not GC:
+64 remaining journal entries or 64 active draft-directory entries block adoption.
+Pending views are never evicted to pass an admission limit.
+
+Before any blocker relocation, the owner durably creates and independently
+verifies a streamed, copied (not hardlinked) **full private byte archive** under
+`<root>/.views/.maintenance/<transaction>/snapshot`. Only that transaction's own
+workspace and coordination marker are excluded from recursion; previous archives
+are retained and copied. Fixed ceilings are 32,768 inventory entries, 512 MiB total
+and 256 MiB per file. Links, special files, external/incomplete Git object storage,
+resource failure, revocation or changed source bytes refuse. It rechecks the full
+source fingerprint and kernel holders after archive verification and before
+relocation. No sibling-directory grant, `git archive` or private corpus stdout is
+used.
+
+The durable `<root>/.views/.maintenance-active.json` marker blocks new ordinary
+memory writes/admissions at Root, including installation after `.lock` moves.
+Authorized status, committed reads and projection remain possible. Only the
+validated ephemeral maintenance owner bypasses that coordination barrier, not
+PSS or current-generation/branch checks. Exact reviewed lock, native orphan,
+unknown journal and its optional empty CAS are atomically moved into the private
+workspace's inert `quarantine`, outside the active journal namespace. Their
+original bytes are preserved. The archived ready proposal remains private and its
+active manifest becomes `conflict` for ordinary explicit recertified recovery;
+no proposal or memory HEAD is activated.
+
+The owner verifies archive/quarantine completeness, unchanged canonical bytes,
+HEAD and raw index/config, clean active Git state, remaining typed terminal
+journals/capacity, and cold committed certification through the existing data
+engine. That dedicated offline certification remains cancellable and
+revision/permission fenced, but is completion-driven rather than inheriting the
+ordinary 30-second interactive request deadline. The explicit operator also has
+no fixed wall-clock kill: resource ceilings, per-Git and holder-inspection bounds,
+process/output bounds and operator cancellation remain, while a valid large
+archive is allowed to finish naturally. It persists `completed` before releasing
+the marker. The operator returns that validated maintenance receipt directly; it
+does not add a post-operation ordinary status/projection request that could turn
+a completed mutation into an ambiguous timeout. Loaded-runtime verification is a
+separate gate. A crash, unknown checkpoint or permission loss retains evidence and
+the barrier. Inspect again,
+review the new checkpoint fingerprint, then explicitly `offline-resume`; there is
+no automatic replay or rollback. Incomplete/malformed checkpoints that cannot be
+verified stay blocked for owner review. Archives are never discarded. Receipts
+are source-operation evidence, not semantic recovery, installed activation or
+human acceptance.
+
 ## Historical recall and quoted notes
 
 Continuity (C1) searches a separately accepted, screened archive:
@@ -303,10 +395,13 @@ not rewrite Core or infer lasting preferences. Managed automatic writing gets
 the existing settled-handler opportunity first; C1 defers while that writer runs.
 
 ```text
+/recall <keywords>
 /memory-status
 /memory-forget <existing-note-id>
 /memory-correct <existing-note-id> <retained-record-id> <literal quote>
 ```
+
+Settled primary turns also ingest bounded redacted assistant responses (`historical-assistant`) into the continuity archive alongside user messages (`historical-user`) so `/recall` and `recall_search` can retrieve past technical explanations and fixes as `UNTRUSTED` evidence, while reflector note promotion remains strictly restricted to `historical-user` sources.
 
 These controls affect current-project quoted notes, not maintained Core or the
 archive itself. Correction requires a retained source and literal quote;

@@ -281,9 +281,45 @@ export function createController(pi: ExtensionAPI, config: IRuntimeConfig = {}) 
         normalized.some((record, i) => record.text !== candidates[i].text)
       )
         return
+      const assistantImports = branch
+        .slice(candidates[0].ids.length)
+        .filter(
+          (entry): entry is Extract<typeof entry, { type: 'message' }> =>
+            entry.type === 'message' && entry.message.role === 'assistant' && validId(entry.id),
+        )
+        .slice(-4)
+        .flatMap((entry) => {
+          const rawContent =
+            'content' in entry.message ? (entry.message as { content?: unknown }).content : undefined
+          const content =
+            typeof rawContent === 'string'
+              ? rawContent
+              : Array.isArray(rawContent)
+                ? rawContent
+                    .filter(
+                      (part: unknown): part is { type: 'text'; text: string } =>
+                        !!part &&
+                        typeof part === 'object' &&
+                        (part as { type?: unknown }).type === 'text' &&
+                        typeof (part as { text?: unknown }).text === 'string',
+                    )
+                    .map((part) => part.text)
+                    .join('\n')
+                : ''
+          if (!content.trim() || bytes(content) > 12000) return []
+          const item = {
+            id: `pi-assistant-${digest(`${ctx.sessionManager.getSessionId()}:${entry.id}`)}`,
+            sourceKind: 'pi_message' as const,
+            projectId: f.projectId,
+            conversationId: ctx.sessionManager.getSessionId(),
+            messageId: entry.id,
+            message: { message_type: 'assistant_message', content },
+          }
+          return normalize([item], policy).records.length === 1 ? [item] : []
+        })
       release = f.store.acquireLease()
       f.current()
-      f.store.ingest(f.store.snapshot(), imported)
+      f.store.ingest(f.store.snapshot(), [...imported, ...assistantImports])
       for (const [entryId, source] of admissions) observed.set(entryId, source)
       const snapshot = f.store.snapshot()
       const eligible = new Set([...observed.values()].map((source) => source.recordId))

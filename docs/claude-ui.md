@@ -48,7 +48,7 @@ Apply and theme commands are **runtime-only** and never autosave.
 the fixed `<profile>/preferences/own-ui` owner. Live-tail and the native/global
 theme selection are not saved there.
 
-Save requires healthy current Root ownership, exact canonical `mh-ui`
+Save requires live current kernel ownership, one current public extension `mh-ui`
 registration with no bare-name collision, primary TUI context and the exact
 public winning own-UI DATA allow. Source loading grants nothing. This checks
 registered owner identity, not cryptographic human-Save/invocation-origin proof

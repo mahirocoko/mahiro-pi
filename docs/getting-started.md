@@ -127,6 +127,20 @@ To keep the startup header without resource listings, choose native `/settings`
 → Quiet startup → `header` (`quietStartup: "header"`). That host setting persists
 independently. See [UI details and limitations](claude-ui.md).
 
+## Codex CLI usage across sessions
+
+Run `/mh-usage codex on` once to explicitly select the external Codex CLI quota
+source and save it for eligible primary TUI sessions in this profile, including
+other projects. `/mh-usage codex off` stops it here and saves profile-wide off.
+Existing sessions running this code adopt changed preferences on their bounded
+five-second lifecycle checks, not an immediate broadcast. Old loaded code is not
+updated by saving. This never enables native direct OpenAI quota.
+
+The separate exact usage DATA grant is composed only by explicit installation.
+If it is missing, denied or storage is unsafe, on stays off and reports not saved;
+review an approved installation update instead of relaxing guards. Off always
+cancels here even if saving fails. See [usage controls and limits](status.md#usage-inspector).
+
 ## Optional integrations
 
 The main manifest has 13 ordered resources: bootstrap, one Root guard, ten

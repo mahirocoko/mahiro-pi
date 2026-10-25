@@ -5,7 +5,7 @@
   "type": "module",
   "pi": {
     "extensions": [
-      "./bootstrap.mjs",
+      "./bootstrap.ts",
       "./index.ts"
     ]
   }

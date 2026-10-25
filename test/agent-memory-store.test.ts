@@ -572,3 +572,91 @@ test('uncommitted working-file changes never activate context; retained episodes
     f.close()
   }
 })
+
+test('tiered v2 schema, surgical patch/append, lossless retention guard, directory index, frontmatter/links and doctor', () => {
+  const f = fixture()
+  try {
+    const mig = f.store.migrateV2('project')
+    assert.ok(mig.migrated.includes('system/persona.md'))
+    const init = f.store.initProject('project')
+    assert.equal(init.initialized, true)
+    assert.equal(init.changed, 2)
+
+    const v1 = f.store.createView('project')
+    const currentOverview = f.store.read(v1, 'projects/project/system/overview.md')
+    assert.ok('hash' in currentOverview && currentOverview.hash)
+    f.store.edit(
+      v1,
+      'projects/project/system/overview.md',
+      currentOverview.hash,
+      '- Key architecture invariant: thin guard kernel',
+      [],
+      { mode: 'append' },
+    )
+    f.store.edit(
+      v1,
+      'projects/project/reference/notes.md',
+      null,
+      '---\nname: Project Notes\ndescription: Detailed architecture notes\n---\n# Project Notes\nSee [[projects/project/system/overview.md]] and [[reference/missing-target.md]].\n- First note\n- Second note\n',
+      [],
+      { mode: 'replace' },
+    )
+    const integrated1 = f.store.integrate(v1)
+    assert.ok('revision' in integrated1)
+
+    const vPatch = f.store.createView('project')
+    const noteRead = f.store.read(vPatch, 'projects/project/reference/notes.md')
+    f.store.edit(vPatch, 'projects/project/reference/notes.md', noteRead.hash, '', [], {
+      mode: 'patch',
+      oldText: '- First note',
+      newText: '- First note (updated surgically)',
+    })
+    const integratedPatch = f.store.integrate(vPatch)
+    assert.ok('revision' in integratedPatch)
+
+    const dirListing = f.store.read(f.store.createView('project'), 'projects/project/reference')
+    assert.ok('directory' in dirListing && dirListing.directory === 'projects/project/reference')
+    assert.equal(dirListing.entries[0]?.name, 'Project Notes')
+    assert.equal(dirListing.entries[0]?.description, 'Detailed architecture notes')
+    assert.ok(dirListing.entries[0]?.links?.includes('projects/project/system/overview.md'))
+
+    const proj = f.store.projection('project')
+    assert.ok(proj.system?.['system/persona.md'])
+    assert.ok(
+      proj.projectSystem?.['projects/project/system/overview.md']?.includes(
+        'Key architecture invariant: thin guard kernel',
+      ),
+    )
+
+    // Lossless retention guard blocks >15% shrink or >2 dropped bullet/heading lines on system/** unless allowShrink=true
+    const vGrow = f.store.createView('project')
+    const ov = f.store.read(vGrow, 'projects/project/system/overview.md')
+    f.store.edit(
+      vGrow,
+      'projects/project/system/overview.md',
+      ov.hash,
+      '- Bullet 1\n- Bullet 2\n- Bullet 3\n- Bullet 4\n',
+      [],
+      { mode: 'append' },
+    )
+    f.store.integrate(vGrow)
+
+    const vShrink = f.store.createView('project')
+    const ov2 = f.store.read(vShrink, 'projects/project/system/overview.md')
+    f.store.edit(vShrink, 'projects/project/system/overview.md', ov2.hash, '# Project Overview\nShort.\n', [])
+    assert.throws(() => f.store.integrate(vShrink), /Lossless retention guard/)
+    const shrinkAllowed = f.store.integrate(vShrink, [], { allowShrink: true })
+    assert.ok('revision' in shrinkAllowed)
+
+    const report = f.store.doctor('project')
+    assert.equal(report.project, 'project')
+    assert.ok(
+      report.brokenLinks.some(
+        (b) =>
+          b.source === 'projects/project/reference/notes.md' && b.target === 'reference/missing-target.md',
+      ),
+    )
+  } finally {
+    f.close()
+  }
+})

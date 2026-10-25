@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from 'node:module'
 import test from 'node:test'
 import { UI_DEFAULTS } from '../lib/claude-ui-preferences.ts'
 import { ownUIBinding, readOwnUIState, publishOwnUIState, UIStorageError } from '../lib/claude-ui-state.ts'
-import { createOwnUIOwner } from '../lib/guards/own-ui.ts'
+import { createOwnUIOwner } from '../lib/kernel/own-ui.ts'
 
 function fixture(work: (b: ReturnType<typeof ownUIBinding>, profile: string) => void) {
   const base = path.resolve('.agent-state/runtime/claude-workflow-v2/t232-storage/unit')

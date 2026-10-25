@@ -289,8 +289,9 @@ export function quotaController(
     const external = selected === 'codex-cli'
     try {
       const status = !external && model ? ctx.modelRegistry.getProviderAuthStatus(model.provider) : undefined
-      const oauth = !!model && !!status?.configured && ctx.modelRegistry.isUsingOAuth(model)
+      const oauth = !external && !!model && !!status?.configured && ctx.modelRegistry.isUsingOAuth(model)
       nativeDirect =
+        !external &&
         !!model &&
         model.provider === 'openai' &&
         oauth &&
@@ -347,11 +348,12 @@ export function quotaController(
       // provider mutation, refresh or model calls.
       const cli = external ? await options.external!.read(controller.signal, valid) : undefined
       if (!valid()) return
-      const auth = cli
+      if (external && !cli) throw new QuotaFailure('CLI source unavailable')
+      const auth = external
         ? {
             ok: true,
-            apiKey: cli.token,
-            headers: cli.accountId ? { 'ChatGPT-Account-Id': cli.accountId } : {},
+            apiKey: cli!.token,
+            headers: cli!.accountId ? { 'ChatGPT-Account-Id': cli!.accountId } : {},
           }
         : await ctx.modelRegistry.getApiKeyAndHeaders(model)
       if (!valid()) return

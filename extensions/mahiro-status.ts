@@ -77,7 +77,10 @@ export default function mahiroStatus(pi: ExtensionAPI) {
           state = { ...state, ...next }
           footerChanged()
         },
-        tick: () => quota.tick(),
+        tick: () => {
+          usage.syncPreference()
+          quota.tick()
+        },
         tokens: () => quota.view().tokens,
         ownsQuotaTokens: () => quota.snapshot().source !== 'codex-cli',
         invalidate: (model) => quota.invalidate(model),

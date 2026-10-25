@@ -1,6 +1,6 @@
 import type { Episode, MemoryConfig } from '../store.ts'
 import { objectShape } from '../../continuity/records.ts'
-import { idPattern, uuidPattern } from './schema.ts'
+import { idPattern, revisionPattern, uuidPattern } from './schema.ts'
 import type { LockOwner } from './operation.ts'
 
 export const protocolVersion = 2
@@ -69,22 +69,30 @@ export interface Page {
 export interface Operations {
   projection: {
     input: { project: string; shared: boolean }
-    output: { revision: string; core: string; index: string; discovery: Record<string, unknown> }
+    output: {
+      revision: string
+      core: string
+      index: string
+      system?: Record<string, string>
+      projectSystem?: Record<string, string>
+      discovery: Record<string, unknown>
+    }
   }
   config: { input: Record<string, never>; output: { config: MemoryConfig; configHash: string } }
   status: { input: Record<string, never>; output: { revision: string; files: string[] } }
+  offlineCertify: { input: { revision: string }; output: { revision: string } }
   episodes: { input: { project: string }; output: Episode[] }
   observe: { input: { episode: Episode }; output: { recorded: true } }
   manage: {
     input: {
-      action: 'forget' | 'rollback'
+      action: 'forget' | 'rollback' | 'doctor' | 'init-project' | 'migrate-v2'
       project: string
-      revision: string
+      revision?: string
       paths?: string[]
       sources?: string[]
       target?: string
     }
-    output: { plan: Plan }
+    output: { plan: Plan } & Record<string, unknown>
   }
   conflicts: {
     input: { project: string; target?: string; path?: string; offset?: number; limit?: number }
@@ -102,11 +110,24 @@ export interface Operations {
     output: Page | Record<string, unknown>
   }
   edit: {
-    input: { view: string; path: string; expectedHash: string | null; text: string | null; sources: string[] }
+    input: {
+      view: string
+      path: string
+      expectedHash: string | null
+      text: string | null
+      sources: string[]
+      mode?: 'replace' | 'patch' | 'append'
+      oldText?: string
+      newText?: string
+      section?: string
+    }
     output: { hash: string | null }
   }
   ready: { input: { view: string }; output: { ready: true } }
-  prepare: { input: { view: string; reviewed: string[] }; output: { plan: Plan } | { conflict: string[] } }
+  prepare: {
+    input: { view: string; reviewed: string[]; allowShrink?: boolean }
+    output: { plan: Plan } | { conflict: string[] }
+  }
   chunk: {
     input: { plan: string; digest: string; path: string; offset: number }
     output: { data: string; total: number; hash: string }
@@ -151,6 +172,7 @@ export const methods: Method[] = [
   'projection',
   'config',
   'status',
+  'offlineCertify',
   'episodes',
   'observe',
   'manage',
@@ -177,6 +199,7 @@ export function validateInput(method: Method, input: unknown) {
     projection: ['project', 'shared'],
     config: [],
     status: [],
+    offlineCertify: ['revision'],
     episodes: ['project'],
     observe: ['episode'],
     manage: ['action', 'project', 'revision', 'paths', 'sources', 'target'],
@@ -186,9 +209,9 @@ export function validateInput(method: Method, input: unknown) {
     create: ['project', 'shared', 'ttlMs'],
     read: ['view', 'selection'],
     headRead: ['project', 'shared', 'selection'],
-    edit: ['view', 'path', 'expectedHash', 'text', 'sources'],
+    edit: ['view', 'path', 'expectedHash', 'text', 'sources', 'mode', 'oldText', 'newText', 'section'],
     ready: ['view'],
-    prepare: ['view', 'reviewed'],
+    prepare: ['view', 'reviewed', 'allowShrink'],
     chunk: ['plan', 'digest', 'path', 'offset'],
     fence: ['plan', 'digest'],
     journal: ['plan', 'digest', 'receipt'],
@@ -234,20 +257,33 @@ export function validateInput(method: Method, input: unknown) {
         (typeof input.expectedHash === 'string' && /^[a-f0-9]{64}$/.test(input.expectedHash))
       ) ||
       !(input.text === null || typeof input.text === 'string') ||
-      !Array.isArray(input.sources))
+      !Array.isArray(input.sources) ||
+      (input.mode !== undefined && !['replace', 'patch', 'append'].includes(input.mode as string)) ||
+      (input.oldText !== undefined && typeof input.oldText !== 'string') ||
+      (input.newText !== undefined && typeof input.newText !== 'string') ||
+      (input.section !== undefined && typeof input.section !== 'string'))
   )
     throw Error('Invalid edit')
   if (method === 'episodes' && (typeof input.project !== 'string' || !idPattern.test(input.project)))
     throw Error('Invalid episode scope')
+  if (
+    method === 'offlineCertify' &&
+    (typeof input.revision !== 'string' || !revisionPattern.test(input.revision))
+  )
+    throw Error('Invalid offline certification revision')
   if (['manage', 'conflicts', 'discard'].includes(method)) {
     if (typeof input.project !== 'string' || !idPattern.test(input.project))
       throw Error('Invalid management scope')
     if (
       method !== 'conflicts' &&
+      !(method === 'manage' && ['doctor', 'init-project', 'migrate-v2'].includes(input.action as string)) &&
       (typeof input.revision !== 'string' || !/^[a-f0-9]{40,64}$/.test(input.revision))
     )
       throw Error('Expected current memory revision')
-    if (method === 'manage' && !['forget', 'rollback'].includes(input.action as string))
+    if (
+      method === 'manage' &&
+      !['forget', 'rollback', 'doctor', 'init-project', 'migrate-v2'].includes(input.action as string)
+    )
       throw Error('Invalid management action')
     if (
       input.target !== undefined &&
@@ -257,7 +293,12 @@ export function validateInput(method: Method, input: unknown) {
       throw Error('Invalid management target')
     if (method === 'discard' && input.target === undefined) throw Error('Conflict target required')
   }
-  if (method === 'prepare' && !Array.isArray(input.reviewed)) throw Error('Invalid reviewed cursor')
+  if (
+    method === 'prepare' &&
+    (!Array.isArray(input.reviewed) ||
+      (input.allowShrink !== undefined && typeof input.allowShrink !== 'boolean'))
+  )
+    throw Error('Invalid reviewed cursor')
   if (
     method === 'chunk' &&
     (typeof input.path !== 'string' || !Number.isSafeInteger(input.offset) || (input.offset as number) < 0)

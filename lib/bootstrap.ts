@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { assertPrivatePath, CONTINUITY_FILE_MAX_BYTES } from './continuity/store.ts'
 import { createMemoryStore } from './agent-memory/store.ts'
 import { memorySelectionPath, parseMemorySelection } from './agent-memory/profile.ts'
+import { parseLockOwner } from './agent-memory/engine/operation.ts'
 import {
   renderWriterTemplate,
   validateWriterRoute,
@@ -70,6 +71,7 @@ const canonical = (path: unknown, existing = false): string => {
 const readOwnedBootstrapFile = (
   path: string,
   continuityGeneration = false,
+  maxBytes = continuityGeneration ? CONTINUITY_FILE_MAX_BYTES : 1024 * 1024,
 ): {
   text: string
   hash: string
@@ -82,7 +84,6 @@ const readOwnedBootstrapFile = (
     ctimeMs: number
   }
 } | null => {
-  const maxBytes = continuityGeneration ? CONTINUITY_FILE_MAX_BYTES : 1024 * 1024
   canonical(path)
   let stat
   try {
@@ -101,7 +102,12 @@ const readOwnedBootstrapFile = (
     throw new Error('Unsafe bootstrap file')
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
-    const buffer = Buffer.alloc(maxBytes + 1)
+    const opened = fstatSync(fd)
+    if (!opened.isFile() || opened.ino !== stat.ino || opened.dev !== stat.dev || opened.size > maxBytes)
+      throw new Error('File changed before bootstrap read')
+    // Read at most the opened size plus a growth sentinel, not the whole cap
+    // for every small config. Final identity/size/timestamp checks stay below.
+    const buffer = Buffer.alloc(opened.size + 1)
     let length = 0
     while (length < buffer.length) {
       const count = readSync(fd, buffer, length, buffer.length - length, length)
@@ -469,7 +475,101 @@ export const readBootstrapRequest = (path: string) => {
   }
   return validateRequest(value)
 }
-const existingMemoryState = (root: string) => {
+// Diagnostic names are untrusted metadata, never operands or recovery authority.
+const memoryInspection = (
+  root: string,
+  revision: string,
+  facts: { lock: boolean; bootstrap: boolean; dirty: boolean },
+) => {
+  const status = run(
+    'git',
+    ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=normal'],
+    root,
+  )
+  const records = status.split('\0')
+  const entries: { path: string; index: string; worktree: string; from?: string }[] = []
+  let total = 0
+  const diagnosticPath = (path: string) => {
+    if (!path || isAbsolute(path) || path.split('/').includes('..') || Buffer.byteLength(path) > 4096)
+      throw Error('Unsafe memory status path; contents withheld')
+    return path
+  }
+  for (let i = 0; i < records.length; i++) {
+    const row = records[i]
+    if (!row) continue
+    const index = row[0]
+    const worktree = row[1]
+    if (row[2] !== ' ' || !/^[ MTADRCU?!]{2}$/.test(row.slice(0, 2)))
+      throw Error('Invalid memory status; contents withheld')
+    const path = diagnosticPath(row.slice(3))
+    const from = /[RC]/.test(index + worktree) ? diagnosticPath(records[++i] ?? '') : undefined
+    total++
+    if (entries.length < 64) entries.push({ path, index, worktree, ...(from ? { from } : {}) })
+  }
+  const lockPath = join(root, '.lock')
+  const lock: Record<string, unknown> = { state: 'absent' }
+  if (facts.lock) {
+    lock.state = 'unavailable'
+    lock.reason = 'unsafe'
+    try {
+      const stat = lstatSync(lockPath)
+      lock.type = stat.isDirectory() ? 'directory' : stat.isSymbolicLink() ? 'symlink' : 'other'
+      canonical(lockPath, true)
+      if (!stat.isDirectory() || stat.mode & 0o077 || (process.getuid && stat.uid !== process.getuid()))
+        throw Error('Unsafe lock')
+      lock.directory = `${stat.dev}:${stat.ino}`
+      lock.markers = Object.fromEntries(
+        ['owner.json', 'policy.json', 'config.next'].map((name) => [
+          name,
+          memoryMarkerPresent(join(lockPath, name)),
+        ]),
+      )
+      const ownerPath = join(lockPath, 'owner.json')
+      if (!memoryMarkerPresent(ownerPath)) {
+        lock.reason = 'missing'
+      } else {
+        const ownerStat = lstatSync(ownerPath)
+        if (!ownerStat.isFile() || ownerStat.nlink !== 1 || (ownerStat.mode & 0o777) !== 0o600)
+          throw Error('Unsafe lock owner')
+        if (ownerStat.size > 2048) {
+          lock.reason = 'oversize'
+        } else {
+          const file = readOwnedBootstrapFile(ownerPath, false, 2048)
+          if (!file || file.mode !== 0o600 || Buffer.byteLength(file.text) > 2048)
+            throw Error('Unsafe lock owner')
+          lock.reason = 'malformed'
+          try {
+            const owner = parseLockOwner(JSON.parse(file.text))
+            lock.owner = owner
+            lock.state = 'observed'
+            delete lock.reason
+          } catch {
+            // Only a generic enum escapes; no owner payload or parser error.
+          }
+        }
+      }
+    } catch {
+      // Never follow an unsafe lock or relay filesystem errors/private payloads.
+    }
+  }
+  return {
+    protocol: 1,
+    revision,
+    facts,
+    git: { entries, total, truncated: total > entries.length },
+    lock,
+  }
+}
+const memoryMarkerPresent = (path: string) => {
+  try {
+    lstatSync(path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw Error('Memory marker unavailable; contents withheld')
+  }
+}
+const existingMemoryState = (root: string, inspectMemory = false) => {
   canonical(root, true)
   if (!lstatSync(root).isDirectory() || lstatSync(root).mode & 0o077)
     throw new Error('Existing memory root must be private directory')
@@ -483,14 +583,39 @@ const existingMemoryState = (root: string) => {
   // No direct initialize/repair/write path exists here; only the guarded native tool initializes.
   const store = createMemoryStore(root)
   const snapshot = store.snapshot()
-  if (
-    existsSync(join(root, '.lock')) ||
-    existsSync(join(root, '.bootstrap-v2.json')) ||
-    run('git', ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal'], root).trim()
-  )
+  const lock = memoryMarkerPresent(join(root, '.lock'))
+  const bootstrap = memoryMarkerPresent(join(root, '.bootstrap-v2.json'))
+  // An adopted lock may already be in quarantine. That is NOT installer readiness.
+  if (memoryMarkerPresent(join(root, '.views/.maintenance-active.json')))
     throw Error(
-      'Existing memory is dirty or has uncertain active publication; preserve it and recover before engine installation',
+      'Existing memory has an offline maintenance checkpoint; preserve it and inspect supported owner',
     )
+  const dirty = Boolean(
+    run('git', ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal'], root).trim(),
+  )
+  if (lock || bootstrap || dirty) {
+    const error = Error(
+      'Existing memory is dirty or has uncertain active publication; preserve it and recover before engine installation' +
+        `; lock=${lock ? 'present' : 'absent'}, bootstrap=${bootstrap ? 'present' : 'absent'}, worktree=${dirty ? 'dirty' : 'clean'}`,
+    )
+    if (inspectMemory) {
+      try {
+        Object.assign(error, {
+          memoryInspection: memoryInspection(root, snapshot.revision, { lock, bootstrap, dirty }),
+        })
+      } catch {
+        Object.assign(error, {
+          memoryInspection: {
+            protocol: 1,
+            revision: snapshot.revision,
+            facts: { lock, bootstrap, dirty },
+            unavailable: 'inspection-failed',
+          },
+        })
+      }
+    }
+    throw error
+  }
   return sha(
     JSON.stringify({
       config: config.hash,
@@ -619,7 +744,7 @@ export const assertBootstrapNativeContract = (
     metadata.dependencies?.['@gotgenes/pi-subagents'] !== '23.4.1' ||
     metadata.dependencies?.['@gotgenes/pi-permission-system'] !== '40.2.2' ||
     JSON.stringify(metadata.pi?.extensions?.slice(0, 2)) !==
-      JSON.stringify(['./lib/guards/bootstrap.mjs', './lib/guards/index.ts'])
+      JSON.stringify(['./lib/guards/bootstrap.ts', './lib/guards/index.ts'])
   )
     throw new Error('Canonical Pi pins/ordered guards mismatch')
   if (
@@ -638,7 +763,10 @@ export const assertBootstrapNativeContract = (
     throw new Error('Canonical patch provenance mismatch')
 }
 
-export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
+export const inspectBootstrap = (
+  input: BootstrapRequest,
+  options: { inspectMemory?: boolean } = {},
+): BootstrapPlan => {
   const r = validateRequest(input)
   const adapter = product
   const modules = r.dependencyModules ?? join(product, 'node_modules')
@@ -741,16 +869,20 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
       throw new Error('Unsupported extension settings')
     // The reviewed Root cutover used these two direct entries. Keep them exact:
     // SDK resource identity deduplicates bootstrap; worker remains additive.
-    const ownedEntries = [
-      join(product, 'lib/guards/bootstrap.mjs'),
-      join(product, 'extensions/mahiro-worker-activity.ts'),
-    ]
-    for (const entry of explicitExtensions)
+    const currentBootstrap = join(product, 'lib/guards/bootstrap.ts')
+    const legacyBootstrap = join(product, 'lib/guards/bootstrap.mjs')
+    const ownedEntries = [currentBootstrap, join(product, 'extensions/mahiro-worker-activity.ts')]
+    const normalizedExtensions: string[] = []
+    for (const raw of explicitExtensions) {
+      const entry = raw === legacyBootstrap ? currentBootstrap : raw
+      if (!normalizedExtensions.includes(entry)) normalizedExtensions.push(entry)
+    }
+    for (const entry of normalizedExtensions)
       if (ownedEntries.includes(entry) && !readBootstrapFile(entry))
         throw new Error('Missing owned extension source')
     // Every other direct entry/filter affecting a required owner needs review.
     if (
-      explicitExtensions.some((entry: string) => {
+      normalizedExtensions.some((entry: string) => {
         if (/^[!-].*[*?\[]/.test(entry)) return true
         if (ownedEntries.includes(entry)) return false
         const raw = entry.replace(/^[+!-]/, '')
@@ -792,8 +924,8 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
         const guard = readJson(join(absolute, 'package.json'))
         if (
           guard?.name !== '@mahirocoko/pi-guards' ||
-          JSON.stringify(guard.pi?.extensions) !== JSON.stringify(['./bootstrap.mjs', './index.ts']) ||
-          !readBootstrapFile(join(absolute, 'bootstrap.mjs')) ||
+          JSON.stringify(guard.pi?.extensions) !== JSON.stringify(['./bootstrap.ts', './index.ts']) ||
+          !readBootstrapFile(join(absolute, 'bootstrap.ts')) ||
           !readBootstrapFile(join(absolute, 'index.ts'))
         )
           throw new Error('Unreviewed redundant guard package')
@@ -837,11 +969,16 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     // Public services must register before Root captures the native parent.
     // Preserve unrelated declarations, then one permissions/subagents/Root graph.
     for (const source of required) if (!next.includes(source)) next.push(source)
+    const nextSettings = {
+      ...settings,
+      packages: next,
+      ...(Object.hasOwn(settings, 'extensions') ? { extensions: normalizedExtensions } : {}),
+    }
     change(
       path,
-      JSON.stringify(next) === JSON.stringify(packages)
+      JSON.stringify(nextSettings) === JSON.stringify(settings)
         ? readBootstrapFile(path)!.text
-        : json({ ...settings, packages: next }),
+        : json(nextSettings),
       'packages',
     )
     const subpath = join(r.agentDir, 'extensions/pi-subagents/config.json')
@@ -895,7 +1032,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
         )
     }
     const root = join(r.agentDir, 'memory')
-    if (existsSync(root)) existingMemoryState(root) // dirty/corrupt/uncertain stores reject; no migration
+    if (existsSync(root)) existingMemoryState(root, options.inspectMemory) // no migration
     change(path, existing?.text ?? json({ version: 2, root, mode: 'engine' }), 'memory-engine')
   }
   const skillPolicy = r.components.skillPolicy ? inspectSetup(r.agentDir) : null
@@ -927,7 +1064,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
         action: 'preserve-existing',
         root: m.root,
         seedHash: null,
-        stateHash: existingMemoryState(m.root),
+        stateHash: existingMemoryState(m.root, options.inspectMemory),
       }
     } else {
       const seed = readBootstrapFile(m.seedFile)
@@ -989,7 +1126,7 @@ export const inspectBootstrap = (input: BootstrapRequest): BootstrapPlan => {
     if (existsSync(memoryRoot)) {
       featureStateBindings.push({
         root: memoryRoot,
-        stateHash: existingMemoryState(memoryRoot),
+        stateHash: existingMemoryState(memoryRoot, options.inspectMemory),
       }) // Never seed, repair or rewrite existing data/config/ledger.
       grants.push(...tools, `managed_memory_${sha(memoryRoot)}`)
     }

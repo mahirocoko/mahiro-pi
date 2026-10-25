@@ -120,12 +120,13 @@ There are two separately selected account-quota sources:
 - **Pi source (default):** only the legacy `openai-codex` OAuth route uses its
   selected Pi credential through public auth APIs. Native direct OpenAI and other
   unsupported routes add no quota row and do not resolve native credentials.
-- **Codex CLI source (explicit opt-in):** `/mh-usage source codex-cli` selects
+- **Codex CLI source (explicit opt-in):** `/mh-usage codex on` selects and saves
   the existing CLI login independently of the model/provider selected in Pi.
   The usage inspector identifies this source as **Codex CLI**; the compact footer
   uses **Codex** plus the actual window label. Its account may differ from Pi's;
   this is not native OpenAI quota or an auth fallback.
-  `/mh-usage source pi` returns to the Pi source. Selection is runtime-only.
+  `/mh-usage source pi` returns to the Pi source for this runtime only.
+  Advanced `source codex-cli` also remains a runtime-only selection.
 
 The CLI adapter supports the file-token layout used by the Mods implementation:
 `tokens.access_token` and an optional `tokens.account_id` in the one existing
@@ -183,19 +184,37 @@ so retained callbacks cannot reattach it. Non-TUI sessions do not attach it.
   cache fetch time and stale state. Credits and reset credits appear only if supplied
   as valid nonnegative values by that same response. Unsupported/missing fields are
   `unavailable`, not zero. After the stale bound, old balances/windows are unavailable.
-- `off` or `codex off` hides the optional quota presentation and stops this collector,
-  invalidating its pending generation. The mandatory native input/output footer totals
-  remain unchanged. `codex on` re-enables the explicitly selected supported source;
-  it never chooses CLI authentication as a fallback for an unsupported Pi route.
-  `source codex-cli` explicitly selects the external source; `source pi` restores
-  selected Pi authentication. The existing lifecycle poll owns collection, so
-  source controls, status commands and all panel/footer rendering remain cache-only.
-- `bar` and `compact` switch only optional quota formatting. Neither enables a source.
-  Choices are in-memory only and reset on a new/forked/resumed session or reload.
-  There is no settings store, new grant, implicit integration activation or profile edit.
+- `codex on` explicitly selects **Codex CLI** and saves that selection profile-wide,
+  independently of the Pi model/provider. No separate source command is needed.
+  `off` or `codex off` stops/hides the collector here immediately and saves profile-wide
+  off. Native input/output totals are unchanged. A failed off still cancels here,
+  but reports that profile-wide persistence is not confirmed. Failed on never starts
+  external collection; stale or durability-unknown publication is not retried.
+- New eligible primary TUI sessions in the same profile, across projects, restore
+  the selection. Existing sessions running this code adopt changed revisions on
+  their existing lifecycle check, bounded to five seconds between reads with a
+  monotonic clock; there is no watcher, immediate cross-process broadcast or old-code
+  refresh. Children and non-TUI sessions never restore it. Missing/denied/corrupt
+  storage stops a previously automatic CLI collector, without falling back to Pi.
+  Removing its stored preference also stops that automatic selection. A fresh
+  authorized read can restore the same valid revision after a transient read failure;
+  it clears the unavailable notice without overwriting an unchanged runtime override.
+- `source codex-cli` and `source pi` remain advanced runtime-only overrides. An
+  unchanged preference reread does not overwrite them; a changed revision or rebind
+  applies the profile selection. `bar` and `compact` remain runtime-only formatting.
+- Root owns only `<profile>/preferences/usage/state.json`: schema version, revision
+  sequence and the boolean CLI selection. No credentials, account IDs, quota windows
+  or host settings are saved. Exact `usage_state_data_<sha256(canonical root)>`
+  authority comes only from explicit installation. Existing installations may need
+  an approved update; commands report unavailable/not saved rather than weakening
+  policy. Absent storage keeps the default Pi source with external collection off.
+  An ambiguous/failed save blocks automatic on here until an explicit successful save
+  or rebind; no automatic save retry occurs. A newly proved off or preference withdrawal
+  still stops collection, including after an advanced runtime CLI selection.
 
-External CLI selection requires an explicit choice each session; loading source
-or opening the inspector does not activate it. An existing CLI login does not
+The existing collector lifecycle alone reads authentication and fetches quota after
+selection; preference reads, commands and rendering never fetch credentials or quota.
+Loading source does not provision storage or grants. An existing CLI login does not
 prove that its file format, path authorization, token or quota endpoint is usable.
 Unavailable/denied/expired responses remain visible as such, with no automatic
 login refresh or borrowed account. Source/SDK checks alone do not establish actual
