@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import { parseOperation } from '../lib/agent-memory/engine/operation.ts'
+import { parseOperation, validatePlan } from '../lib/agent-memory/engine/operation.ts'
 import {
   engineRequestDeadline,
   MemoryEngineController,
@@ -36,7 +36,11 @@ import {
 import { MemoryDataEngine } from '../lib/agent-memory/engine/data.ts'
 import { encode, Frames, transportLimits, type Plan } from '../lib/agent-memory/engine/protocol.ts'
 import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
-import { allowedPath as newPath, parseConfig as newConfig } from '../lib/agent-memory/engine/schema.ts'
+import {
+  allowedPath as newPath,
+  limits,
+  parseConfig as newConfig,
+} from '../lib/agent-memory/engine/schema.ts'
 import { allowedPath, createMemoryStore, parseConfig, type MemoryConfig } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
 import type { Episode } from '../lib/agent-memory/store.ts'
@@ -51,7 +55,7 @@ test('only explicit offline certification is completion-driven beyond the ordina
 
 // Fixture owns the complete process env while active (tests in this file are serial).
 // No inherited Git discovery/config/index/identity and no ancestor repository commits.
-function fixture(count = 12) {
+function fixture(count = 12, longPaths = false) {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), 'mahiro-engine-'))
   const home = join(dir, 'home')
   const root = join(dir, 'memory')
@@ -90,7 +94,7 @@ function fixture(count = 12) {
     for (let i = 0; i < count; i++)
       store.edit(
         view,
-        `global/file-${i}.md`,
+        longPaths ? `global/${'x'.repeat(58)}${i.toString(36).padStart(3, '0')}.md` : `global/file-${i}.md`,
         null,
         `# Subject ${i}\nSynthetic body ${'data '.repeat(20)}\n`,
         ['source-one'],
@@ -99,7 +103,13 @@ function fixture(count = 12) {
   }
   const env = engineEnvironment(process.env)
   const engine = new MemoryEngineController(root, env)
-  const context: OperationContext = { current: () => true }
+  let currentCalls = 0
+  const context: OperationContext = {
+    current: () => {
+      currentCalls++
+      return true
+    },
+  }
   const git = (...args: string[]) =>
     execFileSync('git', ['--no-pager', ...args], {
       cwd: root,
@@ -121,6 +131,9 @@ function fixture(count = 12) {
     env,
     context,
     git,
+    get currentCalls() {
+      return currentCalls
+    },
     async close() {
       const pid = engine.pid
       const exit = await engine.close()
@@ -147,6 +160,13 @@ async function ready(f: ReturnType<typeof fixture>, view: string) {
   const result = await f.engine.request('prepare', { view, reviewed: [] }, f.context)
   assert.ok('plan' in result)
   return result.plan
+}
+async function prepareManagement(f: ReturnType<typeof fixture>, action: 'init-project' | 'migrate-v2') {
+  const staged = await f.engine.request('manage', { action, project: 'project' }, f.context)
+  assert.ok('view' in staged)
+  const prepared = await f.engine.request('prepare', { view: staged.view, reviewed: [] }, f.context)
+  assert.ok('plan' in prepared)
+  return prepared
 }
 async function read(f: ReturnType<typeof fixture>, view: string, path = 'Core.md') {
   return await f.engine.request('read', { view, selection: { path } }, f.context)
@@ -810,6 +830,207 @@ test('revocation at exact canonical native start leaves unknown, never a buffere
   }
 })
 
+test('operation plans separately bound migration deltas that exceed the resulting file ceiling', () => {
+  const changes = Array.from({ length: 342 }, (_, index) => {
+    const slug = `legacy-${index.toString(36).padStart(3, '0')}.md`
+    return [
+      { path: `global/${slug}`, hash: null, size: 0 },
+      { path: `archives/legacy-v1-${'a'.repeat(12)}/global/${slug}`, hash: 'b'.repeat(64), size: 1 },
+      { path: `system/human/${slug}`, hash: 'c'.repeat(64), size: 1 },
+    ]
+  }).flat()
+  changes.push(
+    { path: 'system/persona.md', hash: 'd'.repeat(64), size: 1 },
+    { path: '.memory.json', hash: 'e'.repeat(64), size: limits.ledger },
+  )
+  const metadata: Omit<Plan, 'digest'> = {
+    id: '11111111-1111-4111-8111-111111111111',
+    view: '22222222-2222-4222-8222-222222222222',
+    base: '1'.repeat(40),
+    current: '2'.repeat(40),
+    configHash: '3'.repeat(64),
+    ledgerHash: '4'.repeat(64),
+    changes,
+  }
+  assert.equal(changes.length, 1028)
+  assert.doesNotThrow(() => validatePlan({ ...metadata, digest: digest(JSON.stringify(metadata)) }))
+  const oversizedFile = {
+    ...metadata,
+    changes: [{ path: 'global/too-large.md', hash: 'f'.repeat(64), size: limits.file + 1 }],
+  }
+  assert.throws(
+    () => validatePlan({ ...oversizedFile, digest: digest(JSON.stringify(oversizedFile)) }),
+    /operation delta/,
+  )
+})
+
+test('doctor filters irrelevant modern drafts before body recovery and batches the selected live-scale conflict', async () => {
+  const f = fixture(286)
+  try {
+    await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    const conflict = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    const manifest = join(f.root, '.views', '.engine-v2', 'drafts', `${conflict.view}.json`)
+    const draft = JSON.parse(readFileSync(manifest, 'utf8'))
+    draft.state = 'conflict'
+    writeFileSync(manifest, `${JSON.stringify(draft)}\n`)
+    const before = await f.engine.request('stats', {}, f.context)
+    const { doctor: report } = (await f.engine.request(
+      'manage',
+      { action: 'doctor', project: 'project' },
+      f.context,
+    )) as unknown as { doctor: { conflicts: number; views: number } }
+    const after = await f.engine.request('stats', {}, f.context)
+    const readsBefore = Object.values(before.blobReads).reduce((sum, count) => sum + count, 0)
+    const readsAfter = Object.values(after.blobReads).reduce((sum, count) => sum + count, 0)
+    assert.ok(report.views >= 2)
+    assert.equal(report.conflicts, 1)
+    assert.equal(readsAfter - readsBefore, 288, 'only the selected conflict is hydrated once')
+    assert.ok(after.gitCalls - before.gitCalls <= 20, 'selected conflict bodies use bounded native batches')
+  } finally {
+    await f.close()
+  }
+})
+
+test('above-341-file engine migration prepares segmented lossless changes with bounded Git calls', async () => {
+  const f = fixture(340, true)
+  try {
+    const longProject = 'p'.repeat(64)
+    const longSlug = `${'s'.repeat(64)}.md`
+    const primary = createMemoryStore(f.root, () => {}, 'primary')
+    const legacy = primary.createView('project', 120000, true)
+    primary.edit(legacy, `global/${longSlug}`, null, '# Long global\nLegacy preference.\n', [])
+    primary.edit(
+      legacy,
+      `deferred/${longProject}/${longSlug}`,
+      null,
+      '# Long project\nLegacy project memory.\n',
+      [],
+    )
+    primary.integrate(legacy)
+    chmodSync(join(f.root, `global/${longSlug}`), 0o644)
+    chmodSync(join(f.root, `deferred/${longProject}/${longSlug}`), 0o644)
+    const beforeMigration = primary.snapshot()
+    const archivePrefix = `archives/legacy-v1-${beforeMigration.revision.slice(0, 12)}`
+    const before = await f.engine.request('stats', {}, f.context)
+    const prepared = await prepareManagement(f, 'migrate-v2')
+    const afterPrepare = await f.engine.request('stats', {}, f.context)
+    assert.ok(
+      afterPrepare.gitCalls - before.gitCalls < 100,
+      'migration and prepare avoid per-file Git spawning',
+    )
+    assert.equal(prepared.plan.changes.length, 1028)
+    const status = await f.engine.request('status', {}, f.context)
+    const pending = status.pendingOperations.find((operation) => operation.id === prepared.plan.id)
+    assert.deepEqual(pending && { digest: pending.digest, stage: pending.stage }, {
+      digest: prepared.plan.digest,
+      stage: 'prepared',
+    })
+    assert.ok(pending && pending.recordBytes > 512 * 1024 && pending.recordBytes <= 8 * 1024 * 1024)
+    const changes = new Map(prepared.plan.changes.map((change) => [change.path, change]))
+    assert.equal(changes.get(`global/${longSlug}`)?.hash, null)
+    assert.equal(changes.get(`deferred/${longProject}/${longSlug}`)?.hash, null)
+    const archivePath = `${archivePrefix}/deferred/${longProject}/${longSlug}`
+    assert.ok(changes.get(`${archivePrefix}/global/${longSlug}`)?.hash)
+    assert.ok(changes.get(archivePath)?.hash)
+    assert.ok(changes.get(`system/human/${longSlug}`)?.hash)
+    assert.ok(changes.get(`projects/${longProject}/system/${longSlug}`)?.hash)
+    const archiveChunk = await f.engine.request(
+      'chunk',
+      { plan: prepared.plan.id, digest: prepared.plan.digest, path: archivePath, offset: 0 },
+      f.context,
+    )
+    assert.equal(
+      Buffer.from(archiveChunk.data, 'base64').toString(),
+      '# Long project\nLegacy project memory.\n',
+    )
+    const checksBeforePublish = f.currentCalls
+    const publication = await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)
+    assert.equal(publication.stage, 'reconciled_committed', JSON.stringify(publication))
+    assert.ok(
+      f.currentCalls - checksBeforePublish < 100000,
+      'live-scale publication keeps checkpoints bounded',
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+test('engine migration publishes segmented archives then initializes and diagnoses the v2 corpus', async () => {
+  const f = fixture(8)
+  try {
+    const longProject = 'p'.repeat(64)
+    const longSlug = `${'s'.repeat(64)}.md`
+    const primary = createMemoryStore(f.root, () => {}, 'primary')
+    const legacy = primary.createView('project', 120000, true)
+    primary.edit(legacy, `global/${longSlug}`, null, '# Long global\nLegacy preference.\n', [])
+    primary.edit(
+      legacy,
+      `deferred/${longProject}/${longSlug}`,
+      null,
+      '# Long project\nLegacy project memory.\n',
+      [],
+    )
+    primary.integrate(legacy)
+    const beforeMigration = primary.snapshot()
+    const archivePrefix = `archives/legacy-v1-${beforeMigration.revision.slice(0, 12)}`
+    const prepared = await prepareManagement(f, 'migrate-v2')
+    const publication = await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)
+    assert.equal(publication.stage, 'reconciled_committed', JSON.stringify(publication))
+    const migrated = primary.snapshot()
+    assert.equal(migrated.files[`global/${longSlug}`], undefined)
+    assert.equal(migrated.files[`deferred/${longProject}/${longSlug}`], undefined)
+    assert.equal(
+      migrated.files[`${archivePrefix}/global/${longSlug}`].text,
+      '# Long global\nLegacy preference.\n',
+    )
+    assert.equal(
+      migrated.files[`${archivePrefix}/deferred/${longProject}/${longSlug}`].text,
+      '# Long project\nLegacy project memory.\n',
+    )
+    assert.ok(migrated.files[`system/human/${longSlug}`])
+    assert.ok(migrated.files[`projects/${longProject}/system/${longSlug}`])
+    const initialized = await prepareManagement(f, 'init-project')
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(initialized.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    const { doctor: report } = (await f.engine.request(
+      'manage',
+      { action: 'doctor', project: 'project' },
+      f.context,
+    )) as unknown as { doctor: { healthy: boolean; unmigratedV1Paths: string[]; views: number } }
+    assert.equal(report.healthy, true)
+    assert.deepEqual(report.unmigratedV1Paths, [])
+    const noOpRevision = (await f.engine.request('status', {}, f.context)).revision
+    for (const action of ['migrate-v2', 'init-project'] as const) {
+      const noOp = await f.engine.request('manage', { action, project: 'project' }, f.context)
+      assert.ok('revision' in noOp)
+      assert.equal(noOp.changed, false)
+      assert.equal(noOp.revision, noOpRevision)
+    }
+    const afterNoOp = (await f.engine.request(
+      'manage',
+      { action: 'doctor', project: 'project' },
+      f.context,
+    )) as unknown as { doctor: { views: number } }
+    assert.equal(afterNoOp.doctor.views, report.views)
+    assert.deepEqual((await f.engine.request('status', {}, f.context)).pendingOperations, [])
+    const directory = (await f.engine.request(
+      'headRead',
+      {
+        project: 'project',
+        shared: true,
+        selection: { path: `${archivePrefix}/deferred/${longProject}` },
+      },
+      f.context,
+    )) as unknown as { directory: string; total: number }
+    assert.equal(directory.directory, `${archivePrefix}/deferred/${longProject}`)
+    assert.equal(directory.total, 1)
+  } finally {
+    await f.close()
+  }
+})
+
 test('management forgetting and rollback match old snapshot oracle without schema/config changes or resurrection', async () => {
   const f = fixture(3)
   const oracle = fixture(3)
@@ -834,6 +1055,7 @@ test('management forgetting and rollback match old snapshot oracle without schem
       { action: 'forget', project: 'project', revision: initial, paths: [], sources: ['source-one'] },
       f.context,
     )
+    assert.ok('plan' in prepared)
     assert.equal(
       (await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)).stage,
       'reconciled_committed',
@@ -853,6 +1075,7 @@ test('management forgetting and rollback match old snapshot oracle without schem
       { action: 'rollback', project: 'project', revision: f.store.snapshot().revision, target: initial },
       f.context,
     )
+    assert.ok('plan' in rollback)
     assert.equal(
       (await new MemoryPublisher(f.engine, f.env).publish(rollback.plan, f.context)).stage,
       'reconciled_committed',
@@ -1621,9 +1844,9 @@ test('aborted first chunk retains private staging evidence without untracked can
       current(targets) {
         if (
           live &&
-          targets.physical.includes(join(f.root, 'config.json')) &&
-          existsSync(staging) &&
-          readdirSync(staging).some((name) => name.endsWith('.tmp'))
+          targets.physical.some(
+            (path) => path.startsWith(`${staging}/`) && path.endsWith('.tmp') && existsSync(path),
+          )
         ) {
           reached = true
           live = false

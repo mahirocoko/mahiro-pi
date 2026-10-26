@@ -1,20 +1,20 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, rename, rmdir, unlink } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import { assertCurrent, type MemoryEngineController, type OperationContext } from './controller.ts'
 import { engineEnvironment, privateDirectory, readPrivate, runGit, safePath } from './io.ts'
-import { parseLockOwner, parseOperation, type LockOwner } from './operation.ts'
+import { operationLimit, parseLockOwner, parseOperation, type LockOwner } from './operation.ts'
 import { parseDraft } from './manifest.ts'
-import { parseConfig, parseLedger, uuidPattern } from './schema.ts'
+import { limits, parseConfig, parseLedger, uuidPattern } from './schema.ts'
 
 // Explicit cooperative offline adoption only. This is NOT executor drain or normal reconciliation.
 export const maintenanceMarker = '.views/.maintenance-active.json'
 export const offlineAssurance = 'known-profile-closed-no-cooperative-writers-start'
 const container = '.views/.maintenance'
 const journal = '.views/.engine-v2/journal'
-const bounds = Object.freeze({ entries: 32768, bytes: 512 * 1024 * 1024, file: 256 * 1024 * 1024 })
+const bounds = Object.freeze({ entries: 131072, bytes: 8 * 1024 * 1024 * 1024, file: 256 * 1024 * 1024 })
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
 interface Entry {
   path: string
@@ -33,7 +33,9 @@ interface Plan {
   configSemantic: string
   owner: LockOwner
   operation: { immutableHash: string; sequence: number; view: string }
+  outcome: 'unknown' | 'not_committed_dirty'
   moves: string[]
+  worktree: { path: string; state: 'tracked' | 'untracked' }[]
   draft: string | null
   counts: { journal: number; drafts: number; legacyViews: number; staging: number; unknownAdmission: number }
 }
@@ -41,7 +43,7 @@ interface State {
   version: 1
   phase: 'prepared' | 'archived' | 'quarantining' | 'completed'
   planHash: string
-  disposition: 'manually-adopted-prior-outcome-unknown'
+  disposition: 'manually-adopted-prior-outcome-unknown' | 'manually-recovered-not-committed-dirty'
 }
 export interface MaintenanceRequest {
   action: 'offline-inspect' | 'offline-adopt' | 'offline-resume'
@@ -162,11 +164,14 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
   await privateDirectory(root)
   const entries = await inventory(root, context, [maintenanceMarker])
   const entry = (path: string) => entries.find((e) => e.path === path)
-  for (const path of ['.git', '.views', '.lock']) {
+  for (const path of ['.git', '.views']) {
     if (entry(path)?.kind !== 'directory')
       throw Error('Offline adoption requires existing typed owner storage')
     if (path !== '.git') await privateDirectory(join(root, path))
   }
+  const lockPresent = entry('.lock')?.kind === 'directory'
+  if (entry('.lock') && !lockPresent) throw Error('Offline adoption lock storage is not a directory')
+  if (lockPresent) await privateDirectory(join(root, '.lock'))
   for (const path of ['Core.md', 'index.md', '.memory.json', 'config.json', '.git/index'])
     if (entry(path)?.kind !== 'file') throw Error('Offline adoption missing canonical bytes')
   if (entries.some((e) => e.path.startsWith('.git/') && e.path.endsWith('.lock')))
@@ -184,63 +189,69 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
     throw Error('Offline independent archive requires standalone complete Git object storage')
   const head = (await git(root, ['rev-parse', '--verify', 'HEAD'], context)).toString().trim()
   if (!/^[a-f0-9]{40,64}$/.test(head)) throw Error('Offline adoption requires full HEAD')
-  const status = (await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], context))
-    .toString('utf8')
-    .split('\0')
-    .filter(Boolean)
-  const orphans: string[] = []
-  for (const line of status) {
-    if (!/^\?\? \.memory-engine-[a-f0-9-]{36}\.tmp$/.test(line))
-      throw Error('Offline adoption refuses tracked, staged or unknown user work')
-    const path = line.slice(3)
-    if (entry(path)?.kind !== 'file') throw Error('Offline orphan inventory mismatch')
-    orphans.push(path)
-    if (orphans.length > 64) throw Error('Offline reviewed native orphan count bound')
-  }
   const configSemantic = hash(JSON.stringify(parseConfig(await read(root, 'config.json', 131072, context))))
-  parseLedger(await read(root, '.memory.json', 131072, context))
-  const owner = parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
-  if (
-    owner.directory !== entry('.lock')!.identity ||
-    entries
-      .filter((e) => e.path.startsWith('.lock/'))
-      .map((e) => e.path)
-      .join() !== '.lock/owner.json'
-  )
-    throw Error('Offline adoption refuses incomplete or policy lock evidence')
-  const moves = ['.lock', ...orphans]
-  let operation: Plan['operation'] | undefined
-  let draft: string | null = null
-  for (const e of entries.filter((e) => dirname(e.path) === journal)) {
+  parseLedger(await read(root, '.memory.json', limits.ledger, context))
+  const journalEntries = entries.filter((e) => dirname(e.path) === journal)
+  const records: { entry: Entry; record: ReturnType<typeof parseOperation> }[] = []
+  for (const e of journalEntries) {
     const name = relative(journal, e.path)
-    if (name === `${owner.operation}.json.cas` && e.kind === 'directory') {
-      if (entries.some((v) => v.path.startsWith(`${e.path}/`))) throw Error('Offline CAS is not empty')
-      moves.push(e.path)
-      continue
-    }
+    if (name.endsWith('.cas')) continue
     if (!/^[a-f0-9-]{36}\.json$/.test(name) || e.kind !== 'file')
       throw Error('Offline adoption refuses unknown journal/CAS inventory')
-    const record = parseOperation(await read(root, e.path, 512 * 1024, context))
+    const record = parseOperation(await read(root, e.path, operationLimit, context))
     if (
       record.immutable.root !== root ||
       record.immutable.rootIdentity !== entry('.')!.identity ||
       `${record.immutable.plan.id}.json` !== name
     )
       throw Error('Offline operation root binding mismatch')
+    records.push({ entry: e, record })
+  }
+  let owner: LockOwner
+  let outcome: Plan['outcome']
+  if (lockPresent) {
+    owner = parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
+    if (
+      owner.directory !== entry('.lock')!.identity ||
+      entries
+        .filter((e) => e.path.startsWith('.lock/'))
+        .map((e) => e.path)
+        .join() !== '.lock/owner.json'
+    )
+      throw Error('Offline adoption refuses incomplete or policy lock evidence')
+    outcome = 'unknown'
+  } else {
+    const candidates = records.filter(
+      ({ record }) =>
+        record.receipt.stage === 'not_committed_dirty' &&
+        record.immutable.plan.current === head &&
+        record.owner !== null,
+    )
+    if (candidates.length !== 1)
+      throw Error('Offline recovery requires one exact terminal dirty operation without a lock')
+    owner = parseLockOwner(candidates[0].record.owner)
+    outcome = 'not_committed_dirty'
+  }
+  const moves = lockPresent ? ['.lock'] : []
+  let operation: Plan['operation'] | undefined
+  let operationRecord: ReturnType<typeof parseOperation> | undefined
+  let draft: string | null = null
+  for (const { entry: journalEntry, record } of records) {
     if (record.immutable.plan.id === owner.operation) {
       if (
         record.immutable.plan.digest !== owner.digest ||
         JSON.stringify(record.owner) !== JSON.stringify(owner) ||
         record.immutable.plan.current !== head ||
-        record.receipt.stage !== 'unknown'
+        record.receipt.stage !== outcome
       )
-        throw Error('Offline adoption requires exact reviewed unknown operation')
+        throw Error('Offline recovery operation binding mismatch')
       operation = {
         immutableHash: record.immutableHash,
         sequence: record.sequence,
         view: record.immutable.plan.view,
       }
-      moves.push(e.path)
+      operationRecord = record
+      moves.push(journalEntry.path)
       const path = `.views/.engine-v2/drafts/${record.immutable.plan.view}.json`
       const proposal = parseDraft(await read(root, path, 2 * 1024 * 1024, context))
       if (proposal.id !== record.immutable.plan.view || proposal.state !== 'ready')
@@ -249,7 +260,60 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
     } else if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
       throw Error('Offline adoption refuses additional unresolved operations')
   }
-  if (!operation) throw Error('Offline adoption requires complete typed unknown journal evidence')
+  const casPath = `${journal}/${owner.operation}.json.cas`
+  if (entry(casPath)) {
+    if (entry(casPath)?.kind !== 'directory' || entries.some((value) => value.path.startsWith(`${casPath}/`)))
+      throw Error('Offline CAS is not empty')
+    moves.push(casPath)
+  }
+  if (!operation || !operationRecord)
+    throw Error('Offline adoption requires complete typed operation evidence')
+  const stagingPath = `.views/.engine-v2/staging/${owner.operation}`
+  const stagingEntries = entries.filter((e) => e.path.startsWith('.views/.engine-v2/staging/'))
+  if (stagingEntries.some((e) => !within(e.path, stagingPath)))
+    throw Error('Offline adoption refuses staging from another operation')
+  if (entry(stagingPath)) {
+    if (entry(stagingPath)?.kind !== 'directory') throw Error('Offline operation staging is not a directory')
+    moves.push(stagingPath)
+  }
+  const status = (await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], context))
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+  const changes = new Map(operationRecord.immutable.plan.changes.map((change) => [change.path, change]))
+  const worktree: Plan['worktree'] = []
+  const orphans: string[] = []
+  for (const line of status) {
+    if (/^\?\? \.memory-engine-[a-f0-9-]{36}\.tmp$/.test(line)) {
+      const path = line.slice(3)
+      if (entry(path)?.kind !== 'file') throw Error('Offline orphan inventory mismatch')
+      orphans.push(path)
+      if (orphans.length > 64) throw Error('Offline reviewed native orphan count bound')
+      continue
+    }
+    const untracked = line.startsWith('?? ')
+    const tracked =
+      line.length >= 4 && line[0] === ' ' && (line[1] === 'M' || line[1] === 'D') && line[2] === ' '
+    if (!untracked && !tracked) throw Error('Offline adoption refuses staged or unknown user work')
+    const path = line.slice(3)
+    const change = changes.get(path)
+    if (!change || worktree.some((item) => item.path === path))
+      throw Error('Offline adoption refuses work outside the exact operation plan')
+    const current = entry(path)
+    if (change.hash === null) {
+      if (!tracked || line[1] !== 'D' || current) throw Error('Offline planned deletion state mismatch')
+    } else {
+      if (
+        (untracked && current?.kind !== 'file') ||
+        (tracked && (line[1] !== 'M' || current?.kind !== 'file'))
+      )
+        throw Error('Offline planned write state mismatch')
+      if (!current || current.hash !== change.hash || current.size !== change.size)
+        throw Error('Offline planned write bytes mismatch')
+    }
+    worktree.push({ path, state: untracked ? 'untracked' : 'tracked' })
+  }
+  moves.push(...orphans)
   const children = (path: string) => entries.filter((e) => dirname(e.path) === path)
   const counts = {
     journal: children(journal).length,
@@ -260,7 +324,20 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
       .length,
     unknownAdmission: 1 + children(journal).filter((e) => e.path.endsWith('.cas')).length,
   }
-  return { version: 1, root, entries, head, configSemantic, owner, operation, moves, draft, counts }
+  return {
+    version: 1,
+    root,
+    entries,
+    head,
+    configSemantic,
+    owner,
+    operation,
+    outcome,
+    moves,
+    worktree,
+    draft,
+    counts,
+  }
 }
 
 // Fixed public system tool; no PATH/env/caller-selected helper, PID-death or quiet-time fallback.
@@ -447,14 +524,31 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
   if (JSON.stringify(content(actual)) !== JSON.stringify(content(plan.entries)))
     throw Error('Archive full byte inventory verification failed')
   const root = join(work, 'snapshot')
-  const owner = parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
-  const record = parseOperation(await read(root, `${journal}/${owner.operation}.json`, 512 * 1024, context))
+  const owner = plan.owner
+  const archivedOwner =
+    plan.outcome === 'unknown'
+      ? parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
+      : null
+  const record = parseOperation(
+    await read(root, `${journal}/${owner.operation}.json`, operationLimit, context),
+  )
   const draft = parseDraft(await read(root, plan.draft!, 2 * 1024 * 1024, context))
   const semantic = hash(JSON.stringify(parseConfig(await read(root, 'config.json', 131072, context))))
-  parseLedger(await read(root, '.memory.json', 131072, context))
+  parseLedger(await read(root, '.memory.json', limits.ledger, context))
+  const changes = new Map(record.immutable.plan.changes.map((change) => [change.path, change]))
+  const snapshotEntries = new Map(plan.entries.map((entry) => [entry.path, entry]))
+  const worktreeBound = plan.worktree.every((item) => {
+    const change = changes.get(item.path)
+    const entry = snapshotEntries.get(item.path)
+    if (!change) return false
+    if (change.hash === null) return item.state === 'tracked' && entry === undefined
+    return entry?.kind === 'file' && entry.hash === change.hash && entry.size === change.size
+  })
   if (
-    JSON.stringify(owner) !== JSON.stringify(plan.owner) ||
-    owner.directory !== plan.entries.find((e) => e.path === '.lock')?.identity ||
+    (plan.outcome === 'unknown'
+      ? JSON.stringify(archivedOwner) !== JSON.stringify(plan.owner) ||
+        archivedOwner?.directory !== plan.entries.find((e) => e.path === '.lock')?.identity
+      : archivedOwner !== null || plan.entries.some((entry) => within(entry.path, '.lock'))) ||
     record.immutable.root !== plan.root ||
     record.immutable.rootIdentity !== plan.entries.find((e) => e.path === '.')?.identity ||
     record.immutableHash !== plan.operation.immutableHash ||
@@ -462,12 +556,13 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
     record.immutable.plan.digest !== owner.digest ||
     record.immutable.plan.id !== owner.operation ||
     JSON.stringify(record.owner) !== JSON.stringify(owner) ||
-    record.receipt.stage !== 'unknown' ||
+    record.receipt.stage !== plan.outcome ||
     record.immutable.plan.current !== plan.head ||
     record.immutable.plan.view !== plan.operation.view ||
     draft.id !== plan.operation.view ||
     draft.state !== 'ready' ||
-    semantic !== plan.configSemantic
+    semantic !== plan.configSemantic ||
+    !worktreeBound
   )
     throw Error('Archive original typed ownership/proposal binding failed')
 }
@@ -477,9 +572,106 @@ async function conflictBytes(plan: Plan, work: string, context: OperationContext
   const draft = parseDraft(original)
   return `${JSON.stringify({ ...draft, state: 'conflict' })}\n`
 }
+async function currentWorktree(plan: Plan, context: OperationContext) {
+  const status = (await git(plan.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], context))
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+  const planned = new Map(plan.worktree.map((item) => [item.path, item]))
+  const original = new Map(plan.entries.map((entry) => [entry.path, entry]))
+  const dirty = new Set<string>()
+  for (const line of status) {
+    const path = line.slice(3)
+    if (/^\?\? \.memory-engine-[a-f0-9-]{36}\.tmp$/.test(line) && plan.moves.includes(path)) continue
+    const item = planned.get(path)
+    const untracked = line.startsWith('?? ')
+    const tracked =
+      line.length >= 4 && line[0] === ' ' && (line[1] === 'M' || line[1] === 'D') && line[2] === ' '
+    if (
+      !item ||
+      (!untracked && !tracked) ||
+      (untracked ? item.state !== 'untracked' : item.state !== 'tracked')
+    )
+      throw Error('Offline active worktree escaped the reviewed operation')
+    const expected = original.get(path)
+    if (tracked && line[1] === 'D') {
+      if (expected) throw Error('Offline active planned deletion changed')
+    } else {
+      if (!expected || expected.kind !== 'file') throw Error('Offline active planned write missing')
+      const actual = await fileHash(join(plan.root, path), context)
+      if (actual.hash !== expected.hash || actual.size !== expected.size)
+        throw Error('Offline active planned write changed')
+    }
+    dirty.add(path)
+  }
+  return dirty
+}
+async function restoreWorktree(plan: Plan, context: OperationContext) {
+  const dirty = await currentWorktree(plan, context)
+  const tracked = plan.worktree.filter((item) => item.state === 'tracked')
+  const trackedDirty = tracked.filter((item) => dirty.has(item.path))
+  const untracked = plan.worktree.filter((item) => item.state === 'untracked' && dirty.has(item.path))
+  if (tracked.length) {
+    if (trackedDirty.length)
+      await git(
+        plan.root,
+        ['restore', '--worktree', '--source=HEAD', '--', ...trackedDirty.map((item) => item.path)],
+        context,
+      )
+    for (const item of tracked) {
+      const path = join(plan.root, item.path)
+      await safePath(path)
+      await gate(context, [path])
+      const fd = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+      try {
+        const stat = await fd.stat()
+        if (!stat.isFile() || stat.nlink !== 1) throw Error('Offline restored tracked path is unsafe')
+        await fd.chmod(0o600)
+        await fd.sync()
+      } finally {
+        await fd.close()
+      }
+      await syncDirectory(dirname(path), context)
+    }
+  }
+  const originalDirectories = new Set(
+    plan.entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.path),
+  )
+  for (const item of untracked) {
+    const path = join(plan.root, item.path)
+    await gate(context, [path])
+    await unlink(path)
+    await syncDirectory(dirname(path), context)
+    for (
+      let parent = dirname(item.path);
+      parent !== '.' && !originalDirectories.has(parent);
+      parent = dirname(parent)
+    ) {
+      const physical = join(plan.root, parent)
+      await gate(context, [physical])
+      try {
+        await rmdir(physical)
+        await syncDirectory(dirname(physical), context)
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'ENOTEMPTY' && code !== 'ENOENT') throw error
+        if (code === 'ENOTEMPTY') break
+      }
+    }
+  }
+  if ((await currentWorktree(plan, context)).size)
+    throw Error('Offline operation worktree restoration incomplete')
+}
 async function verifyActive(plan: Plan, work: string, context: OperationContext, allowMoves: boolean) {
   const original = plan.entries
   const expected = new Map(original.map((e) => [e.path, e]))
+  const dirty = await currentWorktree(plan, context)
+  if (!allowMoves && dirty.size !== plan.worktree.length)
+    throw Error('Offline reviewed operation worktree changed before archive')
+  const restored = new Set(
+    allowMoves ? plan.worktree.filter((item) => !dirty.has(item.path)).map((item) => item.path) : [],
+  )
+  for (const path of restored) expected.delete(path)
   for (const path of plan.moves) {
     const source = join(plan.root, path)
     const destination = join(work, 'quarantine', path)
@@ -496,7 +688,9 @@ async function verifyActive(plan: Plan, work: string, context: OperationContext,
       for (const entry of subtree) expected.delete(entry.path)
     }
   }
-  const active = await inventory(plan.root, context, [maintenanceMarker, relative(plan.root, work)])
+  const active = (await inventory(plan.root, context, [maintenanceMarker, relative(plan.root, work)])).filter(
+    (entry) => !restored.has(entry.path),
+  )
   if (allowMoves && plan.draft) {
     const current = active.find((e) => e.path === plan.draft)
     const before = expected.get(plan.draft)!
@@ -529,8 +723,10 @@ async function loadTransaction(root: string, context: OperationContext) {
   )
     throw Error('Offline maintenance marker unavailable')
   const work = join(root, container, marker.id)
-  const raw = await read(work, 'plan.json', 16 * 1024 * 1024, context)
+  const raw = await read(work, 'plan.json', 64 * 1024 * 1024, context)
   const plan = JSON.parse(raw) as Plan
+  if (!Object.hasOwn(plan, 'worktree')) plan.worktree = []
+  if (!Object.hasOwn(plan, 'outcome')) plan.outcome = 'unknown'
   const stateRaw = await read(work, 'state.json', 2048, context)
   const state = JSON.parse(stateRaw) as State
   if (
@@ -541,6 +737,8 @@ async function loadTransaction(root: string, context: OperationContext) {
     plan.entries.length > bounds.entries ||
     !Array.isArray(plan.moves) ||
     plan.moves.length > 128 ||
+    !Array.isArray(plan.worktree) ||
+    plan.worktree.length > limits.changes ||
     plan.entries.some(
       (e) =>
         !validPath(e.path) ||
@@ -553,12 +751,18 @@ async function loadTransaction(root: string, context: OperationContext) {
         (e.kind === 'file' && !/^[a-f0-9]{64}$/.test(e.hash ?? '')),
     ) ||
     plan.moves.some((p) => !validPath(p) || !plan.entries.some((e) => e.path === p)) ||
+    plan.worktree.some(
+      (item) => !item || !validPath(item.path) || (item.state !== 'tracked' && item.state !== 'untracked'),
+    ) ||
+    new Set(plan.worktree.map((item) => item.path)).size !== plan.worktree.length ||
     (plan.draft !== null && (!validPath(plan.draft) || !plan.entries.some((e) => e.path === plan.draft))) ||
     new Set(plan.entries.map((e) => e.path)).size !== plan.entries.length ||
     state.version !== 1 ||
     state.planHash !== hash(raw) ||
     !['prepared', 'archived', 'quarantining', 'completed'].includes(state.phase) ||
-    state.disposition !== 'manually-adopted-prior-outcome-unknown'
+    !['manually-adopted-prior-outcome-unknown', 'manually-recovered-not-committed-dirty'].includes(
+      state.disposition,
+    )
   )
     throw Error('Offline maintenance checkpoint unavailable')
   parseLockOwner(plan.owner)
@@ -571,7 +775,9 @@ async function loadTransaction(root: string, context: OperationContext) {
     plan.operation.sequence < 0 ||
     !uuidPattern.test(plan.operation.view) ||
     plan.draft !== `.views/.engine-v2/drafts/${plan.operation.view}.json` ||
-    !plan.moves.includes('.lock') ||
+    !['unknown', 'not_committed_dirty'].includes(plan.outcome) ||
+    (plan.outcome === 'unknown' ? !plan.moves.includes('.lock') : plan.moves.includes('.lock')) ||
+    (plan.outcome === 'unknown') !== (state.disposition === 'manually-adopted-prior-outcome-unknown') ||
     !plan.moves.includes(`${journal}/${plan.owner.operation}.json`) ||
     new Set(plan.moves).size !== plan.moves.length ||
     plan.moves.some(
@@ -579,6 +785,7 @@ async function loadTransaction(root: string, context: OperationContext) {
         path !== '.lock' &&
         path !== `${journal}/${plan.owner.operation}.json` &&
         path !== `${journal}/${plan.owner.operation}.json.cas` &&
+        path !== `.views/.engine-v2/staging/${plan.owner.operation}` &&
         !/^\.memory-engine-[a-f0-9-]{36}\.tmp$/.test(path),
     ) ||
     plan.entries.some(
@@ -635,6 +842,8 @@ async function finish(
   await verifyActive(plan, work, context, state.phase !== 'archived')
   if (state.phase !== 'completed') {
     await save('quarantining')
+    await restoreWorktree(plan, context)
+    await verifyActive(plan, work, context, true)
     for (const path of plan.moves) {
       const source = join(plan.root, path)
       const destination = join(work, 'quarantine', path)
@@ -667,7 +876,7 @@ async function finish(
     for (const entry of remainingJournal) {
       if (entry.kind !== 'file' || !/^[a-f0-9-]{36}\.json$/.test(relative(journal, entry.path)))
         throw Error('Offline adoption HOLD: unknown active namespace entry')
-      const record = parseOperation(await read(plan.root, entry.path, 512 * 1024, context))
+      const record = parseOperation(await read(plan.root, entry.path, operationLimit, context))
       if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
         throw Error('Offline adoption HOLD: unresolved active admission record')
     }
@@ -740,7 +949,7 @@ export async function offlineMaintenance(
         reviewed.counts.journal - reviewed.moves.filter((p) => dirname(p) === journal).length < 64,
       archiveRequired: true,
       corpusReturned: false,
-      priorOutcome: 'unknown',
+      priorOutcome: reviewed.outcome,
     }
   }
   if (
@@ -766,7 +975,10 @@ export async function offlineMaintenance(
     version: 1,
     phase: 'prepared',
     planHash: hash(raw),
-    disposition: 'manually-adopted-prior-outcome-unknown',
+    disposition:
+      plan.outcome === 'unknown'
+        ? 'manually-adopted-prior-outcome-unknown'
+        : 'manually-recovered-not-committed-dirty',
   }
   await durableJSON(join(work, 'state.json'), state, context)
   const path = join(root, maintenanceMarker)

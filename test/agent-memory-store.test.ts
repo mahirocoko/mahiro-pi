@@ -573,11 +573,75 @@ test('uncommitted working-file changes never activate context; retained episodes
   }
 })
 
+test('legacy store accepts a migrated corpus above the former 512-file ceiling', () => {
+  const f = fixture()
+  try {
+    const primary = createMemoryStore(f.root, () => {}, 'primary')
+    const legacy = primary.createView('project', 120000, true)
+    for (let index = 0; index < 255; index++)
+      primary.edit(legacy, `global/legacy-${index.toString(36)}.md`, null, '# Legacy\n', [])
+    primary.integrate(legacy)
+    primary.migrateV2('project')
+    const migrated = primary.snapshot()
+    assert.equal(Object.keys(migrated.files).length, 513)
+    assert.ok(migrated.files['system/persona.md'])
+    assert.equal(Object.keys(migrated.files).filter((path) => path.startsWith('archives/')).length, 255)
+    assert.equal(Object.keys(migrated.files).filter((path) => path.startsWith('system/human/')).length, 255)
+  } finally {
+    f.close()
+  }
+})
+
 test('tiered v2 schema, surgical patch/append, lossless retention guard, directory index, frontmatter/links and doctor', () => {
   const f = fixture()
   try {
+    const longProject = 'p'.repeat(64)
+    const longSlug = `${'s'.repeat(64)}.md`
+    const primary = createMemoryStore(f.root, () => {}, 'primary')
+    const legacy = primary.createView('project', 120000, true)
+    primary.edit(legacy, `global/${longSlug}`, null, '# Long global\nLegacy preference.\n', [])
+    primary.edit(
+      legacy,
+      'global/malformed-frontmatter.md',
+      null,
+      '---\nname: [unterminated\n# Preserved legacy body\n',
+      [],
+    )
+    primary.edit(
+      legacy,
+      `deferred/${longProject}/${longSlug}`,
+      null,
+      '# Long project\nLegacy project memory.\n',
+      [],
+    )
+    primary.integrate(legacy)
+    const beforeMigration = f.store.snapshot()
+    const archivePrefix = `archives/legacy-v1-${beforeMigration.revision.slice(0, 12)}`
     const mig = f.store.migrateV2('project')
     assert.ok(mig.migrated.includes('system/persona.md'))
+    assert.ok(mig.migrated.includes(`system/human/${longSlug}`))
+    assert.ok(mig.migrated.includes(`projects/${longProject}/system/${longSlug}`))
+    const migrated = f.store.snapshot()
+    assert.equal(migrated.files[`global/${longSlug}`], undefined)
+    assert.equal(migrated.files[`deferred/${longProject}/${longSlug}`], undefined)
+    assert.equal(
+      migrated.files[`${archivePrefix}/global/${longSlug}`].text,
+      '# Long global\nLegacy preference.\n',
+    )
+    assert.equal(
+      migrated.files[`${archivePrefix}/deferred/${longProject}/${longSlug}`].text,
+      '# Long project\nLegacy project memory.\n',
+    )
+    assert.match(migrated.files[`system/human/${longSlug}`].text, /description: ".+"/)
+    assert.match(migrated.files[`projects/${longProject}/system/${longSlug}`].text, /description: ".+"/)
+    assert.match(
+      migrated.files['system/human/malformed-frontmatter.md'].text,
+      /^---\nname: "malformed-frontmatter"\ndescription: ".+"\n---\n---\nname: \[unterminated/,
+    )
+    assert.equal(
+      migrated.files[`${archivePrefix}/global/malformed-frontmatter.md`].text,
+      '---\nname: [unterminated\n# Preserved legacy body\n',
+    )
     const init = f.store.initProject('project')
     assert.equal(init.initialized, true)
     assert.equal(init.changed, 2)

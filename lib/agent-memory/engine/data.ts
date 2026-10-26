@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readdir, rmdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -41,6 +41,7 @@ import {
   fileLimit,
   idPattern,
   isAlwaysLoadedTieredPath,
+  legacyV1Migration,
   limits,
   parseConfig,
   parseLedger,
@@ -48,6 +49,7 @@ import {
   suppressed,
   uuidPattern,
   validateFile,
+  withMigrationFrontmatter,
   type Ledger,
 } from './schema.ts'
 
@@ -61,6 +63,7 @@ interface Prepared {
   record: OperationRecord
 }
 const same = isDeepStrictEqual
+const maintenanceViewTtl = 30 * 60 * 1000
 const bump = (counts: Record<string, number>, path: string) => {
   counts[path] = (counts[path] ?? 0) + 1
 }
@@ -170,6 +173,30 @@ export class MemoryDataEngine {
     if (bytes(text) !== ref.size || digest(text) !== ref.hash) throw Error('Memory blob integrity mismatch')
     return text
   }
+  private async bodies(entries: [string, Ref | Overlay][]) {
+    if (new Set(entries.map(([path]) => path)).size !== entries.length)
+      throw Error('Duplicate memory body path')
+    const texts = new Map<string, string>()
+    const committed = entries
+      .filter((entry): entry is [string, Ref] => !('blob' in entry[1]))
+      .map(([path, ref]) => ({ path, ...ref }))
+    for (const batch of gitBlobBatches(committed)) {
+      const raw = await this.gitBytes(
+        ['cat-file', '--batch'],
+        batch.map(({ path }) => path),
+        batch.map(({ oid }) => `${oid}\n`).join(''),
+      )
+      const parsed = parseGitBlobs(raw, batch)
+      for (const [index, { path, hash, size }] of batch.entries()) {
+        const text = parsed[index]
+        bump(this.counters.blobReads, path)
+        if (bytes(text) !== size || digest(text) !== hash) throw Error('Memory blob integrity mismatch')
+        texts.set(path, text)
+      }
+    }
+    for (const [path, ref] of entries) if ('blob' in ref) texts.set(path, await this.body(path, ref))
+    return Object.fromEntries(entries.map(([path]) => [path, texts.get(path)!]))
+  }
   private async certify(c: MemoryConfig, configHash: string, requested?: string): Promise<Base> {
     const revision = requested ?? (await this.head())
     if (!revisionPattern.test(revision)) throw Error('Invalid revision')
@@ -262,6 +289,12 @@ export class MemoryDataEngine {
       paths.map((path) => join(this.root, path)),
       paths,
     )
+    const overlays = Object.entries(refs).filter((entry): entry is [string, Overlay] => 'blob' in entry[1])
+    await this.gate(
+      overlays.map(([, ref]) => join(this.folder, 'blobs', ref.blob)),
+      overlays.map(([path]) => path),
+      'view',
+    )
     let total = 0
     for (const [path, ref] of Object.entries(refs)) {
       if (!allowedPath(path, v.shared ? undefined : v.project) || ref.size > fileLimit(path, config))
@@ -269,7 +302,6 @@ export class MemoryDataEngine {
       total += ref.size
       if ('blob' in ref) {
         const physical = join(this.folder, 'blobs', ref.blob)
-        await this.gate([physical], [path], 'view')
         await safePath(physical)
         const stat = await lstat(physical)
         if (!stat.isFile() || stat.nlink !== 1 || stat.mode & 0o077 || stamp(stat) !== ref.identity)
@@ -322,34 +354,37 @@ export class MemoryDataEngine {
       let alwaysLoadedBytes = 0
       const missingDescriptions: string[] = []
       const unmigratedV1Paths: string[] = []
+      const descriptionPaths: string[] = []
       for (const p of activePaths) {
         totalBytesUsed += now.refs[p].size
         if (p === 'Core.md' || p === 'index.md' || isAlwaysLoadedTieredPath(p, scope))
           alwaysLoadedBytes += now.refs[p].size
-        if (p.startsWith('reference/') || /^projects\/[^/]+\/reference\//.test(p)) {
-          const text = await this.body(p, now.refs[p])
-          if (!extractFrontmatterAndLinks(text).description) missingDescriptions.push(p)
-        }
+        if (p.startsWith('reference/') || /^projects\/[^/]+\/reference\//.test(p)) descriptionPaths.push(p)
         if (p.startsWith('global/') || p.startsWith('deferred/')) unmigratedV1Paths.push(p)
       }
+      const descriptionTexts = await this.bodies(descriptionPaths.map((p) => [p, now.refs[p]]))
+      for (const p of descriptionPaths)
+        if (!extractFrontmatterAndLinks(descriptionTexts[p]).description) missingDescriptions.push(p)
       const episodes = (await this.episodeNames()).length
       const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
       const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
       const conflicts = (await this.retainedConflicts(scope)).length
       return {
-        revision: now.revision,
-        project: scope,
-        healthy: totalBytesUsed <= config.totalBytes,
-        fileCount: activePaths.length,
-        fileCeiling: limits.files,
-        totalBytesUsed,
-        totalBytesCeiling: config.totalBytes,
-        alwaysLoadedBytes,
-        episodes,
-        views: legacy.length + modern.length,
-        conflicts,
-        missingDescriptions,
-        unmigratedV1Paths,
+        doctor: {
+          revision: now.revision,
+          project: scope,
+          healthy: totalBytesUsed <= config.totalBytes,
+          fileCount: activePaths.length,
+          fileCeiling: limits.files,
+          totalBytesUsed,
+          totalBytesCeiling: config.totalBytes,
+          alwaysLoadedBytes,
+          episodes,
+          views: legacy.length + modern.length,
+          conflicts,
+          missingDescriptions,
+          unmigratedV1Paths,
+        },
       }
     }
     if (args.revision !== undefined && now.revision !== args.revision) throw Error('Stale memory revision')
@@ -370,11 +405,23 @@ export class MemoryDataEngine {
       }
     }
     if (args.action === 'init-project' || args.action === 'migrate-v2') {
+      const legacyEntries = Object.entries(now.refs).filter(
+        ([path]) => path.startsWith('global/') || path.startsWith('deferred/'),
+      )
+      if (
+        (args.action === 'init-project' &&
+          now.refs[`projects/${scope}/system/overview.md`] &&
+          now.refs[`projects/${scope}/system/conventions.md`]) ||
+        (args.action === 'migrate-v2' && now.refs['system/persona.md'] && !legacyEntries.length)
+      )
+        return { revision: now.revision, added: [], changed: false }
       const created = (await this.dispatch('create', { project: scope, shared: true, ttlMs: 600000 })) as {
         view: string
         base: string
       }
       const v = this.drafts.get(created.view)!.value
+      v.deadline = Date.now() + maintenanceViewTtl
+      await this.save(v)
       const added: string[] = []
       if (args.action === 'init-project') {
         const overviewPath = `projects/${scope}/system/overview.md`
@@ -398,62 +445,37 @@ export class MemoryDataEngine {
           added.push(conventionsPath)
         }
       } else {
-        const archivePrefix = `archives/legacy-v1-${now.revision.slice(0, 12)}`
+        const migrationEntries = Object.entries(now.refs).filter(
+          ([path]) => path === 'Core.md' || path.startsWith('global/') || path.startsWith('deferred/'),
+        )
+        const migrationTexts = await this.bodies(migrationEntries)
         if (!now.refs['system/persona.md']) {
-          const coreText = await this.body('Core.md', now.refs['Core.md'])
           await writeNewOverlay(
             v,
             'system/persona.md',
-            `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${coreText}`,
+            `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${migrationTexts['Core.md']}`,
             [...now.refs['Core.md'].sources],
           )
           added.push('system/persona.md')
         }
-        for (const [p, ref] of Object.entries(now.refs)) {
-          if (p.startsWith('global/')) {
-            const slug = p.slice('global/'.length)
-            const archivePath = `${archivePrefix}/global-${slug}`
-            const targetPath = `system/human/${slug}`
-            const text = await this.body(p, ref)
-            if (!now.refs[archivePath]) await writeNewOverlay(v, archivePath, text, [...ref.sources])
-            if (!now.refs[targetPath]) {
-              await writeNewOverlay(
-                v,
-                targetPath,
-                text.startsWith('---\n')
-                  ? text
-                  : `---\nname: ${slug.replace(/\.md$/, '')}\ndescription: Shared human preference migrated from ${p}\n---\n${text}`,
-                [...ref.sources],
-              )
-              added.push(targetPath)
-            }
-          } else if (p.startsWith('deferred/')) {
-            const [, proj, slug] = p.split('/')
-            const archivePath = `${archivePrefix}/deferred-${proj}-${slug}`
-            const targetPath = `projects/${proj}/system/${slug}`
-            const text = await this.body(p, ref)
-            if (!now.refs[archivePath]) await writeNewOverlay(v, archivePath, text, [...ref.sources])
-            if (!now.refs[targetPath]) {
-              await writeNewOverlay(
-                v,
-                targetPath,
-                text.startsWith('---\n')
-                  ? text
-                  : `---\nname: ${proj}-${slug.replace(/\.md$/, '')}\ndescription: Project memory migrated from ${p}\n---\n${text}`,
-                [...ref.sources],
-              )
-              added.push(targetPath)
-            }
+        for (const [p, ref] of migrationEntries) {
+          if (p === 'Core.md') continue
+          const migration = legacyV1Migration(now.revision, p)
+          const text = migrationTexts[p]
+          if (!now.refs[migration.archivePath])
+            await writeNewOverlay(v, migration.archivePath, text, [...ref.sources])
+          if (!now.refs[migration.targetPath]) {
+            await writeNewOverlay(v, migration.targetPath, withMigrationFrontmatter(text, migration), [
+              ...ref.sources,
+            ])
+            added.push(migration.targetPath)
           }
+          v.overlay[p] = null
         }
       }
       v.state = 'ready'
       await this.save(v)
-      const result = (await this.dispatch('prepare', { view: v.id, reviewed: [] })) as
-        | { plan: Plan }
-        | { conflict: string[] }
-      if (!('plan' in result)) throw Error('Management revision conflict; proposal retained')
-      return { ...result, added }
+      return { view: v.id, added, changed: true }
     }
     if (now.revision !== args.revision) throw Error('Stale memory revision')
     if (args.action === 'forget') {
@@ -505,11 +527,18 @@ export class MemoryDataEngine {
       base: string
     }
     const v = this.drafts.get(created.view)!.value
-    for (const path of new Set([...Object.keys(now.refs), ...Object.keys(next)])) {
-      if (sameContent(now.refs[path], next[path])) continue
+    v.deadline = Date.now() + maintenanceViewTtl
+    await this.save(v)
+    const changedPaths = [...new Set([...Object.keys(now.refs), ...Object.keys(next)])].filter(
+      (path) => !sameContent(now.refs[path], next[path]),
+    )
+    const changedTexts = await this.bodies(
+      changedPaths.filter((path) => next[path]).map((path) => [path, next[path]]),
+    )
+    for (const path of changedPaths) {
       if (!next[path]) v.overlay[path] = null
       else {
-        const text = await this.body(path, next[path])
+        const text = changedTexts[path]
         const blob = randomUUID()
         const physical = join(this.folder, 'blobs', blob)
         await this.write(physical, text, [path])
@@ -548,11 +577,12 @@ export class MemoryDataEngine {
   private async retained(
     id: string,
     modern: boolean,
+    prepared?: { raw: string; draft: Draft; physical: string },
   ): Promise<{ v: View; rawHash: string; physical: string }> {
-    const physical = modern
-      ? join(this.folder, 'drafts', `${id}.json`)
-      : join(this.root, '.views', `${id}.json`)
-    const raw = await this.read(physical, modern ? 2 * 1024 * 1024 : 40 * 1024 * 1024)
+    const physical =
+      prepared?.physical ??
+      (modern ? join(this.folder, 'drafts', `${id}.json`) : join(this.root, '.views', `${id}.json`))
+    const raw = prepared?.raw ?? (await this.read(physical, modern ? 2 * 1024 * 1024 : 40 * 1024 * 1024))
     if (!modern) {
       const v = legacyView(raw, id)
       await this.gate(
@@ -562,7 +592,7 @@ export class MemoryDataEngine {
       )
       return { v, rawHash: digest(raw), physical }
     }
-    const d = parseDraft(raw)
+    const d = prepared?.draft ?? parseDraft(raw)
     if (
       !objectShape(d, [
         'version',
@@ -591,7 +621,7 @@ export class MemoryDataEngine {
       !d.overlay ||
       typeof d.overlay !== 'object' ||
       Array.isArray(d.overlay) ||
-      Object.keys(d.overlay).length > limits.files
+      Object.keys(d.overlay).length > limits.changes - 1
     )
       throw Error('Invalid persisted view metadata')
     const ledger = parseLedger(JSON.stringify(d.base.ledger))
@@ -624,8 +654,9 @@ export class MemoryDataEngine {
         throw Error('Invalid persisted overlay metadata')
     }
     const files: Record<string, MemoryFile> = {}
-    for (const [path, ref] of Object.entries(this.files(d)))
-      files[path] = { text: await this.body(path, ref), sources: ref.sources }
+    const retainedRefs = Object.entries(this.files(d))
+    const retainedTexts = await this.bodies(retainedRefs)
+    for (const [path, ref] of retainedRefs) files[path] = { text: retainedTexts[path], sources: ref.sources }
     validateFiles(files, d.shared ? undefined : d.project)
     return {
       v: {
@@ -653,29 +684,49 @@ export class MemoryDataEngine {
     const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
     if (legacy.length + modern.length > limits.views) throw Error('Private view capacity exceeded')
     const matches: Awaited<ReturnType<MemoryDataEngine['retained']>>[] = []
-    for (const [names, isModern] of [
-      [legacy, false],
-      [modern, true],
-    ] as const)
-      for (const name of names) {
-        const selected = await this.retained(name.slice(0, -5), isModern)
-        if (selected.v.project !== project || selected.v.state !== 'conflict') continue
-        const marker = join(this.folder, 'discarded', `${selected.v.id}.json`)
-        try {
-          const discarded = JSON.parse(await this.read(marker, 1024))
-          if (
-            !objectShape(discarded, ['id', 'hash']) ||
-            Object.keys(discarded).length !== 2 ||
-            discarded.id !== selected.v.id ||
-            discarded.hash !== selected.rawHash
-          )
-            throw Error('Invalid retained discard marker')
-          continue
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-        }
-        matches.push(selected)
+    const accepted = async (selected: Awaited<ReturnType<MemoryDataEngine['retained']>>) => {
+      if (selected.v.project !== project || selected.v.state !== 'conflict') return
+      const marker = join(this.folder, 'discarded', `${selected.v.id}.json`)
+      try {
+        const discarded = JSON.parse(await this.read(marker, 1024))
+        if (
+          !objectShape(discarded, ['id', 'hash']) ||
+          Object.keys(discarded).length !== 2 ||
+          discarded.id !== selected.v.id ||
+          discarded.hash !== selected.rawHash
+        )
+          throw Error('Invalid retained discard marker')
+        return
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
+      matches.push(selected)
+    }
+    for (const name of legacy) await accepted(await this.retained(name.slice(0, -5), false))
+    for (const name of modern) {
+      const id = name.slice(0, -5)
+      const physical = join(this.folder, 'drafts', name)
+      const raw = await this.read(physical, 2 * 1024 * 1024)
+      const draft = parseDraft(raw)
+      if (draft.id !== id) throw Error('Invalid persisted view metadata')
+      if (draft.project !== project || draft.state !== 'conflict') continue
+      const rawHash = digest(raw)
+      const marker = join(this.folder, 'discarded', `${id}.json`)
+      try {
+        const discarded = JSON.parse(await this.read(marker, 1024))
+        if (
+          !objectShape(discarded, ['id', 'hash']) ||
+          Object.keys(discarded).length !== 2 ||
+          discarded.id !== id ||
+          discarded.hash !== rawHash
+        )
+          throw Error('Invalid retained discard marker')
+        continue
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      matches.push(await this.retained(id, true, { raw, draft, physical }))
+    }
     return matches
   }
   private async conflicts(args: Input<'conflicts'>) {
@@ -828,12 +879,26 @@ export class MemoryDataEngine {
     if (!value || value.plan.digest !== hash) throw Error('Unknown or stale publication plan')
     return value
   }
+  private async proposalFence(p: Prepared) {
+    const stored = this.drafts.get(p.plan.view)
+    if (!stored) throw Error('Publication proposal unavailable')
+    const raw = await this.read(this.manifest(stored.value), 2 * 1024 * 1024)
+    const proposal = parseDraft(raw)
+    if (
+      stored.hash !== p.record.immutable.proposalHash ||
+      digest(raw) !== p.record.immutable.proposalHash ||
+      proposal.id !== p.plan.view ||
+      proposal.state !== 'ready' ||
+      proposal.configHash !== p.plan.configHash ||
+      Date.now() >= proposal.deadline
+    )
+      throw Error('Publication proposal fence changed')
+  }
   private async fence(p: Prepared) {
     const { configHash } = await this.config()
     if (configHash !== p.plan.configHash || (await this.head()) !== p.plan.current)
       throw Error('Publication data fence changed')
-    const active = await this.active(p.plan.view, true)
-    if (active.v.state !== 'ready') throw Error('Publication requires ready proposal')
+    await this.proposalFence(p)
     return { current: p.plan.current, configHash }
   }
   private operationPath(id: string) {
@@ -1045,7 +1110,20 @@ export class MemoryDataEngine {
       case 'status': {
         const { config, configHash } = await this.config()
         const base = await this.certify(config, configHash)
-        return { revision: base.revision, files: Object.keys(base.refs) }
+        const pendingOperations: { id: string; digest: string; stage: Stage; recordBytes: number }[] = []
+        const names = await this.names(join(this.folder, 'journal'), /^[a-f0-9-]{36}\.json$/)
+        for (const name of names) {
+          const raw = await this.read(join(this.folder, 'journal', name), operationLimit)
+          const record = parseOperation(raw)
+          if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
+            pendingOperations.push({
+              id: record.immutable.plan.id,
+              digest: record.immutable.plan.digest,
+              stage: record.receipt.stage,
+              recordBytes: bytes(raw),
+            })
+        }
+        return { revision: base.revision, files: Object.keys(base.refs), pendingOperations }
       }
       case 'offlineCertify': {
         const args = input as Input<'offlineCertify'>
@@ -1066,7 +1144,7 @@ export class MemoryDataEngine {
       case 'discard':
         return await this.discard(input as Input<'discard'>)
       case 'cancel': {
-        const { v, revision } = await this.active((input as Input<'cancel'>).view)
+        const { v, revision } = await this.active((input as Input<'cancel'>).view, true)
         await this.final(v, revision)
         v.state = 'cancelled' // retained/inert; never silently deleted
         await this.save(v)
@@ -1165,7 +1243,9 @@ export class MemoryDataEngine {
             `projects/${v.project}/system`,
             `projects/${v.project}/reference`,
           ])
-          if (cleanDir && !cleanDir.endsWith('.md') && allowedDirs.has(cleanDir)) {
+          const archiveDirectory =
+            v.shared && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
+          if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory)) {
             const dirFiles: Record<string, MemoryFile> = {}
             for (const p of paths.filter((p) => p.startsWith(`${cleanDir}/`)))
               dirFiles[p] = { text: await this.body(p, refs[p]), sources: refs[p].sources }
@@ -1323,9 +1403,15 @@ export class MemoryDataEngine {
         }
         const baseBodies: Record<string, { text: string } | undefined> = {}
         const nextBodies: Record<string, { text: string } | undefined> = {}
+        const baseTexts = await this.bodies(
+          changed.filter((path) => v.base.refs[path]).map((path) => [path, v.base.refs[path]]),
+        )
+        const nextTexts = await this.bodies(
+          changed.filter((path) => refs[path]).map((path) => [path, refs[path]]),
+        )
         for (const path of changed) {
-          if (v.base.refs[path]) baseBodies[path] = { text: await this.body(path, v.base.refs[path]) }
-          if (refs[path]) nextBodies[path] = { text: await this.body(path, refs[path]) }
+          if (v.base.refs[path]) baseBodies[path] = { text: baseTexts[path] }
+          if (refs[path]) nextBodies[path] = { text: nextTexts[path] }
         }
         assertLosslessRetention(baseBodies, nextBodies, changed, args.allowShrink)
         if (args.reviewed.length > 4096 || args.reviewed.some((id) => !validId(id)))
@@ -1349,7 +1435,7 @@ export class MemoryDataEngine {
         }))
         if (!same(ledger, current.ledger))
           changes.push({ path: '.memory.json', hash: digest(ledgerText), size: bytes(ledgerText) })
-        for (const path of changed) if (refs[path]) await this.body(path, refs[path])
+        await this.bodies(changed.filter((path) => refs[path]).map((path) => [path, refs[path]]))
         const metadata = {
           id: randomUUID(),
           view: v.id,
@@ -1364,12 +1450,20 @@ export class MemoryDataEngine {
           .split('\0')
           .filter(Boolean)
         const expected = new Map(tree.map((entry) => [entry.split('\t')[1], entry]))
+        const expectedTexts = await this.bodies(
+          changes
+            .filter((change) => change.path !== '.memory.json' && change.hash !== null)
+            .map((change) => [change.path, next[change.path]]),
+        )
         for (const change of changes) {
           if (change.hash === null) expected.delete(change.path)
           else {
-            const text =
-              change.path === '.memory.json' ? ledgerText : await this.body(change.path, next[change.path])
-            const oid = (await this.git(['hash-object', '--stdin'], [change.path], text)).trim()
+            const text = change.path === '.memory.json' ? ledgerText : expectedTexts[change.path]
+            const data = Buffer.from(text)
+            const oid = createHash(current.revision.length === 40 ? 'sha1' : 'sha256')
+              .update(`blob ${data.length}\0`)
+              .update(data)
+              .digest('hex')
             if (!revisionPattern.test(oid)) throw Error('Invalid expected Git object')
             expected.set(change.path, `100644 blob ${oid}\t${change.path}`)
           }
@@ -1413,7 +1507,7 @@ export class MemoryDataEngine {
       case 'chunk': {
         const args = input as Input<'chunk'>
         const p = this.plan(args.plan, args.digest)
-        await this.fence(p)
+        await this.proposalFence(p)
         const change = p.plan.changes.find((item) => item.path === args.path)
         if (!change?.hash) throw Error('Path absent from prepared plan')
         const text =

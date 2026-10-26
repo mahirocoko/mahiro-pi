@@ -92,7 +92,7 @@ export function parseDraft(raw: string): Draft {
   const ledger = parseLedger(JSON.stringify(d.base.ledger))
   if (
     Object.keys(d.base.refs).length > limits.files ||
-    Object.keys(d.overlay).length > limits.files ||
+    Object.keys(d.overlay).length > limits.changes - 1 ||
     !d.base.refs['Core.md'] ||
     !d.base.refs['index.md']
   )

@@ -28,7 +28,9 @@ import { createMemoryStore } from '../lib/agent-memory/store.ts'
 import { parseOperation } from '../lib/agent-memory/engine/operation.ts'
 
 // Disposable source fixture only. Production current comes from the real Root-bound runtime.
-async function fixture() {
+async function fixture(
+  options: { partialMutation?: boolean; terminalDirty?: boolean; largeOperation?: boolean } = {},
+) {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'mahiro-offline-'))
   const root = join(directory, 'memory')
   const project = join(directory, 'project')
@@ -55,11 +57,40 @@ async function fixture() {
     },
     '# Fixture\nPreserved core.\n',
   )
+  if (options.largeOperation) {
+    const large = store.createView('fixture', 120000, true)
+    for (let i = 0; i < 350; i++)
+      store.edit(
+        large,
+        `global/${'x'.repeat(55)}${i.toString(36).padStart(3, '0')}.md`,
+        null,
+        `# Large ${i}\n`,
+        [],
+      )
+    store.integrate(large)
+  }
   const historical = store.createView('fixture', 120000, true)
   store.edit(historical, 'global/history.md', null, '# Preserved historical knowledge\n', [])
   store.integrate(historical)
   const retained = store.createView('fixture', 120000, true)
   store.edit(retained, 'global/private-draft.md', null, '# Original private draft\nNever activate.\n', [])
+  if (options.largeOperation) {
+    const ledgerPath = join(root, '.memory.json')
+    const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+    const sources = [
+      's'.repeat(64),
+      't'.repeat(64),
+      'u'.repeat(64),
+      'v'.repeat(64),
+      'w'.repeat(64),
+      'y'.repeat(64),
+    ]
+    for (const path of Object.keys(ledger.sources))
+      if (path.startsWith('global/x')) ledger.sources[path] = sources
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger)}\n`, { mode: 0o600 })
+    execFileSync('git', ['add', '.memory.json'], { cwd: root })
+    execFileSync('git', ['commit', '-m', 'Expand fixture provenance'], { cwd: root, stdio: 'ignore' })
+  }
   const context: OperationContext = { current: () => true }
   const preparing = new MemoryEngineController(root)
   const view = await preparing.request('create', { project: 'fixture', shared: true }, context)
@@ -68,8 +99,23 @@ async function fixture() {
     {
       view: view.view,
       path: 'Core.md',
-      expectedHash: createHash('sha256').update(store.snapshot().files['Core.md'].text).digest('hex'),
+      expectedHash: createHash('sha256')
+        .update(readFileSync(join(root, 'Core.md')))
+        .digest('hex'),
       text: '# Private proposal\nNot activated.\n',
+      sources: [],
+    },
+    context,
+  )
+  await preparing.request(
+    'edit',
+    {
+      view: view.view,
+      path: 'global/history.md',
+      expectedHash: createHash('sha256')
+        .update(readFileSync(join(root, 'global/history.md')))
+        .digest('hex'),
+      text: null,
       sources: [],
     },
     context,
@@ -92,6 +138,28 @@ async function fixture() {
   const uncertain = { ...record, sequence: 3, owner, receipt: { stage: 'unknown' as const } }
   parseOperation(JSON.stringify(uncertain))
   writeFileSync(path, `${JSON.stringify(uncertain)}\n`, { mode: 0o600 })
+  if (options.partialMutation || options.terminalDirty) {
+    writeFileSync(join(root, 'Core.md'), '# Private proposal\nNot activated.\n', { mode: 0o600 })
+    rmSync(join(root, 'global/history.md'))
+    const staging = join(root, '.views/.engine-v2/staging', prepared.plan.id)
+    mkdirSync(staging, { recursive: true, mode: 0o700 })
+    writeFileSync(join(staging, `${randomUUID()}.tmp`), 'interrupted staging bytes', { mode: 0o600 })
+  }
+  if (options.terminalDirty) {
+    const terminal = {
+      ...uncertain,
+      sequence: 4,
+      receipt: {
+        stage: 'not_committed_dirty' as const,
+        revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+        indexDirty: false,
+        worktreeDirty: true,
+      },
+    }
+    parseOperation(JSON.stringify(terminal))
+    writeFileSync(path, `${JSON.stringify(terminal)}\n`, { mode: 0o600 })
+    rmSync(join(root, '.lock'), { recursive: true })
+  }
   const orphan = `.memory-engine-${randomUUID()}.tmp`
   writeFileSync(join(root, orphan), 'original orphan bytes', { mode: 0o600 })
   mkdirSync(`${path}.cas`, { mode: 0o700 })
@@ -180,8 +248,125 @@ test('offline adoption archives ALL original bytes, quarantines typed blockers, 
     await f.engine.request('cancel', { view: created.view }, f.context)
     await assert.rejects(
       f.apply(preview),
-      /requires existing typed owner|requires complete typed|missing|existing typed/,
+      /requires existing typed owner|requires complete typed|missing|existing typed|requires one exact terminal dirty/,
     )
+  } finally {
+    await f.close()
+  }
+})
+
+test('offline adoption archives and restores exact interrupted operation worktree and staging only', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await fixture({ partialMutation: true })
+  try {
+    const committedCore = execFileSync('git', ['show', 'HEAD:Core.md'], { cwd: f.root })
+    const committedHistory = execFileSync('git', ['show', 'HEAD:global/history.md'], { cwd: f.root })
+    const preview = await f.inspect()
+    assert.equal('counts' in preview && preview.counts?.staging, 1)
+    const result = await f.apply(preview)
+    assert.deepEqual(readFileSync(join(f.root, 'Core.md')), committedCore)
+    assert.equal(lstatSync(join(f.root, 'Core.md')).mode & 0o777, 0o600)
+    assert.deepEqual(readFileSync(join(f.root, 'global/history.md')), committedHistory)
+    assert.equal(lstatSync(join(f.root, 'global/history.md')).mode & 0o777, 0o600)
+    assert.equal(execFileSync('git', ['status', '--porcelain=v1', '-z'], { cwd: f.root }).length, 0)
+    assert.equal(existsSync(join(f.root, '.views/.engine-v2/staging', f.owner.operation)), false)
+    assert.equal(
+      existsSync(
+        join(
+          f.root,
+          '.views/.maintenance',
+          result.target!,
+          'quarantine/.views/.engine-v2/staging',
+          f.owner.operation,
+        ),
+      ),
+      true,
+    )
+    assert.equal(
+      readFileSync(join(f.root, '.views/.maintenance', result.target!, 'snapshot/Core.md'), 'utf8'),
+      '# Private proposal\nNot activated.\n',
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+test('offline recovery archives and restores a terminal dirty operation after its lock was released', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await fixture({ terminalDirty: true })
+  try {
+    const committedCore = execFileSync('git', ['show', 'HEAD:Core.md'], { cwd: f.root })
+    const committedHistory = execFileSync('git', ['show', 'HEAD:global/history.md'], { cwd: f.root })
+    const preview = await f.inspect()
+    assert.equal('priorOutcome' in preview && preview.priorOutcome, 'not_committed_dirty')
+    assert.equal('artifacts' in preview && preview.artifacts?.includes('.lock'), false)
+    const result = await f.apply(preview)
+    assert.equal('disposition' in result && result.disposition, 'manually-recovered-not-committed-dirty')
+    assert.deepEqual(readFileSync(join(f.root, 'Core.md')), committedCore)
+    assert.equal(lstatSync(join(f.root, 'Core.md')).mode & 0o777, 0o600)
+    assert.deepEqual(readFileSync(join(f.root, 'global/history.md')), committedHistory)
+    assert.equal(lstatSync(join(f.root, 'global/history.md')).mode & 0o777, 0o600)
+    assert.equal(execFileSync('git', ['status', '--porcelain=v1', '-z'], { cwd: f.root }).length, 0)
+    assert.equal(existsSync(f.path), false)
+  } finally {
+    await f.close()
+  }
+})
+
+test('reviewed resume repairs tracked privacy after interruption between Git restore and chmod', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await fixture({ partialMutation: true })
+  try {
+    let stopped = false
+    const committedCore = execFileSync('git', ['show', 'HEAD:Core.md'], { cwd: f.root })
+    const interrupted: OperationContext = {
+      current(targets) {
+        const core = join(f.root, 'Core.md')
+        if (
+          !stopped &&
+          existsSync(join(f.root, maintenanceMarker)) &&
+          targets.physical.includes(core) &&
+          readFileSync(core).equals(committedCore) &&
+          (lstatSync(core).mode & 0o777) !== 0o600
+        ) {
+          stopped = true
+          return false
+        }
+        return true
+      },
+    }
+    const preview = await f.inspect()
+    await assert.rejects(f.apply(preview, interrupted), /authority/)
+    assert.equal(stopped, true)
+    assert.equal(lstatSync(join(f.root, 'Core.md')).mode & 0o777, 0o644)
+    const checkpoint = await f.inspect()
+    assert.equal('phase' in checkpoint && checkpoint.phase, 'quarantining')
+    await offlineMaintenance(f.engine, f.context, {
+      action: 'offline-resume',
+      target: checkpoint.target,
+      revision: checkpoint.revision,
+      offline: offlineAssurance,
+    })
+    assert.equal(lstatSync(join(f.root, 'Core.md')).mode & 0o777, 0o600)
+    assert.equal(lstatSync(join(f.root, 'global/history.md')).mode & 0o777, 0o600)
+    assert.equal(execFileSync('git', ['status', '--porcelain=v1', '-z'], { cwd: f.root }).length, 0)
+  } finally {
+    await f.close()
+  }
+})
+
+test('offline inspection accepts operation and ledger records above retired bounds', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await fixture({ largeOperation: true })
+  try {
+    assert.ok(lstatSync(f.path).size > 512 * 1024)
+    assert.ok(lstatSync(join(f.root, '.memory.json')).size > 128 * 1024)
+    const preview = await f.inspect()
+    assert.equal('operation' in preview && preview.operation?.view.length, 36)
   } finally {
     await f.close()
   }

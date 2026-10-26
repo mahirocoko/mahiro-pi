@@ -3,7 +3,14 @@ import { bytes, hasSecret, objectShape, validId } from '../../continuity/records
 import type { MemoryConfig, MemoryFile } from '../store.ts'
 
 // Deliberately data-only. No store factory, SDK, loader or resource discovery.
-export const limits = Object.freeze({ files: 512, file: 262144, total: 8388608, ledger: 131072, views: 64 })
+export const limits = Object.freeze({
+  files: 1024,
+  changes: 2049,
+  file: 262144,
+  total: 8388608,
+  ledger: 512 * 1024,
+  views: 64,
+})
 export const revisionPattern = /^[a-f0-9]{40,64}$/
 export const idPattern = /^[a-z0-9][a-z0-9-]{0,63}$/
 export const uuidPattern = /^[a-f0-9-]{36}$/
@@ -33,6 +40,60 @@ export const allowedPath = (path: string, project?: string) => {
     /^projects\/([a-z0-9][a-z0-9-]{0,63})\/(?:system|reference)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
   return !!tieredProject && (!project || tieredProject[1] === project)
 }
+export interface LegacyV1Migration {
+  archivePath: string
+  targetPath: string
+  metadataName: string
+  description: string
+}
+
+export function legacyV1Migration(revision: string, path: string): LegacyV1Migration {
+  if (!revisionPattern.test(revision)) throw Error('Invalid migration revision')
+  const archivePrefix = `archives/legacy-v1-${revision.slice(0, 12)}`
+  const global = /^global\/([a-z0-9][a-z0-9-]{0,63}\.md)$/.exec(path)
+  if (global) {
+    const slug = global[1]
+    const result = {
+      archivePath: `${archivePrefix}/global/${slug}`,
+      targetPath: `system/human/${slug}`,
+      metadataName: slug.slice(0, -3),
+      description: `Shared human preference migrated from ${path}`,
+    }
+    if (!allowedPath(result.archivePath) || !allowedPath(result.targetPath))
+      throw Error('Invalid global migration path')
+    return result
+  }
+  const deferred = /^deferred\/([a-z0-9][a-z0-9-]{0,63})\/([a-z0-9][a-z0-9-]{0,63}\.md)$/.exec(path)
+  if (deferred) {
+    const [, project, slug] = deferred
+    const result = {
+      archivePath: `${archivePrefix}/deferred/${project}/${slug}`,
+      targetPath: `projects/${project}/system/${slug}`,
+      metadataName: slug.slice(0, -3),
+      description: `Project memory migrated from ${path}`,
+    }
+    if (!allowedPath(result.archivePath) || !allowedPath(result.targetPath))
+      throw Error('Invalid project migration path')
+    return result
+  }
+  throw Error('Invalid legacy v1 migration path')
+}
+
+const frontmatterScalar = (value: string, fallback: string, maximum: number) => {
+  const normalized = value
+    .normalize('NFKC')
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maximum)
+  return JSON.stringify(normalized || fallback)
+}
+
+export function withMigrationFrontmatter(text: string, migration: LegacyV1Migration) {
+  if (/^---\n[\s\S]*?\n---(?:\n|$)/.test(text)) return text
+  return `---\nname: ${frontmatterScalar(migration.metadataName, 'migrated-memory', 64)}\ndescription: ${frontmatterScalar(migration.description, 'Migrated legacy memory', 256)}\n---\n${text}`
+}
+
 export const isAlwaysLoadedTieredPath = (path: string, project?: string) => {
   if (path === 'system/persona.md') return true
   if (/^system\/human\/(?:prefs\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true

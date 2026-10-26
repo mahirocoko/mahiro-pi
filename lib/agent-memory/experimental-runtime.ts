@@ -565,16 +565,19 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
       if (args.action === 'init-project' || args.action === 'migrate-v2') {
         job?.cancel()
-        const prepared = await f.request('manage', { action: args.action, project: f.project })
-        if (!('plan' in prepared)) throw Error('Management plan unavailable')
-        if (!prepared.plan.changes.filter((change) => change.path !== '.memory.json').length) {
+        const staged = await f.request('manage', { action: args.action, project: f.project })
+        if (!('changed' in staged)) throw Error('Management draft unavailable')
+        if (!staged.changed) {
           return {
-            revision: prepared.plan.base,
+            revision: staged.revision,
             ...(args.action === 'init-project'
               ? { initialized: [], existing: [] }
               : { migrated: [], skipped: [] }),
           }
         }
+        if (!('view' in staged)) throw Error('Management draft unavailable')
+        const prepared = await f.request('prepare', { view: staged.view, reviewed: [] })
+        if (!('plan' in prepared)) throw Error('Management revision conflict; proposal retained')
         const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
         if (result.stage !== 'reconciled_committed')
           throw Error('Management publication unavailable; proposal retained')

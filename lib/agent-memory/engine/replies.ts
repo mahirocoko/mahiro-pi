@@ -1,7 +1,7 @@
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
 import { parseMemoryRead } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
-import { parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
+import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
 import { allowedPath, idPattern, limits, parseConfig, revisionPattern, uuidPattern } from './schema.ts'
 import type { Method } from './protocol.ts'
 
@@ -95,8 +95,55 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
     }
     case 'prepare':
     case 'manage': {
+      if (method === 'manage' && input.action === 'doctor') {
+        const outer = shape(value, ['doctor'])
+        const doctor = shape(outer.doctor, [
+          'revision',
+          'project',
+          'healthy',
+          'fileCount',
+          'fileCeiling',
+          'totalBytesUsed',
+          'totalBytesCeiling',
+          'alwaysLoadedBytes',
+          'episodes',
+          'views',
+          'conflicts',
+          'missingDescriptions',
+          'unmigratedV1Paths',
+        ])
+        ensure(
+          revision(doctor.revision) &&
+            doctor.project === input.project &&
+            typeof doctor.healthy === 'boolean' &&
+            integer(doctor.fileCount, limits.files) &&
+            doctor.fileCeiling === limits.files &&
+            integer(doctor.totalBytesUsed, limits.total) &&
+            integer(doctor.totalBytesCeiling, limits.total) &&
+            integer(doctor.alwaysLoadedBytes, limits.total) &&
+            integer(doctor.episodes) &&
+            integer(doctor.views, limits.views) &&
+            integer(doctor.conflicts, limits.views) &&
+            paths(doctor.missingDescriptions) &&
+            paths(doctor.unmigratedV1Paths) &&
+            (doctor.unmigratedV1Paths as string[]).every(
+              (path) => path.startsWith('global/') || path.startsWith('deferred/'),
+            ),
+        )
+        return
+      }
       if (objectShape(value, ['conflict']) && Object.hasOwn(value, 'conflict')) {
         ensure(method === 'prepare' && paths(value.conflict) && (value.conflict as unknown[]).length > 0)
+        return
+      }
+      if (method === 'manage' && ['init-project', 'migrate-v2'].includes(input.action as string)) {
+        if (objectShape(value, ['revision', 'added', 'changed']) && !Object.hasOwn(value, 'view')) {
+          const v = shape(value, ['revision', 'added', 'changed'])
+          ensure(revision(v.revision) && paths(v.added) && v.changed === false)
+          return
+        }
+        const v = shape(value, ['view', 'added', 'changed'])
+        ensure(uuid(v.view) && paths(v.added) && v.changed === true)
         return
       }
       const v = shape(value, ['plan'])
@@ -138,8 +185,26 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       for (const e of value) observedEpisode(e)
       return
     case 'status': {
-      const v = shape(value, ['revision', 'files'])
-      ensure(revision(v.revision) && paths(v.files))
+      const v = shape(value, ['revision', 'files', 'pendingOperations'])
+      ensure(revision(v.revision) && paths(v.files) && Array.isArray(v.pendingOperations))
+      ensure(v.pendingOperations.length <= limits.views)
+      for (const entry of v.pendingOperations) {
+        const operation = shape(entry, ['id', 'digest', 'stage', 'recordBytes'])
+        ensure(
+          uuid(operation.id) &&
+            hash(operation.digest) &&
+            [
+              'prepared',
+              'worktree_mutating',
+              'index_staged',
+              'commit_start_intent',
+              'commit_started',
+              'head_observed',
+              'unknown',
+            ].includes(operation.stage as string) &&
+            integer(operation.recordBytes, operationLimit),
+        )
+      }
       return
     }
     case 'offlineCertify': {
@@ -197,6 +262,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
           'project',
           'state',
           'path',
+          'directory',
           'hash',
           'missing',
           'text',
@@ -238,6 +304,25 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         return
       }
       if (selection.mode === 'path') {
+        if (selected.directory !== undefined) {
+          const v = shape(selected, ['directory', 'entries', 'total', 'hash'])
+          ensure(
+            v.directory === selection.path.replace(/\/+$/, '') &&
+              v.hash === null &&
+              Array.isArray(v.entries) &&
+              v.entries.length <= limits.files &&
+              v.total === v.entries.length,
+          )
+          for (const entry of v.entries) {
+            const e = shape(entry, ['path', 'name', 'description', 'links'], ['path'])
+            ensure(paths([e.path], 1))
+            if (e.name !== undefined) ensure(text(e.name, 512))
+            if (e.description !== undefined) ensure(text(e.description, 4096))
+            if (e.links !== undefined)
+              ensure(Array.isArray(e.links) && e.links.every((link) => text(link, 512)))
+          }
+          return
+        }
         ensure(selected.path === selection.path)
         if (selected.missing === true) {
           const v = shape(selected, ['path', 'hash', 'missing'])

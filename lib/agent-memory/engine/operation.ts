@@ -3,7 +3,10 @@ import { bytes, digest, objectShape, validId } from '../../continuity/records.ts
 import type { Change, Plan, Receipt, Stage } from './protocol.ts'
 import { allowedPath, limits, parseLedger, revisionPattern, uuidPattern, type Ledger } from './schema.ts'
 
-export const operationLimit = 512 * 1024
+// One durable record contains both bounded snapshots (next/tree), a bounded delta,
+// and the ledger twice (parsed plus exact text). Eight MiB covers the 1,024-file / 2,049-change maxima
+// plus receipt/owner transitions without making recovery depend on the prepared record's exact byte edge.
+export const operationLimit = 8 * 1024 * 1024
 export const stages: Stage[] = [
   'prepared',
   'worktree_mutating',
@@ -54,7 +57,7 @@ export function validatePlan(value: unknown): asserts value is Plan {
     !hash(value.ledgerHash) ||
     !hash(value.digest) ||
     !Array.isArray(value.changes) ||
-    value.changes.length > limits.files + 1
+    value.changes.length > limits.changes
   )
     throw Error('Invalid operation plan')
   const paths = new Set<string>()
@@ -67,7 +70,7 @@ export function validatePlan(value: unknown): asserts value is Plan {
       !(c.hash === null || hash(c.hash)) ||
       !Number.isSafeInteger(c.size) ||
       (c.size as number) < 0 ||
-      (c.size as number) > limits.file ||
+      (c.size as number) > (c.path === '.memory.json' ? limits.ledger : limits.file) ||
       (c.hash === null && c.size !== 0)
     )
       throw Error('Invalid operation delta')
@@ -111,7 +114,8 @@ export interface OperationRecord {
   receipt: Receipt
 }
 export function parseOperation(raw: string): OperationRecord {
-  if (bytes(raw) > operationLimit) throw Error('Operation record bound exceeded')
+  const size = bytes(raw)
+  if (size > operationLimit) throw Error(`Operation record bound exceeded (${size} > ${operationLimit})`)
   const value = JSON.parse(raw)
   if (
     !exact(value, ['version', 'immutable', 'immutableHash', 'sequence', 'owner', 'receipt']) ||

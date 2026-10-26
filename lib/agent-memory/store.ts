@@ -28,7 +28,9 @@ import {
   applySurgicalEdit,
   assertLosslessRetention,
   isAlwaysLoadedTieredPath,
+  legacyV1Migration,
   projectOfPath,
+  withMigrationFrontmatter,
 } from './engine/schema.ts'
 import { directoryIndex, discoveryVersion, extractFrontmatterAndLinks, topicMetadata } from './retrieval.ts'
 
@@ -78,10 +80,10 @@ export interface View {
   deadline: number
 }
 export const memoryLimits = Object.freeze({
-  files: 512,
+  files: 1024,
   fileBytes: 256 * 1024,
   totalBytes: 8 * 1024 * 1024,
-  ledgerBytes: 131072,
+  ledgerBytes: 512 * 1024,
   viewBytes: 40 * 1024 * 1024,
 })
 // Valid text has at most 2 JSON bytes per UTF-8 byte (quotes, backslashes,
@@ -804,7 +806,9 @@ export function createMemoryStore(
           `projects/${v.project}/system`,
           `projects/${v.project}/reference`,
         ])
-        if (cleanDir && !cleanDir.endsWith('.md') && allowedDirs.has(cleanDir))
+        const archiveDirectory =
+          v.scope === 'primary' && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
+        if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory))
           return directoryIndex(files, cleanDir)
         if (!allowedPath(path, v.scope === 'primary' ? undefined : v.project))
           throw new Error('Memory path outside scope')
@@ -1243,49 +1247,37 @@ export function createMemoryStore(
       return lock(() => {
         const now = load()
         const next = copy(now)
-        const archivePrefix = `archives/legacy-v1-${now.revision.slice(0, 12)}`
         const migrated: string[] = []
+        let changed = 0
         if (!next.files['system/persona.md']) {
           next.files['system/persona.md'] = {
             text: `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${now.files['Core.md'].text}`,
             sources: [...now.files['Core.md'].sources],
           }
           migrated.push('system/persona.md')
+          changed++
         }
         for (const [p, file] of Object.entries(now.files)) {
-          if (p.startsWith('global/')) {
-            const slug = p.slice('global/'.length)
-            const archivePath = `${archivePrefix}/global-${slug}`
-            const targetPath = `system/human/${slug}`
-            if (!next.files[archivePath]) next.files[archivePath] = copy(file)
-            if (!next.files[targetPath]) {
-              next.files[targetPath] = {
-                text: file.text.startsWith('---\n')
-                  ? file.text
-                  : `---\nname: ${slug.replace(/\.md$/, '')}\ndescription: Shared human preference migrated from ${p}\n---\n${file.text}`,
-                sources: [...file.sources],
-              }
-              migrated.push(targetPath)
-            }
-          } else if (p.startsWith('deferred/')) {
-            const [, proj, slug] = p.split('/')
-            const archivePath = `${archivePrefix}/deferred-${proj}-${slug}`
-            const targetPath = `projects/${proj}/system/${slug}`
-            if (!next.files[archivePath]) next.files[archivePath] = copy(file)
-            if (!next.files[targetPath]) {
-              next.files[targetPath] = {
-                text: file.text.startsWith('---\n')
-                  ? file.text
-                  : `---\nname: ${proj}-${slug.replace(/\.md$/, '')}\ndescription: Project memory migrated from ${p}\n---\n${file.text}`,
-                sources: [...file.sources],
-              }
-              migrated.push(targetPath)
-            }
+          if (!p.startsWith('global/') && !p.startsWith('deferred/')) continue
+          const migration = legacyV1Migration(now.revision, p)
+          if (!next.files[migration.archivePath]) {
+            next.files[migration.archivePath] = copy(file)
+            changed++
           }
+          if (!next.files[migration.targetPath]) {
+            next.files[migration.targetPath] = {
+              text: withMigrationFrontmatter(file.text, migration),
+              sources: [...file.sources],
+            }
+            migrated.push(migration.targetPath)
+            changed++
+          }
+          delete next.files[p]
+          changed++
         }
-        if (!migrated.length) return { revision: now.revision, migrated: [], changed: 0 }
+        if (!changed) return { revision: now.revision, migrated: [], changed: 0 }
         const committed = writeRevision(now, next, 'Losslessly migrate v1 memory into tiered v2 layout')
-        return { revision: committed.revision, migrated, changed: migrated.length }
+        return { revision: committed.revision, migrated, changed }
       })
     },
   }

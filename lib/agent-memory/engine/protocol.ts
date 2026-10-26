@@ -79,7 +79,14 @@ export interface Operations {
     }
   }
   config: { input: Record<string, never>; output: { config: MemoryConfig; configHash: string } }
-  status: { input: Record<string, never>; output: { revision: string; files: string[] } }
+  status: {
+    input: Record<string, never>
+    output: {
+      revision: string
+      files: string[]
+      pendingOperations: { id: string; digest: string; stage: Stage; recordBytes: number }[]
+    }
+  }
   offlineCertify: { input: { revision: string }; output: { revision: string } }
   episodes: { input: { project: string }; output: Episode[] }
   observe: { input: { episode: Episode }; output: { recorded: true } }
@@ -92,7 +99,11 @@ export interface Operations {
       sources?: string[]
       target?: string
     }
-    output: { plan: Plan } & Record<string, unknown>
+    output:
+      | { plan: Plan }
+      | { view: string; added: string[]; changed: true }
+      | { revision: string; added: string[]; changed: false }
+      | { doctor: Record<string, unknown> }
   }
   conflicts: {
     input: { project: string; target?: string; path?: string; offset?: number; limit?: number }

@@ -6,7 +6,7 @@ import { MemoryEngineController, assertCurrent, type OperationContext } from './
 import { engineEnvironment, gitSafety, privateDirectory, runGit, safePath } from './io.ts'
 import type { Plan, Receipt, Stage } from './protocol.ts'
 import { startGitMutation } from './native-git.ts'
-import { allowedPath } from './schema.ts'
+import { allowedPath, limits } from './schema.ts'
 import { reserveExecutor, executorOwnsLock } from './executor.ts'
 import { acquireOperationLock, releaseOperationLock } from './owned-lock.ts'
 import type { LockOwner } from './operation.ts'
@@ -83,13 +83,13 @@ export class MemoryPublisher {
     }
     try {
       if (
-        plan.changes.length > 513 ||
+        plan.changes.length > limits.changes ||
         plan.changes.some(
           (item) =>
             !(item.path === '.memory.json' || allowedPath(item.path)) ||
             !Number.isSafeInteger(item.size) ||
             item.size < 0 ||
-            item.size > 262144,
+            item.size > (item.path === '.memory.json' ? limits.ledger : limits.file),
         )
       )
         throw Error('Invalid fixed publication plan')
@@ -111,33 +111,75 @@ export class MemoryPublisher {
       )
       if (dirty.toString().trim()) throw Error('Uncommitted work blocks publication')
       await fence()
+      const pathBatches: string[][] = []
       for (const change of plan.changes) {
+        const batch = pathBatches.at(-1)
+        const size = Buffer.byteLength(change.path) + 1
+        if (
+          !batch ||
+          batch.length >= 256 ||
+          batch.reduce((n, path) => n + Buffer.byteLength(path) + 1, 0) + size > 65536
+        )
+          pathBatches.push([change.path])
+        else batch.push(change.path)
+      }
+      const trackedPaths = new Set<string>()
+      for (const batch of pathBatches) {
+        current([root, join(root, '.git')], batch)
+        const output = await runGit(
+          root,
+          ['ls-files', '-z', '--', ...batch],
+          engineEnvironment(this.environment),
+        )
+        for (const path of output.toString('utf8').split('\0').filter(Boolean)) trackedPaths.add(path)
+      }
+      const writes = plan.changes.filter((change) => change.hash !== null)
+      const engineDirectory = join(root, '.views', '.engine-v2')
+      const staging = join(engineDirectory, 'staging', plan.id)
+      if (writes.length) {
+        for (const parent of [join(root, '.views'), engineDirectory]) {
+          current(
+            [parent],
+            writes.map((change) => change.path),
+          )
+          await privateDirectory(parent)
+        }
+        for (const parent of [dirname(staging), staging]) {
+          current(
+            [parent],
+            writes.map((change) => change.path),
+          )
+          await privateDirectory(parent, true)
+          await syncDirectory(
+            dirname(parent),
+            writes.map((change) => change.path),
+          )
+        }
+        assertCurrent(context, {
+          physical: [root, join(root, '.git'), staging],
+          logical: writes.map((change) => change.path),
+          kind: 'git',
+        })
+        await runGit(root, ['check-ignore', '-q', '--', staging], engineEnvironment(this.environment))
+      }
+      if (plan.changes.length) await journal({ stage: 'worktree_mutating' })
+      for (let index = 0; index < plan.changes.length; index++) {
+        if (index % 32 === 0) await fence()
+        const change = plan.changes[index]
         const path = join(root, change.path)
         await safePath(path)
         let existing = false
         try {
           const stat = await lstat(path)
-          if (!stat.isFile() || stat.nlink !== 1 || stat.mode & 0o077) throw Error('Unsafe canonical file')
+          if (!stat.isFile() || stat.nlink !== 1 || (change.hash !== null && stat.mode & 0o077))
+            throw Error('Unsafe canonical file')
           existing = true
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
         }
-        // A new tracked path cannot overwrite colliding untracked bytes.
-        // Parent uses exact fixed ls-files, never caller-selected argv.
         current([root, join(root, '.git'), path], [change.path])
-        const tracked = await runGit(
-          root,
-          ['ls-files', '--error-unmatch', '--', change.path],
-          engineEnvironment(this.environment),
-        ).then(
-          () => true,
-          () => false,
-        )
-        if (existing && !tracked) throw Error('Untracked collision blocks publication')
-        await fence()
-        if (stage === 'prepared') await journal({ stage: 'worktree_mutating' })
+        if (existing && !trackedPaths.has(change.path)) throw Error('Untracked collision blocks publication')
         if (change.hash === null) {
-          await fence()
           current([path], [change.path])
           mutated = true
           await unlink(path)
@@ -146,37 +188,16 @@ export class MemoryPublisher {
         }
         const directory = dirname(path)
         await safePath(directory)
-        await fence()
         current([directory], [change.path])
         mutated = true
         await mkdir(directory, { mode: 0o700, recursive: true })
         for (let parent = directory; parent !== root; parent = dirname(parent))
           await syncDirectory(dirname(parent), [change.path])
-        // Uncertain bytes stay in the existing ignored private engine tree, never
-        // as untracked canonical files. No failure-finally cleanup without authority.
-        const engineDirectory = join(root, '.views', '.engine-v2')
-        for (const parent of [join(root, '.views'), engineDirectory]) {
-          current([parent], [change.path])
-          await privateDirectory(parent)
-        }
-        const staging = join(engineDirectory, 'staging', plan.id)
-        for (const parent of [dirname(staging), staging]) {
-          current([parent], [change.path])
-          await privateDirectory(parent, true)
-          await syncDirectory(dirname(parent), [change.path])
-        }
         const temp = join(staging, `${randomUUID()}.tmp`)
         current([directory, staging, temp], [change.path])
         if ((await lstat(directory)).dev !== (await lstat(staging)).dev)
           throw Error('Publication staging must share canonical filesystem')
-        assertCurrent(context, {
-          physical: [root, join(root, '.git'), temp],
-          logical: [change.path],
-          kind: 'git',
-        })
-        await runGit(root, ['check-ignore', '-q', '--', temp], engineEnvironment(this.environment))
         await safePath(temp)
-        await fence()
         current([path, temp], [change.path])
         const fd = await open(
           temp,
@@ -204,7 +225,6 @@ export class MemoryPublisher {
             hash.update(data)
             let written = 0
             while (written < data.length) {
-              await fence()
               current([path, temp], [change.path])
               const result = await fd.write(data, written, data.length - written, offset + written)
               if (!result.bytesWritten) throw Error('Short publication write')
@@ -213,14 +233,12 @@ export class MemoryPublisher {
             offset += data.length
           } while (offset < change.size)
           if (hash.digest('hex') !== change.hash) throw Error('Publication hash mismatch')
-          await fence()
           current([path, temp], [change.path])
           await fd.sync()
         } finally {
           await fd.close()
         }
         await safePath(path)
-        await fence()
         current([path, temp], [change.path])
         await rename(temp, path)
         await syncDirectory(staging, [change.path])

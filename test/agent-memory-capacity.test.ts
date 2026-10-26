@@ -109,24 +109,27 @@ test('capacity ceilings are independent, defaults unchanged and serialized-view 
     )
     assert.equal(memoryLimits.viewBytes, 40 * 1024 * 1024)
     assert.ok(memoryViewDerivedBytes < memoryLimits.viewBytes)
-    assert.equal(memoryViewDerivedBytes, 4 * 8 * 1024 * 1024 + 2 * 131072 + 64 * 512 + 1024)
+    assert.equal(
+      memoryViewDerivedBytes,
+      4 * 8 * 1024 * 1024 + 2 * 512 * 1024 + 64 * memoryLimits.files + 1024,
+    )
   } finally {
     f.close()
   }
 })
 
-test('512 includes Core/index; 513 and per-file byte overflow cannot mutate HEAD or private proposal', () => {
+test('1024 includes Core/index; 1025 and per-file byte overflow cannot mutate HEAD or private proposal', () => {
   const f = fixture()
   try {
     const v = f.store.createView('project')
-    for (let i = 0; i < 510; i++) v.files[`global/f${i}.md`] = { text: '# Synthetic\n', sources: [] }
+    for (let i = 0; i < 1022; i++) v.files[`global/f${i}.md`] = { text: '# Synthetic\n', sources: [] }
     v.files['global/f0.md'].text =
       `# Unicode 😀 ไทย\n${'x'.repeat(memoryLimits.fileBytes - bytes('# Unicode 😀 ไทย\n') - 1)}\n`
     seedDraft(f.root, v)
     const result = f.store.integrate(v)
     assert.ok('revision' in result)
     const reopened = createMemoryStore(f.root)
-    assert.equal(Object.keys(reopened.snapshot().files).length, 512)
+    assert.equal(Object.keys(reopened.snapshot().files).length, 1024)
     const own = reopened.createView('project')
     const metadata = join(f.root, '.views', `${own.id}.json`)
     const before = readFileSync(metadata, 'utf8')
@@ -172,7 +175,7 @@ test('exact configured total accepts, one UTF-8 byte over rejects without writin
   }
 })
 
-test('131072-byte ledger accepts; one-byte-over publication fails before Git/worktree mutation', () => {
+test('512-KiB ledger accepts; one-byte-over publication fails before Git/worktree mutation', () => {
   const f = fixture()
   try {
     const v = f.store.createView('project')
