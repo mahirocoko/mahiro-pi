@@ -97,12 +97,7 @@ loaded runtime actually advertises.
    already running request. During context compaction (`session_before_compact` / `session_compact`),
    a bounded continuity checkpoint is preserved for the next turn without blocking compaction.
 
-`agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `init-project` and `migrate-v2` non-destructive tiered v2 layout seeding, `remember` surgical note appending, explicit new-root
-initialization, revision-guarded forgetting/rollback/discard and bounded conflict
-inspection. `/mh-memory` exposes `status`, `help`, `doctor`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages
-by original code points. Read all pages before recovery; `proposalHash` describes
-the complete proposal. Resolve through current hash/revision tools, then discard
-the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+`agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
 Forgetting is logical filtering, **not secure Git/history erasure**. Revise
 Core/index to remove the forgotten knowledge/source link while preserving identity
@@ -227,10 +222,12 @@ integration. Hook failures preserve proposals and leave committed context unchan
 
 Default byte budgets: Core 8192, index 2048, each detail/procedure 8192 and all
 knowledge 65536. Reviewed private configuration can raise these to 32768, 8192,
-262144 and 8388608 respectively. Other bounds include 512 maintained files,
-128 project mappings, 32 source links/file, 64 views, 256 episodes, a 131072-byte
-ledger and a fixed 40-MiB serialized view ceiling. These independent caps do not
-promise every maximum combination fits.
+262144 and 8388608 respectively. Other bounds include 1,024 final maintained files,
+2,049 operation changes, 2,048 persisted overlay entries, 128 project mappings,
+32 source links/file, 64 views, 256 episodes, a 512-KiB ledger, an 8-MiB durable
+operation record and a fixed 40-MiB serialized view ceiling. Final corpus, delta
+and overlay limits are independent so a valid transition between two maximum-sized
+snapshots can represent deletions and writes without raising the final-file bound.
 
 Capacity requires maintenance; unreviewed episodes and conflict proposals are not
 silently evicted to make space. Unsafe/corrupt/revoked data is unavailable, not an
@@ -294,16 +291,18 @@ OS/Git body reads: index refresh and ordinary hooks may read worktree content.
 No installed activation, latency/RAM improvement, rendered quality, full Letta
 parity or learning acceptance follows from these source contracts.
 
-## Explicit offline owner adoption
+## Explicit offline maintenance recovery
 
-This separate ABI2 owner operation handles one narrow legacy incident: a typed
-`unknown` publication with its exact retained `.lock`, complete operation evidence,
-a ready private proposal, **already clean tracked worktree and Git index**, and
-only reviewed native `.memory-engine-<UUID>.tmp` untracked files. It never resets,
-stages, commits, restores or adopts user WIP. Ordinary publication, policy and
-same-process reconciliation retain their existing rules. Manual adoption says
-**“manually adopted; prior outcome unknown”**, never “executor drained” or a
-fabricated committed/not-committed outcome.
+This separate ABI2 owner operation handles one exact interrupted publication: a
+typed `unknown` operation with its retained lock or a terminal
+`not_committed_dirty` operation whose lock has already been released. The Git index
+must remain clean. Every worktree mutation, deletion and staging path must bind to
+the selected operation's immutable plan, expected hash and size; unrelated dirty
+paths refuse recovery. Ordinary publication, policy and same-process reconciliation
+retain their existing rules. Recovery never replays the commit or claims executor
+drain. Its durable disposition records either **“manually adopted; prior outcome
+unknown”** or **“manually recovered; not committed dirty”** without fabricating a
+committed outcome.
 
 Use the explicit [offline operator CLI](bootstrap.md#offline-memory-operator), not
 an ordinary persistent Main/model session. Root requires a genuine bound native
@@ -334,30 +333,35 @@ configuration or proposal bodies. Apply requires that exact reviewed target and
 fingerprint. All Root file bytes (including raw Git index/config, Core/index,
 ledger, drafts/blobs, journals/CAS, ignored/untracked files and complete Git
 objects/refs/reflogs) participate, not merely porcelain/status. Capacity is not GC:
-64 remaining journal entries or 64 active draft-directory entries block adoption.
-Pending views are never evicted to pass an admission limit.
+64 remaining journal entries or 64 active draft-directory entries block recovery.
+Pending views are never evicted to pass an admission limit. Operation journals use
+the same 8-MiB record bound as the online engine and ledger reads use the configured
+512-KiB ledger limit.
 
-Before any blocker relocation, the owner durably creates and independently
+Before any restoration or quarantine, the owner durably creates and independently
 verifies a streamed, copied (not hardlinked) **full private byte archive** under
 `<root>/.views/.maintenance/<transaction>/snapshot`. Only that transaction's own
-workspace and coordination marker are excluded from recursion; previous archives
-are retained and copied. Fixed ceilings are 32,768 inventory entries, 512 MiB total
-and 256 MiB per file. Links, special files, external/incomplete Git object storage,
-resource failure, revocation or changed source bytes refuse. It rechecks the full
-source fingerprint and kernel holders after archive verification and before
-relocation. No sibling-directory grant, `git archive` or private corpus stdout is
-used.
+workspace and coordination marker are excluded from recursion; existing archives
+are included. Fixed ceilings are 131,072 inventory entries, 8 GiB total, 256 MiB
+per file and 64 MiB for the private recovery plan. Links, special files,
+external/incomplete Git object storage, resource failure, revocation or changed
+source bytes refuse. It rechecks the full source fingerprint and kernel holders
+after archive verification and before mutation. No sibling-directory grant,
+`git archive` or private corpus stdout is used.
 
 The durable `<root>/.views/.maintenance-active.json` marker blocks new ordinary
 memory writes/admissions at Root, including installation after `.lock` moves.
 Authorized status, committed reads and projection remain possible. Only the
 validated ephemeral maintenance owner bypasses that coordination barrier, not
-PSS or current-generation/branch checks. Exact reviewed lock, native orphan,
-unknown journal and its optional empty CAS are atomically moved into the private
-workspace's inert `quarantine`, outside the active journal namespace. Their
-original bytes are preserved. The archived ready proposal remains private and its
-active manifest becomes `conflict` for ordinary explicit recertified recovery;
-no proposal or memory HEAD is activated.
+PSS or current-generation/branch checks. Exact reviewed lock, journal/CAS and operation staging are moved into the private
+workspace's inert `quarantine`, outside active namespaces. Tracked operation paths
+are restored from HEAD; only untracked writes introduced by the exact plan are
+removed. Every reviewed tracked path is revalidated, set to private mode and
+fsynced on each recovery or resume, including paths Git already reports clean.
+This closes interruptions between content restoration and permission repair.
+Original interrupted bytes remain in the verified archive. A ready proposal stays
+private and its active manifest becomes `conflict` for ordinary explicit
+recertified recovery; no proposal or memory HEAD is activated.
 
 The owner verifies archive/quarantine completeness, unchanged canonical bytes,
 HEAD and raw index/config, clean active Git state, remaining typed terminal
@@ -375,7 +379,9 @@ separate gate. A crash, unknown checkpoint or permission loss retains evidence a
 the barrier. Inspect again,
 review the new checkpoint fingerprint, then explicitly `offline-resume`; there is
 no automatic replay or rollback. Incomplete/malformed checkpoints that cannot be
-verified stay blocked for owner review. Archives are never discarded. Receipts
+verified stay blocked for owner review. Maintenance never deletes archives
+automatically; any later owner-authorized snapshot cleanup is a separate destructive
+operation after HEAD, Git cleanliness and doctor health are reverified. Receipts
 are source-operation evidence, not semantic recovery, installed activation or
 human acceptance.
 

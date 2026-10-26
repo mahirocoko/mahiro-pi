@@ -59,9 +59,9 @@ change, native operation or reload is performed by inspection.
 ## Offline memory operator
 
 Installation never repairs uncertain memory. A separate explicit owner entry is
-available for the narrow clean-tracked/index legacy-unknown incident described in
-[memory adoption](agent-memory.md#explicit-offline-owner-adoption). No actual
-operator window is implied by source installation, testing or these examples.
+available for the exact operation-bound unknown or terminal-dirty incident described
+in [offline maintenance recovery](agent-memory.md#explicit-offline-maintenance-recovery).
+No actual operator window is implied by source installation, testing or these examples.
 
 After explicitly closing known sessions/workers for the target profile and
 assuring that no cooperative external writers will start during the window:
@@ -85,10 +85,10 @@ PID-death evidence or an override for the fixed system `lsof` tree-FD/cwd check.
 
 Inspect returns bounded metadata/fingerprints and admission counts, not corpus or
 raw configuration. Review before apply; changed bytes or identity require a new
-review, not blind refresh. Dirty/staged/unknown user work, malformed evidence,
-nonempty/foreign CAS, remaining namespace capacity blockers, unsafe archive
-inputs, incomplete holder inspection or unexpected holders refuse. Do not kill
-holders, reset memory or remove markers to make installation pass.
+review, not blind refresh. A dirty index, work outside the selected immutable plan,
+malformed evidence, foreign CAS, remaining namespace capacity blockers, unsafe
+archive inputs, incomplete holder inspection or unexpected holders refuse. Do not
+kill holders, reset memory or remove markers to make installation pass.
 
 After interruption, retain the complete private archive/workspace and marker.
 Run the same `--inspect`, review its transaction/checkpoint target and digest, then

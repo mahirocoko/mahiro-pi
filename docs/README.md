@@ -32,6 +32,8 @@
 ## Develop and release
 
 - [Development and release](development.md) — dependency supply, checks and source artifacts.
+- [v0.7.1 source release record](releases/0.7.1.md) — lossless legacy migration at corpus scale,
+  operation-bound offline recovery, bounded publication performance and no-op management.
 - [v0.7.0 source release record](releases/0.7.0.md) — thin Root enforcement, independent
   feature kernel, Hybrid MemFS v2, safe offline recovery and persistent Usage preferences.
 - [v0.6.1 source release record](releases/0.6.1.md) — native MCP registry admission with
