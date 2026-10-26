@@ -32,6 +32,8 @@
 ## Develop and release
 
 - [Development and release](development.md) — dependency supply, checks and source artifacts.
+- [v0.9.0 source release record](releases/0.9.0.md) — `/mh-todos`, reference-aligned
+  branch todo card and `/mh-tasks` compatibility alias.
 - [v0.8.0 source release record](releases/0.8.0.md) — native session-task overview,
   width-safe hierarchy, keyboard navigation and dependency selection.
 - [v0.7.1 source release record](releases/0.7.1.md) — lossless legacy migration at corpus scale,

@@ -15,7 +15,7 @@ not automatic reads, invocations, evidence ingestion or permissions.
 | Execution Run | `/mh-run`, `mh_execution_run` | Optional lane/target/report coordination, never execution |
 
 For lightweight branch-local steps and editable pre-handoff staging, use
-[`/mh-tasks` and `/mh-queue`](utilities.md#session-steps) in native utilities.
+[`/mh-todos` and `/mh-queue`](utilities.md#session-steps) in native utilities.
 Those records use native session branch journals, not the canonical profile
 workflow stores below. They do not execute workers or replace task-board/human
 acceptance. The shared storage/primary-session rules in this guide apply to the

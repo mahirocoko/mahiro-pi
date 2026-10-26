@@ -137,7 +137,7 @@ test('public SDK hub opens the same task/queue owners without a model turn or co
     const composer = structuredClone(f.composer)
     const draft = f.composerEditor.getText()
     const before = f.runtime.session.sessionManager.getEntries().length
-    await f.command('mh', ['Session steps', undefined])
+    await f.command('mh', ['Todos', undefined])
     await f.command('mh', ['Queue / staging', undefined])
     assert.equal(
       f.runtime.session.sessionManager.getEntries().length,
@@ -166,7 +166,7 @@ test('public SDK reload rebinds hub surfaces to fresh task/queue owners, preserv
       .filter((entry) => entry.type === 'custom')
       .map((entry) => entry.id)
     await f.runtime.session.reload()
-    await f.command('mh', ['Session steps', undefined])
+    await f.command('mh', ['Todos', undefined])
     await f.command('mh', ['Queue / staging', undefined])
     const list = await f.invoke('mh_task_list')
     assert.ok(Array.isArray(list.tasks))

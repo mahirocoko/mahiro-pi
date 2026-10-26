@@ -17,7 +17,7 @@ type TaskPanelTUI = { requestRender(): void }
 type TaskPanelKeys = { matches(data: string, action: string): boolean }
 
 const MAX_VISIBLE_TASKS = 7
-const statusOrder: Record<Task['status'], number> = { in_progress: 0, pending: 1, completed: 2 }
+const statusOrder: Record<Task['status'], number> = { completed: 0, in_progress: 1, pending: 2 }
 
 export function orderedTasks(tasks: readonly Task[]) {
   return [...tasks].sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
@@ -111,36 +111,36 @@ export class TaskPanel implements Component {
   render(width: number): string[] {
     if (width <= 0) return []
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines
-    if (width < 12) return [this.geometry.truncateToWidth('mh-tasks', width)]
+    if (width < 12) return [this.geometry.truncateToWidth('Todos', width)]
 
     const innerWidth = width - 2
+    const contentWidth = innerWidth - 4
     const border = (text: string) => this.theme.fg('borderMuted', text)
-    const fit = (text: string) => this.geometry.truncateToWidth(text, innerWidth, '…', true)
-    const line = (text = '') => `${border('│')}${fit(text)}${border('│')}`
+    const line = (text = '') => {
+      const fitted = this.geometry.truncateToWidth(text, contentWidth, '…')
+      const padding = ' '.repeat(Math.max(0, contentWidth - this.geometry.visibleWidth(fitted)))
+      return `${border('│')}  ${fitted}${padding}  ${border('│')}`
+    }
     const doneCount = this.tasks.filter((task) => task.status === 'completed').length
-    const title = ` Session steps (${doneCount}/${this.tasks.length}) `
-    const titleWidth = this.geometry.visibleWidth(title)
-    const top =
-      titleWidth + 1 <= innerWidth
-        ? `${border('╭─')}${this.theme.fg('accent', title)}${border(`${'─'.repeat(innerWidth - titleWidth - 1)}╮`)}`
-        : `${border('╭')}${fit(this.theme.fg('accent', title))}${border('╮')}`
     const lines = [
-      top,
-      line(` ${this.theme.fg('dim', 'branch-local · not tsk or human acceptance')}`),
+      border(`┌${'─'.repeat(innerWidth)}┐`),
+      line(this.theme.fg('accent', `● Todos (${doneCount}/${this.tasks.length})`)),
       line(),
     ]
 
     if (this.tasks.length === 0) {
-      lines.push(line(` ${this.theme.fg('muted', 'No session steps yet.')}`))
-      lines.push(line(` ${this.theme.fg('dim', 'Press c or Enter to create one.')}`))
+      lines.push(line(this.theme.fg('muted', 'No todos yet.')))
+      lines.push(line(this.theme.fg('dim', 'Press c or Enter to create one.')))
     } else {
       const start = Math.min(
         Math.max(0, this.selected - Math.floor(MAX_VISIBLE_TASKS / 2)),
         Math.max(0, this.tasks.length - MAX_VISIBLE_TASKS),
       )
       const visible = this.tasks.slice(start, start + MAX_VISIBLE_TASKS)
-      if (start > 0) lines.push(line(`   ${this.theme.fg('dim', `↑ ${start} more`)}`))
+      if (start > 0) lines.push(line(this.theme.fg('dim', `  ↑ ${start} more`)))
       for (const [offset, task] of visible.entries()) {
+        if (offset > 0 && visible[offset - 1].status === 'completed' && task.status !== 'completed')
+          lines.push(line())
         const index = start + offset
         const selected = index === this.selected
         const branch = index === this.tasks.length - 1 ? '└─' : '├─'
@@ -149,44 +149,60 @@ export class TaskPanel implements Component {
         )
         const marker =
           task.status === 'completed'
-            ? this.theme.fg('success', '✓')
-            : blockers.length
-              ? this.theme.fg('warning', '!')
-              : task.status === 'in_progress'
-                ? this.theme.fg('warning', '◐')
-                : this.theme.fg('dim', '○')
+            ? this.theme.fg('dim', '✓')
+            : task.status === 'in_progress'
+              ? this.theme.fg('warning', '◐')
+              : this.theme.fg('dim', '○')
         const subject =
           task.status === 'completed'
             ? this.theme.strikethrough(this.theme.fg('dim', label(task.subject)))
-            : this.theme.fg(selected ? 'text' : 'muted', label(task.subject))
+            : this.theme.fg(task.status === 'in_progress' ? 'text' : 'muted', label(task.subject))
         const detail = shortDetail(task, this.state)
         const suffix = detail ? ` ${this.theme.fg(blockers.length ? 'warning' : 'dim', `(${detail})`)}` : ''
         const cursor = selected ? this.theme.fg('accent', '›') : ' '
-        lines.push(line(` ${cursor} ${this.theme.fg('dim', branch)} ${marker} ${subject}${suffix}`))
+        lines.push(line(`${cursor} ${this.theme.fg('dim', branch)} ${marker} ${subject}${suffix}`))
       }
       const hiddenAfter = this.tasks.length - (start + visible.length)
-      if (hiddenAfter > 0) lines.push(line(`   ${this.theme.fg('dim', `↓ ${hiddenAfter} more`)}`))
+      if (hiddenAfter > 0) lines.push(line(this.theme.fg('dim', `  ↓ ${hiddenAfter} more`)))
     }
 
     lines.push(line())
-    const retention = this.state.config.retention === 'never' ? 'keep forever' : 'keep 4 turns'
-    const reminders = this.state.config.reminders ? 'reminders on' : 'reminders off'
+    if (contentWidth >= 44) {
+      lines.push(line(this.theme.fg('dim', 'branch-local · not tsk or human acceptance')))
+    } else {
+      lines.push(line(this.theme.fg('dim', 'branch-local · not tsk')))
+      lines.push(line(this.theme.fg('dim', 'not human acceptance')))
+    }
     lines.push(
       line(
-        ` ${this.theme.fg('dim', `${this.state.config.view} · ${retention} · ${reminders} · ✓ done  ◐ active  ○ pending  ! blocked`)}`,
+        this.theme.fg(
+          'dim',
+          this.tasks.length
+            ? contentWidth >= 34
+              ? '↑↓ move · Enter manage · Esc close'
+              : '↑↓ move · Enter · Esc close'
+            : 'Enter create · Esc close',
+        ),
       ),
     )
-    if (innerWidth >= 80) {
+    const hasCompleted = this.tasks.some((task) => task.status === 'completed')
+    if (contentWidth >= 62) {
       lines.push(
         line(
-          ` ${this.theme.fg('muted', '↑↓ move · Enter manage · c create · v/r/m settings · x clear · Esc close')}`,
+          this.theme.fg(
+            'dim',
+            `c new · v view · r retention · m reminders${hasCompleted ? ' · x clear completed' : ''}`,
+          ),
         ),
       )
+    } else if (contentWidth >= 31) {
+      lines.push(line(this.theme.fg('dim', 'c new · v view · r retention')))
+      lines.push(line(this.theme.fg('dim', `m reminders${hasCompleted ? ' · x clear completed' : ''}`)))
     } else {
-      lines.push(line(` ${this.theme.fg('muted', '↑↓ move · Enter manage · c create · Esc close')}`))
-      lines.push(line(` ${this.theme.fg('dim', 'v view · r retention · m reminders · x clear completed')}`))
+      lines.push(line(this.theme.fg('dim', 'c new · v view · r retention')))
+      lines.push(line(this.theme.fg('dim', `m remind${hasCompleted ? ' · x clear completed' : ''}`)))
     }
-    lines.push(border(`╰${'─'.repeat(innerWidth)}╯`))
+    lines.push(border(`└${'─'.repeat(innerWidth)}┘`))
 
     this.cachedWidth = width
     this.cachedLines = lines

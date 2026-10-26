@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.8.0.md)
+[← Documentation](README.md) · [Source release record](releases/0.9.0.md)
 
 ## Dependencies and checks
 
@@ -49,13 +49,19 @@ evidence, outside the authored formatter contract.
 Focused session-work checks (serialize with other SDK/heavy jobs):
 
 ```sh
-node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/native-utilities.test.ts test/session-work-model.test.ts test/session-work-native.test.ts
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/task-panel.test.ts test/session-work-model.test.ts test/session-task-adoption.test.ts test/session-work-native.test.ts test/workflow-integration.test.ts
 ```
 
 The session-work native fixture runs genuine public SDK/Faux factories across
 reload/fork/resume/new, native input and correlated custom-message journaling.
 Its public UI selectors/editor keys and terminal object are scripted, not a
-live CLI/TTY. Model tests cover bounds, dependency cleanup, missing/delayed and
+live CLI/TTY. The focused panel, adoption, native and integration tests independently
+assert completed → active → pending ordering, initial selection, alias handler/state
+sharing and the Todos hub entry. The explicit public-host geometry smoke also renders
+TaskPanel at 40/60/80/120/160
+columns and tiny widths with Thai/CJK/ZWJ labels, overflow and empty states.
+Geometry checks establish column bounds, not human rendered acceptance.
+Model tests cover bounds, dependency cleanup, missing/delayed and
 duplicate receipt correlation. A fresh reviewer and native TUI checks must still
 assess composer/attachments, native queue coexistence and rendered narrow layouts.
 No provider inference or execution/RPC package interoperability is established.

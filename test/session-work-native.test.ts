@@ -415,13 +415,27 @@ test('real SDK commands, transient reminders, never/four-native-turn retention a
     for (let i = 0; i < 5; i++) await f.textTurn()
     assert.equal(tasksOf(await f.invoke('mh_task_list')).length, 1)
     f.inputs.push('manual title')
-    await f.command('mh-tasks', ['Create step'])
-    assert.equal(tasksOf(await f.invoke('mh_task_list')).length, 2)
+    await f.command('mh-todos', ['Create step'])
+    const crossAlias = tasksOf(await f.invoke('mh_task_list'))
+    assert.equal(crossAlias.length, 2)
+    const manual = crossAlias.find((task) => task.subject === 'manual title')
+    assert.ok(manual)
+    await f.command('mh-tasks', [manual.id, 'in_progress'])
+    assert.equal(
+      tasksOf(await f.invoke('mh_task_list')).find((task) => task.id === manual.id)?.status,
+      'in_progress',
+    )
+    await f.command('mh-todos', [manual.id, 'pending'])
+    assert.equal(tasksOf(await f.invoke('mh_task_list')).find((task) => task.id === manual.id)?.revision, 3)
     await f.command('mh-tasks', ['Retention', 'four-turns'])
     await f.command('mh-tasks', ['Clear completed'])
     const second = tasksOf(await f.invoke('mh_task_list'))[0]
     assert.ok(second)
-    await f.invoke('mh_task_update', { id: second.id, expected_revision: 1, status: 'completed' })
+    await f.invoke('mh_task_update', {
+      id: second.id,
+      expected_revision: second.revision,
+      status: 'completed',
+    })
     // No idle/text prompts between settlement and next explicit create.
     await f.invoke('mh_task_create', { subject: 'immediate settled next batch' })
     let tasks = tasksOf(await f.invoke('mh_task_list'))

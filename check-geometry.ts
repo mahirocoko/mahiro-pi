@@ -4,6 +4,9 @@ import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { pack, renderFooter, COLORS } from './lib/footer.ts'
 import { quotaFooterSegments } from './lib/quota.ts'
+import type { Theme } from '@earendil-works/pi-coding-agent'
+import { TaskPanel } from './lib/session-work/task-panel.ts'
+import { emptyTasks, type Task } from './lib/session-work/task-model.ts'
 
 const args = process.argv.slice(2).filter((arg) => arg !== '--')
 assert.ok(
@@ -108,6 +111,52 @@ const value = 'กิ👩🏽‍💻שלום'.repeat(30)
 const rows = pack([{ text: value, color: COLORS.folder }], 4, geometry)
 assert.ok(rows.every((row) => geometry.visibleWidth(row) <= 4))
 assert.equal(rows.map(plain).join(''), value)
+const taskTheme = {
+  fg: (_tone: string, text: string) => `\x1b[90m${text}\x1b[39m`,
+  strikethrough: (text: string) => `\x1b[9m${text}\x1b[29m`,
+} as unknown as Theme
+for (const count of [0, 3, 24]) {
+  const panel = new TaskPanel({
+    state: {
+      ...emptyTasks(),
+      tasks: Array.from(
+        { length: count },
+        (_, index): Task => ({
+          id: String(index),
+          revision: 1,
+          subject: `ตรวจสอบงานที่ ${index} ภาษาไทย 中文 👩🏽‍💻 👨‍👩‍👧‍👦 `.repeat(5),
+          description: 'กำลังทดสอบความกว้าง 中文 👩🏽‍💻'.repeat(5),
+          status: index % 3 === 0 ? 'completed' : index % 3 === 1 ? 'in_progress' : 'pending',
+          blockedBy: index % 3 === 2 ? ['1'] : [],
+          completedTurn: index % 3 === 0 ? 0 : null,
+          owner: '',
+          metadata: {},
+        }),
+      ),
+    },
+    tui: { requestRender() {} },
+    theme: taskTheme,
+    keys: { matches: (data, action) => data === action },
+    done() {},
+    geometry,
+  })
+  for (let step = 0; step < Math.max(1, count); step++) {
+    for (const width of [1, 2, 8, 11, 12, 24, 40, 60, 80, 120, 160]) {
+      const rows = panel.render(width)
+      assert.ok(rows.length <= 20, `${width}: task panel bounded height`)
+      assert.ok(
+        rows.every((row) => geometry.visibleWidth(row) <= width),
+        `${width}: task panel overflow`,
+      )
+      if (width >= 12)
+        assert.ok(
+          rows.every((row) => geometry.visibleWidth(row) === width),
+          `${width}: task panel right edge`,
+        )
+    }
+    panel.handleInput('tui.select.down')
+  }
+}
 console.log(
-  'Public host TUI geometry passed: 40/60/80/120/160 columns and Thai/ZWJ round-trip (not rendered acceptance).',
+  'Public host footer + TaskPanel geometry passed: 40/60/80/120/160 and tiny columns, Thai/CJK/ZWJ labels (not human rendered acceptance).',
 )

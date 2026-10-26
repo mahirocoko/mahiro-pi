@@ -79,10 +79,10 @@ export function registerSessionTasks(pi: ExtensionAPI) {
       state.config.view === 'off' || visible.length === 0
         ? []
         : [
-            `Session steps · ${state.tasks.filter((t) => t.status === 'completed').length}/${state.tasks.length} complete (not acceptance)`,
+            `Todos · ${state.tasks.filter((t) => t.status === 'completed').length}/${state.tasks.length} complete (not acceptance)`,
             ...visible.map((t) => `${t.status === 'in_progress' ? '›' : '·'} ${label(t.subject)}`),
             ...(sorted.length > visible.length
-              ? [`${sorted.length - visible.length} other/completed · /mh-tasks`]
+              ? [`${sorted.length - visible.length} other/completed · /mh-todos`]
               : []),
           ]
     await workWidget(ctx, 'mahiro-session-tasks', lines, () => {
@@ -269,7 +269,7 @@ export function registerSessionTasks(pi: ExtensionAPI) {
   })
   const command: Parameters<ExtensionAPI['registerCommand']>[1] = {
     description:
-      'Session steps: view/create/update, dependencies, retention/reminders and quiet/compact view (not tsk)',
+      'Todos: branch-local session steps, dependencies and retention/reminders (not tsk or acceptance)',
     async handler(_args, ctx) {
       if (!ctx.hasUI || !active(ctx)) return
       try {
@@ -286,7 +286,7 @@ export function registerSessionTasks(pi: ExtensionAPI) {
             'Clear completed',
             ...view.state.tasks.map((task) => `${task.id} · ${task.status} · ${label(task.subject)}`),
           ]
-          const selected = await ctx.ui.select('Session steps — not tsk or human acceptance', choices)
+          const selected = await ctx.ui.select('Todos — branch-local, not tsk or human acceptance', choices)
           if (!selected) return
           choice =
             selected === 'Create step'
@@ -305,7 +305,7 @@ export function registerSessionTasks(pi: ExtensionAPI) {
         journal.read(ctx)
         assertCurrent(ctx, view.ticket)
         if (choice.kind === 'create') {
-          const subject = await ctx.ui.input('Session step title')
+          const subject = await ctx.ui.input('Todo title')
           journal.read(ctx)
           assertCurrent(ctx, view.ticket)
           if (subject) run('mh_task_create', { subject }, ctx)
@@ -330,7 +330,7 @@ export function registerSessionTasks(pi: ExtensionAPI) {
         } else if (choice.kind === 'clear-completed') {
           if (
             await ctx.ui.confirm(
-              'Clear completed session steps?',
+              'Clear completed todos?',
               'This does not change tsk outcomes or human acceptance.',
             )
           ) {
@@ -401,15 +401,15 @@ export function registerSessionTasks(pi: ExtensionAPI) {
         await refresh(ctx)
       } catch (error) {
         // A pending modal can outlive reload; retired contexts cannot access UI either.
-        if (active(ctx))
-          ctx.ui.notify(error instanceof Error ? error.message : 'Session steps unavailable.', 'error')
+        if (active(ctx)) ctx.ui.notify(error instanceof Error ? error.message : 'Todos unavailable.', 'error')
       }
     },
   }
-  pi.registerCommand('mh-tasks', command)
+  pi.registerCommand('mh-todos', command)
+  pi.registerCommand('mh-tasks', { ...command, description: 'Compatibility alias for /mh-todos' })
   registerWorkflowSurface(pi, {
     id: 'tasks',
-    label: 'Session steps',
+    label: 'Todos',
     open: (ctx) => command.handler('', ctx),
   })
   // Local owner callback for the workflow hub; same guarded command, no registry.

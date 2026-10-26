@@ -48,9 +48,11 @@ Owners: `extensions/mahiro-native-utilities.ts`, `lib/native-utilities.ts` and
 
 ## Session steps
 
-`/mh-tasks` opens branch-local lightweight tracking through the existing native
-utilities feature. It is not a task-board replacement, worker scheduler, RPC
-service, Goal or acceptance record. Loading creates no steps or configuration.
+`/mh-todos` opens branch-local lightweight tracking through the existing native
+utilities feature. `/mh-tasks` remains a compatibility alias with the exact same
+handler and `mahiro-session-tasks-v1` journal, not a second task runtime.
+The `/mh` hub labels this surface **Todos**. It is not a task-board replacement,
+worker scheduler, RPC service, Goal or acceptance record. Loading creates no steps or configuration.
 No separate upstream task package or executor is installed.
 
 The assistant can naturally choose tracking for useful multi-step work without
@@ -89,11 +91,19 @@ completed-step clearing and expiration remove affected dependency edges and bump
 surviving affected revisions. A completed step is only a session-step claim,
 never model execution success, task-board completion or human acceptance.
 
-In TUI mode, the command opens a centered task overview with progress, a bounded
-hierarchical list, status markers, selected-step details, settings and keyboard
-shortcuts. Thai/CJK/emoji labels and narrow terminals use public width-aware TUI
-helpers. RPC and non-TUI contexts retain the native selector flow. Dependency
-editing uses a toggle list with complete IDs so similarly titled steps remain
+In TUI mode, the command opens a quiet rectangular card with an inset
+`● Todos (done/total)` heading. Stable groups show completed steps first (muted
+and struck through), then in-progress, then pending; initial selection is the
+first unfinished step. One blank row separates visible completed and unfinished
+groups. The bounded tree list shows inline active detail, explicit blocker cues
+and overflow counts. `↑↓` moves, Enter manages, Esc closes; `c` creates,
+`v`/`r`/`m` opens view/retention/reminder settings and `x` clears completed steps.
+Thai/CJK/emoji labels and narrow terminals use public width-aware TUI helpers.
+The low-priority footer names branch-local ownership, the tsk/acceptance boundary
+and each available keyboard destination; clear-completed appears only when applicable.
+Reload/resume reconstructs the existing active-branch journal without stronger durability
+promises or changes to retention. RPC and non-TUI contexts retain the native
+selector flow. Dependency editing uses a toggle list with complete IDs so similarly titled steps remain
 distinguishable. The command supports create, title/description edits,
 dependencies, status/reopen, delete, clear completed and session-local settings:
 

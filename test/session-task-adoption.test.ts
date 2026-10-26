@@ -187,7 +187,10 @@ test('adoption describes concrete positives/negatives and all four tools, withou
   const f = fixture()
   await f.emit('session_start')
   assert.deepEqual([...f.tools.keys()], ['mh_task_create', 'mh_task_get', 'mh_task_list', 'mh_task_update'])
-  assert.equal(f.owner.open, f.commands.get('mh-tasks').handler)
+  assert.deepEqual([...f.commands.keys()], ['mh-todos', 'mh-tasks'])
+  assert.equal(f.owner.open, f.commands.get('mh-todos').handler)
+  assert.equal(f.commands.get('mh-tasks').handler, f.commands.get('mh-todos').handler)
+  assert.match(f.commands.get('mh-tasks').description, /Compatibility alias for \/mh-todos/)
   const create = f.tools.get('mh_task_create').description
   for (const phrase of [
     'investigate/fix/test',
@@ -237,6 +240,40 @@ test('adoption describes concrete positives/negatives and all four tools, withou
   assert.deepEqual(f.entries, [], 'adoption never creates tasks or settings')
   assert.deepEqual((await f.invoke('mh_task_list')).details.config, emptyTasks().config)
   assert.equal(f.widgets.size, 0)
+})
+
+test('both public command names retain the RPC selector fallback and one branch journal', async () => {
+  const f = fixture()
+  const selections: Array<string | undefined> = ['Create step', 'Reminders', 'on']
+  let selectorCalls = 0
+  Object.assign(f.ctx, { mode: 'rpc' })
+  Object.assign(f.ctx.ui, {
+    async select() {
+      selectorCalls++
+      return selections.shift()
+    },
+    async input() {
+      return 'RPC todo ภาษาไทย 中文 👩🏽‍💻'
+    },
+    custom() {
+      assert.fail('RPC must not open a custom TUI overlay')
+    },
+  })
+  await f.emit('session_start')
+  await f.commands.get('mh-todos').handler('', f.ctx)
+  await f.commands.get('mh-tasks').handler('', f.ctx)
+  const { tasks, config } = (await f.invoke('mh_task_list')).details
+  assert.equal(selectorCalls, 3)
+  assert.equal(selections.length, 0)
+  assert.equal(tasks.length, 1)
+  assert.equal(tasks[0].subject, 'RPC todo ภาษาไทย 中文 👩🏽‍💻')
+  assert.equal(config.reminders, true)
+  assert.equal(f.entries.length, 2, 'one create and one config operation, no duplicate runtime writes')
+  assert.ok(f.entries.every((entry) => entry.customType === 'mahiro-session-tasks-v1'))
+  assert.deepEqual(
+    f.entries.map((entry) => entry.data.revision),
+    [1, 2],
+  )
 })
 
 test('adoption preserves the latest maintained-memory/persona prompt and does not touch structured prompt state', async () => {
@@ -343,6 +380,7 @@ test('contextual widget bounds open work and hides completed-only batches withou
     return widget?.({}, { fg: (_color: string, text: string) => text }).render(1000) ?? []
   }
   assert.equal(render().length, 5, 'quiet: header, three open, overflow')
+  assert.match(render()[0], /^Todos ·/)
   assert.match(render()[0], /not acceptance/)
   f.configure({ view: 'compact' })
   await f.invoke('mh_task_list')

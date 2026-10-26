@@ -444,12 +444,12 @@ export async function sessionWorkFixture(
       modalKeys.push(keys)
       choices.push(...nestedChoices)
     }
-    if (name === 'mh-tasks') {
+    if (name === 'mh-todos' || name === 'mh-tasks') {
       const [panelChoice, ...nestedChoices] = selections
       scriptTaskPanel(panelChoice, nestedChoices)
-    } else if (name === 'mh' && selections[0] === 'Session steps') {
+    } else if (name === 'mh' && selections[0] === 'Todos') {
       const [, panelChoice, ...nestedChoices] = selections
-      choices.push('Session steps')
+      choices.push('Todos')
       scriptTaskPanel(panelChoice, nestedChoices)
     } else choices.push(...selections)
     await runtime.session.prompt(`/${name}`)
