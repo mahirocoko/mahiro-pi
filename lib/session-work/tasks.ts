@@ -14,6 +14,7 @@ import {
   type Task,
   type TaskTool,
 } from './task-model.ts'
+import { openTaskPanel, type TaskPanelChoice } from './task-panel.ts'
 import { label, workWidget } from './view.ts'
 
 const taskDescriptions: Record<TaskTool, string> = {
@@ -273,39 +274,60 @@ export function registerSessionTasks(pi: ExtensionAPI) {
       if (!ctx.hasUI || !active(ctx)) return
       try {
         const view = journal.read(ctx)
-        const choices = [
-          'Create step',
-          'View mode',
-          'Retention',
-          'Reminders',
-          'Clear completed',
-          ...view.state.tasks.map((t) => `${t.id} · ${t.status} · ${label(t.subject)}`),
-        ]
-        const choice = await ctx.ui.select('Session steps — not tsk or human acceptance', choices)
-        if (!choice) return
+        let choice: TaskPanelChoice
+        if (ctx.mode === 'tui' && typeof ctx.ui.custom === 'function') {
+          choice = await openTaskPanel(ctx, view.state)
+        } else {
+          const choices = [
+            'Create step',
+            'View mode',
+            'Retention',
+            'Reminders',
+            'Clear completed',
+            ...view.state.tasks.map((task) => `${task.id} · ${task.status} · ${label(task.subject)}`),
+          ]
+          const selected = await ctx.ui.select('Session steps — not tsk or human acceptance', choices)
+          if (!selected) return
+          choice =
+            selected === 'Create step'
+              ? { kind: 'create' }
+              : selected === 'View mode'
+                ? { kind: 'view' }
+                : selected === 'Retention'
+                  ? { kind: 'retention' }
+                  : selected === 'Reminders'
+                    ? { kind: 'reminders' }
+                    : selected === 'Clear completed'
+                      ? { kind: 'clear-completed' }
+                      : { kind: 'task', id: selected.split(' · ', 1)[0] ?? '' }
+        }
+        if (choice.kind === 'cancel') return
         journal.read(ctx)
         assertCurrent(ctx, view.ticket)
-        if (choice === 'Create step') {
+        if (choice.kind === 'create') {
           const subject = await ctx.ui.input('Session step title')
           journal.read(ctx)
           assertCurrent(ctx, view.ticket)
           if (subject) run('mh_task_create', { subject }, ctx)
-        } else if (['View mode', 'Retention', 'Reminders'].includes(choice)) {
+        } else if (['view', 'retention', 'reminders'].includes(choice.kind)) {
           const values =
-            choice === 'View mode'
+            choice.kind === 'view'
               ? ['quiet', 'compact', 'off']
-              : choice === 'Retention'
+              : choice.kind === 'retention'
                 ? ['never', 'four-turns']
                 : ['off', 'on']
-          const value = await ctx.ui.select(choice, values)
+          const value = await ctx.ui.select(
+            choice.kind === 'view' ? 'View mode' : choice.kind === 'retention' ? 'Retention' : 'Reminders',
+            values,
+          )
           if (!value) return
           const config = { ...view.state.config }
-          if (choice === 'View mode') config.view = value as typeof config.view
-          else if (choice === 'Retention') config.retention = value as typeof config.retention
+          if (choice.kind === 'view') config.view = value as typeof config.view
+          else if (choice.kind === 'retention') config.retention = value as typeof config.retention
           else config.reminders = value === 'on'
           assertCurrent(ctx, view.ticket)
           journal.write(ctx, { kind: 'config', config }, view.ticket)
-        } else if (choice === 'Clear completed') {
+        } else if (choice.kind === 'clear-completed') {
           if (
             await ctx.ui.confirm(
               'Clear completed session steps?',
@@ -315,8 +337,8 @@ export function registerSessionTasks(pi: ExtensionAPI) {
             assertCurrent(ctx, view.ticket)
             journal.write(ctx, { kind: 'clear-completed' }, view.ticket)
           }
-        } else {
-          const task = view.state.tasks[choices.indexOf(choice) - 5]
+        } else if (choice.kind === 'task') {
+          const task = view.state.tasks.find((candidate) => candidate.id === choice.id)
           if (!task) return
           const action = await ctx.ui.select(`${label(task.subject)} · revision ${task.revision}`, [
             'pending',
@@ -335,16 +357,38 @@ export function registerSessionTasks(pi: ExtensionAPI) {
             if (description === undefined) return
             patch = { subject, description }
           } else if (action === 'Dependencies') {
-            const value = await ctx.ui.input(
-              'Blocked by: comma-separated full task IDs (empty removes all)',
-              task.blockedBy.join(','),
-            )
-            if (value === undefined) return
-            patch = {
-              blockedBy: value
-                .split(',')
-                .map((s) => s.trim())
-                .filter(Boolean),
+            const blockedBy = new Set(task.blockedBy)
+            while (true) {
+              const candidates = view.state.tasks.filter((candidate) => candidate.id !== task.id)
+              const optionIds = new Map<string, string>()
+              const options = [
+                'Done',
+                'Clear all',
+                ...candidates.map((candidate) => {
+                  const option = `${blockedBy.has(candidate.id) ? '✓' : '○'} ${candidate.id} · ${label(candidate.subject)}`
+                  optionIds.set(option, candidate.id)
+                  return option
+                }),
+              ]
+              const selected = await ctx.ui.select('Dependencies · toggle task blockers, then Done', options)
+              if (!selected) return
+              if (selected === 'Done') {
+                const next = [...blockedBy]
+                if (
+                  next.length === task.blockedBy.length &&
+                  next.every((id, index) => id === task.blockedBy[index])
+                )
+                  return
+                patch = { blockedBy: next }
+                break
+              }
+              if (selected === 'Clear all') blockedBy.clear()
+              else {
+                const id = optionIds.get(selected)
+                if (!id) return
+                if (blockedBy.has(id)) blockedBy.delete(id)
+                else blockedBy.add(id)
+              }
             }
           } else if (action === 'Delete') {
             if (!(await ctx.ui.confirm('Delete session step?', label(task.subject)))) return

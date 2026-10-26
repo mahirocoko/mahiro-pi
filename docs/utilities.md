@@ -89,8 +89,13 @@ completed-step clearing and expiration remove affected dependency edges and bump
 surviving affected revisions. A completed step is only a session-step claim,
 never model execution success, task-board completion or human acceptance.
 
-The picker supports create, title/description edits, dependencies, status/reopen,
-delete, clear completed and session-local settings:
+In TUI mode, the command opens a centered task overview with progress, a bounded
+hierarchical list, status markers, selected-step details, settings and keyboard
+shortcuts. Thai/CJK/emoji labels and narrow terminals use public width-aware TUI
+helpers. RPC and non-TUI contexts retain the native selector flow. Dependency
+editing uses a toggle list with complete IDs so similarly titled steps remain
+distinguishable. The command supports create, title/description edits,
+dependencies, status/reopen, delete, clear completed and session-local settings:
 
 - **View:** default `quiet` (up to three open steps), `compact` (up to five) or
   `off`. Open batches summarize completed/overflow steps. A completed-only batch

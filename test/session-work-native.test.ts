@@ -318,13 +318,26 @@ test('pending task text save after actual reload preserves task/queue/composer a
     assert.deepEqual(f.composer, composer)
     assert.equal(f.composerTouches, 0)
     assert.deepEqual(f.errors, [])
-    f.inputs.push('not-an-existing-step')
-    await f.command('mh-tasks', [idOf(created), 'Dependencies'])
-    assert.ok(
-      f.notices.some((notice) => /Dependencies must name existing/.test(notice)),
-      'active command errors still notify',
-    )
+    await f.command('mh-tasks', [idOf(created), 'Dependencies', 'Done'])
     assert.deepEqual(tasksOf(await f.invoke('mh_task_list')), beforeTasks)
+    assert.deepEqual(f.errors, [])
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('task panel targets the requested row and toggles dependencies without manual ID entry', async () => {
+  const f = await sessionWorkFixture()
+  try {
+    const first = await f.invoke('mh_task_create', { subject: 'First selectable step' })
+    const second = await f.invoke('mh_task_create', { subject: 'Second selectable step' })
+    const firstId = idOf(first)
+    const secondId = idOf(second)
+    await f.command('mh-tasks', [secondId, 'Dependencies', `○ ${firstId}`, 'Done'])
+    assert.deepEqual((await f.invoke('mh_task_get', { id: secondId })).blockedBy, [firstId])
+    assert.deepEqual((await f.invoke('mh_task_get', { id: firstId })).blockedBy, [])
+    await f.command('mh-tasks', [secondId, 'Dependencies', `✓ ${firstId}`, 'Done'])
+    assert.deepEqual((await f.invoke('mh_task_get', { id: secondId })).blockedBy, [])
     assert.deepEqual(f.errors, [])
   } finally {
     await f.dispose()

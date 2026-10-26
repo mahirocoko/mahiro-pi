@@ -9,6 +9,8 @@ import type {
   ThemeColor,
 } from '@earendil-works/pi-coding-agent'
 import type { Component, Terminal } from '@earendil-works/pi-tui'
+import { emptyTasks, isTaskOperation, reduceTasks } from '../lib/session-work/task-model.ts'
+import { orderedTasks } from '../lib/session-work/task-panel.ts'
 import { registerSessionTasks } from '../lib/session-work/tasks.ts'
 import { registerSessionQueue } from '../lib/session-work/queue.ts'
 
@@ -414,7 +416,42 @@ export async function sessionWorkFixture(
     await runtime.session.prompt(text)
   }
   async function command(name: string, selections: Array<string | undefined>) {
-    choices.push(...selections)
+    const scriptTaskPanel = (panelChoice: string | undefined, nestedChoices: Array<string | undefined>) => {
+      let keys: string[]
+      if (panelChoice === undefined) keys = ['\x1b']
+      else if (panelChoice === 'Create step') keys = ['c']
+      else if (panelChoice === 'View mode') keys = ['v']
+      else if (panelChoice === 'Retention') keys = ['r']
+      else if (panelChoice === 'Reminders') keys = ['m']
+      else if (panelChoice === 'Clear completed') keys = ['x']
+      else {
+        let state = emptyTasks()
+        for (const entry of runtime.session.sessionManager.getBranch()) {
+          if (entry.type !== 'custom' || entry.customType !== 'mahiro-session-tasks-v1') continue
+          const data = entry.data as { operation?: unknown }
+          assert.ok(isTaskOperation(data.operation), 'Invalid task operation in fixture branch')
+          state = reduceTasks(state, data.operation)
+        }
+        const tasks = orderedTasks(state.tasks)
+        const target = tasks.findIndex((task) => task.id === panelChoice)
+        assert.notEqual(target, -1, `Missing task panel target ${panelChoice}`)
+        const initial = Math.max(
+          0,
+          tasks.findIndex((task) => task.status !== 'completed'),
+        )
+        keys = [...Array((target - initial + tasks.length) % tasks.length).fill('\x1b[B'), '\r']
+      }
+      modalKeys.push(keys)
+      choices.push(...nestedChoices)
+    }
+    if (name === 'mh-tasks') {
+      const [panelChoice, ...nestedChoices] = selections
+      scriptTaskPanel(panelChoice, nestedChoices)
+    } else if (name === 'mh' && selections[0] === 'Session steps') {
+      const [, panelChoice, ...nestedChoices] = selections
+      choices.push('Session steps')
+      scriptTaskPanel(panelChoice, nestedChoices)
+    } else choices.push(...selections)
     await runtime.session.prompt(`/${name}`)
     assert.equal(choices.length, 0)
   }
