@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'node:path'
+import { memoryFailure } from '../reasons.ts'
 import { bytes, hasSecret, objectShape, validId } from '../../continuity/records.ts'
 import type { MemoryConfig, MemoryFile } from '../store.ts'
 
@@ -214,7 +215,8 @@ export function assertLosslessRetention(
     const after = nextFiles[path]?.text
     if (!before) continue
     if (!after)
-      throw Error(
+      throw memoryFailure(
+        'retention',
         `Lossless retention guard: cannot remove protected memory ${path} without archiving to reference/ or archives/`,
       )
     const beforeHeadings = extractHeadings(before)
@@ -222,11 +224,13 @@ export function assertLosslessRetention(
     const afterHeadings = new Set(extractHeadings(after))
     const dropped = beforeHeadings.filter((h) => !afterHeadings.has(h))
     if (dropped.length)
-      throw Error(
+      throw memoryFailure(
+        'retention',
         `Lossless retention guard: ${path} dropped section heading(s) (${dropped.join(', ')}) without archiving to reference/ or archives/`,
       )
     if (before.length >= 160 && after.length < before.length * 0.8)
-      throw Error(
+      throw memoryFailure(
+        'retention',
         `Lossless retention guard: ${path} shrank by >20% (${before.length} -> ${after.length} bytes) without archiving to reference/ or archives/`,
       )
   }

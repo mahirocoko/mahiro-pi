@@ -5,6 +5,7 @@ import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow
 import { memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
 import { createAgentMemoryRouter } from '../lib/agent-memory/runtime-router.ts'
 import { memoryReadSchema } from '../lib/agent-memory/retrieval.ts'
+import { publicMemoryError } from '../lib/agent-memory/reasons.ts'
 
 export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}) {
   registerWorkflowPresentation(pi)
@@ -31,14 +32,14 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         )
         return
       }
-      const observe = attention.capture(ctx)
-      if (subcommand === 'status') {
-        const result = await runtime.diagnose(ctx)
-        observe('memory', result)
-        ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
-        return
-      }
       try {
+        const observe = attention.capture(ctx)
+        if (subcommand === 'status') {
+          const result = await runtime.diagnose(ctx)
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
         if (subcommand === 'doctor') {
           const result = await runtime.run('agent_memory_manage', { action: 'doctor' }, ctx)
           observe('memory', result)
@@ -73,7 +74,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           return
         }
       } catch (error) {
-        ctx.ui.notify(error instanceof Error ? error.message : 'Memory command unavailable', 'warning')
+        ctx.ui.notify(publicMemoryError(error).message, 'warning')
       }
     },
   })
@@ -184,17 +185,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             details: result,
           }
         } catch (error) {
-          // Fixed public categories only, never private paths/payloads/subprocess stderr.
-          const message = error instanceof Error ? error.message : ''
-          if (name === 'agent_memory_read' && message.startsWith('Memory read unavailable:'))
-            throw new Error(
-              message.includes('forgotten')
-                ? 'Managed memory unavailable: current forgetting invalidates this retained view; proposal preserved'
-                : 'Managed memory unavailable: current revision changed during read; proposal preserved',
-            )
-          throw new Error(
-            'Managed memory unavailable: valid arguments, scope, CAS, separate permission and healthy native binding required',
-          )
+          throw publicMemoryError(error, name === 'agent_memory_read')
         }
       },
     })

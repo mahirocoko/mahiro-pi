@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { decodeMemoryFailure, memoryFailure } from '../reasons.ts'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { objectShape } from '../../continuity/records.ts'
@@ -196,12 +197,14 @@ export class MemoryEngineController {
     }
     if (Object.keys(message).length !== 4 || 'result' in message === 'error' in message)
       throw Error('Invalid engine result')
+    // Validate even on cancellation/authority loss: malformed diagnostics are protocol failures,
+    // not a valid result. Classification is diagnostic only; current authority still wins.
+    const childError = 'error' in message ? decodeMemoryFailure(message.error) : undefined
     let error: Error | undefined
     try {
       assertCurrent(p.context)
       if (p.cancelled) throw Error('Engine request cancelled')
-      if ('error' in message)
-        throw Error(typeof message.error === 'string' ? message.error.slice(0, 256) : 'Invalid engine error')
+      if (childError) throw childError
     } catch (caught) {
       error = caught instanceof Error ? caught : Error('Engine operation unavailable')
     }
@@ -260,7 +263,7 @@ export class MemoryEngineController {
           p.cancelled = true
           this.send({ v: 2, epoch: this.epoch, id: p.id, cancel: true })
           // No restart/replay. If a child cannot drain, caller teardown owns it.
-          p.reject(Error('Engine request deadline; channel draining'))
+          p.reject(memoryFailure('deadline', 'Engine request deadline; channel draining'))
         }, deadline)
     } catch (error) {
       this.active = undefined
@@ -279,7 +282,7 @@ export class MemoryEngineController {
         this.queueSize >= transportLimits.queued ||
         this.queuedBytes + frame.length > transportLimits.queuedBytes
       )
-        throw Error('Engine overload')
+        throw memoryFailure('capacity', 'Engine overload')
       return new Promise((resolve, reject) => {
         const p: Pending = {
           id,

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { publicMemoryError, publicReceipt } from '../reasons.ts'
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -294,7 +295,7 @@ export class MemoryPublisher {
       await journal({ stage: 'head_observed' })
       receipt = await this.engine.request('reconcile', { plan: plan.id, digest: plan.digest }, context)
       await journal(receipt)
-      return (output = { ...receipt, mutated, commitStarted, lockRetained: locked })
+      return (output = { ...publicReceipt(receipt), mutated, commitStarted, lockRetained: locked })
     } catch (error) {
       recordMemoryDiagnostic(root, 'publisher-error', { stage, mutated, commitStarted }, error)
       executor.seal()
@@ -312,9 +313,9 @@ export class MemoryPublisher {
         }
       }
       return (output = {
-        ...receipt,
+        ...publicReceipt(receipt),
         detail:
-          receipt.detail ?? (error instanceof Error ? error.message.slice(0, 256) : 'Publication failed'),
+          receipt.detail === undefined ? publicMemoryError(error).message : publicReceipt(receipt).detail,
         mutated,
         commitStarted,
         lockRetained: locked || lockAttempted,
@@ -355,7 +356,7 @@ export class MemoryPublisher {
           /* retain */
         }
       }
-      return { ...result.receipt, operation: id, sequence: result.sequence, lockRetained }
+      return { ...publicReceipt(result.receipt), operation: id, sequence: result.sequence, lockRetained }
     } finally {
       release?.()
     }

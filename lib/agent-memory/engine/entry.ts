@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { memoryFailureCode } from '../reasons.ts'
 import { MemoryDataEngine } from './data.ts'
 import { engineEnvironment } from './io.ts'
 import {
@@ -92,9 +93,8 @@ const frames = new Frames(transportLimits.request, (message) => {
       abort.signal.throwIfAborted()
       await send({ id, result })
     } catch (error) {
-      // Bounded structural errors only; never serialize Git output or content.
-      const text = error instanceof Error ? error.message.slice(0, 256) : 'Engine operation failed'
-      await send({ id, error: text })
+      // No raw text, paths, headings, causes or Git output cross the channel.
+      await send({ id, error: memoryFailureCode(error) })
     } finally {
       active = undefined
     }

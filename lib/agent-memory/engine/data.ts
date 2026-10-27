@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { memoryFailure } from '../reasons.ts'
 import { lstat, mkdir, readdir, rmdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -249,7 +250,7 @@ export class MemoryDataEngine {
     this.bases.set(`${revision}:${configHash}`, base)
     if (this.bases.size > 64) this.bases.delete(this.bases.keys().next().value!)
     if (this.certificates.size > 32768)
-      throw Error('Certification capacity exceeded; explicit restart required')
+      throw memoryFailure('capacity', 'Certification capacity exceeded; explicit restart required')
     return base
   }
   private files(v: Draft): Record<string, Ref | Overlay> {
@@ -274,11 +275,8 @@ export class MemoryDataEngine {
     if (!stored) throw Error('Unknown view; persisted views require explicit recertified recovery')
     const v = structuredClone(stored.value)
     const { config, configHash } = await this.config()
-    if (
-      configHash !== v.configHash ||
-      Date.now() >= v.deadline ||
-      (v.state !== 'open' && !(ready && v.state === 'ready'))
-    )
+    if (Date.now() >= v.deadline) throw memoryFailure('deadline', 'Memory view inactive')
+    if (configHash !== v.configHash || (v.state !== 'open' && !(ready && v.state === 'ready')))
       throw Error('Memory view inactive')
     if (digest(await this.read(this.manifest(v), 2 * 1024 * 1024)) !== stored.hash)
       throw Error('Private manifest changed externally')
@@ -313,15 +311,20 @@ export class MemoryDataEngine {
     const revision = await this.head()
     const ledger = await this.ledger(revision)
     if (Object.entries(refs).some(([path, ref]) => suppressed(ledger, path, ref.sources)))
-      throw Error('Memory read unavailable: current forgetting; proposal retained')
+      throw memoryFailure(
+        'unknown',
+        'Memory read unavailable: current forgetting; proposal retained',
+        'forgetting',
+      )
     return { v, refs, config, revision, ledger }
   }
   private async final(v: Draft, revision: string) {
     const after = await this.active(v.id, true)
     if (after.revision !== revision || !same(v, after.v))
-      throw Error('Memory view/revision changed during operation')
+      throw memoryFailure('CAS', 'Memory view/revision changed during operation', 'revision')
     await this.gate([this.root])
-    if ((await this.head()) !== revision) throw Error('Memory revision changed at final fence')
+    if ((await this.head()) !== revision)
+      throw memoryFailure('CAS', 'Memory revision changed at final fence', 'revision')
   }
   private async initializeNamespace() {
     await this.gate([this.folder], [], 'view')
@@ -330,7 +333,8 @@ export class MemoryDataEngine {
     await this.gate([journal], [], 'view')
     await privateDirectory(journal, true)
     const names = await readdir(journal)
-    if (names.length >= 64) throw Error('Unreconciled journal capacity requires explicit maintenance')
+    if (names.length >= 64)
+      throw memoryFailure('capacity', 'Unreconciled journal capacity requires explicit maintenance')
     // Never import/trust persisted manifests/certificates or silently reclaim proposals.
     for (const name of names) {
       if (!/^[a-f0-9-]{36}\.json$/.test(name)) throw Error('Unknown operation/CAS entry blocks mutation')
@@ -387,7 +391,8 @@ export class MemoryDataEngine {
         },
       }
     }
-    if (args.revision !== undefined && now.revision !== args.revision) throw Error('Stale memory revision')
+    if (args.revision !== undefined && now.revision !== args.revision)
+      throw memoryFailure('CAS', 'Stale memory revision')
     let ledger = structuredClone(now.ledger)
     let next = { ...now.refs }
     const writeNewOverlay = async (v: Draft, path: string, text: string, sources: string[]) => {
@@ -477,7 +482,7 @@ export class MemoryDataEngine {
       await this.save(v)
       return { view: v.id, added, changed: true }
     }
-    if (now.revision !== args.revision) throw Error('Stale memory revision')
+    if (now.revision !== args.revision) throw memoryFailure('CAS', 'Stale memory revision')
     if (args.action === 'forget') {
       const { paths, sources } = args
       if (
@@ -567,7 +572,7 @@ export class MemoryDataEngine {
     try {
       await privateDirectory(folder)
       const names = (await readdir(folder)).filter((name) => pattern.test(name)).sort()
-      if (names.length > limits.views) throw Error('Private view capacity exceeded')
+      if (names.length > limits.views) throw memoryFailure('capacity', 'Private view capacity exceeded')
       return names
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
@@ -682,7 +687,8 @@ export class MemoryDataEngine {
   private async retainedConflicts(project: string) {
     const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
     const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
-    if (legacy.length + modern.length > limits.views) throw Error('Private view capacity exceeded')
+    if (legacy.length + modern.length > limits.views)
+      throw memoryFailure('capacity', 'Private view capacity exceeded')
     const matches: Awaited<ReturnType<MemoryDataEngine['retained']>>[] = []
     const accepted = async (selected: Awaited<ReturnType<MemoryDataEngine['retained']>>) => {
       if (selected.v.project !== project || selected.v.state !== 'conflict') return
@@ -798,7 +804,7 @@ export class MemoryDataEngine {
     const selected = (await this.retainedConflicts(args.project)).find(({ v }) => v.id === args.target)
     if (!selected) throw Error('Unknown scoped conflict')
     await this.initializeNamespace() // unknown mutation records are never discardable
-    if ((await this.head()) !== args.revision) throw Error('Stale memory revision')
+    if ((await this.head()) !== args.revision) throw memoryFailure('CAS', 'Stale memory revision')
     if (digest(await this.read(selected.physical, 40 * 1024 * 1024)) !== selected.rawHash)
       throw Error('Retained view changed')
     await this.write(
@@ -868,7 +874,8 @@ export class MemoryDataEngine {
           await unlink(path)
         }
       }
-      if ((await this.episodeNames()).length >= 256) throw Error('Unreviewed episode capacity exceeded')
+      if ((await this.episodeNames()).length >= 256)
+        throw memoryFailure('capacity', 'Unreviewed episode capacity exceeded')
     }
     if ((await this.head()) !== revision) throw Error('Episode revision changed')
     await this.write(target, raw)
@@ -1160,7 +1167,8 @@ export class MemoryDataEngine {
         const folder = join(this.folder, 'drafts')
         await this.gate([folder], [], 'view')
         await privateDirectory(folder, true)
-        if ((await readdir(folder)).length >= limits.views) throw Error('Private view capacity exceeded')
+        if ((await readdir(folder)).length >= limits.views)
+          throw memoryFailure('capacity', 'Private view capacity exceeded')
         const base = await this.certify(config, configHash)
         const refs = Object.fromEntries(
           Object.entries(base.refs).filter(([path]) =>
@@ -1204,7 +1212,7 @@ export class MemoryDataEngine {
             Object.keys(refs),
           )
           if (Object.entries(refs).some(([path, ref]) => suppressed(base.ledger, path, ref.sources)))
-            throw Error('Memory read unavailable: current forgetting')
+            throw memoryFailure('unknown', 'Memory read unavailable: current forgetting', 'forgetting')
           const v: Draft = {
             version: 2,
             id: randomUUID(),
@@ -1304,7 +1312,11 @@ export class MemoryDataEngine {
         }
         if (committed) {
           if ((await this.config()).configHash !== v.configHash || (await this.head()) !== revision)
-            throw Error('Memory read unavailable: current revision changed during read')
+            throw memoryFailure(
+              'CAS',
+              'Memory read unavailable: current revision changed during read',
+              'revision',
+            )
           await this.gate(
             Object.keys(refs).map((path) => join(this.root, path)),
             Object.keys(refs),
@@ -1316,11 +1328,10 @@ export class MemoryDataEngine {
         const args = input as Input<'edit'>
         const { v, refs, config, revision, ledger } = await this.active(args.view, true)
         const old = refs[args.path]
-        if (
-          !allowedPath(args.path, v.shared ? undefined : v.project) ||
-          (old?.hash ?? null) !== args.expectedHash
-        )
+        if (!allowedPath(args.path, v.shared ? undefined : v.project))
           throw Error('Stale file or path outside scope')
+        if ((old?.hash ?? null) !== args.expectedHash)
+          throw memoryFailure('CAS', 'Stale file or path outside scope')
         const oldText = old ? await this.body(args.path, old) : undefined
         const nextText = applySurgicalEdit(oldText, args.text, {
           mode: args.mode,
@@ -1386,7 +1397,7 @@ export class MemoryDataEngine {
           throw Error('Publication already pending; no retry')
         const current = await this.certify(config, v.configHash)
         if (this.managementLedgers.has(v.id) && current.revision !== v.base.revision)
-          throw Error('Stale management revision')
+          throw memoryFailure('CAS', 'Stale management revision')
         if ((await this.git(['status', '--porcelain', '--untracked-files=no'])).trim())
           throw Error('Uncommitted work requires explicit recovery; proposal retained')
         const changed = Object.keys(v.overlay).filter((path) => !sameContent(v.base.refs[path], refs[path]))

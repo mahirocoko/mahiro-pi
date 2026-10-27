@@ -45,6 +45,18 @@ import { allowedPath, createMemoryStore, parseConfig, type MemoryConfig } from '
 import { digest } from '../lib/continuity/records.ts'
 import type { Episode } from '../lib/agent-memory/store.ts'
 import { parseMemoryRead, retrieveMemory } from '../lib/agent-memory/retrieval.ts'
+import { memoryFailureCode, type MemoryFailureCode } from '../lib/agent-memory/reasons.ts'
+
+// Real child replies carry closed metadata, not the child's private exception text.
+// Each caller still supplies the forbidden operation/tamper and checks its storage outcome.
+const engineError =
+  (expected: MemoryFailureCode = { reason: 'unknown' }) =>
+  (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.equal(error.message, 'Engine operation unavailable')
+    assert.deepEqual(memoryFailureCode(error), expected)
+    return true
+  }
 
 test('only explicit offline certification is completion-driven beyond the ordinary request deadline', () => {
   assert.equal(engineRequestDeadline('offlineCertify'), undefined)
@@ -629,8 +641,9 @@ test('CAS, disjoint merge and overlapping conflict retain proposals; query/pagin
         { view: a.view, path: 'global/file-0.md', expectedHash: null, text: '# Wrong\n', sources: [] },
         f.context,
       ),
-      /Stale/,
+      engineError({ reason: 'CAS' }),
     )
+    assert.equal((await read(f, a.view, 'global/file-0.md')).hash, original.hash)
     for (const [view, path, text] of [
       [a.view, 'global/file-0.md', '# Winner\n'],
       [b.view, 'global/file-1.md', '# Disjoint\n'],
@@ -679,8 +692,58 @@ test('CAS, disjoint merge and overlapping conflict retain proposals; query/pagin
     assert.equal(page.text, [...f.store.snapshot().files['Core.md'].text].slice(2, 7).join(''))
     await assert.rejects(
       f.engine.request('read', { view: fresh.view, selection: { query: 'x'.repeat(257) } }, f.context),
-      /query/,
+      engineError(),
     )
+    assert.equal((await read(f, fresh.view, 'Core.md')).text, f.store.snapshot().files['Core.md'].text)
+  } finally {
+    await f.close()
+  }
+})
+
+test('safe memory child retention code preserves published HEAD and the rejected ready proposal', async () => {
+  const f = fixture(0)
+  try {
+    const established = f.store.createView('project')
+    const text = '# Core\n# Synthetic protected heading\n' + 'Established fact. '.repeat(30) + '\n'
+    f.store.edit(established, 'Core.md', digest(established.files['Core.md'].text), text)
+    f.store.integrate(established)
+    const before = f.git('rev-parse', 'HEAD')
+    const { view } = await f.engine.request('create', { project: 'project' }, f.context)
+    const original = await read(f, view)
+    await f.engine.request(
+      'edit',
+      {
+        view,
+        path: 'Core.md',
+        expectedHash: original.hash as string,
+        text: '# Core\nShort.\n',
+        sources: [],
+      },
+      f.context,
+    )
+    await f.engine.request('ready', { view }, f.context)
+    const manifest = join(f.root, '.views', '.engine-v2', 'drafts', `${view}.json`)
+    const proposal = readFileSync(manifest)
+    await assert.rejects(
+      f.engine.request('prepare', { view, reviewed: [] }, f.context),
+      engineError({ reason: 'retention' }),
+    )
+    assert.equal(f.git('rev-parse', 'HEAD'), before)
+    assert.equal(f.store.projection('project').core, text)
+    assert.deepEqual(
+      readFileSync(manifest),
+      proposal,
+      'retention refusal does not discard or rewrite proposal',
+    )
+    assert.equal((await read(f, view)).text, '# Core\nShort.\n')
+    await assert.rejects(
+      f.engine.request('prepare', { view, reviewed: [] }, { current: () => false }),
+      (error: unknown) => {
+        assert.deepEqual(memoryFailureCode(error), { reason: 'unknown' })
+        return true
+      },
+    )
+    assert.deepEqual(readFileSync(manifest), proposal)
   } finally {
     await f.close()
   }
@@ -690,20 +753,43 @@ test('logical path denies gate entire view; overlays/manifest corruption and for
   const f = fixture(2)
   try {
     const { view } = await f.engine.request('create', { project: 'project' }, f.context)
-    const denied: OperationContext = { current: (targets) => !targets.logical.includes('global/file-1.md') }
+    const expectedCore = f.store.snapshot().files['Core.md'].text
+    assert.equal((await read(f, view)).text, expectedCore)
+    assert.equal(
+      (
+        await f.engine.request(
+          'headRead',
+          { project: 'project', shared: true, selection: { path: 'Core.md' } },
+          f.context,
+        )
+      ).text,
+      expectedCore,
+    )
+    let deniedCalls = 0
+    const denied: OperationContext = {
+      current: (targets) => {
+        if (!targets.logical.includes('global/file-1.md')) return true
+        deniedCalls++
+        return false
+      },
+    }
     await assert.rejects(
       f.engine.request(
         'headRead',
         { project: 'project', shared: true, selection: { path: 'Core.md' } },
         denied,
       ),
-      /authority/,
+      engineError(),
     )
+    assert.ok(deniedCalls > 0, 'head read reached the forbidden logical operand')
+    deniedCalls = 0
     await assert.rejects(
       f.engine.request('read', { view, selection: { path: 'Core.md' } }, denied),
-      /authority/,
+      engineError(),
     )
+    assert.ok(deniedCalls > 0, 'draft read reached the forbidden logical operand')
     const core = await read(f, view)
+    assert.equal(core.text, expectedCore, 'same read succeeds when authority is restored')
     await f.engine.request(
       'edit',
       { view, path: 'Core.md', expectedHash: core.hash as string, text: '# Modified\n', sources: [] },
@@ -711,16 +797,55 @@ test('logical path denies gate entire view; overlays/manifest corruption and for
     )
     const blobs = join(f.root, '.views', '.engine-v2', 'blobs')
     const blob = join(blobs, readdirSync(blobs)[0])
+    assert.equal((await read(f, view)).text, '# Modified\n', 'untampered overlay is readable')
     writeFileSync(blob, '# Tampered\n')
-    await assert.rejects(read(f, view), /identity|integrity/)
+    await assert.rejects(read(f, view), engineError())
+    assert.equal(readFileSync(blob, 'utf8'), '# Tampered\n')
     const second = await f.engine.request('create', { project: 'project' }, f.context)
     const manifest = join(f.root, '.views', '.engine-v2', 'drafts', `${second.view}.json`)
+    assert.equal((await read(f, second.view)).text, expectedCore)
+    const manifestBefore = readFileSync(manifest)
     writeFileSync(manifest, '{}')
-    await assert.rejects(read(f, second.view), /manifest/)
+    await assert.rejects(read(f, second.view), engineError())
+    assert.equal(readFileSync(manifest, 'utf8'), '{}')
+    // Only this synthetic manifest tamper is restored; authority and controller stay the same.
+    writeFileSync(manifest, manifestBefore)
+    assert.equal((await read(f, second.view)).text, expectedCore)
     const third = await f.engine.request('create', { project: 'project' }, f.context)
     f.store.forget(f.store.snapshot().revision, [], ['source-one'], 'project')
-    await assert.rejects(read(f, third.view), /forgetting/)
+    await assert.rejects(
+      read(f, third.view),
+      engineError({ reason: 'unknown', readInvalidation: 'forgetting' }),
+    )
+    assert.ok(existsSync(join(f.root, '.views', '.engine-v2', 'drafts', `${third.view}.json`)))
   } finally {
+    await f.close()
+  }
+})
+
+test('safe memory request deadline rejects with typed uncertainty and drains the same child without replay', async (t) => {
+  const f = fixture(0)
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const request = f.engine.request('config', {}, f.context)
+    const pid = f.engine.pid
+    assert.ok(pid)
+    const rejection = assert.rejects(request, (error: unknown) => {
+      assert.deepEqual(memoryFailureCode(error), { reason: 'deadline' })
+      return true
+    })
+    t.mock.timers.tick(30000)
+    await rejection
+    assert.equal(f.engine.queueSize, 1, 'deadline rejection is not completed drain')
+    t.mock.timers.reset()
+    assert.deepEqual(await f.engine.request('config', {}, f.context), {
+      config: f.config,
+      configHash: digest(JSON.stringify(f.config)),
+    })
+    assert.equal(f.engine.pid, pid, 'same controller/channel; no restart or replay')
+    assert.equal(f.engine.queueSize, 0)
+  } finally {
+    t.mock.timers.reset()
     await f.close()
   }
 })
@@ -745,7 +870,11 @@ test('queue overload, queued/active cancellation, strict boolean and stale reply
     queueAbort.abort()
     await rejection
     const jobs = Array.from({ length: 15 }, () => f.engine.request('config', {}, f.context))
-    await assert.rejects(f.engine.request('config', {}, f.context), /overload/)
+    await assert.rejects(f.engine.request('config', {}, f.context), (error: unknown) => {
+      assert.deepEqual(memoryFailureCode(error), { reason: 'capacity' })
+      assert.ok(error instanceof Error && error.message === 'Engine overload')
+      return true
+    })
     const activeRejection = assert.rejects(creating, /cancel|abort/i)
     abort.abort()
     await activeRejection
@@ -777,19 +906,26 @@ test('normal hook failure retains dirty index/proposal and committed HEAD; later
     )
     const plan = await ready(f, view)
     const hook = join(f.root, '.git', 'hooks', 'pre-commit')
-    writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o700 })
+    const privateDetail = '/synthetic/private/path Private-heading-stderr'
+    writeFileSync(hook, `#!/bin/sh\necho '${privateDetail}' >&2\nexit 1\n`, { mode: 0o700 })
     chmodSync(hook, 0o700)
     const before = f.git('rev-parse', 'HEAD')
     const result = await new MemoryPublisher(f.engine, f.env).publish(plan, f.context)
     assert.equal(result.stage, 'not_committed_dirty')
     assert.equal(result.mutated, true)
     assert.equal(result.commitStarted, true)
+    assert.ok(
+      !JSON.stringify(result).includes(privateDetail),
+      'actual hook stderr never reaches public receipt',
+    )
     assert.equal(f.git('rev-parse', 'HEAD'), before)
     assert.match(f.git('status', '--porcelain', '--untracked-files=no'), /Core.md/)
     assert.equal(f.store.projection('project').core, '# Core\nSynthetic identity.\n')
     assert.equal(readFileSync(join(f.root, 'Core.md'), 'utf8'), '# Proposal\n')
     assert.ok(existsSync(join(f.root, '.views', '.engine-v2', 'drafts', `${view}.json`)))
-    await assert.rejects(f.engine.request('prepare', { view, reviewed: [] }, f.context), /Uncommitted/)
+    await assert.rejects(f.engine.request('prepare', { view, reviewed: [] }, f.context), engineError())
+    assert.equal(f.git('rev-parse', 'HEAD'), before)
+    assert.equal(readFileSync(join(f.root, 'Core.md'), 'utf8'), '# Proposal\n')
   } finally {
     await f.close()
   }
@@ -1067,7 +1203,10 @@ test('management forgetting and rollback match old snapshot oracle without schem
       'source forgetting never tombstones a foreign project',
     )
     const scoped = await f.engine.request('create', { project: 'project' }, f.context)
-    await assert.rejects(read(f, scoped.view, 'deferred/other/keep.md'), /outside scope/)
+    await assert.rejects(read(f, scoped.view, 'deferred/other/keep.md'), engineError())
+    assert.equal((await read(f, scoped.view)).text, f.store.snapshot().files['Core.md'].text)
+    const shared = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    assert.equal((await read(f, shared.view, 'deferred/other/keep.md')).text, '# Other project knowledge\n')
     assert.deepEqual(readFileSync(join(f.root, 'config.json')), configBytes)
     const oldRollback = oracle.store.rollback(expected.revision, oldInitial, 'project')
     const rollback = await f.engine.request(
@@ -1088,7 +1227,7 @@ test('management forgetting and rollback match old snapshot oracle without schem
         { action: 'forget', project: 'project', revision: initial, paths: ['global/file-0.md'], sources: [] },
         f.context,
       ),
-      /Stale/,
+      engineError({ reason: 'CAS' }),
     )
     await assert.rejects(
       f.engine.request(
@@ -1102,11 +1241,18 @@ test('management forgetting and rollback match old snapshot oracle without schem
         },
         f.context,
       ),
-      /scope/,
+      engineError(),
     )
+    assert.deepEqual(comparable(f.store.snapshot()), comparable(oldRollback))
     const view = await f.engine.request('create', { project: 'project' }, f.context)
+    assert.equal((await read(f, view.view)).text, f.store.snapshot().files['Core.md'].text)
     await f.engine.request('cancel', { view: view.view }, f.context)
-    await assert.rejects(read(f, view.view), /inactive/)
+    await assert.rejects(read(f, view.view), engineError())
+    assert.equal(
+      JSON.parse(readFileSync(join(f.root, '.views', '.engine-v2', 'drafts', `${view.view}.json`), 'utf8'))
+        .state,
+      'cancelled',
+    )
   } finally {
     await oracle.close()
     await f.close()
@@ -1174,7 +1320,16 @@ test('retained v2 and legacy conflicts recover after restart with code-point pag
     assert.equal(page.proposalHash, digest('# New 😀 proposal\n'))
     await assert.rejects(
       restarted.request('conflicts', { project: 'other', target: proposal.view }, f.context),
-      /Unknown scoped/,
+      engineError(),
+    )
+    assert.deepEqual(
+      await restarted.request(
+        'conflicts',
+        { project: 'project', target: proposal.view, path: 'global/file-0.md', offset: 6, limit: 3 },
+        f.context,
+      ),
+      page,
+      'same retained proposal remains available to the correct project',
     )
     f.store.forget(f.store.snapshot().revision, [], ['source-one'], 'project')
     assert.deepEqual(
@@ -1199,10 +1354,11 @@ test('retained v2 and legacy conflicts recover after restart with code-point pag
     writeFileSync(manifest, JSON.stringify(parsed))
     await assert.rejects(
       restarted.request('conflicts', { project: 'project', target: proposal.view }, f.context),
-      /recertified/,
+      engineError(),
     )
     // Explicitly restore only this test's tamper to probe a separate negative boundary.
     writeFileSync(manifest, originalManifest)
+    assert.equal((await restarted.request('conflicts', { project: 'project' }, f.context)).total, 1)
     const unknownJournal = join(
       f.root,
       '.views',
@@ -1217,7 +1373,7 @@ test('retained v2 and legacy conflicts recover after restart with code-point pag
         { project: 'project', target: proposal.view, revision: f.store.snapshot().revision },
         f.context,
       ),
-      /Unreconciled/,
+      engineError(),
     )
     assert.deepEqual(readFileSync(manifest), originalManifest, 'unknown publication is not discard authority')
     assert.ok(existsSync(unknownJournal), 'unknown mutation record is retained; never evicted or replayed')
@@ -1291,13 +1447,26 @@ test('bounded synthetic non-learning/uncertainty episodes checkpoint reviewed me
     )
     const forgotten = episodes[4]
     f.store.forget(f.store.snapshot().revision, [], [forgotten.id], 'project')
-    await assert.rejects(f.engine.request('observe', { episode: forgotten }, f.context), /Forgotten/)
+    const episodeState = () =>
+      Object.fromEntries(
+        readdirSync(join(f.root, '.episodes'))
+          .sort()
+          .map((name) => [name, readFileSync(join(f.root, '.episodes', name))]),
+      )
+    const beforeRejectedObservations = episodeState()
+    await assert.rejects(f.engine.request('observe', { episode: forgotten }, f.context), engineError())
+    assert.deepEqual(episodeState(), beforeRejectedObservations, 'forgotten episode is not recreated')
     const invalid = { ...episodes[0], actions: Array.from({ length: 5 }, () => ({ text: 'Too many' })) }
     assert.throws(() => f.store.recordEpisode(invalid.id, invalid), /episode/)
-    await assert.rejects(f.engine.request('observe', { episode: invalid }, f.context), /episode/)
+    await assert.rejects(f.engine.request('observe', { episode: invalid }, f.context), engineError())
     const changed = { ...episodes[0], input: { text: 'Changed', source: 'rpc' } }
     assert.throws(() => f.store.recordEpisode(changed.id, changed), /changed/)
-    await assert.rejects(f.engine.request('observe', { episode: changed }, f.context), /changed/)
+    await assert.rejects(f.engine.request('observe', { episode: changed }, f.context), engineError())
+    assert.deepEqual(episodeState(), beforeRejectedObservations, 'no rejected observation replaces bytes')
+    assert.deepEqual(await f.engine.request('observe', { episode: episodes[0] }, f.context), {
+      recorded: true,
+    })
+    assert.deepEqual(episodeState(), beforeRejectedObservations, 'unchanged observation remains idempotent')
   } finally {
     await f.close()
   }
@@ -1399,13 +1568,19 @@ test('hardlinks and loose modes rejected; legacy/default import does not activat
     assert.equal(existsSync(join(f.root, '.views', '.engine-v2')), false)
     f.store.projection('project')
     assert.equal(f.engine.pid, undefined)
+    const expectedConfig = { config: f.config, configHash: digest(JSON.stringify(f.config)) }
+    assert.deepEqual(await f.engine.request('config', {}, f.context), expectedConfig)
     const alias = join(f.dir, 'alias')
     linkSync(join(f.root, 'config.json'), alias)
-    await assert.rejects(f.engine.request('config', {}, f.context), /Linked|Private/)
+    await assert.rejects(f.engine.request('config', {}, f.context), engineError())
+    assert.equal(lstatSync(join(f.root, 'config.json')).nlink, 2)
     rmSync(alias)
+    assert.deepEqual(await f.engine.request('config', {}, f.context), expectedConfig)
     chmodSync(join(f.root, 'config.json'), 0o644)
-    await assert.rejects(f.engine.request('config', {}, f.context), /Private/)
+    await assert.rejects(f.engine.request('config', {}, f.context), engineError())
+    assert.equal(lstatSync(join(f.root, 'config.json')).mode & 0o777, 0o644)
     chmodSync(join(f.root, 'config.json'), 0o600)
+    assert.deepEqual(await f.engine.request('config', {}, f.context), expectedConfig)
     assert.deepEqual(newConfig(JSON.stringify(f.config)), parseConfig(JSON.stringify(f.config)))
     for (const path of [
       'Core.md',
@@ -1431,7 +1606,14 @@ async function recoveryPlan(f: ReturnType<typeof fixture>) {
     { view, path: 'Core.md', expectedHash: core.hash as string, text: '# Durable proposal\n', sources: [] },
     f.context,
   )
-  return await ready(f, view)
+  const plan = await ready(f, view)
+  const chunk = await f.engine.request(
+    'chunk',
+    { plan: plan.id, digest: plan.digest, path: 'Core.md', offset: 0 },
+    f.context,
+  )
+  assert.equal(Buffer.from(chunk.data, 'base64').toString('utf8'), '# Durable proposal\n')
+  return plan
 }
 for (const stop of ['prepared', 'worktree_mutating', 'index_staged', 'commit_start_intent']) {
   test(`durable SAME-operation recovery after ${stop} authority loss never replays or grants chunks`, async () => {
@@ -1502,10 +1684,18 @@ for (const stop of ['prepared', 'worktree_mutating', 'index_staged', 'commit_sta
       assert.ok(parseOperation(readFileSync(journal, 'utf8')).sequence > initial.sequence)
       assert.equal(fresh.ownsPlan(plan), false)
       await assert.rejects(new MemoryPublisher(fresh, f.env).publish(plan, f.context), /Parent-owned/)
+      const recoveredJournal = readFileSync(journal)
       await assert.rejects(
         fresh.request('chunk', { plan: plan.id, digest: plan.digest, path: 'Core.md', offset: 0 }, f.context),
-        /Unknown/,
+        engineError(),
       )
+      assert.deepEqual(
+        readFileSync(journal),
+        recoveredJournal,
+        'recovered observation grants no chunk authority',
+      )
+      assert.deepEqual(readFileSync(proposal), proposalBefore)
+      assert.equal(f.git('rev-parse', 'HEAD'), before)
     } finally {
       await fresh?.close()
       await f.close()
@@ -1586,7 +1776,7 @@ for (const stop of ['commit_started', 'head_observed', 'reconciled_committed']) 
       // A new owner has no authority to steal that directory, even after observing HEAD.
       await assert.rejects(
         new MemoryPublisher(fresh, f.env).reconcileExisting(plan.id, plan.digest, f.context),
-        /EEXIST/,
+        engineError(),
       )
       assert.equal(existsSync(`${journal}.cas`), true)
       assert.equal(existsSync(join(f.root, '.lock')), true)
@@ -1601,7 +1791,13 @@ for (const stop of ['commit_started', 'head_observed', 'reconciled_committed']) 
       const projection = await fresh.request('projection', { project: 'project', shared: true }, f.context)
       assert.equal(projection.revision, committed)
       assert.equal(projection.core, '# Durable proposal\n')
-      await assert.rejects(fresh.request('create', { project: 'project' }, f.context), /CAS|Unreconciled/)
+      const journalBeforeCreate = readFileSync(journal)
+      const lockBeforeCreate = readFileSync(join(f.root, '.lock', 'owner.json'))
+      await assert.rejects(fresh.request('create', { project: 'project' }, f.context), engineError())
+      assert.deepEqual(readFileSync(journal), journalBeforeCreate)
+      assert.deepEqual(readFileSync(join(f.root, '.lock', 'owner.json')), lockBeforeCreate)
+      assert.equal(existsSync(`${journal}.cas`), true, 'failed create never steals retained CAS')
+      assert.equal(f.git('rev-parse', 'HEAD'), committed)
       assert.equal(readFileSync(marker, 'utf8').trim().split('\n').length, 1)
       assert.equal(fresh.ownsPlan(plan), false)
       await assert.rejects(new MemoryPublisher(fresh, f.env).publish(plan, f.context), /Parent-owned/)
@@ -1694,14 +1890,23 @@ for (const stop of ['prepared', 'index_staged', 'head_observed']) {
         stop === 'head_observed' ? '# Separate process proposal\n' : '# Core\nSynthetic identity.\n',
       )
       assert.equal(committedRead.text, projection.core)
+      const journal = join(f.root, '.views', '.engine-v2', 'journal', `${receipt!.plan}.json`)
+      const journalBeforeChunk = readFileSync(journal)
+      const headBeforeChunk = f.git('rev-parse', 'HEAD')
       await assert.rejects(
         fresh.request(
           'chunk',
           { plan: receipt!.plan, digest: receipt!.digest, path: 'Core.md', offset: 0 },
           f.context,
         ),
-        /Unknown/,
+        engineError(),
       )
+      assert.deepEqual(
+        readFileSync(journal),
+        journalBeforeChunk,
+        'foreign parent never gains a plan by reading',
+      )
+      assert.equal(f.git('rev-parse', 'HEAD'), headBeforeChunk)
       console.log(
         JSON.stringify({
           osFault: stop,
@@ -1750,7 +1955,13 @@ test('owned lock parent fsync EIO retains anonymous lock and HEAD-only reads; no
       f.context,
     )
     assert.equal(head.text, '# Core\nSynthetic identity.\n')
-    await assert.rejects(f.engine.request('create', { project: 'project' }, f.context), /Unreconciled/)
+    const lockIdentity = lstatSync(join(f.root, '.lock')).ino
+    const journal = join(f.root, '.views', '.engine-v2', 'journal', `${plan.id}.json`)
+    const journalBeforeCreate = readFileSync(journal)
+    await assert.rejects(f.engine.request('create', { project: 'project' }, f.context), engineError())
+    assert.equal(lstatSync(join(f.root, '.lock')).ino, lockIdentity, 'anonymous lock is not replaced')
+    assert.deepEqual(readFileSync(journal), journalBeforeCreate)
+    assert.equal(f.git('rev-parse', 'HEAD'), before)
   } finally {
     t.mock.restoreAll()
     await f.close()
@@ -1799,7 +2010,14 @@ test('hook-altered exact tree and foreign/malformed locks remain unknown and ret
       )
       assert.equal(recovered.stage, 'unknown', variant)
       assert.equal(existsSync(join(f.root, '.lock')), true)
-      await assert.rejects(f.engine.request('create', { project: 'project' }, f.context), /Unreconciled/)
+      const lockBeforeCreate = readFileSync(join(f.root, '.lock', 'owner.json'))
+      const journal = join(f.root, '.views', '.engine-v2', 'journal', `${plan.id}.json`)
+      const journalBeforeCreate = readFileSync(journal)
+      const headBeforeCreate = f.git('rev-parse', 'HEAD')
+      await assert.rejects(f.engine.request('create', { project: 'project' }, f.context), engineError())
+      assert.deepEqual(readFileSync(join(f.root, '.lock', 'owner.json')), lockBeforeCreate, variant)
+      assert.deepEqual(readFileSync(journal), journalBeforeCreate, variant)
+      assert.equal(f.git('rev-parse', 'HEAD'), headBeforeCreate, variant)
     } finally {
       await f.close()
     }

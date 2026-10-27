@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import { memoryFailure } from './reasons.ts'
 import { resolveAgentDir } from '../setup.ts'
 import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 import { join } from 'node:path'
@@ -21,6 +22,14 @@ import { primaryDelegationDoctrine } from './prompt.ts'
 import type { Episode } from './store.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
 
+interface RuntimeBinding {
+  manager: ExtensionContext['sessionManager']
+  sessionId: string
+  node: MemoryNode
+  abi: MemoryABIV2
+  generation: unknown
+  root: string
+}
 interface Draft {
   view: string
   base: string
@@ -74,6 +83,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   let admissionSerial = 0
   let active = false
   let pinned: MemoryNode | undefined
+  let binding: RuntimeBinding | undefined
   let primaryEngine: MemoryEngineController | undefined
   let draft: Draft | undefined
   let starting = false
@@ -93,8 +103,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   let releaseRuntime: (() => void) | undefined
   let releaseController: (() => void) | undefined
   let unregisterRetire: (() => void) | undefined
+  let bindingSerial = 0
+  let treeResume:
+    | (RuntimeBinding & { serial: number; token: number; drained: Promise<void>; ready: boolean })
+    | undefined
   const nodes = () => (globalThis as Record<symbol, Map<string, MemoryNode>>)[registry]
   const retire = (): Promise<void> => {
+    // Even an already-draining terminal transition revokes pending tree/start rebinds.
+    bindingSerial++
+    treeResume = undefined
     if (retirement) return retirement
     epoch++
     admissionSerial++
@@ -110,6 +127,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     const engine = primaryEngine
     primaryEngine = undefined
     pinned = undefined
+    binding = undefined
     engine?.retireAdmission()
     const runtimeRelease = releaseRuntime
     const controllerRelease = releaseController
@@ -125,6 +143,72 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     })()
     return retirement
   }
+  const bind = (node: MemoryNode, ctx: ExtensionContext) => {
+    const abi = node.managedMemory
+    const manager = ctx.sessionManager
+    const sessionId = manager.getSessionId()
+    if (
+      abi?.version !== 2 ||
+      nodes()?.get(sessionId) !== node ||
+      !node.healthy() ||
+      !abi.live() ||
+      node.generation !== abi.generation ||
+      ctx.signal?.aborted
+    )
+      throw Error('Experimental ABI2 required')
+    const release = abi.hold({ runtime: epoch })
+    try {
+      unregisterRetire = abi.onRetire(retire)
+    } catch (error) {
+      release()
+      throw error
+    }
+    releaseRuntime = release
+    retirement = undefined
+    pinned = node
+    binding = { manager, sessionId, node, abi, generation: node.generation, root: abi.root }
+    active = true
+    starting = false
+  }
+  const treeBindingCurrent = (own: RuntimeBinding, ctx: ExtensionContext) =>
+    !ctx.signal?.aborted &&
+    ctx.sessionManager === own.manager &&
+    own.manager.getSessionId() === own.sessionId &&
+    nodes()?.get(own.sessionId) === own.node &&
+    own.node.managedMemory === own.abi &&
+    own.node.generation === own.generation &&
+    own.abi.generation === own.generation &&
+    own.abi.root === own.root &&
+    own.node.healthy() &&
+    own.abi.live() &&
+    own.abi.isPrimarySession(ctx)
+  const reactivateTree = async (ctx: ExtensionContext, completed = false) => {
+    const own = treeResume
+    // No cancellation-complete hook exists. Only a real idle boundary proves that
+    // navigation is no longer pending; before_agent_start is busy, not such proof.
+    if (!own || (!completed && !ctx.isIdle())) return false
+    try {
+      await own.drained // outside lifetime.track: never join ourselves
+      if (treeResume !== own || own.serial !== bindingSerial || own.token !== epoch) return false
+      if (!own.ready || (!completed && !ctx.isIdle()) || !treeBindingCurrent(own, ctx))
+        throw Error('Tree memory owner changed or boundary unavailable')
+      bind(own.node, ctx) // old controller is closed; data work creates a fresh one lazily
+      treeResume = undefined
+      return true
+    } catch (error) {
+      if (treeResume === own) treeResume = undefined
+      throw error
+    }
+  }
+  const admit = <T>(ctx: ExtensionContext, start: () => Promise<T>): Promise<T> => {
+    if (active || !treeResume || !ctx.isIdle()) return lifetime.track(start)
+    const serial = bindingSerial
+    const token = epoch
+    return reactivateTree(ctx).then(() => {
+      if (!active || serial !== bindingSerial || token !== epoch) throw Error('Tree memory admission retired')
+      return lifetime.track(start)
+    })
+  }
   const owner = (
     ctx: ExtensionContext,
     name: string,
@@ -133,9 +217,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     maintenance = false,
   ) => {
     const node = pinned
+    const ownBinding = binding
     const abi = node?.managedMemory
     const tool = pi.getAllTools().find((entry) => entry.name === name)
-    if (!active || !node || abi?.version !== 2 || !tool || !abi.root)
+    if (!active || !node || !ownBinding || abi?.version !== 2 || !tool || !abi.root)
       throw Error('Experimental memory unavailable')
     const root = abi.root
     const token = epoch
@@ -149,6 +234,12 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           !active ||
           epoch !== token ||
           pinned !== node ||
+          binding !== ownBinding ||
+          ownBinding.manager !== manager ||
+          ownBinding.sessionId !== manager.getSessionId() ||
+          ownBinding.abi !== abi ||
+          ownBinding.generation !== node.generation ||
+          ownBinding.root !== abi.root ||
           nodes()?.get(manager.getSessionId()) !== node ||
           !node.healthy() ||
           node.generation !== abi.generation ||
@@ -234,13 +325,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   }
   const branch = async (ctx: ExtensionContext, prefix?: string[]) => {
     const entries = ctx.sessionManager.getBranch()
-    if (entries.length > 8192) throw Error('Branch barrier capacity exceeded')
+    if (entries.length > 8192) throw memoryFailure('capacity', 'Branch barrier capacity exceeded')
     const ids: string[] = []
     for (let start = 0; start < entries.length; start += 64) {
       for (const entry of entries.slice(start, start + 64)) ids.push(entry.id)
       await yieldTurn()
     }
-    if (prefix?.some((id, index) => ids[index] !== id)) throw Error('Native memory branch changed')
+    if (prefix?.some((id, index) => ids[index] !== id))
+      throw memoryFailure('branch', 'Native memory branch changed')
     return ids
   }
   const startWriter = async (ctx: ExtensionContext, assignment?: string) => {
@@ -472,7 +564,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       // Capture bootstrap branch eligibility at admission, before authorization yields.
       // The ordinary data barrier reads config, which cannot exist at bootstrap.
       const entries = ctx.sessionManager.getBranch()
-      if (entries.length > 8192) throw Error('Branch barrier capacity exceeded')
+      if (entries.length > 8192) throw memoryFailure('capacity', 'Branch barrier capacity exceeded')
       const prefix = entries.map((entry) => entry.id)
       const context = {
         ...f.context,
@@ -482,7 +574,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           // Re-read after the yielding traversal, before returning to native admission.
           const current = ctx.sessionManager.getBranch()
           if (current.length > 8192 || prefix.some((id, index) => current[index]?.id !== id))
-            throw Error('Native memory branch changed')
+            throw memoryFailure('branch', 'Native memory branch changed')
           assertCurrent(f.context)
         },
       }
@@ -647,7 +739,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
       const policyContext = () => {
         const ids = ctx.sessionManager.getBranch().map((entry) => entry.id)
-        if (ids.length > 8192) throw Error('Policy branch capacity exceeded')
+        if (ids.length > 8192) throw memoryFailure('capacity', 'Policy branch capacity exceeded')
         return {
           ...f.context,
           current: (targets: Parameters<OperationContext['current']>[0]) => {
@@ -834,19 +926,50 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }
   }
   pi.on('session_start', async (_event, ctx) => {
-    await retire()
+    const drained = retire()
+    const serial = bindingSerial
+    await drained
+    if (serial !== bindingSerial) throw Error('Memory start retired')
     const next = nodes()?.get(ctx.sessionManager.getSessionId())
     if (next?.managedMemory?.version !== 2) throw Error('Experimental ABI2 required')
-    releaseRuntime = next.managedMemory.hold({ runtime: epoch })
-    retirement = undefined
-    pinned = next
-    unregisterRetire = next.managedMemory.onRetire(retire)
-    active = true
-    starting = false
+    bind(next, ctx)
   })
   pi.on('session_before_switch', retire)
   pi.on('session_before_fork', retire)
-  pi.on('session_before_tree', retire)
+  pi.on('session_before_tree', async (_event, ctx) => {
+    // A second SDK navigation after cancellation may carry a proven drained ticket,
+    // never an in-flight transition or a terminally revoked owner. No engine is revived here.
+    const previous =
+      binding ??
+      (treeResume?.ready && treeResume.serial === bindingSerial && treeResume.token === epoch
+        ? treeResume
+        : undefined)
+    let serial = bindingSerial
+    try {
+      const drained = retire() // fences old operations synchronously, before the first await
+      serial = bindingSerial
+      if (!previous || !treeBindingCurrent(previous, ctx)) {
+        await drained
+        return { cancel: true }
+      }
+      const own = { ...previous, serial, token: epoch, drained, ready: false }
+      treeResume = own
+      await drained
+      // SDK reports handler throws but may proceed. Explicit cancellation is the gate.
+      if (treeResume !== own) return { cancel: true }
+      if (!treeBindingCurrent(own, ctx)) {
+        treeResume = undefined
+        return { cancel: true }
+      }
+      own.ready = true
+    } catch {
+      if (serial === bindingSerial) treeResume = undefined
+      return { cancel: true }
+    }
+  })
+  pi.on('session_tree', async (_event, ctx) => {
+    await reactivateTree(ctx, true)
+  })
   pi.on('session_shutdown', retire)
   pi.on('session_before_compact', (event) => {
     compactionCheckpoint = `reason=${event.reason}; tokensBefore=${event.preparation?.tokensBefore ?? 'unknown'}`
@@ -900,7 +1023,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }),
   )
   pi.on('input', (event, ctx) =>
-    lifetime.track(async () => {
+    admit(ctx, async () => {
       const serial = ++admissionSerial
       job?.cancel()
       pending = undefined
@@ -1023,7 +1146,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   )
   return {
     run: (...args: Parameters<typeof run>) =>
-      lifetime.track(async () => {
+      admit(args[2], async () => {
         const abi = pinned?.managedMemory
         const root = abi?.version === 2 ? abi.root : undefined
         try {
@@ -1034,7 +1157,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         }
       }),
     cancel: retire,
-    startWriter: (...args: Parameters<typeof startWriter>) => lifetime.track(() => startWriter(...args)),
+    startWriter: (...args: Parameters<typeof startWriter>) => admit(args[0], () => startWriter(...args)),
     status: () => ({
       active,
       worker: starting || !!job,

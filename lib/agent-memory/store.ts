@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { memoryFailure } from './reasons.ts'
 import { randomUUID } from 'node:crypto'
 import {
   chmodSync,
@@ -176,7 +177,8 @@ export function createMemoryStore(
   if (!isAbsolute(root) || resolve(root) !== root) throw new Error('Canonical memory root required')
   const safe = (deadline?: number) => {
     const withinDeadline = () => {
-      if (deadline !== undefined && Date.now() >= deadline) throw new Error('Memory snapshot deadline')
+      if (deadline !== undefined && Date.now() >= deadline)
+        throw memoryFailure('deadline', 'Memory snapshot deadline')
     }
     current()
     withinDeadline()
@@ -202,7 +204,7 @@ export function createMemoryStore(
         }
         for (const entry of entries) {
           withinDeadline()
-          if (++count > 8192) throw new Error('Memory Git metadata capacity exceeded')
+          if (++count > 8192) throw memoryFailure('capacity', 'Memory Git metadata capacity exceeded')
           const child = join(path, entry.name)
           let stat
           try {
@@ -357,7 +359,7 @@ export function createMemoryStore(
   const load = (requested?: string): Snapshot => {
     const deadline = Date.now() + 15000
     const withinDeadline = () => {
-      if (Date.now() >= deadline) throw new Error('Memory snapshot deadline')
+      if (Date.now() >= deadline) throw memoryFailure('deadline', 'Memory snapshot deadline')
     }
     const revision = requested ?? head(deadline)
     if (!hash.test(revision)) throw new Error('Invalid revision')
@@ -441,7 +443,7 @@ export function createMemoryStore(
     message: string,
   ) => {
     validate(next.files)
-    if (previous && head() !== previous.revision) throw new Error('Stale memory revision')
+    if (previous && head() !== previous.revision) throw memoryFailure('CAS', 'Stale memory revision')
     if (previous && git(['status', '--porcelain', '--untracked-files=no']).trim())
       throw new Error('Uncommitted memory work requires explicit recovery; draft retained')
     for (const path of Object.keys(next.files))
@@ -582,7 +584,7 @@ export function createMemoryStore(
       digest(JSON.stringify(config())) !== v.configHash
     )
       throw new Error('Memory view inactive')
-    if (!equal(readView(v.id), v)) throw new Error('Stale memory view')
+    if (!equal(readView(v.id), v)) throw memoryFailure('CAS', 'Stale memory view')
     const c = config()
     validate(v.base.files, c)
     validate(v.files, c)
@@ -601,7 +603,11 @@ export function createMemoryStore(
     const state = ledger(revision)
     const tombstones = { ...state, revision, files: {} } as Snapshot
     if (Object.entries(v.files).some(([path, file]) => suppressed(tombstones, path, file)))
-      throw new Error('Memory read unavailable: current forgotten knowledge; proposal retained')
+      throw memoryFailure(
+        'unknown',
+        'Memory read unavailable: current forgotten knowledge; proposal retained',
+        'forgetting',
+      )
     for (const path of Object.keys(v.files)) current(join(root, path))
     const result = select(v.files)
     checkView(v)
@@ -612,8 +618,12 @@ export function createMemoryStore(
     // Final HEAD observation is the read's publication fence. Even head()'s
     // own safe/authority I/O precedes its rev-parse; no validation I/O follows.
     if (head(undefined, true) !== revision)
-      throw new Error('Memory read unavailable: current revision changed; retry with retained proposal')
-    if (Date.now() >= v.deadline) throw new Error('Memory view inactive')
+      throw memoryFailure(
+        'CAS',
+        'Memory read unavailable: current revision changed; retry with retained proposal',
+        'revision',
+      )
+    if (Date.now() >= v.deadline) throw memoryFailure('deadline', 'Memory view inactive')
     return {
       ...result,
       revision: v.base.revision,
@@ -688,7 +698,7 @@ export function createMemoryStore(
     current(folder)
     assertPrivatePath(folder)
     const names = readdirSync(folder).filter((p) => /^[a-f0-9-]{36}\.json$/.test(p))
-    if (names.length > 64) throw new Error('Private view capacity exceeded')
+    if (names.length > 64) throw memoryFailure('capacity', 'Private view capacity exceeded')
     // Only bounded headers are retained. Older serialization falls back to one
     // full validated view at a time; no proposal is dropped for a format change.
     return names
@@ -825,11 +835,10 @@ export function createMemoryStore(
       options?: EditModeOptions,
     ) {
       checkView(v)
-      if (
-        !allowedPath(path, v.scope === 'primary' ? undefined : v.project) ||
-        (v.files[path] ? digest(v.files[path].text) : null) !== expectedHash
-      )
+      if (!allowedPath(path, v.scope === 'primary' ? undefined : v.project))
         throw new Error('Stale file or path outside scope')
+      if ((v.files[path] ? digest(v.files[path].text) : null) !== expectedHash)
+        throw memoryFailure('CAS', 'Stale file or path outside scope')
       const nextText = applySurgicalEdit(v.files[path]?.text, text, options)
       if (nextText === null && ['Core.md', 'index.md'].includes(path))
         throw new Error('Core and index cannot be removed')
@@ -1151,7 +1160,7 @@ export function createMemoryStore(
               unlinkSync(path)
             }
           if (readdirSync(folder).filter((p) => /^[a-f0-9]{64}\.json$/.test(p)).length >= 256)
-            throw new Error('Unreviewed episode capacity exceeded')
+            throw memoryFailure('capacity', 'Unreviewed episode capacity exceeded')
         }
       }
       write(join(root, '.episodes', `${id}.json`), `${raw}\n`)

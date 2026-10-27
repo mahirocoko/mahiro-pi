@@ -152,12 +152,49 @@ remain usable with reflection denied. Unknown storage, automatic or attempt stat
 is reported as unknown, not a successful empty/idle result. Status does not resolve
 credentials or prove provider execution.
 
+Memory tool errors and `/mh-memory` failures use source-owned, closed diagnostic
+reasons: `capacity`, `deadline`, `branch`, `CAS`, `retention` or `unknown`.
+Unrecognized failures use fixed `unknown` text; exception messages and caller-supplied
+tags do not determine a reason. Read invalidation keeps its distinct current-forgetting
+or revision-race message in both ABIs, without returning partial content or discarding
+the proposal. Child error replies carry only correlated closed metadata, never private
+paths, headings or subprocess output. Publication/reconciliation receipts withhold
+arbitrary detail prose while preserving stage, revision, dirty and lock facts.
+A diagnostic is not authority, successful publication, completed drain or permission
+to retry, restart or reclaim retained data.
+
 A private draft is not published knowledge. A native worker's commit marks its
 view ready; only a healthy parent can publish after successful native completion
 and current authority checks. Projection activates on the next primary request.
 Failed/cancelled/retired attempts and conflicts are not successful integration.
 `latestAttempt` reflects newly observed native metadata, not historical private
 attempt inspection or proof of semantic learning.
+
+ABI2 tree navigation invalidates the pre-tree memory epoch before the leaf can
+change, cancels its writer and joins actual native-worker/engine continuations.
+Completed `session_tree` navigation rebinds the same healthy primary owner with a
+fresh, lazily created data controller. A current-leaf no-op dispatches no tree
+hooks and does not retire memory. Drafts and pending observations from the old
+epoch are not resumed or automatically published.
+
+Cancelled navigation emits no `session_tree`. Memory therefore remains retired
+until an **idle** input or direct memory-tool admission can verify the unchanged
+manager, session, kernel node, ABI, generation and exact root after real drain.
+A subsequent SDK tree navigation may carry forward only an already-drained ticket
+whose exact binding is still valid; it does not reactivate memory before the leaf
+changes. Current permissions are still required for every operation. Shutdown,
+switch, fork, overlapping admitted transitions or changed binding invalidate a
+pending rebind; failed or ambiguous reactivation stays unavailable, not
+successfully empty. The public SDK itself rejects concurrent tree navigation
+before dispatching a second tree event.
+
+A first custom `triggerTurn` request after cancellation, with no intervening idle
+input/read, is a deliberate limitation: `before_agent_start` is already busy and
+cannot distinguish a completed cancellation from navigation still in flight.
+That request receives **no managed-memory projection**, and busy memory calls
+remain unavailable. A subsequent ordinary idle input/read can recover the valid
+owner. This is not a promise of projection for every custom-trigger request or a
+navigation sandbox for concurrently misused embedder operations.
 
 ABI2 supports explicit automatic admission control through
 `agent_memory_manage {action: "policy", revision, configHash, automatic: false}`

@@ -2,6 +2,7 @@ import type { Episode, MemoryConfig } from '../store.ts'
 import { objectShape } from '../../continuity/records.ts'
 import { idPattern, revisionPattern, uuidPattern } from './schema.ts'
 import type { LockOwner } from './operation.ts'
+import type { MemoryFailureCode } from '../reasons.ts'
 
 export const protocolVersion = 2
 export const transportLimits = Object.freeze({
@@ -177,7 +178,7 @@ export interface CheckMessage {
 }
 export type Reply =
   | { v: 2; epoch: string; id: string; result: unknown }
-  | { v: 2; epoch: string; id: string; error: string }
+  | { v: 2; epoch: string; id: string; error: Readonly<MemoryFailureCode> }
   | CheckMessage
 export const methods: Method[] = [
   'projection',

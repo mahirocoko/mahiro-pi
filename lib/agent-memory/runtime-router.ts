@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { createAgentMemoryRuntime, type MemoryNode, type RuntimeConfig } from './runtime.ts'
 import { createExperimentalMemoryRuntime } from './experimental-runtime.ts'
 import { memoryReadiness } from './readiness.ts'
+import { memoryFailureCode } from './reasons.ts'
 
 type Handler = (event: never, ctx: ExtensionContext) => unknown
 // ExtensionAPI.on is overloaded; the proxy retains that public signature while
@@ -98,7 +99,7 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
         readiness: readiness.readiness,
         causes: readiness.causes,
       }
-    } catch {
+    } catch (error) {
       return {
         ...readiness,
         readiness: readiness.readiness === 'Ready' ? 'Needs setup' : readiness.readiness,
@@ -111,6 +112,7 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
           },
         ].slice(0, 5),
         storage: 'unavailable',
+        storageReason: memoryFailureCode(error).reason,
         publication: 'unknown',
       }
     }

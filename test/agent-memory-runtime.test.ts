@@ -8,6 +8,7 @@ import { createAgentMemoryRuntime } from '../lib/agent-memory/runtime.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
 import { memoryCurationDoctrine } from '../lib/agent-memory/guidance.ts'
+import { memoryFailure, memoryFailureCode } from '../lib/agent-memory/reasons.ts'
 
 process.env.GIT_AUTHOR_NAME = 'Memory fixture'
 process.env.GIT_AUTHOR_EMAIL = 'fixture@example.invalid'
@@ -57,6 +58,7 @@ function fixture(twoProjects = false) {
   const events = new Map<string, Set<Function>>()
   const handlers = new Map<string, Function[]>()
   const tools: any[] = []
+  const commands = new Map<string, any>()
   const bus = {
     on(name: string, fn: Function) {
       if (!events.has(name)) events.set(name, new Set())
@@ -70,7 +72,9 @@ function fixture(twoProjects = false) {
       if (!handlers.has(name)) handlers.set(name, [])
       handlers.get(name)!.push(fn)
     },
-    registerCommand() {},
+    registerCommand(name: string, definition: any) {
+      commands.set(name, definition)
+    },
     registerTool(t: any) {
       tools.push(t)
     },
@@ -199,6 +203,7 @@ function fixture(twoProjects = false) {
     nativeEvent,
     branch,
     tools,
+    commands,
     child,
     get spawned() {
       return spawned
@@ -237,6 +242,127 @@ function fixture(twoProjects = false) {
     },
   }
 }
+
+test('safe memory reasons sanitize registered tools and every command including status without trusting error text', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const notifications: string[] = []
+    f.ctx.ui = { notify: (text: string) => notifications.push(text) }
+    const command = f.commands.get('mh-memory')
+    const tool = f.tools.find((entry) => entry.name === 'agent_memory_read')
+    const privateText = '/private/fixture/path # Secret heading stderr: dangerous output'
+    const failures = [
+      new Error(`Memory read unavailable: current forgotten knowledge; ${privateText}`),
+      Object.assign(new Error(privateText), { reason: 'capacity', readInvalidation: 'forgetting' }),
+      {
+        get message() {
+          throw new Error('getter must not run')
+        },
+        reason: 'deadline',
+      },
+      memoryFailure('capacity', privateText),
+      memoryFailure('deadline', privateText),
+      memoryFailure('branch', privateText),
+      memoryFailure('CAS', privateText),
+      memoryFailure('retention', privateText),
+    ]
+    for (const [index, failure] of failures.entries()) {
+      f.abi.assertAccess = () => {
+        throw failure
+      }
+      await assert.rejects(tool.execute('read', {}, undefined, undefined, f.ctx), (error: Error) => {
+        assert.ok(!error.message.includes(privateText))
+        assert.ok(!error.message.includes('current forgetting'))
+        assert.match(
+          error.message,
+          new RegExp(`reason: ${index < 3 ? 'unknown' : memoryFailureCode(failure).reason}`),
+        )
+        return true
+      })
+      for (const action of ['doctor', 'remember synthetic', 'init', 'dream']) {
+        await command.handler(action, f.ctx)
+        assert.equal(
+          notifications.at(-1),
+          (await import('../lib/agent-memory/reasons.ts')).publicMemoryError(failure).message,
+        )
+      }
+    }
+    // A failure before diagnose can inspect storage must also use the command boundary.
+    f.ctx.sessionManager.getSessionId = () => {
+      throw new Error(privateText)
+    }
+    await command.handler('status', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    assert.ok(notifications.every((text) => !text.includes(privateText)))
+  } finally {
+    f.close()
+  }
+})
+
+test('safe memory reasons expose authentic registered CAS and retention, never permission as CAS', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const execute = (name: string, args: object) =>
+      f.tools.find((tool) => tool.name === name).execute('test', args, undefined, undefined, f.ctx)
+    const read = await execute('agent_memory_read', { path: 'Core.md' })
+    await assert.rejects(
+      execute('agent_memory_edit', {
+        path: 'Core.md',
+        expectedHash: '0'.repeat(64),
+        text: '# Core\nReplacement\n',
+        sources: [],
+      }),
+      /reason: CAS/,
+    )
+    assert.deepEqual(
+      (await execute('agent_memory_read', { path: 'Core.md' })).details,
+      read.details,
+      'stale hash refusal leaves the current view unchanged and readable',
+    )
+    const text =
+      '# Identity\n- Stable fact\n# Private heading never echoed\n' + 'Retained fact. '.repeat(30) + '\n'
+    await execute('agent_memory_edit', {
+      path: 'Core.md',
+      expectedHash: read.details.hash,
+      text,
+      sources: [],
+    })
+    await execute('agent_memory_commit', { revision: read.details.baseRevision })
+    const next = await execute('agent_memory_read', { path: 'Core.md' })
+    const published = f.store.snapshot()
+    assert.equal(published.files['Core.md'].text, text)
+    await execute('agent_memory_edit', {
+      path: 'Core.md',
+      expectedHash: next.details.hash,
+      text: '# Identity\nShort.\n',
+      sources: [],
+    })
+    await assert.rejects(
+      execute('agent_memory_commit', { revision: next.details.baseRevision }),
+      (error: Error) => {
+        assert.match(error.message, /reason: retention/)
+        assert.ok(!error.message.includes('Private heading'))
+        return true
+      },
+    )
+    assert.deepEqual(f.store.snapshot(), published, 'retention refusal never replaces published knowledge')
+    const retained = await execute('agent_memory_read', { path: 'Core.md' })
+    assert.equal(retained.details.text, '# Identity\nShort.\n')
+    f.setGranted(false)
+    await assert.rejects(execute('agent_memory_read', { path: 'Core.md' }), /reason: unknown/)
+    assert.deepEqual(f.store.snapshot(), published)
+    f.setGranted(true)
+    assert.deepEqual(
+      (await execute('agent_memory_read', { path: 'Core.md' })).details,
+      retained.details,
+      'the same retained view is readable only after current permission is restored',
+    )
+  } finally {
+    f.close()
+  }
+})
 
 test('writer preflight forbids fallback and pins explicit reviewed options before delayed queue admission', async () => {
   const f = fixture()
