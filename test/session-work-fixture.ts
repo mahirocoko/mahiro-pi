@@ -444,7 +444,7 @@ export async function sessionWorkFixture(
       modalKeys.push(keys)
       choices.push(...nestedChoices)
     }
-    if (name === 'mh-todos' || name === 'mh-tasks') {
+    if (name === 'mh-todos') {
       const [panelChoice, ...nestedChoices] = selections
       scriptTaskPanel(panelChoice, nestedChoices)
     } else if (name === 'mh' && selections[0] === 'Todos') {

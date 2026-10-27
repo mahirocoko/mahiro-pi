@@ -187,10 +187,9 @@ test('adoption describes concrete positives/negatives and all four tools, withou
   const f = fixture()
   await f.emit('session_start')
   assert.deepEqual([...f.tools.keys()], ['mh_task_create', 'mh_task_get', 'mh_task_list', 'mh_task_update'])
-  assert.deepEqual([...f.commands.keys()], ['mh-todos', 'mh-tasks'])
+  assert.deepEqual([...f.commands.keys()], ['mh-todos'])
   assert.equal(f.owner.open, f.commands.get('mh-todos').handler)
-  assert.equal(f.commands.get('mh-tasks').handler, f.commands.get('mh-todos').handler)
-  assert.match(f.commands.get('mh-tasks').description, /Compatibility alias for \/mh-todos/)
+  assert.equal(f.commands.has('mh-tasks'), false)
   const create = f.tools.get('mh_task_create').description
   for (const phrase of [
     'investigate/fix/test',
@@ -242,7 +241,7 @@ test('adoption describes concrete positives/negatives and all four tools, withou
   assert.equal(f.widgets.size, 0)
 })
 
-test('both public command names retain the RPC selector fallback and one branch journal', async () => {
+test('the Todos command retains the RPC selector fallback and one branch journal', async () => {
   const f = fixture()
   const selections: Array<string | undefined> = ['Create step', 'Reminders', 'on']
   let selectorCalls = 0
@@ -261,7 +260,7 @@ test('both public command names retain the RPC selector fallback and one branch 
   })
   await f.emit('session_start')
   await f.commands.get('mh-todos').handler('', f.ctx)
-  await f.commands.get('mh-tasks').handler('', f.ctx)
+  await f.commands.get('mh-todos').handler('', f.ctx)
   const { tasks, config } = (await f.invoke('mh_task_list')).details
   assert.equal(selectorCalls, 3)
   assert.equal(selections.length, 0)

@@ -406,7 +406,6 @@ export function registerSessionTasks(pi: ExtensionAPI) {
     },
   }
   pi.registerCommand('mh-todos', command)
-  pi.registerCommand('mh-tasks', { ...command, description: 'Compatibility alias for /mh-todos' })
   registerWorkflowSurface(pi, {
     id: 'tasks',
     label: 'Todos',

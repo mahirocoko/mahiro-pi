@@ -48,9 +48,9 @@ Owners: `extensions/mahiro-native-utilities.ts`, `lib/native-utilities.ts` and
 
 ## Session steps
 
-`/mh-todos` opens branch-local lightweight tracking through the existing native
-utilities feature. `/mh-tasks` remains a compatibility alias with the exact same
-handler and `mahiro-session-tasks-v1` journal, not a second task runtime.
+`/mh-todos` is the only public command for branch-local lightweight tracking
+through the existing native utilities feature. The internal journal remains
+`mahiro-session-tasks-v1`; this naming change does not create another task runtime.
 The `/mh` hub labels this surface **Todos**. It is not a task-board replacement,
 worker scheduler, RPC service, Goal or acceptance record. Loading creates no steps or configuration.
 No separate upstream task package or executor is installed.

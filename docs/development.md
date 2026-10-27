@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.9.0.md)
+[← Documentation](README.md) · [Source release record](releases/0.9.1.md)
 
 ## Dependencies and checks
 
@@ -56,8 +56,9 @@ The session-work native fixture runs genuine public SDK/Faux factories across
 reload/fork/resume/new, native input and correlated custom-message journaling.
 Its public UI selectors/editor keys and terminal object are scripted, not a
 live CLI/TTY. The focused panel, adoption, native and integration tests independently
-assert completed → active → pending ordering, initial selection, alias handler/state
-sharing and the Todos hub entry. The explicit public-host geometry smoke also renders
+assert completed → active → pending ordering, initial selection, sole-command
+registration, RPC fallback, shared-journal behavior and the Todos hub entry. The
+explicit public-host geometry smoke also renders
 TaskPanel at 40/60/80/120/160
 columns and tiny widths with Thai/CJK/ZWJ labels, overflow and empty states.
 Geometry checks establish column bounds, not human rendered acceptance.

@@ -295,7 +295,7 @@ test('pending task text save after actual reload preserves task/queue/composer a
     const expectedQueue = structuredClone(old.queue.view(old.ctx).state)
     f.inputs.push('stale saved title', 'stale saved description')
     const held = f.holdUI('input', 'stale saved description')
-    const pending = f.command('mh-tasks', [idOf(created), 'Edit text'])
+    const pending = f.command('mh-todos', [idOf(created), 'Edit text'])
     await held.entered
     const manager = f.runtime.session.sessionManager
     const factories = f.factories
@@ -318,7 +318,7 @@ test('pending task text save after actual reload preserves task/queue/composer a
     assert.deepEqual(f.composer, composer)
     assert.equal(f.composerTouches, 0)
     assert.deepEqual(f.errors, [])
-    await f.command('mh-tasks', [idOf(created), 'Dependencies', 'Done'])
+    await f.command('mh-todos', [idOf(created), 'Dependencies', 'Done'])
     assert.deepEqual(tasksOf(await f.invoke('mh_task_list')), beforeTasks)
     assert.deepEqual(f.errors, [])
   } finally {
@@ -333,10 +333,10 @@ test('task panel targets the requested row and toggles dependencies without manu
     const second = await f.invoke('mh_task_create', { subject: 'Second selectable step' })
     const firstId = idOf(first)
     const secondId = idOf(second)
-    await f.command('mh-tasks', [secondId, 'Dependencies', `○ ${firstId}`, 'Done'])
+    await f.command('mh-todos', [secondId, 'Dependencies', `○ ${firstId}`, 'Done'])
     assert.deepEqual((await f.invoke('mh_task_get', { id: secondId })).blockedBy, [firstId])
     assert.deepEqual((await f.invoke('mh_task_get', { id: firstId })).blockedBy, [])
-    await f.command('mh-tasks', [secondId, 'Dependencies', `✓ ${firstId}`, 'Done'])
+    await f.command('mh-todos', [secondId, 'Dependencies', `✓ ${firstId}`, 'Done'])
     assert.deepEqual((await f.invoke('mh_task_get', { id: secondId })).blockedBy, [])
     assert.deepEqual(f.errors, [])
   } finally {
@@ -416,19 +416,19 @@ test('real SDK commands, transient reminders, never/four-native-turn retention a
     assert.equal(tasksOf(await f.invoke('mh_task_list')).length, 1)
     f.inputs.push('manual title')
     await f.command('mh-todos', ['Create step'])
-    const crossAlias = tasksOf(await f.invoke('mh_task_list'))
-    assert.equal(crossAlias.length, 2)
-    const manual = crossAlias.find((task) => task.subject === 'manual title')
+    const todos = tasksOf(await f.invoke('mh_task_list'))
+    assert.equal(todos.length, 2)
+    const manual = todos.find((task) => task.subject === 'manual title')
     assert.ok(manual)
-    await f.command('mh-tasks', [manual.id, 'in_progress'])
+    await f.command('mh-todos', [manual.id, 'in_progress'])
     assert.equal(
       tasksOf(await f.invoke('mh_task_list')).find((task) => task.id === manual.id)?.status,
       'in_progress',
     )
     await f.command('mh-todos', [manual.id, 'pending'])
     assert.equal(tasksOf(await f.invoke('mh_task_list')).find((task) => task.id === manual.id)?.revision, 3)
-    await f.command('mh-tasks', ['Retention', 'four-turns'])
-    await f.command('mh-tasks', ['Clear completed'])
+    await f.command('mh-todos', ['Retention', 'four-turns'])
+    await f.command('mh-todos', ['Clear completed'])
     const second = tasksOf(await f.invoke('mh_task_list'))[0]
     assert.ok(second)
     await f.invoke('mh_task_update', {
@@ -449,7 +449,7 @@ test('real SDK commands, transient reminders, never/four-native-turn retention a
     assert.deepEqual(tasksOf(await f.invoke('mh_task_list')), [])
     const reminderTask = await f.invoke('mh_task_create', { subject: 'reminder data <do not execute>' })
     await f.invoke('mh_task_update', { id: idOf(reminderTask), expected_revision: 1, status: 'in_progress' })
-    await f.command('mh-tasks', ['Reminders', 'on'])
+    await f.command('mh-todos', ['Reminders', 'on'])
     let seen = false
     f.faux.setResponses([
       (context) => {
@@ -634,7 +634,7 @@ test('pending-only reminders use actual native non-task turns, suppress repeats 
   const f = await sessionWorkFixture()
   try {
     await f.invoke('mh_task_create', { subject: 'pending-only reminder' })
-    await f.command('mh-tasks', ['Reminders', 'on'])
+    await f.command('mh-todos', ['Reminders', 'on'])
     const observed: boolean[] = []
     const request = async () => {
       f.faux.setResponses([
@@ -666,7 +666,7 @@ test('public widget factories bound narrow Thai/CJK/ZWJ rows and respect off/emp
     assert.equal(f.widgets.size, 0)
     for (let i = 0; i < 7; i++)
       await f.invoke('mh_task_create', { subject: `ขั้นตอน ${i} 中文 👩‍👩‍👧‍👦 `.repeat(10) })
-    await f.command('mh-tasks', ['View mode', 'compact'])
+    await f.command('mh-todos', ['View mode', 'compact'])
     const tasks = f.widgets.get('mahiro-session-tasks')
     assert.ok(tasks)
     assert.equal(tasks.render(120).length, 7, 'header + five open rows + overflow summary')
@@ -677,7 +677,7 @@ test('public widget factories bound narrow Thai/CJK/ZWJ rows and respect off/emp
     for (const width of [1, 2, 12, 24, 48, 80, 120])
       for (const widget of [tasks, queue])
         for (const line of widget.render(width)) assert.ok(f.tui.visibleWidth(line) <= width)
-    await f.command('mh-tasks', ['View mode', 'off'])
+    await f.command('mh-todos', ['View mode', 'off'])
     assert.equal(f.widgets.has('mahiro-session-tasks'), false)
     assert.equal(f.composerTouches, 0)
     assert.deepEqual(f.errors, [])
