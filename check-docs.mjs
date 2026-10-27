@@ -146,7 +146,7 @@ const contracts = [
   ['docs/guards.md', /first recognized.*?operand/s, 'bounded Bash operand gate'],
   ['docs/guards.md', /final Bash recheck.*?command policy/s, 'final command-policy distinction'],
   ['docs/guards.md', /consumeBashApproval/, 'aggregate effective Bash approval'],
-  ['docs/guards.md', /non-yolo allow/, 'independent rewrite authority'],
+  ['docs/guards.md', /unfloored and undenied/, 'independent rewrite authority'],
   ['docs/guards.md', /not an OS sandbox/, 'sandbox limitation'],
   ['docs/bootstrap.md', /never substitutes blanket allow/, 'scalar-only deny removal'],
   ['docs/claude-ui.md', /runtime-only/, 'Apply is not Save'],

@@ -11,10 +11,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import {
   createMemoryStore,
@@ -31,9 +34,10 @@ process.env.GIT_AUTHOR_NAME = 'Memory capacity fixture'
 process.env.GIT_AUTHOR_EMAIL = 'fixture@example.invalid'
 process.env.GIT_COMMITTER_NAME = 'Memory capacity fixture'
 process.env.GIT_COMMITTER_EMAIL = 'fixture@example.invalid'
-const parent = new URL('../.agent-state/runtime/', import.meta.url).pathname
-function fixture() {
-  const dir = mkdtempSync(join(parent, 'managed-memory-capacity-'))
+const parent = fileURLToPath(new URL('../.agent-state/runtime/', import.meta.url))
+function fixture(runtimeParent = parent) {
+  mkdirSync(runtimeParent, { recursive: true })
+  const dir = mkdtempSync(join(runtimeParent, 'managed-memory-capacity-'))
   const root = join(dir, 'memory')
   const cwd = join(dir, 'project')
   mkdirSync(cwd)
@@ -82,6 +86,22 @@ function exactReviewed(files: Record<string, MemoryFile>, target: number) {
   assert.equal(bytes(ledgerText(files, reviewed)), target)
   return reviewed
 }
+
+test('capacity fixture creates an absent runtime parent on first run', () => {
+  const synthetic = mkdtempSync(join(realpathSync(tmpdir()), 'capacity-first-run-'))
+  const runtimeParent = join(synthetic, 'absent', 'runtime')
+  try {
+    assert.equal(existsSync(runtimeParent), false)
+    const f = fixture(runtimeParent)
+    try {
+      assert.ok(existsSync(f.root))
+    } finally {
+      f.close()
+    }
+  } finally {
+    rmSync(synthetic, { recursive: true, force: true })
+  }
+})
 
 test('capacity ceilings are independent, defaults unchanged and serialized-view derivation fits', () => {
   const f = fixture()

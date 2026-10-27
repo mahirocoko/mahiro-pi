@@ -436,3 +436,100 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
     f.restore()
   }
 })
+
+test('RTK transform and rewrite preview accept yolo and approved catch-all rewrites while rejecting denies, floors and specific ask patterns', async () => {
+  const f = statusFixture()
+  const helper = installRTKHelper(f.ctx.cwd)
+  const previousPath = process.env.PATH
+  process.env.PATH = `${helper.bin}:/usr/bin:/bin`
+  try {
+    let evaluate = (_surface: string, _value?: string): any => ({ state: 'allow', origin: 'yolo' })
+    const events = eventFixture(),
+      commands = new Map()
+    const runtime = registerRTK(
+      {
+        on: events.on,
+        registerCommand: (
+          name: string,
+          command: { handler: (input: string, context: typeof f.ctx) => unknown },
+        ) => commands.set(name, command),
+        registerTool() {},
+      },
+      {
+        current: () => true,
+        access() {},
+        permission: (_ctx, surface, value) => evaluate(surface, value),
+        finalArgs: async (_name, args) => args,
+      },
+    )
+    runtime.initialize(f.ctx)
+    helper.set({ code: 3, out: 'rtk ls safe.txt\n' })
+    // 1. YOLO mode (origin: 'yolo'): preview and transform succeed
+    await commands.get('mh-rtk').handler('rewrite ls safe.txt', f.ctx)
+    assert.equal(f.notifications.at(-1).level, 'info')
+    assert.equal(JSON.parse(f.notifications.at(-1).text).command, 'rtk ls safe.txt')
+    assert.equal(
+      (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).command,
+      'rtk ls safe.txt',
+      'yolo transform without receipt',
+    )
+    // 2. Command-specific config rule (original allowed by 'ls *', candidate falls through to default ask)
+    evaluate = (surface, value) => {
+      if (surface !== 'bash') return { state: 'allow' }
+      if (value === 'ls safe.txt') return { state: 'allow', matchedPattern: 'ls *', origin: 'config' }
+      return {
+        state: 'ask',
+        matchedSurface: '*',
+        matchedPattern: undefined,
+        source: 'default',
+        askingUnits: [{ command: value ?? '' }],
+      }
+    }
+    await commands.get('mh-rtk').handler('rewrite ls safe.txt', f.ctx)
+    assert.equal(f.notifications.at(-1).level, 'info')
+    assert.equal(
+      (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).command,
+      'rtk ls safe.txt',
+      'config rule + default catch-all ask candidate',
+    )
+    // 3. Specific ask rule on candidate ('rtk proxy *': 'ask') is rejected
+    helper.set({ code: 3, out: 'rtk proxy ls safe.txt\n' })
+    evaluate = (surface, value) => {
+      if (surface !== 'bash') return { state: 'allow' }
+      if (value === 'ls safe.txt') return { state: 'allow', matchedPattern: 'ls *', origin: 'config' }
+      return {
+        state: 'ask',
+        matchedSurface: 'bash',
+        matchedPattern: 'rtk proxy *',
+        source: 'config',
+        askingUnits: [{ command: value ?? '' }],
+      }
+    }
+    await assert.rejects(
+      runtime.transform({ command: 'ls safe.txt' }, f.ctx),
+      /RTK original\/final Bash permission required/,
+    )
+    // 4. Indirection/wrapper floor on candidate is rejected
+    helper.set({ code: 3, out: 'env FOO=1 rtk ls safe.txt\n' })
+    evaluate = (surface, value) => {
+      if (surface !== 'bash') return { state: 'allow' }
+      if (value === 'ls safe.txt') return { state: 'allow', origin: 'yolo' }
+      return {
+        state: 'ask',
+        matchedSurface: 'bash',
+        matchedPattern: '<indirection-bash-wrapper>',
+        floor: '<indirection-bash-wrapper>',
+        askingUnits: [{ command: value ?? '', floor: '<indirection-bash-wrapper>' }],
+      }
+    }
+    await assert.rejects(
+      runtime.transform({ command: 'ls safe.txt' }, f.ctx),
+      /RTK original\/final Bash permission required/,
+    )
+    await events.emit('session_shutdown')
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+    f.restore()
+  }
+})

@@ -3,7 +3,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
-import { createMemoryStore, allowedPath, type View, type Episode, type EditModeOptions } from './store.ts'
+import { createMemoryStore, allowedPath, type View, type TurnEpisode, type EditModeOptions } from './store.ts'
+import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { resolveAgentDir } from '../setup.ts'
 import { directoryIndex, parseMemoryRead, retrieveMemory } from './retrieval.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
@@ -197,10 +198,10 @@ const retainEvidence = <T>(items: T[], item: T) => {
   items.push(item)
 }
 interface PendingEpisode {
-  input: Episode['input']
+  input: TurnEpisode['input']
   branch: string[]
-  actions: Episode['actions']
-  results: Episode['results']
+  actions: TurnEpisode['actions']
+  results: TurnEpisode['results']
   toolCalls: Set<string>
   unsafe: boolean
 }
@@ -212,6 +213,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
   let outcome: string | undefined
   let lastError: string | undefined
   let compactionCheckpoint: string | undefined
+  let compacting: ReturnType<typeof compactionBoundary> | undefined
   let latestAttempt:
     | {
         observation: AttemptObservation
@@ -299,6 +301,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     pending = undefined
     outcome = undefined
     compactionCheckpoint = undefined
+    compacting = undefined
     latestAttempt = undefined
     stopJob(own)
   }
@@ -907,33 +910,38 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     reset()
     active = false
   })
-  pi.on('session_before_compact', (event) => {
+  pi.on('session_before_compact', (event, ctx) => {
     compactionCheckpoint = `reason=${event.reason}; tokensBefore=${event.preparation?.tokensBefore ?? 'unknown'}`
+    compacting = undefined
+    try {
+      if (active) compacting = compactionBoundary(event, ctx)
+    } catch {
+      // Missing/ambiguous evidence disables observation, never native compaction.
+    }
+  })
+  pi.on('session_compact_failed', () => {
+    compacting = undefined
   })
   pi.on('session_compact', (event, ctx) => {
+    const boundary = compacting
+    compacting = undefined
     const summaryText = bounded(event.compactionEntry?.summary, 1024)
     compactionCheckpoint = summaryText
       ? `reason=${event.reason}; summary=${summaryText.replace(/\s+/g, ' ').slice(0, 320)}`
       : `reason=${event.reason}; completed=true`
     try {
+      if (!boundary) return
+      const observation = compactionObservation(event, ctx, boundary)
       const f = primary(ctx, 'agent_memory_reflect', 'write')
-      if (!summaryText) return
-      const id = digest(`${ctx.sessionManager.getSessionId()}:compact:${event.compactionEntry.id}`)
-      const episode: Episode = {
-        id,
-        project: f.project,
-        session: ctx.sessionManager.getSessionId(),
-        evidence: 'observed-native-unverified',
-        observedAt: new Date().toISOString(),
-        entryHash: digest(JSON.stringify(event.compactionEntry)),
-        input: { text: `[compaction:${event.reason}] ${summaryText}`, source: 'interactive' },
-        actions: [{ text: summaryText }],
-        results: [],
-        outcome: 'completed',
-      }
-      if (bytes(`${JSON.stringify(episode)}\n`) <= 16384) {
-        f.store.recordEpisode(id, episode)
-      }
+      if (!f.store.config().automatic || !observation.current()) return
+      const episode = observation.episode(f.project)
+      const store = createMemoryStore(root, (target) => {
+        f.current(target)
+        if (f.node.managedMemory !== f.abi || !observation.current())
+          throw Error('Compaction owner or branch changed')
+      })
+      store.recordEpisode(episode.id, episode)
+      // Queue metadata only. A compaction never starts or backfills a writer.
     } catch {
       /* Compaction continuity checkpoint is best-effort and never blocks compaction. */
     }
@@ -1117,7 +1125,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         )
       if (observed.length !== 1 || !own.actions.length) return
       const id = digest(`${ctx.sessionManager.getSessionId()}:${observed[0].id}`)
-      const episode: Episode = {
+      const episode: TurnEpisode = {
         id,
         project: f.project,
         session: ctx.sessionManager.getSessionId(),

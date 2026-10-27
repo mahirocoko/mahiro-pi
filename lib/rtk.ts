@@ -225,8 +225,24 @@ export function registerRTK(
   })
   const authorize = (ctx: any, command: string) => {
     const d = owner.permission(ctx, 'bash', command)
-    if (d?.state !== 'allow' || d.origin === 'yolo')
-      throw Error('RTK original/final Bash permission required')
+    if (d?.state !== 'allow') throw Error('RTK original/final Bash permission required')
+  }
+  const allowsTransformed = (ctx: any, command: string) => {
+    const d = owner.permission(ctx, 'bash', command)
+    if (!d || d.state === 'deny' || d.floor !== undefined) return false
+    if (d.state === 'allow') return true
+    const units =
+      Array.isArray(d.askingUnits) && d.askingUnits.length ? d.askingUnits : [{ command, floor: d.floor }]
+    return units.every((u: { command: string; floor?: string }) => {
+      if (u.floor !== undefined) return false
+      const ud = owner.permission(ctx, 'bash', u.command)
+      return (
+        !!ud &&
+        ud.state !== 'deny' &&
+        ud.floor === undefined &&
+        (ud.matchedPattern === undefined || ud.matchedPattern === '*')
+      )
+    })
   }
   const assertPreview = (
     ctx: any,
@@ -298,8 +314,8 @@ export function registerRTK(
     if (args.operation === 'rewrite') {
       const captured = epoch
       const original = await owner.finalArgs('bash', { command: args.command }, ctx)
-      authorize(ctx, args.command)
-      authorize(ctx, original.command)
+      if (!allowsTransformed(ctx, args.command) || !allowsTransformed(ctx, original.command))
+        throw Error('RTK original/final Bash permission required')
       assertPreview(ctx, captured, b, ticket)
       const result: RTKRewriteResult = /^\s*git\s+commit(?:\s|$)/.test(original.command)
         ? { status: 'unchanged', command: null }
@@ -401,11 +417,18 @@ export function registerRTK(
       publishStatus(ctx, binding !== null)
     },
     async transform(input: any, ctx: any, effectiveBash?: (command: string) => boolean) {
+      const rawCommand = input.command
       // A consumed PSS receipt is execution-local. Preview/control retain the
       // original strict query; no capability is put on a shared context.
       const authorizeExecution = (context: any, command: string) => {
-        if (!effectiveBash) return authorize(context, command)
-        if (!effectiveBash(command)) throw Error('RTK original/final Bash permission required')
+        if (!effectiveBash) {
+          authorize(context, rawCommand)
+          if (command !== rawCommand && !allowsTransformed(context, command))
+            throw Error('RTK original/final Bash permission required')
+          return
+        }
+        if (!effectiveBash(rawCommand) || !effectiveBash(command))
+          throw Error('RTK original/final Bash permission required')
       }
       // The disabled fast path performs no filesystem read, probe, helper or log work.
       if (mode === 'off') return input

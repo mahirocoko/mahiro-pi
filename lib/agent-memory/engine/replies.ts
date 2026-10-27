@@ -182,7 +182,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
     }
     case 'episodes':
       ensure(Array.isArray(value) && value.length <= 4)
-      for (const e of value) observedEpisode(e)
+      for (const e of value) ensure(observedEpisode(e).project === input.project)
       return
     case 'status': {
       const v = shape(value, ['revision', 'files', 'pendingOperations'])

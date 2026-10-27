@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { Theme } from '@earendil-works/pi-coding-agent'
-import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
-import { TaskPanel, type TaskPanelChoice } from '../lib/session-work/task-panel.ts'
+import type { ExtensionContext, Theme } from '@earendil-works/pi-coding-agent'
+import { stripTerminalSequences, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
+import {
+  TaskPanel,
+  TaskWidget,
+  showTaskWidget,
+  type TaskPanelChoice,
+} from '../lib/session-work/task-panel.ts'
 import { emptyTasks, type Task, type TaskState } from '../lib/session-work/task-model.ts'
 
 const task = (patch: Partial<Task> & Pick<Task, 'id' | 'subject'>): Task => ({
@@ -86,6 +91,177 @@ test('task panel renders reference-inspired progress, state markers and bounded 
       if (width >= 12) assert.equal(visibleWidth(line), width, `${width}: right edge aligned`)
       if (line.startsWith('│')) assert.ok(line.endsWith('  │'), 'right inset survives truncation')
     }
+  }
+})
+
+test('read-only widget shares the dialog card and state markers without fake controls', () => {
+  const state: TaskState = {
+    ...emptyTasks(),
+    tasks: [
+      task({ id: 'pending', subject: 'Pending step' }),
+      task({ id: 'done', subject: 'Finished ภาษาไทย 中文 👩🏽‍💻', status: 'completed' }),
+      task({ id: 'active', subject: 'Active step', status: 'in_progress', description: 'Current work' }),
+    ],
+  }
+  const widget = new TaskWidget(state, theme, { truncateToWidth, visibleWidth }, () => true)
+  const lines = widget.render(88)
+  const text = lines.join('\n')
+  assert.match(lines[0], /^┌─+┐$/)
+  assert.match(lines.at(-1)!, /^└─+┘$/)
+  assert.match(text, /● Todos \(1\/3\)/)
+  assert.match(text, /✓ ~Finished ภาษาไทย 中文 👩🏽‍💻~/)
+  assert.match(text, /◐ Active step \(Current work\)/)
+  assert.match(text, /○ Pending step/)
+  assert.doesNotMatch(text, /branch-local|not tsk or human acceptance/)
+  assert.doesNotMatch(text, /›|↑↓ move|Enter manage|Esc close/)
+  const completed = lines.findIndex((line) => line.includes('✓'))
+  const active = lines.findIndex((line) => line.includes('◐'))
+  const pending = lines.findIndex((line) => line.includes('○ Pending'))
+  assert.ok(completed < active && active < pending)
+  assert.equal(active, completed + 1, 'completed and open rows remain connected')
+  for (const width of [1, 2, 11, 12, 24, 36, 40, 60, 80, 88, 120, 160]) {
+    const rows = widget.render(width)
+    for (const line of rows) assert.ok(visibleWidth(line) <= width, `${width}: overflow`)
+    assert.doesNotMatch(rows.join('\n'), /branch-local|not tsk or human acceptance/)
+  }
+})
+
+test('widget connects completed rows to the final open row even when completed items overflow', () => {
+  const state: TaskState = {
+    ...emptyTasks(),
+    tasks: [
+      ...Array.from({ length: 3 }, (_, index) =>
+        task({ id: `done-${index}`, subject: `Done ${index}`, status: 'completed' }),
+      ),
+      task({ id: 'active', subject: 'Active', status: 'in_progress' }),
+    ],
+  }
+  const lines = new TaskWidget(state, theme, { truncateToWidth, visibleWidth }, () => true).render(88)
+  const first = lines.findIndex((line) => line.includes('✓'))
+  assert.match(lines[first]!, /├─.*✓/)
+  assert.match(lines[first + 1]!, /├─.*✓/)
+  assert.match(lines[first + 2]!, /└─.*◐ Active/)
+  assert.match(lines[first + 3]!, /1 completed/)
+})
+
+test('widget bounds completed and open previews, preserves active visibility and guards retired views', () => {
+  let current = true
+  const state: TaskState = {
+    ...emptyTasks(),
+    tasks: [
+      ...Array.from({ length: 8 }, (_, index) =>
+        task({ id: `done-${index}`, subject: `Done ${index}`, status: 'completed' }),
+      ),
+      task({ id: 'active', subject: 'Active \u001b[31munsafe\u001b[0m', status: 'in_progress' }),
+      ...Array.from({ length: 6 }, (_, index) =>
+        task({ id: `pending-${index}`, subject: `Pending ${index}` }),
+      ),
+    ],
+  }
+  const widget = new TaskWidget(state, theme, { truncateToWidth, visibleWidth }, () => current)
+  const lines = widget.render(100)
+  const text = lines.join('\n')
+  assert.match(text, /● Todos \(8\/15\)/)
+  assert.equal(lines.filter((line) => line.includes('✓')).length, 2)
+  assert.equal(lines.filter((line) => line.includes('◐') || line.includes('○ Pending')).length, 3)
+  assert.match(text, /6 completed · 4 more · \/mh-todos/)
+  assert.match(text, /◐ Active unsafe/)
+  assert.doesNotMatch(text, /\u001b/)
+  assert.ok(lines.length <= 14, 'the persistent card stays compact')
+  const compact = new TaskWidget(
+    { ...state, config: { ...state.config, view: 'compact' } },
+    theme,
+    { truncateToWidth, visibleWidth },
+    () => true,
+  )
+  assert.ok(compact.render(36).length <= 14, 'compact view also leaves room for the editor')
+  current = false
+  assert.deepEqual(widget.render(100), [])
+  current = true
+  widget.invalidate()
+  assert.match(widget.render(100).join('\n'), /Active unsafe/)
+  assert.deepEqual(
+    new TaskWidget(
+      { ...state, config: { ...state.config, view: 'off' } },
+      theme,
+      { truncateToWidth, visibleWidth },
+      () => true,
+    ).render(100),
+    [],
+  )
+  assert.deepEqual(
+    new TaskWidget(
+      { ...state, tasks: state.tasks.filter((item) => item.status === 'completed') },
+      theme,
+      { truncateToWidth, visibleWidth },
+      () => true,
+    ).render(100),
+    [],
+  )
+})
+
+test('styled completed rows do not leak strikethrough past a truncated card boundary', () => {
+  const ansiTheme = {
+    fg: (_tone: string, text: string) => `\x1b[38;2;31;52;73m${text}\x1b[39m`,
+    strikethrough: (text: string) => `\x1b[9m${text}\x1b[29m`,
+  } as unknown as Theme
+  const state: TaskState = {
+    ...emptyTasks(),
+    tasks: [
+      task({ id: 'done', subject: 'เสร็จแล้ว 中文 👩🏽‍💻 '.repeat(20), status: 'completed' }),
+      task({ id: 'active', subject: 'กำลังทำ', status: 'in_progress' }),
+    ],
+  }
+  const widget = new TaskWidget(state, ansiTheme, { truncateToWidth, visibleWidth }, () => true)
+  for (const width of [12, 24, 48, 120]) {
+    const lines = widget.render(width)
+    assert.ok(lines.every((line) => visibleWidth(line) === width))
+    const completed = lines[2]!
+    assert.ok(stripTerminalSequences(completed).endsWith('│'))
+    let strike = false
+    const beforeBorder = completed.slice(0, completed.lastIndexOf('│'))
+    for (const match of beforeBorder.matchAll(/\x1b\[([\d;]*)m/g)) {
+      for (const code of (match[1] || '0').split(';').map(Number)) {
+        if (code === 0 || code === 29) strike = false
+        else if (code === 9) strike = true
+      }
+    }
+    assert.equal(strike, false, `strikethrough reached right border at width ${width}`)
+  }
+})
+
+test('a retired asynchronous widget publication cannot replace or resurrect the current view', async () => {
+  const state = { ...emptyTasks(), tasks: [task({ id: 'open', subject: 'Open' })] }
+  const published: Array<{ key: string; content: unknown }> = []
+  const ctx = {
+    hasUI: true,
+    mode: 'tui',
+    ui: { setWidget: (key: string, content: unknown) => published.push({ key, content }) },
+  } as unknown as ExtensionContext
+  let oldCurrent = true
+  let newCurrent = true
+  const old = showTaskWidget(ctx, state, () => oldCurrent)
+  oldCurrent = false
+  await showTaskWidget(ctx, state, () => newCurrent)
+  await old
+  assert.equal(published.length, 1, 'the retired publisher must not replace the new widget')
+  const factory = published[0]!.content as (_tui: unknown, selectedTheme: Theme) => TaskWidget
+  const component = factory({}, theme)
+  assert.ok(component.render(80).length)
+  newCurrent = false
+  assert.deepEqual(component.render(80), [], 'retired factories cannot show old tasks')
+
+  for (const endState of [
+    { ...state, config: { ...state.config, view: 'off' as const } },
+    { ...state, tasks: [task({ id: 'done', subject: 'Done', status: 'completed' })] },
+  ]) {
+    published.length = 0
+    let stillCurrent = true
+    const pending = showTaskWidget(ctx, state, () => stillCurrent)
+    stillCurrent = false
+    await showTaskWidget(ctx, endState, () => true)
+    await pending
+    assert.deepEqual(published, [{ key: 'mahiro-session-tasks', content: undefined }])
   }
 })
 

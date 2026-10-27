@@ -20,7 +20,12 @@ export const CLAUDE_THEME = 'mahiro-claude-dark'
 export type PaletteMode = 'follow' | 'claude'
 export type Geometry = Pick<
   typeof import('@earendil-works/pi-tui'),
-  'visibleWidth' | 'truncateToWidth' | 'wrapTextWithAnsi' | 'stripTerminalSequences'
+  | 'visibleWidth'
+  | 'truncateToWidth'
+  | 'wrapTextWithAnsi'
+  | 'stripTerminalSequences'
+  | 'mixColors'
+  | 'backgroundAnsi'
 >
 export type NativePresentation = {
   renderDiff: typeof import('@earendil-works/pi-coding-agent').renderDiff
@@ -55,13 +60,18 @@ const themeStamp = (theme: Theme) =>
     theme.fg('dim', 'a'),
     theme.fg('warning', 'a'),
     theme.fg('toolOutput', 'a'),
+    theme.fg('text', 'a'),
     theme.fg('toolDiffAdded', 'a'),
     theme.fg('toolDiffRemoved', 'a'),
     theme.fg('toolDiffContext', 'a'),
     theme.fg('borderMuted', 'a'),
-    theme.bg('toolSuccessBg', 'a'),
-    theme.bg('toolErrorBg', 'a'),
-    theme.style('a', { inverse: true }),
+    JSON.stringify([
+      theme.appearance,
+      theme.getColorMode(),
+      theme.colors.toolPendingBg,
+      theme.colors.toolDiffAdded,
+      theme.colors.toolDiffRemoved,
+    ]),
   ].join('\0')
 
 // Convert only a *stored* unified patch to native display-diff notation. No

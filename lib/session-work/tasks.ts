@@ -14,8 +14,8 @@ import {
   type Task,
   type TaskTool,
 } from './task-model.ts'
-import { openTaskPanel, type TaskPanelChoice } from './task-panel.ts'
-import { label, workWidget } from './view.ts'
+import { openTaskPanel, showTaskWidget, type TaskPanelChoice } from './task-panel.ts'
+import { label } from './view.ts'
 
 const taskDescriptions: Record<TaskTool, string> = {
   mh_task_create:
@@ -67,25 +67,7 @@ export function registerSessionTasks(pi: ExtensionAPI) {
   async function refresh(ctx: ExtensionContext) {
     if (!primary(ctx)) return
     const { state, ticket } = journal.read(ctx)
-    const sorted = [...state.tasks].sort(
-      (a, b) =>
-        ({ in_progress: 0, pending: 1, completed: 2 })[a.status] -
-        { in_progress: 0, pending: 1, completed: 2 }[b.status],
-    )
-    const visible = sorted
-      .filter((t) => t.status !== 'completed')
-      .slice(0, state.config.view === 'compact' ? 5 : 3)
-    const lines =
-      state.config.view === 'off' || visible.length === 0
-        ? []
-        : [
-            `Todos · ${state.tasks.filter((t) => t.status === 'completed').length}/${state.tasks.length} complete (not acceptance)`,
-            ...visible.map((t) => `${t.status === 'in_progress' ? '›' : '·'} ${label(t.subject)}`),
-            ...(sorted.length > visible.length
-              ? [`${sorted.length - visible.length} other/completed · /mh-todos`]
-              : []),
-          ]
-    await workWidget(ctx, 'mahiro-session-tasks', lines, () => {
+    await showTaskWidget(ctx, state, () => {
       try {
         assertCurrent(ctx, ticket)
         return true

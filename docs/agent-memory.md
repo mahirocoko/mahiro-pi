@@ -95,7 +95,8 @@ loaded runtime actually advertises.
    auto-merges. Git HEAD is the publication boundary.
 4. Active primary context refreshes on the next request, not retroactively in an
    already running request. During context compaction (`session_before_compact` / `session_compact`),
-   a bounded continuity checkpoint is preserved for the next turn without blocking compaction.
+   a bounded, unverified continuity checkpoint is preserved for the next turn. This
+   one-shot prompt context is separate from the metadata-only review records below.
 
 `agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
@@ -104,6 +105,62 @@ Core/index to remove the forgotten knowledge/source link while preserving identi
 before source-forgetting. Source-linked global/deferred/procedure files may be
 removed conservatively as whole files. Rollback and conflicts still honor current
 forgetting; retained views are not a way to resurrect forgotten material.
+
+## Compaction provenance and compatibility
+
+With existing automatic reflection enabled, successful compaction can admit an
+`observed-native-unverified` episode with `kind: "compaction"` to the existing
+bounded review queue. Its closed `compaction` object contains only `entryId`,
+`parentId`, `firstKeptEntryId`, `tokensBefore`, `reason` (`manual`, `threshold` or
+`overflow`), `fromExtension` and `willRetry`, plus the ordinary episode identity,
+project, session, native timestamp (`observedAt`) and a metadata-only `entryHash`.
+It has **no** input, actions, results, outcome, summary, tool arguments, details,
+usage or system prompt. Native lifecycle evidence is not authority or authenticated
+human intent. A native event alone cannot admit data: current primary identity,
+root/generation, branch, exact-root permission and automatic policy must pass.
+
+Both ABI1 and ABI2 readers, including ABI2 engine replies, accept legacy turn
+records and this new variant together. Legacy files are not migrated, rewritten,
+relabelled or backfilled. The ID remains
+`sha256(sessionId + ':compact:' + compactionEntry.id)`, including for legacy
+summary-shaped records: existing tombstones still suppress that ID, and differing
+bytes at the same ID are rejected, never overwritten. A later replay of identical
+metadata is accepted without rewriting; a concurrent replay may fail closed during
+publication. Older parsers cannot read the new shape; **downgrading or running old
+and new writers against one root is unsupported** once such records exist. There
+is no automatic downgrade/schema migration or destructive cleanup procedure.
+
+Compaction does **not** launch a writer or retry/backfill a failed admission. A
+one-use before/after boundary pairs the event with a unique newly appended branch
+leaf; an ambiguous, interrupted or unpaired observation is dropped. This also
+handles a host event that reports an older compaction (including on a sibling branch)
+with the same summary: the report must match an entry in the same session manager,
+while only the anchored new active-branch leaf supplies persisted metadata. The
+summary comparison is transient; no summary is persisted. ABI2 allows only one tracked compaction admission per
+runtime at a time; overlapping notifications are dropped rather than queued.
+Retirement drains admitted work while fencing stale continuations. Policy/permission/branch checks before publication
+narrow the race window; revocation cannot roll back a filesystem write already
+started. A rejected completion is not proof that no file was published.
+
+The existing 256-file capacity is shared by turn and compaction records across
+projects, not a new compaction allowance. Existing reviewed/forgotten cleanup rules
+are unchanged. Both kinds compete for the same oldest-four selection (timestamp,
+then ID) within a project, so metadata-only records can delay turn review and consume
+capacity until reviewed. A later ordinary reflection or explicit authorized reflection
+may review them with no knowledge changes. `automatic: false` disables new compaction
+admission, not retained-file reading, and does not trigger a writer when re-enabled.
+
+Updated writers publish complete private bytes using exclusive no-replace creation;
+concurrent same-ID collisions cannot replace the winner. During the brief temporary
+hard-link window a reader may fail closed; interruption or denied cleanup may leave a
+temporary file or a final file with multiple links. An unreviewed multiple-link final
+file can block shared queue selection across projects even after authority returns;
+different-ID admissions below capacity may still succeed. There is no automatic
+recovery or lock to steal. Queue capacity checks and cleanup are **not** a root-wide
+transaction across independent controllers: simultaneous different-ID admissions can
+race the 256 check. The reader then rejects an over-capacity backlog. This change does
+not claim cross-controller capacity, forgetting or policy transactions; it introduces
+no new global lock, retention policy or permission grant.
 
 ## Native writing and automatic reflection
 

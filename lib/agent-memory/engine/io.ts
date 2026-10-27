@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, realpath, rename } from 'node:fs/promises'
+import { link, lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path'
 import type { Checkpoint } from './protocol.ts'
 
@@ -55,6 +55,66 @@ export async function readPrivate(path: string, max: number) {
     return data
   } finally {
     await fd.close()
+  }
+}
+// Complete private bytes first, then publish without replacement across controllers.
+// A crash or revoked cleanup authority may leave an ignored .tmp file (including
+// a second link to published bytes). Readers fail closed while two links remain.
+// No persistent admission lock or post-start rollback is promised.
+export async function createPrivate(
+  path: string,
+  text: string,
+  beforePublish: () => Promise<void>,
+  authorize: (physical: string[]) => Promise<void>,
+) {
+  await authorize([dirname(path)])
+  await privateDirectory(dirname(path), true)
+  await authorize([path])
+  await safePath(path)
+  const temp = `${path}.${randomUUID()}.tmp`
+  await authorize([temp])
+  const fd = await open(
+    temp,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600,
+  )
+  let failed = false
+  try {
+    try {
+      await authorize([temp])
+      await fd.writeFile(text)
+      await authorize([temp])
+      await fd.sync()
+    } catch (error) {
+      failed = true
+      throw error
+    } finally {
+      try {
+        await fd.close()
+      } catch (error) {
+        if (!failed) throw error
+      }
+    }
+    await beforePublish()
+    await authorize([temp, path])
+    try {
+      await link(temp, path)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      return false
+    }
+  } catch (error) {
+    failed = true
+    throw error
+  } finally {
+    try {
+      await authorize([temp])
+      await unlink(temp)
+    } catch (error) {
+      // Cleanup cannot bypass revocation or replace the original operation error.
+      if (!failed) throw error
+    }
   }
 }
 export async function atomicPrivate(path: string, text: string | Buffer) {

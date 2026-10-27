@@ -8,6 +8,7 @@ import {
   existsSync,
   fstatSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -34,6 +35,7 @@ import {
   withMigrationFrontmatter,
 } from './engine/schema.ts'
 import { directoryIndex, discoveryVersion, extractFrontmatterAndLinks, topicMetadata } from './retrieval.ts'
+import { observedEpisode } from './engine/episodes.ts'
 
 export { allowedPath, type EditModeOptions }
 
@@ -46,18 +48,33 @@ export interface MemoryConfig {
   totalBytes: number
   automatic: boolean
 }
-export interface Episode {
+interface EpisodeIdentity {
   id: string
   project: string
   session: string
   evidence: 'observed-native-unverified'
   observedAt: string
   entryHash: string
+}
+export interface TurnEpisode extends EpisodeIdentity {
   input: { text: string; source: string }
   actions: { text?: string; tools?: string[] }[]
   results: { tool: string; error: boolean; text?: string }[]
   outcome: 'completed'
 }
+export interface CompactionEpisode extends EpisodeIdentity {
+  kind: 'compaction'
+  compaction: {
+    entryId: string
+    parentId: string | null
+    firstKeptEntryId: string
+    tokensBefore: number
+    reason: 'manual' | 'threshold' | 'overflow'
+    fromExtension: boolean
+    willRetry: boolean
+  }
+}
+export type Episode = TurnEpisode | CompactionEpisode
 export interface MemoryFile {
   text: string
   sources: string[]
@@ -635,63 +652,7 @@ export function createMemoryStore(
   }
   const filter = (s: Snapshot, project?: string) =>
     Object.fromEntries(Object.entries(s.files).filter(([p]) => allowedPath(p, project)))
-  const episode = (value: unknown): Episode => {
-    if (
-      !objectShape(value, [
-        'id',
-        'project',
-        'session',
-        'evidence',
-        'observedAt',
-        'entryHash',
-        'input',
-        'actions',
-        'results',
-        'outcome',
-      ]) ||
-      typeof value.id !== 'string' ||
-      !/^[a-f0-9]{64}$/.test(value.id) ||
-      typeof value.project !== 'string' ||
-      !name.test(value.project) ||
-      !validId(value.session) ||
-      value.evidence !== 'observed-native-unverified' ||
-      value.outcome !== 'completed' ||
-      typeof value.observedAt !== 'string' ||
-      !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value.observedAt) ||
-      typeof value.entryHash !== 'string' ||
-      !/^[a-f0-9]{64}$/.test(value.entryHash) ||
-      !objectShape(value.input, ['text', 'source']) ||
-      typeof value.input.text !== 'string' ||
-      !['rpc', 'interactive'].includes(value.input.source as string) ||
-      !Array.isArray(value.actions) ||
-      value.actions.length > 4 ||
-      !Array.isArray(value.results) ||
-      value.results.length > 4
-    )
-      throw new Error('Invalid observed episode; caller provenance labels are not accepted')
-    for (const action of value.actions)
-      if (
-        !objectShape(action, ['text', 'tools']) ||
-        (action.text !== undefined && typeof action.text !== 'string') ||
-        (action.tools !== undefined &&
-          (!Array.isArray(action.tools) ||
-            action.tools.length > 8 ||
-            action.tools.some((n: unknown) => typeof n !== 'string' || !/^[a-z_]{1,64}$/.test(n))))
-      )
-        throw new Error('Invalid observed action')
-    for (const result of value.results)
-      if (
-        !objectShape(result, ['tool', 'error', 'text']) ||
-        result.tool !== 'bash' ||
-        typeof result.error !== 'boolean' ||
-        (result.text !== undefined && typeof result.text !== 'string')
-      )
-        throw new Error('Invalid selected result')
-    const raw = JSON.stringify(value)
-    if (bytes(raw) > 16384 || hasSecret(raw)) throw new Error('Episode rejected')
-    // Every field and nested collection was validated above at the JSON boundary.
-    return value as unknown as Episode
-  }
+  const episode = observedEpisode
   const views = () => {
     const folder = join(root, '.views')
     if (!existsSync(folder)) return []
@@ -1110,14 +1071,19 @@ export function createMemoryStore(
       const revision = head()
       const s = { ...ledger(revision), revision, files: {} } as Snapshot
       const folder = join(root, '.episodes')
-      if (!existsSync(folder)) return []
+      current(folder)
       assertPrivatePath(folder)
+      if (!existsSync(folder)) return []
       const names = readdirSync(folder).filter((p) => /^[a-f0-9]{64}\.json$/.test(p))
       if (names.length > 256) throw new Error('Episode backlog full')
       return names
         .filter((p) => !s.reviewed.includes(p.slice(0, -5)) && !sourceForgotten(s, p.slice(0, -5), project))
         .sort()
-        .map((p) => episode(JSON.parse(read(join(folder, p), 16384))))
+        .map((p) => {
+          const e = episode(JSON.parse(read(join(folder, p), 16384)))
+          if (e.id !== p.slice(0, -5)) throw new Error('Invalid episode filename identity')
+          return e
+        })
         .filter((e) => e.project === project)
         .sort(
           (a, b) =>
@@ -1128,6 +1094,7 @@ export function createMemoryStore(
     },
     recordEpisode(id: string, value: unknown) {
       const e = episode(value)
+      if ('kind' in e && !config().automatic) throw new Error('Automatic compaction observation disabled')
       if (e.id !== id || !name.test(e.project as string)) throw new Error('Invalid episode scope')
       const raw = JSON.stringify(e)
       const target = join(root, '.episodes', `${id}.json`)
@@ -1135,35 +1102,89 @@ export function createMemoryStore(
       const s = { ...ledger(rev), revision: rev, files: {} } as Snapshot
       if (sourceForgotten(s, id, e.project as string))
         throw new Error('Forgotten episode cannot be re-admitted')
+      const folder = join(root, '.episodes')
+      current(folder)
+      assertPrivatePath(folder)
+      current(target)
+      assertPrivatePath(target)
       if (existsSync(target)) {
         if (read(target, 16384) !== `${raw}\n`) throw new Error('Observed episode changed')
         return
       }
       safe()
-      const folder = join(root, '.episodes')
+      current(folder)
+      assertPrivatePath(folder)
       if (existsSync(folder)) {
-        assertPrivatePath(folder)
         const names = readdirSync(folder).filter((p) => /^[a-f0-9]{64}\.json$/.test(p))
         if (names.length >= 256) {
-          for (const file of names)
-            if (
-              s.reviewed.includes(file.slice(0, -5)) ||
-              sourceForgotten(
-                s,
-                file.slice(0, -5),
-                episode(JSON.parse(read(join(folder, file), 16384))).project as string,
-              )
-            ) {
+          // Validate the complete bounded backlog before any reclamation. Reviewed
+          // filename discovery never grants authority to delete a corrupt body.
+          const retained = names.map((file) => {
+            const value = episode(JSON.parse(read(join(folder, file), 16384)))
+            if (value.id !== file.slice(0, -5)) throw new Error('Invalid episode filename identity')
+            return { file, value }
+          })
+          for (const { file, value } of retained)
+            if (s.reviewed.includes(value.id) || sourceForgotten(s, value.id, value.project)) {
               const path = join(folder, file)
               current(path)
               assertPrivatePath(path)
               unlinkSync(path)
             }
+          current(folder)
+          assertPrivatePath(folder)
           if (readdirSync(folder).filter((p) => /^[a-f0-9]{64}\.json$/.test(p)).length >= 256)
             throw memoryFailure('capacity', 'Unreviewed episode capacity exceeded')
         }
       }
-      write(join(root, '.episodes', `${id}.json`), `${raw}\n`)
+      // No replace-style rename here: another updated ABI/controller may have
+      // admitted this ID after the existence check. A collision never changes bytes.
+      current(folder)
+      privateDirectory(folder)
+      const temp = `${target}.${randomUUID()}.tmp`
+      current(temp)
+      const fd = openSync(
+        temp,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      )
+      let failed = false
+      try {
+        try {
+          current(temp)
+          writeFileSync(fd, `${raw}\n`)
+        } catch (error) {
+          failed = true
+          throw error
+        } finally {
+          try {
+            closeSync(fd)
+          } catch (error) {
+            if (!failed) throw error
+          }
+        }
+        if (head() !== rev) throw new Error('Episode revision changed')
+        if ('kind' in e && !config().automatic) throw new Error('Automatic compaction observation disabled')
+        current(temp)
+        current(target)
+        try {
+          linkSync(temp, target)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+          if (read(target, 16384) !== `${raw}\n`) throw new Error('Observed episode changed')
+        }
+      } catch (error) {
+        failed = true
+        throw error
+      } finally {
+        try {
+          current(temp)
+          unlinkSync(temp)
+        } catch (error) {
+          // Revocation leaves residue; never erase without authority or mask the failure.
+          if (!failed) throw error
+        }
+      }
     },
     doctor(project = 'default') {
       const now = load()

@@ -376,15 +376,23 @@ test('contextual widget bounds open work and hides completed-only batches withou
   for (let i = 0; i < 7; i++) tasks.push((await f.invoke('mh_task_create', { subject: `step ${i}` })).details)
   const render = () => {
     const widget = f.widgets.get('mahiro-session-tasks')
-    return widget?.({}, { fg: (_color: string, text: string) => text }).render(1000) ?? []
+    return (
+      widget?.(
+        {},
+        { fg: (_color: string, text: string) => text, strikethrough: (text: string) => text },
+      ).render(1000) ?? []
+    )
   }
-  assert.equal(render().length, 5, 'quiet: header, three open, overflow')
-  assert.match(render()[0], /^Todos ·/)
-  assert.match(render()[0], /not acceptance/)
+  assert.equal(render().filter((line: string) => line.includes('○ step')).length, 3, 'quiet: three open')
+  assert.match(render().join('\n'), /● Todos \(0\/7\)/)
+  assert.doesNotMatch(render().join('\n'), /branch-local|not tsk or human acceptance/)
   f.configure({ view: 'compact' })
   await f.invoke('mh_task_list')
-  assert.equal(render().length, 7, 'compact: header, five open, overflow')
-  for (const task of tasks)
+  assert.equal(render().filter((line: string) => line.includes('○ step')).length, 5, 'compact: five open')
+  await f.invoke('mh_task_update', { id: tasks[0].id, expected_revision: 1, status: 'completed' })
+  assert.match(render().join('\n'), /✓ step 0/)
+  assert.match(render().join('\n'), /● Todos \(1\/7\)/)
+  for (const task of tasks.slice(1))
     await f.invoke('mh_task_update', { id: task.id, expected_revision: 1, status: 'completed' })
   assert.equal(f.widgets.size, 0)
   assert.equal((await f.invoke('mh_task_list')).details.tasks.length, 7)

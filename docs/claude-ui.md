@@ -93,7 +93,11 @@ lines (eight with extra detail) from at most the last 4 KiB, labeled
 
 Edit previews use captured native `details.diff` or `details.patch`, not current
 file reads or speculative old/new call arguments. Contiguous removed/added lines
-are paired with old/new line numbers and bounded word highlighting.
+are paired with old/new line numbers and bounded word highlighting. Split and
+unified changes use neutral theme text on subdued removal/addition surfaces, with a
+stronger background and bold type for changed words instead of inversion.
+Terminal-default colors may be approximated, and 256-color palettes can reduce
+the difference between shades; the word and `+`/`−` cues remain available.
 Split mode needs at least 72 content columns and a fitting bounded 256-cell
 prefix; narrow/overflowing content uses wrapped unified rows. Unified context
 retains both line numbers, patch offsets, gaps, CRLF and BOM.

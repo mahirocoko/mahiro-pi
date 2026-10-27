@@ -108,9 +108,12 @@ distinguishable. The command supports create, title/description edits,
 dependencies, status/reopen, delete, clear completed and session-local settings:
 
 - **View:** default `quiet` (up to three open steps), `compact` (up to five) or
-  `off`. Open batches summarize completed/overflow steps. A completed-only batch
-  hides the widget rather than leaving permanent clutter; full completed records
-  remain in the picker and `mh_task_list`/`mh_task_get`, and can be reopened.
+  `off`. The read-only widget above the editor shares the dialog's card, progress
+  and status markers: it previews up to two completed steps before open steps and
+  names any hidden overflow. Use `/mh-todos` to manage them; widget rows do not
+  take keyboard focus. A completed-only batch hides the widget rather than leaving
+  permanent clutter; full completed records remain in the picker and
+  `mh_task_list`/`mh_task_get`, and can be reopened.
 - **Retention:** default `never`. Optional `four-turns` expires a completed step
   at its fourth subsequent native `turn_start`, including the final assistant
   turn following a tool call. Explicit creation after a fully settled completed

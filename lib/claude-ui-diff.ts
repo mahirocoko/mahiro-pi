@@ -246,6 +246,21 @@ export function renderPreparedDiff(
     }
   }
   const wide = split && widthGate && !pressure
+  // Keep the code text neutral and derive both levels of change color from the
+  // active theme. Terminal-default colors may be reported values or guesses.
+  const surface = theme.colors.toolPendingBg
+  const rowAmount = theme.appearance === 'dark' ? 0.18 : 0.12
+  const wordAmount = theme.appearance === 'dark' ? 0.36 : 0.28
+  const changeColors = {
+    old: {
+      row: g.mixColors(surface, theme.colors.toolDiffRemoved, rowAmount, 'srgb'),
+      word: g.mixColors(surface, theme.colors.toolDiffRemoved, wordAmount, 'srgb'),
+    },
+    new: {
+      row: g.mixColors(surface, theme.colors.toolDiffAdded, rowAmount, 'srgb'),
+      word: g.mixColors(surface, theme.colors.toolDiffAdded, wordAmount, 'srgb'),
+    },
+  }
   const cell = (
     value: DiffCell | undefined,
     size: number,
@@ -253,21 +268,36 @@ export function renderPreparedDiff(
     context = false,
   ): string[] => {
     if (!value) return [theme.fg('dim', ' '.repeat(size))]
-    const token = context ? 'toolDiffContext' : side === 'old' ? 'toolDiffRemoved' : 'toolDiffAdded'
-    const bg = context ? undefined : side === 'old' ? 'toolErrorBg' : 'toolSuccessBg'
     const prefix =
       size > digits + 4
         ? `${String(value.number).padStart(digits)} ${context ? ' ' : side === 'old' ? '−' : '+'} `
         : ''
     const contentWidth = Math.max(1, size - g.visibleWidth(prefix))
-    const text =
-      value.spans?.map((s) => (s.changed ? theme.style(s.text, { inverse: true }) : s.text)).join('') ??
-      value.text
-    return g
-      .wrapTextWithAnsi(theme.fg(token, text), contentWidth)
-      .map((row, i) =>
-        theme.style(fit((i === 0 ? prefix : ' '.repeat(prefix.length)) + row, size), { fg: token, bg }),
+    if (context) {
+      return g.wrapTextWithAnsi(theme.fg('toolDiffContext', value.text), contentWidth).map((row, i) =>
+        theme.style(fit((i === 0 ? prefix : ' '.repeat(prefix.length)) + row, size), {
+          fg: 'toolDiffContext',
+        }),
       )
+    }
+    const colors = changeColors[side]
+    const rowBackground = g.backgroundAnsi(colors.row, theme.getColorMode())
+    const rowForeground = theme.getFgAnsi('text')
+    const text =
+      value.spans
+        ?.map((s) =>
+          s.changed
+            ? theme.style(s.text, { bg: colors.word, bold: true }) + rowForeground + rowBackground
+            : s.text,
+        )
+        .join('') ?? value.text
+    return g.wrapTextWithAnsi(theme.fg('text', text), contentWidth).map((row, i) => {
+      const cut = g.truncateToWidth((i === 0 ? prefix : ' '.repeat(prefix.length)) + row, size, '')
+      const padding = ' '.repeat(Math.max(0, size - g.visibleWidth(cut)))
+      // A wrapped changed span may still be active. Restore the row color and
+      // end bold before padding, then let theme.style close the cell boundary.
+      return theme.style(`${cut}\x1b[22m${rowBackground}${padding}`, { fg: 'text', bg: colors.row })
+    })
   }
   const output = [
     theme.fg(

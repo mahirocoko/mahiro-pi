@@ -25,6 +25,7 @@ import {
 } from './operation.ts'
 import {
   atomicPrivate,
+  createPrivate,
   gitSafety,
   gitBlobBatches,
   parseGitBlobs,
@@ -850,6 +851,11 @@ export class MemoryDataEngine {
   }
   private async observe(value: unknown) {
     const e = observedEpisode(value)
+    const automatic = async () => {
+      if ('kind' in e && !(await this.config()).config.automatic)
+        throw Error('Automatic compaction observation disabled')
+    }
+    await automatic()
     const revision = await this.head()
     const ledger = await this.ledger(revision)
     const forgotten = (id: string, project: string) =>
@@ -878,7 +884,17 @@ export class MemoryDataEngine {
         throw memoryFailure('capacity', 'Unreviewed episode capacity exceeded')
     }
     if ((await this.head()) !== revision) throw Error('Episode revision changed')
-    await this.write(target, raw)
+    await this.gate([target], [], 'view')
+    const created = await createPrivate(
+      target,
+      raw,
+      async () => {
+        await automatic()
+        if ((await this.head()) !== revision) throw Error('Episode revision changed')
+      },
+      (physical) => this.gate(physical, [], 'view'),
+    )
+    if (!created && (await this.read(target, 16384)) !== raw) throw Error('Observed episode changed')
     return { recorded: true }
   }
   private plan(id: string, hash: string) {

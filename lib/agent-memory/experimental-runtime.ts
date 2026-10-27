@@ -19,7 +19,8 @@ import type { MemoryNode } from './runtime.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
 import { isOfflineMaintenanceSession } from './offline-bootstrap.ts'
 import { primaryDelegationDoctrine } from './prompt.ts'
-import type { Episode } from './store.ts'
+import type { TurnEpisode } from './store.ts'
+import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
 
 interface RuntimeBinding {
@@ -70,10 +71,10 @@ const retain = <T>(items: T[], item: T) => {
 }
 interface PendingEpisode {
   serial: number
-  input: Episode['input']
+  input: TurnEpisode['input']
   branch: string[]
-  actions: Episode['actions']
-  results: Episode['results']
+  actions: TurnEpisode['actions']
+  results: TurnEpisode['results']
   toolCalls: Set<string>
 }
 const registry = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
@@ -98,6 +99,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   let pending: PendingEpisode | undefined
   let outcome: string | undefined
   let compactionCheckpoint: string | undefined
+  let compacting: ReturnType<typeof compactionBoundary> | undefined
+  let compactionObserving = false
+  // Local cancellation/policy intent fence, not cross-process publication atomicity.
+  // Ordinary input admission must not revoke an otherwise valid compaction event.
+  let compactionSerial = 0
   const lifetime = new MemoryLifetime()
   let retirement: Promise<void> | undefined
   let releaseRuntime: (() => void) | undefined
@@ -120,6 +126,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     pending = undefined
     outcome = undefined
     compactionCheckpoint = undefined
+    compacting = undefined
     latestAttempt = undefined
     const own = job
     job = undefined
@@ -760,6 +767,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           Object.keys(args).some((key) => !['action', 'target', 'revision'].includes(key))
         )
           throw Error('Explicit primary policy target/digest required')
+        compactionSerial++
+        compacting = undefined
         return await reconcileMemoryPolicy(f.engine, policyContext(), args.target, args.revision)
       }
       if (args.action === 'policy') {
@@ -772,6 +781,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         )
           throw Error('Explicit primary policy revision/configHash/automatic required')
         admissionSerial++
+        compactionSerial++
+        compacting = undefined
         pending = undefined
         job?.cancel()
         draft = undefined // retained proposal, never silently reset or published
@@ -802,6 +813,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         })
       if (args.action === 'cancel') {
         admissionSerial++
+        compactionSerial++
+        compacting = undefined
         pending = undefined
         job?.cancel()
         if (draft) await f.request('cancel', { view: draft.view })
@@ -971,14 +984,51 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     await reactivateTree(ctx, true)
   })
   pi.on('session_shutdown', retire)
-  pi.on('session_before_compact', (event) => {
+  pi.on('session_before_compact', (event, ctx) => {
     compactionCheckpoint = `reason=${event.reason}; tokensBefore=${event.preparation?.tokensBefore ?? 'unknown'}`
+    compacting = undefined
+    try {
+      if (active) compacting = compactionBoundary(event, ctx)
+    } catch {
+      // Missing/ambiguous evidence disables observation, never native compaction.
+    }
   })
-  pi.on('session_compact', (event) => {
+  pi.on('session_compact_failed', () => {
+    compacting = undefined
+  })
+  pi.on('session_compact', (event, ctx) => {
+    const boundary = compacting
+    compacting = undefined
     const summaryText = bounded(event.compactionEntry?.summary, 1024)
     compactionCheckpoint = summaryText
       ? `reason=${event.reason}; summary=${summaryText.replace(/\s+/g, ' ').slice(0, 320)}`
       : `reason=${event.reason}; completed=true`
+    // Owner-local bound before the first await; retirement joins this work. Do not
+    // enqueue an unbounded tail, reactivate a retired owner, or start a writer here.
+    if (compactionObserving || !active || !boundary) return
+    compactionObserving = true
+    const serial = compactionSerial
+    return lifetime.track(async () => {
+      try {
+        const observation = compactionObservation(event, ctx, boundary)
+        const f = await resolve(ctx, 'agent_memory_reflect', 'write')
+        const current = f.context.current
+        f.context.current = (targets) =>
+          serial === compactionSerial && observation.current() && current(targets)
+        assertCurrent(f.context)
+        if (
+          f.access.kind !== 'primary' ||
+          !f.abi.isPrimarySession(ctx) ||
+          !(await f.barrier()).config.automatic
+        )
+          return
+        await f.request('observe', { episode: observation.episode(f.project) })
+      } catch {
+        // Evidence admission is best-effort. It never grants authority or blocks compaction.
+      } finally {
+        compactionObserving = false
+      }
+    })
   })
   pi.on('before_agent_start', (event, ctx) =>
     lifetime.track(async () => {
@@ -1119,7 +1169,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
               bounded(rawText(entry.message.content)) === own.input.text,
           )
         if (observed.length !== 1 || !own.actions.length || token !== epoch) return
-        const episode: Episode = {
+        const episode: TurnEpisode = {
           id: digest(`${ctx.sessionManager.getSessionId()}:${observed[0].id}`),
           project: f.project,
           session: ctx.sessionManager.getSessionId(),

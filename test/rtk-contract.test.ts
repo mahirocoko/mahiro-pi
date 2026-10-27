@@ -111,7 +111,7 @@ test('current context owns real RTK helper semantics and retirement, not the his
     ],
     [
       'rewrites cannot borrow effective approval',
-      /only the identical approved command; changed candidates\/final commands require independent non-yolo allow/,
+      /lifts wrapper\/parse floors only for the identical approved command; changed candidates\/final commands must remain unfloored and undenied without matching a specific ask rule/,
     ],
     ['native child policy is separate', /Native children execute under their own policy/],
     [
@@ -150,8 +150,8 @@ test('current context owns real RTK helper semantics and retirement, not the his
     ],
     ['deny vetoes effective approval', /Deny always vetoes/],
     [
-      'changed commands need independent allow',
-      /changed original, RTK candidate or sanitizer-transformed final command needs independent \*\*non-yolo allow\*\*/,
+      'changed commands need unfloored policy check',
+      /changed original, RTK candidate or sanitizer-transformed final command must remain \*\*unfloored and undenied\*\*/,
     ],
     [
       'lifecycle revokes receipts and checkers',

@@ -72,8 +72,9 @@ One fresh full binding is reused within each synchronous execution-read barrier;
 no shared permission cache replaces live PSS or final argument authorization.
 Small configuration reads allocate from the opened file size plus a growth
 sentinel, retaining final identity, size, timestamp and ownership checks.
-Public effective Bash approval can authorize only the identical approved command;
-changed candidates/final commands require independent non-yolo allow. See the
+Public effective Bash approval lifts wrapper/parse floors only for the identical
+approved command; changed candidates/final commands must remain unfloored and
+undenied without matching a specific ask rule. See the
 [exact receipt contract](guards.md#effective-bash-approval). This does not add
 arbitrary shell/interpreter file detection. Direct commands and mixed chains
 remain subject to command policy, not a universal path sandbox.

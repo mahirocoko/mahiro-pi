@@ -27,6 +27,22 @@ const registerHelperExtractors = (service: PermissionsService | undefined) => {
 }
 const finalPathSurface = (name: string) =>
   name === 'write' ? 'path_write' : ['read', 'grep', 'find', 'ls'].includes(name) ? 'path_read' : 'path'
+const allowsTransformedBash = (service: PermissionsService | undefined, command: string) => {
+  const d = service?.checkPermission('bash', command)
+  if (!d || d.state === 'deny' || d.floor !== undefined) return false
+  if (d.state === 'allow') return true
+  const units = d.askingUnits?.length ? d.askingUnits : [{ command, floor: d.floor }]
+  return units.every((u) => {
+    if (u.floor !== undefined) return false
+    const ud = service?.checkPermission('bash', u.command)
+    return (
+      !!ud &&
+      ud.state !== 'deny' &&
+      ud.floor === undefined &&
+      (ud.matchedPattern === undefined || ud.matchedPattern === '*')
+    )
+  })
+}
 
 // Root consumes an already running kernel. It never publishes feature ABIs,
 // initializes registry state, owns memory retirement or clears kernel nodes.
@@ -91,28 +107,32 @@ export default async function activate(pi: ExtensionAPI) {
         if (!current(ctx)) throw Error('Pi native guard unavailable; execution blocked')
         const classifier = ({ find: 'find_files', ls: 'list_dir' } as Record<string, string>)[name] ?? name
         const service = getPermissionsService(ctx.sessionManager.getSessionId())
-        const effectiveBash =
+        const rawCommand = input.command as string
+        const rawApproval =
           name === 'bash'
             ? service?.consumeBashApproval?.({
                 sessionManager: ctx.sessionManager,
                 toolCallId: id,
-                command: input.command as string,
+                command: rawCommand,
               })
             : undefined
-        const bashAllowed = (command: string) =>
-          effectiveBash
-            ? effectiveBash(command)
-            : getPermissionsService(ctx.sessionManager.getSessionId())?.checkPermission('bash', command)
+        const originAllowed = () =>
+          rawApproval
+            ? rawApproval(rawCommand)
+            : getPermissionsService(ctx.sessionManager.getSessionId())?.checkPermission('bash', rawCommand)
                 ?.state === 'allow'
-        if (name === 'bash' && !bashAllowed(input.command as string))
-          throw Error('Native final Bash permission denied')
+        const bashAllowed = (command: string) =>
+          originAllowed() &&
+          (command === rawCommand ||
+            allowsTransformedBash(getPermissionsService(ctx.sessionManager.getSessionId()), command))
+        if (name === 'bash' && !bashAllowed(rawCommand)) throw Error('Native final Bash permission denied')
         if (signal?.aborted) throw Error('Pi guard execution cancelled')
         const executionContext = { ...ctx, signal: signal ?? ctx.signal }
         const args = await host.finalArgs(classifier, input, executionContext)
         const kernel = nodes.get(ctx.sessionManager.getSessionId())
         const final =
           name === 'bash' && kernel?.ownsContext?.(ctx)
-            ? await kernel.rtk.transform(args, executionContext, effectiveBash)
+            ? await kernel.rtk.transform(args, executionContext, bashAllowed)
             : args
         if (signal?.aborted || !current(ctx)) throw Error('Pi native guard retired; execution blocked')
         if (name === 'bash' && !bashAllowed(final.command)) throw Error('Native final Bash permission denied')

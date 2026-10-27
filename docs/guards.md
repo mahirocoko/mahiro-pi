@@ -126,10 +126,12 @@ bound before awaiting to:
 
 Root consumes the receipt **before asynchronous transformations**. The returned
 execution-local checker re-queries current Bash policy under that principal.
-Deny always vetoes. Only the identical effectively approved command may lift an
-ask/yolo floor; a changed original, RTK candidate or sanitizer-transformed final
-command needs independent **non-yolo allow**. Approval of one command is not
-authority for a rewrite.
+Deny always vetoes. Only the identical effectively approved command may lift a
+wrapper/parse floor; a changed original, RTK candidate or sanitizer-transformed
+final command must remain **unfloored and undenied** under current Bash policy
+(allowing wildcard/yolo and approved catch-all asks, without bypassing specific
+ask rules). Approval of one command never lifts a floor or specific ask rule on
+a rewrite.
 
 Unit decision events and path caches never supply Bash authority. Completion,
 cancellation, turn end, reload and shutdown revoke receipts and retained

@@ -30,7 +30,7 @@ test('paired multi-line edits highlight words, keep all text, and do not mutate 
   const before = JSON.stringify(model)
   const wide = renderPreparedDiff(model, 110, theme, geometry)
   assert.match(plain(wide), /old\s+│ new/)
-  assert.ok(wide.join('\n').includes('\x1b[7m'), 'changed words have inverse style')
+  assert.ok(!wide.join('\n').includes('\x1b[7m'), 'changed words do not invert the row colors')
   assert.match(plain(wide), /ภาษาไทย 中文 👩🏽‍💻 é/)
   assert.equal(JSON.stringify(model), before)
 })
