@@ -99,6 +99,12 @@ export async function resolveRTKRewrite(
           output = output.replace(/\r?\n$/, '')
           if (!output.trim() || output !== output.trim() || /[\x00-\x1f\x7f]/.test(output))
             return resolve({ status: 'malformed', command: null })
+          // RTK can collapse Biome version/format invocations into `rtk lint`,
+          // changing semantics. Keep the whole original line, including chains.
+          // This conservative token veto is not a shell parser: even a Biome
+          // mention in quoted data forgoes acceleration. Helper denials above
+          // still win, and the caller still authorizes the guarded original.
+          if (/\bbiome\b/.test(command)) return resolve({ status: 'unchanged', command: null })
           resolve({
             status: code === 3 ? 'approval-required' : 'candidate',
             command: output,

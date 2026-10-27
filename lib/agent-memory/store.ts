@@ -34,7 +34,13 @@ import {
   projectOfPath,
   withMigrationFrontmatter,
 } from './engine/schema.ts'
-import { directoryIndex, discoveryVersion, extractFrontmatterAndLinks, topicMetadata } from './retrieval.ts'
+import {
+  buildMemoryPalace,
+  directoryIndex,
+  discoveryVersion,
+  extractFrontmatterAndLinks,
+  topicMetadata,
+} from './retrieval.ts'
 import { observedEpisode } from './engine/episodes.ts'
 
 export { allowedPath, type EditModeOptions }
@@ -1244,6 +1250,54 @@ export function createMemoryStore(
         missingDescriptions,
         unmigratedV1Paths,
       }
+    },
+    palace(project = 'default') {
+      const now = load()
+      const c = config()
+      const activePaths = Object.keys(now.files)
+        .filter((p) => !suppressed(now, p, now.files[p]))
+        .sort()
+      const fileSizes: Record<string, number> = {}
+      const fileSources: Record<string, string[]> = {}
+      const fileTexts: Record<string, string | undefined> = {}
+      for (const p of activePaths) {
+        fileSizes[p] = bytes(now.files[p].text)
+        fileSources[p] = now.files[p].sources
+        if (!p.startsWith('archives/')) {
+          fileTexts[p] = now.files[p].text
+        }
+      }
+      const episodesDir = join(root, '.episodes')
+      const episodeFiles = existsSync(episodesDir)
+        ? readdirSync(episodesDir).filter((p) => /^[a-f0-9]{64}\.json$/.test(p)).length
+        : 0
+      const activeViews = views()
+      const viewCounts = {
+        total: activeViews.length,
+        open: activeViews.filter((v) => v.state === 'open').length,
+        conflict: activeViews.filter((v) => v.state === 'conflict').length,
+        committed: activeViews.filter((v) => v.state === 'committed').length,
+        cancelled: activeViews.filter((v) => v.state === 'cancelled').length,
+      }
+      return buildMemoryPalace({
+        revision: now.revision,
+        project,
+        config: c,
+        activePaths,
+        fileSizes,
+        fileSources,
+        fileTexts,
+        views: viewCounts,
+        episodes: {
+          total: episodeFiles,
+          reviewed: now.reviewed.length,
+        },
+        tombstones: {
+          forgottenPaths: now.forgottenPaths.length,
+          forgottenSources: now.forgottenSources.length,
+        },
+        pendingOperations: [],
+      })
     },
     initProject(project: string) {
       if (!name.test(project)) throw new Error('Invalid project scope')

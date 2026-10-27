@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
 import {
+  buildMemoryPalace,
   directoryIndex,
   extractFrontmatterAndLinks,
   parseMemoryRead,
@@ -390,6 +391,99 @@ export class MemoryDataEngine {
           missingDescriptions,
           unmigratedV1Paths,
         },
+      }
+    }
+    if (args.action === 'palace') {
+      const activePaths = Object.keys(now.refs)
+        .filter((p) => !suppressed(now.ledger, p, now.refs[p].sources))
+        .sort()
+      const fileSizes: Record<string, number> = {}
+      const fileSources: Record<string, string[]> = {}
+      const inspectPaths: string[] = []
+      for (const p of activePaths) {
+        fileSizes[p] = now.refs[p].size
+        fileSources[p] = now.refs[p].sources
+        if (!p.startsWith('archives/')) inspectPaths.push(p)
+      }
+      const fileTexts = await this.bodies(inspectPaths.map((p) => [p, now.refs[p]]))
+      const episodes = (await this.episodeNames()).length
+      const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
+      const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
+      if (legacy.length + modern.length > limits.views)
+        throw memoryFailure('capacity', 'Private view capacity exceeded')
+      const viewCounts = {
+        total: legacy.length + modern.length,
+        open: 0,
+        conflict: 0,
+        committed: 0,
+        cancelled: 0,
+      }
+      const isDiscarded = async (id: string, rawHash: string) => {
+        const marker = join(this.folder, 'discarded', `${id}.json`)
+        try {
+          const discarded = JSON.parse(await this.read(marker, 1024))
+          if (
+            !objectShape(discarded, ['id', 'hash']) ||
+            Object.keys(discarded).length !== 2 ||
+            discarded.id !== id ||
+            discarded.hash !== rawHash
+          )
+            throw Error('Invalid retained discard marker')
+          return true
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+          throw error
+        }
+      }
+      for (const name of legacy) {
+        const id = name.slice(0, -5)
+        const raw = await this.read(join(this.root, '.views', name), 40 * 1024 * 1024)
+        const v = legacyView(raw, id)
+        const state = v.state === 'conflict' && (await isDiscarded(id, digest(raw))) ? 'cancelled' : v.state
+        viewCounts[state]++
+      }
+      for (const name of modern) {
+        const id = name.slice(0, -5)
+        const raw = await this.read(join(this.folder, 'drafts', name), 2 * 1024 * 1024)
+        const d = parseDraft(raw)
+        if (d.id !== id) throw Error('Invalid persisted view metadata')
+        const mapped = d.state === 'ready' ? 'open' : d.state
+        const state = mapped === 'conflict' && (await isDiscarded(id, digest(raw))) ? 'cancelled' : mapped
+        viewCounts[state]++
+      }
+      const pendingOperations: { id: string; digest: string; stage: Stage; recordBytes: number }[] = []
+      const journalNames = await this.names(join(this.folder, 'journal'), /^[a-f0-9-]{36}\.json$/)
+      for (const name of journalNames) {
+        const raw = await this.read(join(this.folder, 'journal', name), operationLimit)
+        const record = parseOperation(raw)
+        if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
+          pendingOperations.push({
+            id: record.immutable.plan.id,
+            digest: record.immutable.plan.digest,
+            stage: record.receipt.stage,
+            recordBytes: bytes(raw),
+          })
+      }
+      return {
+        palace: buildMemoryPalace({
+          revision: now.revision,
+          project: scope,
+          config,
+          activePaths,
+          fileSizes,
+          fileSources,
+          fileTexts,
+          views: viewCounts,
+          episodes: {
+            total: episodes,
+            reviewed: now.ledger.reviewed.length,
+          },
+          tombstones: {
+            forgottenPaths: now.ledger.forgottenPaths.length,
+            forgottenSources: now.ledger.forgottenSources.length,
+          },
+          pendingOperations,
+        }),
       }
     }
     if (args.revision !== undefined && now.revision !== args.revision)

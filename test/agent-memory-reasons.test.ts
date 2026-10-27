@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import test from 'node:test'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   decodeMemoryFailure,
   memoryFailure,
@@ -10,6 +10,8 @@ import {
 } from '../lib/agent-memory/reasons.ts'
 import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
 import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
+import { validateReply } from '../lib/agent-memory/engine/replies.ts'
+import { applySurgicalEdit } from '../lib/agent-memory/engine/schema.ts'
 import type { Plan } from '../lib/agent-memory/engine/protocol.ts'
 
 const secret = '/private/not-a-real-root # Private heading stderr: never echo'
@@ -133,6 +135,75 @@ test('safe memory controller correlates error-only frames and rechecks current a
       assert.equal(rejected, undefined, 'malformed code cannot complete an active request')
     }
     assert.equal(resolved, false)
+  }
+})
+
+test('edit reply hashes represent resulting content, not the append or patch operand', () => {
+  const digest = (text: string) => createHash('sha256').update(text).digest('hex')
+  for (const [current, text, options] of [
+    [undefined, '- synthetic note', { mode: 'append' as const }],
+    ['# Notes\n- previous\n', '- synthetic note', { mode: 'append' as const }],
+    ['# Notes\n- previous\n', '- synthetic note', { mode: 'append' as const, section: 'Facts' }],
+    ['# Notes\n- previous\n', 'new', { mode: 'patch' as const, oldText: 'previous' }],
+    ['# Notes\n- previous\n', null, { mode: 'patch' as const, oldText: 'previous', newText: 'new' }],
+  ] as const) {
+    const result = applySurgicalEdit(current, text, options)
+    assert.equal(typeof result, 'string')
+    validateReply('edit', { text, ...options }, { hash: digest(result!) })
+    for (const hash of [null, '', 'not-a-hash', 'A'.repeat(64), 1])
+      assert.throws(() => validateReply('edit', { text, ...options }, { hash }))
+    assert.throws(() => validateReply('edit', { text, ...options }, { hash: digest(result!), extra: true }))
+  }
+  for (const mode of [undefined, 'replace']) {
+    validateReply('edit', { text: 'replacement', mode }, { hash: digest('replacement') })
+    validateReply('edit', { text: null, mode }, { hash: null })
+    assert.throws(() => validateReply('edit', { text: 'replacement', mode }, { hash: digest('different') }))
+    assert.throws(() => validateReply('edit', { text: null, mode }, { hash: digest('different') }))
+  }
+})
+
+test('controller admission denial is request-local; injected channel failure remains terminal', async () => {
+  // No child, filesystem, private root, or replacement authorization transport.
+  for (const variant of ['admission', 'checkpoint', 'channel'] as const) {
+    const engine = new MemoryEngineController('/unused-diagnostic-fixture') as any
+    const sent: any[] = []
+    engine.start = () => {}
+    engine.send = (frame: unknown) => sent.push(frame)
+    const denied = { current: () => false }
+    const allowed = { current: () => true }
+    if (variant === 'admission') {
+      await assert.rejects(engine.request('config', {}, denied), /Current parent authority/)
+      assert.equal(sent.length, 0)
+      assert.equal(engine.failure, undefined)
+    } else if (variant === 'checkpoint') {
+      const request = engine.request('config', {}, allowed)
+      const frame = sent.at(-1)
+      engine.active.context = denied
+      engine.receive({
+        v: 2,
+        epoch: engine.epoch,
+        id: frame.id,
+        check: 1,
+        targets: { physical: [], logical: [], kind: 'data' },
+      })
+      assert.equal(sent.at(-1).allow, false)
+      engine.receive({ v: 2, epoch: engine.epoch, id: frame.id, error: { reason: 'unknown' } })
+      await assert.rejects(request, /Current parent authority/)
+      assert.equal(engine.failure, undefined)
+    } else {
+      const request = engine.request('config', {}, allowed)
+      const injected = Error('synthetic terminal channel failure')
+      engine.fail(injected)
+      await assert.rejects(request, (error) => error === injected)
+      await assert.rejects(engine.request('config', {}, allowed), (error) => error === injected)
+      assert.equal(sent.length, 1, 'terminal channel failures are not replayed or respawned')
+      continue
+    }
+    const request = engine.request('ready', { view: randomUUID() }, allowed)
+    engine.receive({ v: 2, epoch: engine.epoch, id: sent.at(-1).id, result: { ready: true } })
+    assert.deepEqual(await request, { ready: true })
+    assert.equal(engine.queueSize, 0)
+    await engine.close()
   }
 })
 

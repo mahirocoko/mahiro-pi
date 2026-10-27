@@ -74,13 +74,14 @@ internal read tickets and expected revisions; arguments cannot fabricate a human
 actor or override canonical identity. Authorized empty reads create nothing.
 Creation requires explicit human direction, not merely loading a skill or resource.
 
-Explicit profile installation provisions named tools and separate canonical DATA
-namespaces. No per-repository configuration is required. The independently
-bootstrapped feature kernel checks current registered tool identity,
-SessionManager/header/generation and public winning `allow` for both tool and
-DATA surface: exact `matchedSurface`, source
-`tool`, no yolo substitution. Wildcard/default/session, unrelated memory or
-one-sided grants do not suffice. Explicit legacy leaf/tool/path restrictions remain.
+Explicit profile installation provisions the named tools and their canonical
+feature-data namespaces. No per-repository configuration is required. The
+independently bootstrapped feature kernel checks current registered tool identity,
+SessionManager/header/generation and ordinary public PSS decisions. Wildcard and
+yolo allows apply according to PSS precedence; exact DATA winning-surface
+attestation is not an additional requirement for these workflow tools. Explicit
+tool and applicable path restrictions remain in force. Memory and UI preferences
+have separate authority contracts; see [guards](guards.md#feature-authority-and-failures).
 
 State lives beneath the private profile, never a caller-selected path:
 

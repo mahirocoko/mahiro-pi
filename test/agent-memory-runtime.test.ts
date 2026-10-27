@@ -280,7 +280,7 @@ test('safe memory reasons sanitize registered tools and every command including 
         )
         return true
       })
-      for (const action of ['doctor', 'remember synthetic', 'init', 'dream']) {
+      for (const action of ['doctor', 'palace', 'remember synthetic', 'init', 'dream']) {
         await command.handler(action, f.ctx)
         assert.equal(
           notifications.at(-1),
@@ -2943,5 +2943,190 @@ test('foreground/cancel/session lifecycle invalidates worker publication and fai
     await assert.rejects(f.runtime.run('agent_memory_read', {}, f.ctx))
   } finally {
     f.close()
+  }
+})
+
+test('same-runtime ABI1 worker before_agent_start preserves active worker job while palace remains read-only', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const revBefore = f.store.snapshot().revision
+    const palace: any = await f.runtime.run('agent_memory_manage', { action: 'palace' }, f.ctx)
+    assert.equal(palace.revision, revBefore)
+    assert.equal(palace.project, 'project')
+    assert.ok(palace.layers.core.includes('Core.md'))
+    assert.equal(f.store.snapshot().revision, revBefore)
+
+    await f.runtime.run('agent_memory_reflect', { assignment: 'Maintain a durable method' }, f.ctx)
+    const child: any = f.child()
+    const workerStart = await f.emit(
+      'before_agent_start',
+      { systemPrompt: 'Parent preamble\n<active_agent name="managed-memory-writer"/>' },
+      child,
+    )
+    const workerPrompt = promptResult(workerStart)
+    assert.match(
+      typeof workerPrompt === 'string' ? workerPrompt : (workerPrompt?.systemPrompt ?? ''),
+      /Curation doctrine v1/,
+    )
+    assert.notEqual(f.record.status, 'stopped', 'worker before_agent_start must not self-cancel its own job')
+    const files: any = await f.runtime.run('agent_memory_read', {}, child)
+    await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'procedures/worker-survived.md',
+        expectedHash: null,
+        text: '# Worker Survived\n\n- Same-runtime before_agent_start did not self-cancel.\n',
+        sources: [],
+      },
+      child,
+    )
+    const ready: any = await f.runtime.run('agent_memory_commit', { revision: files.revision }, child)
+    assert.equal(ready.readyForIntegration, true)
+    f.record.status = 'completed'
+    f.nativeEvent('subagents:completed')
+    assert.notEqual(f.store.snapshot().revision, revBefore)
+    assert.ok(f.store.snapshot().files['procedures/worker-survived.md'])
+  } finally {
+    f.close()
+  }
+})
+
+test('deferred worker A before_agent_start cannot cancel replacement worker B on reject or stale/revoked current', async () => {
+  for (const mode of ['reject', 'revoked-distinct-child', 'revoked-reused-child'] as const) {
+    const f = fixture()
+    try {
+      await f.emit('session_start')
+      const records = new Map<string, any>()
+      const spawn = f.service.spawn
+      f.service.spawn = (...args) => {
+        const id = spawn(...args)
+        records.set(id, f.record)
+        return id
+      }
+      f.service.getRecord = (id?: string) => records.get(id!)
+      const aborted: string[] = []
+      f.service.abort = (id) => {
+        aborted.push(id)
+        records.get(id).status = 'stopped'
+        return true
+      }
+
+      // 1. Dispatch worker A (job-1)
+      await f.runtime.run('agent_memory_reflect', { assignment: 'Worker A assignment' }, f.ctx)
+      assert.equal(f.record.id, 'job-1')
+      const childA: any = f.child()
+      const valueA = f.binding.value
+
+      // Defer worker A's asynchronous authorize inside before_agent_start
+      let resolveA!: (value: any) => void
+      let rejectA!: (reason?: any) => void
+      const deferredA = new Promise((resolve, reject) => {
+        resolveA = resolve
+        rejectA = reject
+      })
+      let markEnteredA!: () => void
+      const enteredA = new Promise<void>((resolve) => {
+        markEnteredA = resolve
+      })
+      const originalAuthorize = f.abi.authorize
+      let intercepted = false
+      f.abi.authorize = (...args: any[]) => {
+        if (!intercepted) {
+          intercepted = true
+          markEnteredA()
+          return deferredA
+        }
+        return originalAuthorize(...args)
+      }
+
+      const startAPromise = f.emit(
+        'before_agent_start',
+        { systemPrompt: 'Parent preamble\n<active_agent name="managed-memory-writer"/>' },
+        childA,
+      )
+      await enteredA
+      assert.equal(intercepted, true, 'worker A entered async authorize')
+
+      // 2. Cancel worker A and start replacement worker B (job-2) while A's authorize is still pending
+      await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
+      assert.deepEqual(aborted, ['job-1'])
+      await f.runtime.run('agent_memory_reflect', { assignment: 'Worker B replacement assignment' }, f.ctx)
+      assert.equal(f.record.id, 'job-2')
+
+      let childB: any
+      if (mode === 'revoked-distinct-child') {
+        const childBSM = {
+          getSessionId: () => 'child-b',
+          getHeader: () => ({ type: 'session', id: 'child-b', parentSession: 'primary' }),
+        }
+        f.binding.sm = childBSM
+        f.nodes.set('child-b', {
+          generation: f.abi.generation,
+          healthy: () => true,
+          managedMemory: f.abi,
+        })
+        childB = { cwd: f.ctx.cwd, sessionManager: childBSM }
+      } else {
+        childB = f.child()
+      }
+
+      // 3. Settle stale worker A's authorize after replacement B is active
+      if (mode === 'reject') {
+        rejectA(new Error('stale worker A authorize rejected'))
+      } else {
+        resolveA({ kind: 'worker', value: valueA })
+      }
+      const startAResult = promptResult(await startAPromise)
+      assert.equal(
+        startAResult?.systemPrompt,
+        'Managed memory worker unavailable. Do not access memory or infer from inherited context. Report the missing binding/permission and stop.',
+        `stale worker A must fail closed in mode=${mode}`,
+      )
+
+      // 4. Verify replacement worker B was NOT cancelled (even if revoked worker A emits another before_agent_start) and can complete and integrate
+      if (mode === 'revoked-distinct-child') {
+        const lateStartA = promptResult(
+          await f.emit(
+            'before_agent_start',
+            { systemPrompt: 'Parent preamble\n<active_agent name="managed-memory-writer"/>' },
+            childA,
+          ),
+        )
+        assert.match(lateStartA?.systemPrompt ?? '', /Managed memory worker unavailable/)
+      }
+      assert.deepEqual(aborted, ['job-1'], `replacement worker B must not be aborted in mode=${mode}`)
+      assert.equal(f.runtime.status().worker, true, `replacement worker B must stay active in mode=${mode}`)
+      assert.equal(f.binding?.id, 'job-2')
+      assert.equal(f.binding?.active(), true)
+      assert.equal(records.get('job-2').status, 'running')
+
+      const startBResult = promptResult(
+        await f.emit(
+          'before_agent_start',
+          { systemPrompt: 'Parent preamble\n<active_agent name="managed-memory-writer"/>' },
+          childB,
+        ),
+      )
+      assert.match(startBResult?.systemPrompt ?? '', /Curation doctrine v1/)
+      const filesB: any = await f.runtime.run('agent_memory_read', {}, childB)
+      await f.runtime.run(
+        'agent_memory_edit',
+        {
+          path: `procedures/replacement-${mode}.md`,
+          expectedHash: null,
+          text: `# Replacement ${mode}\n\n- Replacement worker B survived delayed worker A failure.\n`,
+          sources: [],
+        },
+        childB,
+      )
+      const commitB: any = await f.runtime.run('agent_memory_commit', { revision: filesB.revision }, childB)
+      assert.equal(commitB.readyForIntegration, true)
+      records.get('job-2').status = 'completed'
+      f.nativeEvent('subagents:completed', { id: 'job-2', type: 'managed-memory-writer' })
+      assert.ok(f.store.snapshot().files[`procedures/replacement-${mode}.md`])
+    } finally {
+      f.close()
+    }
   }
 })

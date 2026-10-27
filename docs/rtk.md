@@ -60,6 +60,14 @@ guarded original, never partial output. Pipelines/chains may be proposals, not
 locally certified shell syntax. A direct `git commit` bypasses the RTK helper,
 not the native commit guard.
 
+Biome command lines retain the guarded original instead of accepting a helper
+candidate: RTK can otherwise turn `pnpm exec biome --version` or
+`pnpm exec biome format --write ...` into `rtk lint`, changing their meaning.
+This conservative `biome` token check covers the whole line, including chains
+and pipelines; even a matching mention in quoted data forgoes acceleration.
+The helper is still consulted and exit **2** still blocks. This is a semantic
+rewrite veto, not a permission exemption or a shell parser.
+
 Original public Bash policy and commit-attribution checks happen before the
 helper. Proposed and final sanitizer-transformed arguments must also pass before
 native spawn. Public PSS owns applicable file-access policy; the retired mandatory

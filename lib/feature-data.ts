@@ -77,6 +77,7 @@ export const sessionTrackingTools = [
 export function featureGrants(profile: string) {
   return [
     ...sessionTrackingTools,
+    'mh_code_map',
     ...featureNamespaces(profile).flatMap(({ prefix, root, tools }) => [
       ...tools,
       `${prefix}_data_${hash(root)}`,

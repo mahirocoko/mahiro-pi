@@ -93,7 +93,7 @@ export interface Operations {
   observe: { input: { episode: Episode }; output: { recorded: true } }
   manage: {
     input: {
-      action: 'forget' | 'rollback' | 'doctor' | 'init-project' | 'migrate-v2'
+      action: 'forget' | 'rollback' | 'doctor' | 'palace' | 'init-project' | 'migrate-v2'
       project: string
       revision?: string
       paths?: string[]
@@ -105,6 +105,7 @@ export interface Operations {
       | { view: string; added: string[]; changed: true }
       | { revision: string; added: string[]; changed: false }
       | { doctor: Record<string, unknown> }
+      | { palace: Record<string, unknown> }
   }
   conflicts: {
     input: { project: string; target?: string; path?: string; offset?: number; limit?: number }
@@ -288,13 +289,18 @@ export function validateInput(method: Method, input: unknown) {
       throw Error('Invalid management scope')
     if (
       method !== 'conflicts' &&
-      !(method === 'manage' && ['doctor', 'init-project', 'migrate-v2'].includes(input.action as string)) &&
+      !(
+        method === 'manage' &&
+        ['doctor', 'palace', 'init-project', 'migrate-v2'].includes(input.action as string)
+      ) &&
       (typeof input.revision !== 'string' || !/^[a-f0-9]{40,64}$/.test(input.revision))
     )
       throw Error('Expected current memory revision')
     if (
       method === 'manage' &&
-      !['forget', 'rollback', 'doctor', 'init-project', 'migrate-v2'].includes(input.action as string)
+      !['forget', 'rollback', 'doctor', 'palace', 'init-project', 'migrate-v2'].includes(
+        input.action as string,
+      )
     )
       throw Error('Invalid management action')
     if (

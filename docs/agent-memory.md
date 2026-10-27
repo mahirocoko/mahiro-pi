@@ -88,9 +88,17 @@ loaded runtime actually advertises.
    supports surgical edits (`oldText`/`newText` for `patch`, optional `section` heading for `append`).
    `text: null` removes a detail/procedure file; Core/index cannot be removed.
 3. `agent_memory_commit` integrates against the base revision. A Lossless Retention Guard
-   rejects commits that shrink protected files (`Core.md`, `index.md`, `system/**`,
-   `projects/<id>/system/**`) by more than 15% or drop more than 2 bullet/heading lines
-   unless `allowShrink: true` is explicitly passed. Disjoint file
+   rejects commits that remove protected files (`Core.md`, `system/persona.md`, `system/human/**`,
+   `projects/<id>/system/**`), drop a Markdown heading in a protected file, or shrink a
+   protected file of at least 160 JS characters by more than 20% (`reason: retention`), except
+   that a small `Core.md` with fewer than two Markdown headings and under 160 JS characters is
+   exempt from the heading-drop and shrink check so starter bootstrap/customization can be
+   replaced. The guard also exempts commits that grow any `reference/**`,
+   `projects/<id>/reference/**` or `archives/**` file in the same commit (`after.length > before.length`
+   in JS characters) or pass `allowShrink: true` explicitly. That same-commit growth bypass is a
+   mechanical length check, not semantic verification that the superseded belief and reason are
+   preserved in the reference or archive file; cooperative supersession tests demonstrate the
+   intended workflow rather than semantic enforcement. Disjoint file
    edits merge; overlapping changes remain private conflicts, not semantic
    auto-merges. Git HEAD is the publication boundary.
 4. Active primary context refreshes on the next request, not retroactively in an
@@ -98,7 +106,15 @@ loaded runtime actually advertises.
    a bounded, unverified continuity checkpoint is preserved for the next turn. This
    one-shot prompt context is separate from the metadata-only review records below.
 
-`agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+`agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `palace`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+
+Palace presentation is capped at 240 KiB for the complete encoded JSON reply, including
+escaped/multibyte metadata and the `palace` wrapper, leaving room for the engine transport
+envelope. Paths are never shortened. `layers` indexes exactly the returned `files`, not the
+entire active corpus; `coverage.layersTruncated` equals `coverage.filesTruncated`. Presentation
+truncation does not stop inspection of any non-archive active file: coverage counts and broken-link
+totals still describe the full inspection, while `brokenLinksTruncated` identifies a bounded sample.
+`healthy` requires complete inspection, zero broken links and total usage within the configured ceiling.
 
 Forgetting is logical filtering, **not secure Git/history erasure**. Revise
 Core/index to remove the forgotten knowledge/source link while preserving identity

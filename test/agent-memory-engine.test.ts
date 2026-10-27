@@ -1162,6 +1162,191 @@ test('engine migration publishes segmented archives then initializes and diagnos
     )) as unknown as { directory: string; total: number }
     assert.equal(directory.directory, `${archivePrefix}/deferred/${longProject}`)
     assert.equal(directory.total, 1)
+
+    // Auditable belief supersession in ABI2 engine without allowShrink
+    const draftSupersede = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    const convPage = await read(f, draftSupersede.view, 'projects/project/system/conventions.md')
+    await f.engine.request(
+      'edit',
+      {
+        view: draftSupersede.view,
+        path: 'projects/project/system/conventions.md',
+        expectedHash: convPage.hash as string,
+        text: '---\nname: project-conventions\ndescription: Coding conventions and workflow rules for project\n---\n# Project Conventions (project)\n\n- Updated concise rule after superseding the old heading.\n',
+        sources: [],
+      },
+      f.context,
+    )
+    await f.engine.request('ready', { view: draftSupersede.view }, f.context)
+    await assert.rejects(
+      f.engine.request('prepare', { view: draftSupersede.view, reviewed: [] }, f.context),
+      engineError({ reason: 'retention' }),
+    )
+    await f.engine.request(
+      'edit',
+      {
+        view: draftSupersede.view,
+        path: 'projects/project/reference/supersessions.md',
+        expectedHash: null,
+        text: '---\nname: project-supersessions\ndescription: Auditable log of superseded project rules\n---\n# Superseded Rules\n\n- [SUPERSEDED] Replaced initial `## Rules` section in [[projects/project/system/conventions.md]].\n',
+        sources: [],
+      },
+      f.context,
+    )
+    await f.engine.request('ready', { view: draftSupersede.view }, f.context)
+    const preparedSupersede = await f.engine.request(
+      'prepare',
+      { view: draftSupersede.view, reviewed: [] },
+      f.context,
+    )
+    assert.ok('plan' in preparedSupersede)
+    const publishedSupersede = await new MemoryPublisher(f.engine, f.env).publish(
+      preparedSupersede.plan,
+      f.context,
+    )
+    assert.equal(publishedSupersede.stage, 'reconciled_committed')
+
+    // Read-only palace inspection in ABI2 engine
+    const statusBeforePalace = await f.engine.request('status', {}, f.context)
+    const { palace } = (await f.engine.request(
+      'manage',
+      { action: 'palace', project: 'project' },
+      f.context,
+    )) as unknown as {
+      palace: {
+        revision: string
+        project: string
+        healthy: boolean
+        layers: Record<string, string[]>
+        files: { path: string; protectedRetention: boolean; alwaysLoaded: boolean; links?: string[] }[]
+        views: { total: number; committed: number }
+        pendingOperations: unknown[]
+      }
+    }
+    assert.equal(palace.revision, statusBeforePalace.revision)
+    assert.equal(palace.project, 'project')
+    assert.equal(palace.healthy, true)
+    assert.ok(palace.layers.core.includes('Core.md'))
+    assert.ok(palace.layers.system.includes('system/persona.md'))
+    assert.ok(palace.layers.projectSystem.includes('projects/project/system/conventions.md'))
+    assert.ok(palace.layers.projectReference.includes('projects/project/reference/supersessions.md'))
+    assert.ok(palace.layers.archives.some((p) => p.startsWith(archivePrefix)))
+    const superEntry = palace.files.find(
+      (entry) => entry.path === 'projects/project/reference/supersessions.md',
+    )
+    assert.ok(superEntry)
+    assert.equal(superEntry.protectedRetention, false)
+    assert.ok(superEntry.links?.includes('projects/project/system/conventions.md'))
+    assert.ok(palace.views.total >= 1)
+    assert.ok(palace.views.committed >= 1)
+    assert.deepEqual(palace.pendingOperations, [])
+    const statusAfterPalace = await f.engine.request('status', {}, f.context)
+    assert.equal(statusAfterPalace.revision, statusBeforePalace.revision)
+    assert.deepEqual(statusAfterPalace.pendingOperations, [])
+
+    // Seed 70 archive files + 65 additional non-archive files + 1 trailing non-archive file with a broken link
+    // to prove ABI2 palace inspects 65+ non-archive files, preserves non-archive metadata ahead of archives,
+    // exposes shared-primary foreign project files, and never reports false healthy=true.
+    const bulkDraft = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    for (let i = 0; i < 70; i++) {
+      const idx = String(i).padStart(2, '0')
+      await f.engine.request(
+        'edit',
+        {
+          view: bulkDraft.view,
+          path: `archives/legacy-v1-bulk/global/arch-${idx}.md`,
+          expectedHash: null,
+          text: `# Archived ${idx}\nHistorical note ${idx}.\n`,
+          sources: [],
+        },
+        f.context,
+      )
+    }
+    await f.engine.request(
+      'edit',
+      {
+        view: bulkDraft.view,
+        path: 'projects/other/system/foreign-abi2.md',
+        expectedHash: null,
+        text: '---\nname: foreign-abi2\ndescription: Foreign project system file in ABI2\n---\n# Foreign ABI2\n\n- Shared visibility check.\n',
+        sources: [],
+      },
+      f.context,
+    )
+    for (let i = 0; i < 60; i++) {
+      const idx = String(i).padStart(2, '0')
+      await f.engine.request(
+        'edit',
+        {
+          view: bulkDraft.view,
+          path: `reference/bulk-ref-${idx}.md`,
+          expectedHash: null,
+          text: `---\nname: bulk-ref-${idx}\ndescription: Bulk reference ${idx}\n---\n# Bulk Reference ${idx}\n\n- Links to [[Core.md]].\n`,
+          sources: [],
+        },
+        f.context,
+      )
+    }
+    await f.engine.request(
+      'edit',
+      {
+        view: bulkDraft.view,
+        path: 'system/human/zz-beyond-64.md',
+        expectedHash: null,
+        text: '---\nname: zz-beyond-64\ndescription: Trailing non-archive file beyond 64 limit\n---\n# Trailing File\n\n- Broken link [[reference/nonexistent-beyond-64.md]].\n',
+        sources: [],
+      },
+      f.context,
+    )
+    await f.engine.request('ready', { view: bulkDraft.view }, f.context)
+    const bulkPrepared = await f.engine.request('prepare', { view: bulkDraft.view, reviewed: [] }, f.context)
+    assert.ok('plan' in bulkPrepared)
+    const bulkPublished = await new MemoryPublisher(f.engine, f.env).publish(bulkPrepared.plan, f.context)
+    assert.equal(bulkPublished.stage, 'reconciled_committed')
+
+    const { palace: bulkPalace } = (await f.engine.request(
+      'manage',
+      { action: 'palace', project: 'project' },
+      f.context,
+    )) as unknown as {
+      palace: {
+        revision: string
+        project: string
+        healthy: boolean
+        coverage: {
+          complete: boolean
+          inspectedFiles: number
+          nonArchiveFiles: number
+          totalFiles: number
+          filesReturned: number
+          filesTruncated: boolean
+          brokenLinksTotal: number
+          brokenLinksTruncated: boolean
+        }
+        files: { path: string; layer: string; alwaysLoaded: boolean; name?: string }[]
+        brokenLinks: { source: string; target: string }[]
+      }
+    }
+    assert.ok(bulkPalace.coverage.nonArchiveFiles >= 65)
+    assert.equal(bulkPalace.coverage.inspectedFiles, bulkPalace.coverage.nonArchiveFiles)
+    assert.equal(bulkPalace.coverage.complete, true)
+    assert.equal(bulkPalace.healthy, false, '65th+ non-archive broken link must make ABI2 palace unhealthy')
+    assert.equal(bulkPalace.coverage.brokenLinksTotal, 1)
+    assert.deepEqual(bulkPalace.brokenLinks, [
+      { source: 'system/human/zz-beyond-64.md', target: 'reference/nonexistent-beyond-64.md' },
+    ])
+    const trailingIdx = bulkPalace.files.findIndex((entry) => entry.path === 'system/human/zz-beyond-64.md')
+    const firstArchiveIdx = bulkPalace.files.findIndex((entry) => entry.path.startsWith('archives/'))
+    const foreignAbi2Entry = bulkPalace.files.find(
+      (entry) => entry.path === 'projects/other/system/foreign-abi2.md',
+    )
+    assert.ok(trailingIdx >= 0, 'trailing non-archive file beyond 64 is returned in palace.files')
+    assert.ok(
+      firstArchiveIdx === -1 || trailingIdx < firstArchiveIdx,
+      'non-archive files precede archives in ABI2 palace.files',
+    )
+    assert.ok(foreignAbi2Entry, 'foreign project file is visible in shared-primary ABI2 palace')
+    assert.equal(foreignAbi2Entry.alwaysLoaded, false)
   } finally {
     await f.close()
   }

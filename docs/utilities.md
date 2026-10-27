@@ -204,11 +204,11 @@ large-read guidance and Goal/Evidence references remain metadata, not proof a
 file exists, permission to read it or evidence attachment. Formatting is bounded
 to 3000 characters; registration/formatting do not scan workspace source.
 
-Execution requires the exact named capability, healthy canonical source and
-public winning-rule attestation. Family wildcards or an old unattested service
-are insufficient. Feature DATA installation does not replace Code Map tool
-authority. Canonical checks may read package/provenance/policy metadata, not
-perform the proposed source search.
+Execution requires an existing public PSS allow for `mh_code_map` and a healthy
+canonical context. Ordinary wildcard and yolo decisions apply under PSS
+precedence; explicit tool restrictions remain in force. Explicit profile
+installation provisions the named tool grant without granting file access.
+Code Map does not perform the proposed source search.
 
 Owner: [registration](../extensions/mahiro-code-map.ts) and
 [guidance formatter](../lib/code-map.ts). Source availability does not prove

@@ -121,14 +121,16 @@ not generic filesystem, HOME, external-directory or Bash authority.
   installation alone composes it; loading source or reading absent preferences
   provisions nothing. Previously installed profiles may require an approved update.
 - Continuity and managed memory retain separate capabilities; historical recall
-  authority does not authorize maintained writes. Code Map tool authority is
-  separate from feature-data installation.
+  authority does not authorize maintained writes. Installation also grants the
+  bounded `mh_code_map` tool; it does not grant access to workspace files.
 - Reflection denial is retained without blocking manual-memory installation.
   Unrelated `continuity_learning` authority is neither granted nor required.
   A targeted deny changes only through supported public PSS configuration/approval
   under human authority, never via an installer bypass.
-- Exact winning-surface attestation is required at execution. A source declaration,
-  installed role or successful receipt does not guarantee every call is permitted.
+- Execution checks the applicable feature authority: workflow tools, Code Map and
+  RTK use ordinary PSS decisions; maintained memory and certain preferences also
+  require their exact DATA authority. A source declaration, installed role or
+  successful receipt does not guarantee every call is permitted.
 
 A retained scalar top-level `permission["*"]: "deny"` blocks installation
 **before profile writes** when a selected required exact grant is missing.

@@ -1,5 +1,6 @@
 import { bytes, digest, objectShape } from '../continuity/records.ts'
-import type { MemoryFile } from './store.ts'
+import { isAlwaysLoadedTieredPath, isProtectedRetentionPath, limits } from './engine/schema.ts'
+import type { MemoryConfig, MemoryFile } from './store.ts'
 
 // Derived, operation-local metadata only. These selectors never select authority.
 export const discoveryVersion = 2
@@ -118,7 +119,12 @@ export function topicMetadata(paths: string[]) {
   }
   return [...counts].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([topic, files]) => ({ topic, files }))
 }
-export function extractFrontmatterAndLinks(text: string): {
+// Existing discovery callers keep their 128-character presentation contract.
+// Palace opts into full file-bounded targets for inspection before clipping output.
+export function extractFrontmatterAndLinks(
+  text: string,
+  linkTargetCharacters = 128,
+): {
   name?: string
   description?: string
   links: string[]
@@ -137,7 +143,8 @@ export function extractFrontmatterAndLinks(text: string): {
   }
   const links = [
     ...new Set(
-      [...text.matchAll(/\[\[([^\][\n]{1,128})\]\]/g)]
+      [...text.matchAll(/\[\[([^\][\n]+)\]\]/g)]
+        .filter((m) => m[1].length <= linkTargetCharacters)
         .map((m) => m[1].trim())
         .filter((link) => link.length > 0),
     ),
@@ -279,4 +286,194 @@ export function retrieveMemory(
   selection: Extract<ReadSelection, { mode: 'topic' | 'query' }>,
 ): RetrievalResult {
   return retrieveMemoryImpl(files, selection)
+}
+
+// Complete manage reply (including the palace wrapper); leaves transport envelope headroom.
+export const palaceReplyBytes = 240 * 1024
+
+export type PalaceLayer =
+  | 'core'
+  | 'index'
+  | 'system'
+  | 'reference'
+  | 'projectSystem'
+  | 'projectReference'
+  | 'archives'
+  | 'legacy'
+
+export interface PalaceFileEntry {
+  path: string
+  layer: PalaceLayer
+  bytes: number
+  protectedRetention: boolean
+  alwaysLoaded: boolean
+  sourcesCount: number
+  name?: string
+  description?: string
+  links?: string[]
+}
+
+export interface PalaceInput {
+  revision: string
+  project: string
+  config: Pick<MemoryConfig, 'coreBytes' | 'indexBytes' | 'fileBytes' | 'totalBytes'>
+  activePaths: string[]
+  fileSizes: Record<string, number>
+  fileSources: Record<string, string[]>
+  fileTexts: Record<string, string | undefined>
+  views: {
+    total: number
+    open: number
+    conflict: number
+    committed: number
+    cancelled: number
+  }
+  episodes: {
+    total: number
+    reviewed: number
+  }
+  tombstones: {
+    forgottenPaths: number
+    forgottenSources: number
+  }
+  pendingOperations: {
+    id: string
+    digest: string
+    stage: string
+    recordBytes: number
+  }[]
+}
+
+export function palaceLayerFor(path: string): PalaceLayer {
+  if (path === 'Core.md') return 'core'
+  if (path === 'index.md') return 'index'
+  if (path === 'system/persona.md' || path.startsWith('system/human/')) return 'system'
+  if (path.startsWith('reference/') || path.startsWith('procedures/')) return 'reference'
+  if (/^projects\/[a-z0-9][a-z0-9-]{0,63}\/system\//.test(path)) return 'projectSystem'
+  if (/^projects\/[a-z0-9][a-z0-9-]{0,63}\/reference\//.test(path)) return 'projectReference'
+  if (path.startsWith('archives/')) return 'archives'
+  return 'legacy'
+}
+
+export function buildMemoryPalace(input: PalaceInput) {
+  const sortedPaths = [...input.activePaths].sort()
+  const nonArchivePaths = sortedPaths.filter((p) => !p.startsWith('archives/'))
+  const archivePaths = sortedPaths.filter((p) => p.startsWith('archives/'))
+  const orderedPaths = [...nonArchivePaths, ...archivePaths]
+  const activeSet = new Set(sortedPaths)
+  const layers: Record<PalaceLayer, string[]> = {
+    core: [],
+    index: [],
+    system: [],
+    reference: [],
+    projectSystem: [],
+    projectReference: [],
+    archives: [],
+    legacy: [],
+  }
+  let totalBytesUsed = 0
+  let alwaysLoadedBytes = 0
+  let inspectedFiles = 0
+  let uninspectedNonArchive = 0
+  let brokenLinksTotal = 0
+  let filesBytesUsed = 0
+  let filesCapped = false
+  const files: PalaceFileEntry[] = []
+  const brokenLinks: { source: string; target: string }[] = []
+
+  for (const p of orderedPaths) {
+    const layer = palaceLayerFor(p)
+    const size = input.fileSizes[p] ?? 0
+    totalBytesUsed += size
+    const alwaysLoaded = p === 'Core.md' || p === 'index.md' || isAlwaysLoadedTieredPath(p, input.project)
+    if (alwaysLoaded) alwaysLoadedBytes += size
+    const isArchive = p.startsWith('archives/')
+    const text = !isArchive ? input.fileTexts[p] : undefined
+    if (!isArchive) {
+      if (typeof text === 'string') inspectedFiles++
+      else uninspectedNonArchive++
+    }
+    const meta = typeof text === 'string' ? extractFrontmatterAndLinks(text, limits.file) : { links: [] }
+    for (const link of meta.links) {
+      const normalized = link.endsWith('.md') ? link : `${link}.md`
+      if (!activeSet.has(link) && !activeSet.has(normalized)) {
+        brokenLinksTotal++
+        if (brokenLinks.length < 64) {
+          brokenLinks.push({ source: p, target: link.slice(0, 128) })
+        }
+      }
+    }
+    if (!filesCapped && files.length < limits.files) {
+      const boundedName = meta.name ? meta.name.slice(0, 128) : undefined
+      const boundedDesc = meta.description ? meta.description.slice(0, 256) : undefined
+      const boundedLinks = meta.links.length ? meta.links.slice(0, 16).map((l) => l.slice(0, 128)) : undefined
+      const entry: PalaceFileEntry = {
+        path: p,
+        layer,
+        bytes: size,
+        protectedRetention: isProtectedRetentionPath(p),
+        alwaysLoaded,
+        sourcesCount: (input.fileSources[p] ?? []).length,
+        ...(boundedName ? { name: boundedName } : {}),
+        ...(boundedDesc ? { description: boundedDesc } : {}),
+        ...(boundedLinks ? { links: boundedLinks } : {}),
+      }
+      const entryBytes = Buffer.byteLength(JSON.stringify(entry), 'utf8')
+      if (filesBytesUsed + entryBytes <= 163840) {
+        files.push(entry)
+        layers[layer].push(p)
+        filesBytesUsed += entryBytes
+      } else {
+        filesCapped = true
+      }
+    }
+  }
+
+  const complete = uninspectedNonArchive === 0
+  const palace = {
+    revision: input.revision,
+    project: input.project,
+    healthy: complete && totalBytesUsed <= input.config.totalBytes && brokenLinksTotal === 0,
+    coverage: {
+      complete,
+      inspectedFiles,
+      nonArchiveFiles: nonArchivePaths.length,
+      totalFiles: sortedPaths.length,
+      filesReturned: files.length,
+      filesTruncated: files.length < sortedPaths.length,
+      layersTruncated: files.length < sortedPaths.length,
+      brokenLinksTotal,
+      brokenLinksTruncated: brokenLinks.length < brokenLinksTotal,
+    },
+    budget: {
+      coreBytes: input.config.coreBytes,
+      indexBytes: input.config.indexBytes,
+      fileBytes: input.config.fileBytes,
+      totalBytesUsed,
+      totalBytesCeiling: input.config.totalBytes,
+      alwaysLoadedBytes,
+      fileCount: sortedPaths.length,
+      fileCeiling: limits.files,
+    },
+    layers,
+    files,
+    brokenLinks,
+    views: input.views,
+    episodes: input.episodes,
+    tombstones: input.tombstones,
+    pendingOperations: input.pendingOperations,
+  }
+  // Inspection above is exhaustive independently of presentation. Charge *all*
+  // encoded metadata, repeated layer paths, JSON escaping and the reply wrapper.
+  while (bytes(JSON.stringify({ palace })) > palaceReplyBytes) {
+    const removed = files.pop()
+    if (removed) layers[removed.layer].pop()
+    else if (brokenLinks.length) brokenLinks.pop()
+    else throw new Error('Memory palace fixed metadata exceeds reply bound')
+    palace.coverage.filesReturned = files.length
+    palace.coverage.filesTruncated = files.length < sortedPaths.length
+    palace.coverage.layersTruncated = palace.coverage.filesTruncated
+    palace.coverage.brokenLinksTruncated = brokenLinks.length < brokenLinksTotal
+  }
+  return palace
 }

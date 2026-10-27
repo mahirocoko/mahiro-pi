@@ -15,6 +15,7 @@ import {
 import { join } from 'node:path'
 import test from 'node:test'
 import { createMemoryStore, parseConfig, allowedPath, type MemoryConfig } from '../lib/agent-memory/store.ts'
+import { buildMemoryPalace } from '../lib/agent-memory/retrieval.ts'
 import { digest } from '../lib/continuity/records.ts'
 
 const parent = new URL('../.agent-state/runtime/', import.meta.url).pathname
@@ -719,6 +720,212 @@ test('tiered v2 schema, surgical patch/append, lossless retention guard, directo
         (b) =>
           b.source === 'projects/project/reference/notes.md' && b.target === 'reference/missing-target.md',
       ),
+    )
+
+    // Auditable belief correction/supersession: shrinking/dropping a heading in a protected system file
+    // succeeds without allowShrink when the same draft grows reference/** or projects/<id>/reference/**
+    const vSeedBelief = f.store.createView('project')
+    const convInitial = f.store.read(vSeedBelief, 'projects/project/system/conventions.md')
+    assert.ok('hash' in convInitial && convInitial.hash)
+    f.store.edit(
+      vSeedBelief,
+      'projects/project/system/conventions.md',
+      convInitial.hash,
+      '---\nname: project-conventions\ndescription: Coding conventions for project\n---\n# Project Conventions (project)\n\n## Legacy Belief\n\n- Old belief line one that is over one hundred and sixty characters in total so the retention shrink guard actively checks this protected file.\n- Old belief line two with extra detail for retention threshold.\n\n## Rules\n\n- Follow repository-local contracts.\n',
+      [],
+    )
+    f.store.integrate(vSeedBelief)
+
+    const vUnarchivedSupersede = f.store.createView('project')
+    const convBeforeSupersede = f.store.read(vUnarchivedSupersede, 'projects/project/system/conventions.md')
+    assert.ok('hash' in convBeforeSupersede && convBeforeSupersede.hash)
+    f.store.edit(
+      vUnarchivedSupersede,
+      'projects/project/system/conventions.md',
+      convBeforeSupersede.hash,
+      '---\nname: project-conventions\ndescription: Coding conventions for project\n---\n# Project Conventions (project)\n\n## Rules\n\n- Follow repository-local contracts and updated rule.\n',
+      [],
+    )
+    assert.throws(() => f.store.integrate(vUnarchivedSupersede), /Lossless retention guard/)
+    f.store.cancel(vUnarchivedSupersede)
+
+    const vAuditableSupersede = f.store.createView('project')
+    const convForSupersede = f.store.read(vAuditableSupersede, 'projects/project/system/conventions.md')
+    assert.ok('hash' in convForSupersede && convForSupersede.hash)
+    f.store.edit(
+      vAuditableSupersede,
+      'projects/project/system/conventions.md',
+      convForSupersede.hash,
+      '---\nname: project-conventions\ndescription: Coding conventions for project\n---\n# Project Conventions (project)\n\n## Rules\n\n- Follow repository-local contracts and updated rule.\n',
+      [],
+    )
+    f.store.edit(
+      vAuditableSupersede,
+      'projects/project/reference/supersessions.md',
+      null,
+      '---\nname: project-supersessions\ndescription: Auditable log of superseded project beliefs\n---\n# Superseded Beliefs\n\n- [SUPERSEDED] Dropped `## Legacy Belief` from [[projects/project/system/conventions.md]] because the updated rule replaced it.\n',
+      [],
+    )
+    const supersededCommit = f.store.integrate(vAuditableSupersede)
+    assert.ok('revision' in supersededCommit)
+
+    // Read-only palace inspection verifies hierarchy, retention flags, links, views, episodes and zero mutation
+    const revBeforePalace = f.store.snapshot().revision
+    const viewsBeforePalace = f.store.doctor('project').views
+    const palace = f.store.palace('project')
+    assert.equal(palace.revision, revBeforePalace)
+    assert.equal(palace.project, 'project')
+    assert.equal(palace.healthy, false, 'broken link in notes.md makes palace report unhealthy')
+    assert.ok(palace.layers.core.includes('Core.md'))
+    assert.ok(palace.layers.system.includes('system/persona.md'))
+    assert.ok(palace.layers.projectSystem.includes('projects/project/system/conventions.md'))
+    assert.ok(palace.layers.projectReference.includes('projects/project/reference/supersessions.md'))
+    assert.ok(palace.layers.archives.some((p) => p.startsWith(archivePrefix)))
+    const convFileEntry = palace.files.find(
+      (entry) => entry.path === 'projects/project/system/conventions.md',
+    )
+    assert.ok(convFileEntry)
+    assert.equal(convFileEntry.protectedRetention, true)
+    assert.equal(convFileEntry.alwaysLoaded, true)
+    const superFileEntry = palace.files.find(
+      (entry) => entry.path === 'projects/project/reference/supersessions.md',
+    )
+    assert.ok(superFileEntry)
+    assert.equal(superFileEntry.protectedRetention, false)
+    assert.equal(superFileEntry.alwaysLoaded, false)
+    assert.ok(superFileEntry.links?.includes('projects/project/system/conventions.md'))
+    assert.ok(
+      palace.brokenLinks.some(
+        (b) =>
+          b.source === 'projects/project/reference/notes.md' && b.target === 'reference/missing-target.md',
+      ),
+    )
+    assert.equal(palace.views.total, viewsBeforePalace)
+    assert.ok(palace.views.committed >= 1)
+    assert.ok(palace.views.cancelled >= 1)
+    assert.equal(palace.coverage.complete, true)
+    assert.equal(palace.coverage.brokenLinksTotal, 1)
+    assert.equal(f.store.snapshot().revision, revBeforePalace)
+    assert.equal(f.store.doctor('project').views, viewsBeforePalace)
+  } finally {
+    f.close()
+  }
+})
+
+test('palace inspects 65+ non-archive files across archive-heavy ordering, catches last broken link, and refuses healthy on uninspected content', () => {
+  const f = fixture()
+  try {
+    const configPath = join(f.root, 'config.json')
+    const cfg = JSON.parse(readFileSync(configPath, 'utf8'))
+    writeFileSync(configPath, `${JSON.stringify({ ...cfg, totalBytes: 8388608 })}\n`)
+
+    const primary = createMemoryStore(f.root, () => {}, 'primary')
+    const v = primary.createView('project', 120000, true)
+    // Seed 70 archive files that sort lexicographically before projects/, reference/, and system/
+    for (let i = 0; i < 70; i++) {
+      const idx = String(i).padStart(2, '0')
+      primary.edit(
+        v,
+        `archives/legacy-v1-000000/global/arch-${idx}.md`,
+        null,
+        `# Archive ${idx}\nHistorical content ${idx}.\n`,
+        [],
+      )
+    }
+    // Seed a shared-primary foreign project system file
+    primary.edit(
+      v,
+      'projects/other/system/foreign.md',
+      null,
+      '---\nname: other-foreign\ndescription: Foreign project system file visible in shared palace\n---\n# Foreign Project\n\n- Visible in shared primary palace.\n',
+      [],
+    )
+    // Seed 64 reference files so total non-archive files exceed 65 (Core.md + index.md + foreign.md + 64 refs + zz-last.md = 68 non-archive files)
+    for (let i = 0; i < 64; i++) {
+      const idx = String(i).padStart(2, '0')
+      primary.edit(
+        v,
+        `reference/ref-${idx}.md`,
+        null,
+        `---\nname: ref-${idx}\ndescription: Reference topic ${idx}\n---\n# Reference ${idx}\n\n- Valid link to [[Core.md]].\n`,
+        [],
+      )
+    }
+    // Last non-archive file in lexicographical order (68th non-archive file) has a broken link
+    primary.edit(
+      v,
+      'system/human/zz-last.md',
+      null,
+      '---\nname: human-zz-last\ndescription: Last non-archive file after 65+ files\n---\n# Last File\n\n- Broken reference to [[reference/missing-68th-target.md]].\n',
+      [],
+    )
+    const committed = primary.integrate(v)
+    assert.ok('revision' in committed)
+
+    const palace = primary.palace('project')
+    assert.equal(palace.coverage.nonArchiveFiles, 68)
+    assert.equal(palace.coverage.inspectedFiles, 68)
+    assert.equal(palace.coverage.totalFiles, 138)
+    assert.equal(palace.coverage.complete, true)
+    assert.equal(palace.healthy, false, 'broken link in 68th non-archive file must mark palace unhealthy')
+    assert.equal(palace.coverage.brokenLinksTotal, 1)
+    assert.deepEqual(palace.brokenLinks, [
+      { source: 'system/human/zz-last.md', target: 'reference/missing-68th-target.md' },
+    ])
+
+    // Verify archive-heavy ordering did not displace non-archive files from palace.files
+    const firstArchiveIdx = palace.files.findIndex((entry) => entry.path.startsWith('archives/'))
+    const lastEntryIdx = palace.files.findIndex((entry) => entry.path === 'system/human/zz-last.md')
+    const foreignEntry = palace.files.find((entry) => entry.path === 'projects/other/system/foreign.md')
+    assert.ok(lastEntryIdx >= 0, '68th non-archive file metadata is present in palace.files')
+    assert.ok(
+      firstArchiveIdx === -1 || lastEntryIdx < firstArchiveIdx,
+      'all non-archive files precede archives in palace.files',
+    )
+    assert.equal(palace.files[lastEntryIdx].name, 'human-zz-last')
+    assert.equal(palace.files[lastEntryIdx].alwaysLoaded, true)
+    assert.ok(foreignEntry, 'shared-primary palace exposes foreign project file')
+    assert.equal(foreignEntry.layer, 'projectSystem')
+    assert.equal(foreignEntry.alwaysLoaded, false)
+
+    // Fix the broken link in the 68th non-archive file and verify palace becomes healthy
+    const vFix = f.store.createView('project')
+    const lastRead = f.store.read(vFix, 'system/human/zz-last.md')
+    assert.ok('hash' in lastRead && lastRead.hash)
+    f.store.edit(
+      vFix,
+      'system/human/zz-last.md',
+      lastRead.hash,
+      '---\nname: human-zz-last\ndescription: Last non-archive file after 65+ files\n---\n# Last File\n\n- Fixed reference to [[reference/ref-00.md]].\n',
+      [],
+    )
+    f.store.integrate(vFix)
+    const healthyPalace = f.store.palace('project')
+    assert.equal(healthyPalace.coverage.complete, true)
+    assert.equal(healthyPalace.coverage.brokenLinksTotal, 0)
+    assert.equal(healthyPalace.healthy, true)
+
+    // Direct buildMemoryPalace check: uninspected non-archive file must set coverage.complete=false and healthy=false
+    const partialPalace = buildMemoryPalace({
+      revision: healthyPalace.revision,
+      project: 'project',
+      config: f.store.config(),
+      activePaths: ['Core.md', 'index.md', 'system/human/zz-last.md'],
+      fileSizes: { 'Core.md': 20, 'index.md': 20, 'system/human/zz-last.md': 40 },
+      fileSources: { 'Core.md': [], 'index.md': [], 'system/human/zz-last.md': [] },
+      fileTexts: { 'Core.md': '# Core\n', 'index.md': '# Index\n' },
+      views: healthyPalace.views,
+      episodes: healthyPalace.episodes,
+      tombstones: healthyPalace.tombstones,
+      pendingOperations: [],
+    })
+    assert.equal(partialPalace.coverage.complete, false)
+    assert.equal(partialPalace.coverage.inspectedFiles, 2)
+    assert.equal(partialPalace.coverage.nonArchiveFiles, 3)
+    assert.equal(
+      partialPalace.healthy,
+      false,
+      'uninspected non-archive content must never report healthy=true',
     )
   } finally {
     f.close()

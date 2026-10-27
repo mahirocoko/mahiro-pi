@@ -624,7 +624,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     const statusRead =
       name === 'agent_memory_manage' &&
       objectShape(args, ['action']) &&
-      (args.action === 'status' || args.action === 'doctor')
+      (args.action === 'status' || args.action === 'doctor' || args.action === 'palace')
     const f = await resolve(ctx, name, name === 'agent_memory_read' || statusRead ? 'read' : 'write', signal)
     if (name === 'agent_memory_reflect') {
       if (!objectShape(args, ['assignment']) || typeof args.assignment !== 'string')
@@ -661,6 +661,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         const res = await f.request('manage', { action: 'doctor', project: f.project })
         if ('doctor' in res) return res.doctor
         throw Error('Doctor result unavailable')
+      }
+      if (args.action === 'palace') {
+        const res = await f.request('manage', { action: 'palace', project: f.project })
+        if ('palace' in res) return res.palace
+        throw Error('Palace result unavailable')
       }
       if (args.action === 'init-project' || args.action === 'migrate-v2') {
         job?.cancel()

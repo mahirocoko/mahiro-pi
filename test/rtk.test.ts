@@ -212,7 +212,7 @@ function statusFixture() {
       confirm: async () => true,
     },
   }
-  const create = () => {
+  const create = (ownerOverrides: Record<string, any> = {}) => {
     const events = eventFixture(),
       commands = new Map()
     let allowed = true
@@ -232,6 +232,7 @@ function statusFixture() {
         },
         permission: () => ({ state: 'allow' }),
         finalArgs: async (_name, args) => args,
+        ...ownerOverrides,
       },
     )
     return {
@@ -257,6 +258,58 @@ function statusFixture() {
     },
   }
 }
+
+test('Biome version/format and compound commands retain semantics without bypassing policy', async () => {
+  const f = statusFixture()
+  const helper = installRTKHelper(f.ctx.cwd)
+  const previous = process.env.PATH
+  process.env.PATH = `${helper.bin}:/usr/bin:/bin`
+  try {
+    const checks: string[] = []
+    const a = f.create({
+      permission: (_ctx: unknown, _surface: string, command: string) => {
+        checks.push(command)
+        return { state: 'allow' }
+      },
+    })
+    a.runtime.initialize(f.ctx)
+    for (const command of [
+      'pnpm exec biome --version',
+      'pnpm exec biome format --write src/example.ts',
+      'pnpm exec biome --version; node --version; git status --short',
+      'pnpm exec biome format --write src/example.ts && node --version',
+      'node --version && pnpm exec biome --version',
+      'node --version || pnpm exec biome format --write src/example.ts',
+      './node_modules/.bin/biome --version | head -n 1',
+      'pnpm exec "biome" --version',
+    ]) {
+      for (const code of [0, 3]) {
+        const rewritten = command.replace(/(?:pnpm exec |\.\/node_modules\/\.bin\/)"?biome"?/, 'rtk lint')
+        helper.set({ code, out: rewritten + '\n' })
+        assert.deepEqual(await resolveRTKRewrite(command, f.ctx), { status: 'unchanged', command: null })
+        const input = { command, timeout: 10 }
+        assert.deepEqual(await a.runtime.transform(input, f.ctx), input, command)
+        assert.ok(checks.includes(command), 'preserved original still needs Bash permission')
+        assert.deepEqual(helper.calls().at(-1).args, ['rewrite', '--', command])
+      }
+    }
+    const command = 'pnpm exec biome --version; node --version'
+    helper.set({ code: 2, out: 'rtk lint --version; node --version\n' })
+    assert.deepEqual(await resolveRTKRewrite(command, f.ctx), { status: 'denied', command: null })
+    await assert.rejects(a.runtime.transform({ command }, f.ctx), /rewrite denied/)
+    const denied = f.create({ permission: () => ({ state: 'deny' }) })
+    denied.runtime.initialize(f.ctx)
+    helper.set({ out: 'rtk lint --version\n' })
+    const calls = helper.calls().length
+    await assert.rejects(denied.runtime.transform({ command }, f.ctx), /Bash permission required/)
+    assert.equal(helper.calls().length, calls, 'original denial precedes helper')
+    assert.equal(helper.spawns().length, 0, 'neither version nor format candidate is executed')
+  } finally {
+    if (previous === undefined) delete process.env.PATH
+    else process.env.PATH = previous
+    f.restore()
+  }
+})
 
 test('RTK fixture delivers every ordered lifecycle listener without crossing events', async () => {
   const f = statusFixture()

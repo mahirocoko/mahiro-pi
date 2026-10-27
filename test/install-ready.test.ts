@@ -319,6 +319,7 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       'mh_create_ux_workflow',
       'mh_update_ux_workflow',
       'mh_execution_run',
+      'mh_code_map',
     ]) {
       assert.ok(
         tools!.some((t: any) => t.name === tool),
@@ -334,6 +335,7 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       ['mh_code_evidence', { action: 'get' }],
       ['mh_get_ux_workflow', {}],
       ['mh_execution_run', { operation: 'get' }],
+      ['mh_code_map', { intent: 'semantic', query: 'fixture navigation' }],
       ['recall_search', { query: 'absent', crossProject: true }],
     ] as const)
       await call(tool, args)

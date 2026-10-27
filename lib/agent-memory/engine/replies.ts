@@ -1,8 +1,17 @@
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
-import { parseMemoryRead } from '../retrieval.ts'
+import { palaceLayerFor, palaceReplyBytes, parseMemoryRead } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
 import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
-import { allowedPath, idPattern, limits, parseConfig, revisionPattern, uuidPattern } from './schema.ts'
+import {
+  allowedPath,
+  idPattern,
+  isAlwaysLoadedTieredPath,
+  isProtectedRetentionPath,
+  limits,
+  parseConfig,
+  revisionPattern,
+  uuidPattern,
+} from './schema.ts'
 import type { Method } from './protocol.ts'
 
 const hash = (v: unknown) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v)
@@ -90,7 +99,11 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       return
     case 'edit': {
       const v = shape(value, ['hash'])
-      ensure(v.hash === (input.text === null ? null : digest(input.text as string)))
+      // Surgical edits hash the resulting document, not the patch/append operand.
+      // The parent has no complete prior body; validate its digest shape here.
+      // Replacement/deletion can still be bound exactly to the request text.
+      if (input.mode === 'append' || input.mode === 'patch') ensure(hash(v.hash))
+      else ensure(v.hash === (input.text === null ? null : digest(input.text as string)))
       return
     }
     case 'prepare':
@@ -130,6 +143,177 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
               (path) => path.startsWith('global/') || path.startsWith('deferred/'),
             ),
         )
+        return
+      }
+      if (method === 'manage' && input.action === 'palace') {
+        ensure(bytes(JSON.stringify(value)) <= palaceReplyBytes)
+        const outer = shape(value, ['palace'])
+        const palace = shape(outer.palace, [
+          'revision',
+          'project',
+          'healthy',
+          'coverage',
+          'budget',
+          'layers',
+          'files',
+          'brokenLinks',
+          'views',
+          'episodes',
+          'tombstones',
+          'pendingOperations',
+        ])
+        ensure(
+          revision(palace.revision) &&
+            palace.project === input.project &&
+            typeof palace.healthy === 'boolean',
+        )
+        const coverage = shape(palace.coverage, [
+          'complete',
+          'inspectedFiles',
+          'nonArchiveFiles',
+          'totalFiles',
+          'filesReturned',
+          'filesTruncated',
+          'layersTruncated',
+          'brokenLinksTotal',
+          'brokenLinksTruncated',
+        ])
+        const budget = shape(palace.budget, [
+          'coreBytes',
+          'indexBytes',
+          'fileBytes',
+          'totalBytesUsed',
+          'totalBytesCeiling',
+          'alwaysLoadedBytes',
+          'fileCount',
+          'fileCeiling',
+        ])
+        ensure(
+          integer(budget.coreBytes, limits.file) &&
+            integer(budget.indexBytes, limits.file) &&
+            integer(budget.fileBytes, limits.file) &&
+            integer(budget.totalBytesUsed, limits.total) &&
+            integer(budget.totalBytesCeiling, limits.total) &&
+            integer(budget.alwaysLoadedBytes, limits.total) &&
+            integer(budget.fileCount, limits.files) &&
+            budget.fileCeiling === limits.files,
+        )
+        const layerKeys = [
+          'core',
+          'index',
+          'system',
+          'reference',
+          'projectSystem',
+          'projectReference',
+          'archives',
+          'legacy',
+        ]
+        const layers = shape(palace.layers, layerKeys)
+        for (const key of layerKeys) ensure(paths(layers[key]))
+        ensure(Array.isArray(palace.files) && palace.files.length <= limits.files)
+        for (const entry of palace.files) {
+          const f = shape(
+            entry,
+            [
+              'path',
+              'layer',
+              'bytes',
+              'protectedRetention',
+              'alwaysLoaded',
+              'sourcesCount',
+              'name',
+              'description',
+              'links',
+            ],
+            ['path', 'layer', 'bytes', 'protectedRetention', 'alwaysLoaded', 'sourcesCount'],
+          )
+          ensure(
+            paths([f.path], 1) &&
+              f.layer === palaceLayerFor(f.path as string) &&
+              integer(f.bytes, limits.file) &&
+              f.protectedRetention === isProtectedRetentionPath(f.path as string) &&
+              f.alwaysLoaded ===
+                (f.path === 'Core.md' ||
+                  f.path === 'index.md' ||
+                  isAlwaysLoadedTieredPath(f.path as string, input.project as string)) &&
+              integer(f.sourcesCount, 32),
+          )
+          if (f.name !== undefined) ensure(text(f.name, 512))
+          if (f.description !== undefined) ensure(text(f.description, 2048))
+          if (f.links !== undefined)
+            ensure(Array.isArray(f.links) && f.links.length <= 16 && f.links.every((l) => text(l, 512)))
+        }
+        const returnedPaths = palace.files.map((entry) => entry.path as string)
+        ensure(new Set(returnedPaths).size === returnedPaths.length)
+        for (const key of layerKeys) {
+          const expected = palace.files.filter((entry) => entry.layer === key).map((entry) => entry.path)
+          ensure(JSON.stringify(layers[key]) === JSON.stringify(expected))
+        }
+        ensure(Array.isArray(palace.brokenLinks) && palace.brokenLinks.length <= 64)
+        for (const entry of palace.brokenLinks) {
+          const b = shape(entry, ['source', 'target'])
+          ensure(paths([b.source], 1) && text(b.target, 512))
+        }
+        ensure(
+          typeof coverage.complete === 'boolean' &&
+            integer(coverage.inspectedFiles, limits.files) &&
+            integer(coverage.nonArchiveFiles, limits.files) &&
+            integer(coverage.totalFiles, limits.files) &&
+            integer(coverage.filesReturned, limits.files) &&
+            typeof coverage.filesTruncated === 'boolean' &&
+            integer(coverage.brokenLinksTotal) &&
+            typeof coverage.brokenLinksTruncated === 'boolean' &&
+            (coverage.inspectedFiles as number) <= (coverage.nonArchiveFiles as number) &&
+            (coverage.nonArchiveFiles as number) <= (coverage.totalFiles as number) &&
+            coverage.totalFiles === budget.fileCount &&
+            coverage.filesReturned === palace.files.length &&
+            coverage.filesTruncated ===
+              (coverage.filesReturned as number) < (coverage.totalFiles as number) &&
+            coverage.complete === (coverage.inspectedFiles === coverage.nonArchiveFiles) &&
+            coverage.layersTruncated === coverage.filesTruncated &&
+            palace.brokenLinks.length <= (coverage.brokenLinksTotal as number) &&
+            coverage.brokenLinksTruncated ===
+              palace.brokenLinks.length < (coverage.brokenLinksTotal as number) &&
+            palace.healthy ===
+              (coverage.complete &&
+                coverage.brokenLinksTotal === 0 &&
+                (budget.totalBytesUsed as number) <= (budget.totalBytesCeiling as number)),
+        )
+        const views = shape(palace.views, ['total', 'open', 'conflict', 'committed', 'cancelled'])
+        ensure(
+          integer(views.total, limits.views) &&
+            integer(views.open, limits.views) &&
+            integer(views.conflict, limits.views) &&
+            integer(views.committed, limits.views) &&
+            integer(views.cancelled, limits.views) &&
+            (views.open as number) +
+              (views.conflict as number) +
+              (views.committed as number) +
+              (views.cancelled as number) ===
+              views.total,
+        )
+        const episodes = shape(palace.episodes, ['total', 'reviewed'])
+        ensure(integer(episodes.total) && integer(episodes.reviewed))
+        const tombstones = shape(palace.tombstones, ['forgottenPaths', 'forgottenSources'])
+        ensure(integer(tombstones.forgottenPaths) && integer(tombstones.forgottenSources))
+        ensure(Array.isArray(palace.pendingOperations) && palace.pendingOperations.length <= limits.views)
+        for (const entry of palace.pendingOperations) {
+          const operation = shape(entry, ['id', 'digest', 'stage', 'recordBytes'])
+          ensure(
+            uuid(operation.id) &&
+              hash(operation.digest) &&
+              [
+                'prepared',
+                'worktree_mutating',
+                'index_staged',
+                'commit_start_intent',
+                'commit_started',
+                'head_observed',
+                'unknown',
+              ].includes(operation.stage as string) &&
+              integer(operation.recordBytes, operationLimit),
+          )
+        }
         return
       }
       if (objectShape(value, ['conflict']) && Object.hasOwn(value, 'conflict')) {
