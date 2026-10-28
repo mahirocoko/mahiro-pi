@@ -248,9 +248,15 @@ export function renderPreparedDiff(
   const wide = split && widthGate && !pressure
   // Keep the code text neutral and derive both levels of change color from the
   // active theme. Terminal-default colors may be reported values or guesses.
-  const surface = theme.colors.toolPendingBg
-  const rowAmount = theme.appearance === 'dark' ? 0.18 : 0.12
-  const wordAmount = theme.appearance === 'dark' ? 0.36 : 0.28
+  // Deepen raised dark tool surfaces toward a dark neutral anchor before mixing
+  // diff hues so cool panel slates do not wash additions into cyan-grey.
+  const darkCanvas = { kind: 'rgb' as const, r: 14, g: 16, b: 20 }
+  const surface =
+    theme.appearance === 'dark'
+      ? g.mixColors(theme.colors.toolPendingBg, darkCanvas, 0.56, 'srgb')
+      : theme.colors.toolPendingBg
+  const rowAmount = theme.appearance === 'dark' ? 0.28 : 0.12
+  const wordAmount = theme.appearance === 'dark' ? 0.5 : 0.28
   const changeColors = {
     old: {
       row: g.mixColors(surface, theme.colors.toolDiffRemoved, rowAmount, 'srgb'),
@@ -295,8 +301,9 @@ export function renderPreparedDiff(
       const cut = g.truncateToWidth((i === 0 ? prefix : ' '.repeat(prefix.length)) + row, size, '')
       const padding = ' '.repeat(Math.max(0, size - g.visibleWidth(cut)))
       // A wrapped changed span may still be active. Restore the row color and
-      // end bold before padding, then let theme.style close the cell boundary.
-      return theme.style(`${cut}\x1b[22m${rowBackground}${padding}`, { fg: 'text', bg: colors.row })
+      // end bold on the code span, then leave trailing cell padding uncolored
+      // so short lines do not paint distracting full-width blocks across the pane.
+      return `${theme.style(`${cut}\x1b[22m`, { fg: 'text', bg: colors.row })}${padding}`
     })
   }
   const output = [

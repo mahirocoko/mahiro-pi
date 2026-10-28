@@ -32,6 +32,8 @@
 ## Develop and release
 
 - [Development and release](development.md) — dependency supply, checks and source artifacts.
+- [v0.10.0 source release record](releases/0.10.0.md) — theme choices, diff and Todos refinements,
+  memory continuity and bounded persistence guidance.
 - [v0.9.1 source release record](releases/0.9.1.md) — makes `/mh-todos` the sole
   public branch-todo command.
 - [v0.9.0 source release record](releases/0.9.0.md) — `/mh-todos`, reference-aligned

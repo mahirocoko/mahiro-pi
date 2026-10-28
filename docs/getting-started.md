@@ -57,7 +57,7 @@ the guarded native SDK pipeline with deterministic Faux transport:
 for that new root only; existing Core/persona/config/ledger/data and automatic
 policy are preserved, not imported or reseeded.
 [Customize the starter](agent-memory.md#customize-the-starter) using root-bound tools.
-RTK defaults to `rewrite-rtk` only when no existing selection prevents it;
+RTK defaults to `off` when no existing selection prevents it;
 explicit `off` remains off. Review [memory](agent-memory.md) and [RTK](rtk.md).
 
 Keep the checkout at that canonical path. Start Pi in the project where you want
@@ -105,13 +105,17 @@ transaction or proof that every later operation will be permitted.
 
 ## Appearance
 
-The package registers a rendering-only UI adapter and the optional
-`mahiro-claude-dark` theme. It does not select a global theme.
+The package registers a rendering-only UI adapter and optional dark themes
+(`mahiro-claude-dark`, `mahiro-obsidian-dark`, `mahiro-ember-dark`,
+`mahiro-nordic-dark`). It does not select a global theme.
 
 ```text
 /mh-ui settings
 /mh-ui theme follow
 /mh-ui theme claude
+/mh-ui theme obsidian
+/mh-ui theme ember
+/mh-ui theme nordic
 /mh-ui live-tail off
 ```
 

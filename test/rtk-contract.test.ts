@@ -92,34 +92,37 @@ test('current context owns real RTK helper semantics and retirement, not the his
       'exit 3 requires approval, not an auto-grant',
       /\*\*3\*\* marks approval-required \(`hostApprovalRequired`\), not an auto-grant/,
     ],
-    ['exit 1 original and exit 2 denial', /Exit \*\*1\*\* preserves the original; \*\*2\*\* blocks/],
+    [
+      'exit 1 unchanged and exit 2 denied preview',
+      /Exit \*\*1\*\* returns unchanged.*\*\*2\*\* returns denied/,
+    ],
     [
       'failed helpers cannot publish partial candidates',
-      /Timeout\/error\/unknown\/oversized\/malformed results fall back only to the guarded original, never partial output/,
+      /malformed results return no candidate, never partial output/,
     ],
     [
       'original checks precede helper',
-      /Original public Bash policy and commit-attribution checks happen before the helper/,
+      /Original public Bash policy and bounded host checks happen before the helper/,
     ],
     [
-      'proposal and sanitized final checks precede spawn',
-      /Proposed and final sanitizer-transformed arguments must also pass before native spawn/,
+      'explicit previews never execute',
+      /It never executes the candidate or grants permission to execute it later/,
     ],
     [
       'fixed private RTK state owner',
       /<profile>\/preferences\/rtk.*standard PSS authority.*0700\/0600.*sequence\/CAS/,
     ],
-    [
-      'rewrites cannot borrow effective approval',
-      /lifts wrapper\/parse floors only for the identical approved command; changed candidates\/final commands must remain unfloored and undenied without matching a specific ask rule/,
-    ],
+    ['previews do not consume execution approval', /previews do not consume native execution receipts/],
     ['native child policy is separate', /Native children execute under their own policy/],
     [
       'command policy is not a universal path sandbox',
       /Direct commands and mixed chains remain subject to command policy, not a universal path sandbox/,
     ],
     ['no verified savings claim', /savings remain unverified/i],
-    ['explicit off survives installation', /without overwriting an existing explicit `off`/],
+    [
+      'new defaults off and explicit state survives',
+      /installations default to `off`.*Existing explicit state and installed defaults are preserved/,
+    ],
     [
       'Saved Models retirement preserves native configuration',
       /Saved Model Profiles is retired; native `\/model`, auth\/defaults and local roles are untouched/,
@@ -144,14 +147,11 @@ test('current context owns real RTK helper semantics and retirement, not the his
       /Full toolCallId and complete original command, including heredoc body/,
     ],
     ['receipt cwd and principal', /Current cwd and the PSS-selected principal/],
-    [
-      'receipt consumed before transformations',
-      /consumes the receipt \*\*before asynchronous transformations\*\*/,
-    ],
+    ['receipt consumed before final host checks', /consumes the receipt before awaiting final host checks/],
     ['deny vetoes effective approval', /Deny always vetoes/],
     [
-      'changed commands need unfloored policy check',
-      /changed original, RTK candidate or sanitizer-transformed final command must remain \*\*unfloored and undenied\*\*/,
+      'host checks do not create another policy plane',
+      /does not run a second transformed-command permission algorithm/,
     ],
     [
       'lifecycle revokes receipts and checkers',
@@ -162,10 +162,13 @@ test('current context owns real RTK helper semantics and retirement, not the his
       /Without the capability or valid receipt, Root retains raw allow checks and refuses asks/,
     ],
     [
-      'direct commit bypasses only the helper',
-      /Direct `git commit` bypasses the RTK helper, not commit-attribution checks/,
+      'direct commit retains PSS without RTK rewriting',
+      /Direct `git commit` never needs the RTK helper and remains under ordinary PSS\s+authorization without custom command rewriting/,
     ],
   ] as const)
     assert.match(guards, contract, claim)
+  assert.doesNotMatch(text('lib/guards/index.ts'), /rtk\.transform|RTK original\/final/)
+  assert.doesNotMatch(text('lib/rtk.ts'), /allowsTransformed|authorizeExecution/)
+  assert.match(rtk, /automaticInterception` is always false/)
   assert.match(text('check-public-sdk.mjs'), /rtk-patch-test\.mjs/)
 })

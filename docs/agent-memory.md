@@ -386,6 +386,18 @@ block mutation admission. A fresh primary read does not create a draft or obtain
 a publication capability; an existing private draft retains its explicit snapshot
 semantics and never reads partially published worktree bytes.
 
+Ordinary read-only engine requests (`projection`, `config`, `status`, `episodes`,
+`conflicts`, `read`, `headRead`, `stats`, and `manage` with `doctor` or `palace`)
+are completion-driven and caller-cancellable, without a fixed whole-request
+30-second deadline. Explicit `offlineCertify` remains completion-driven too.
+All other engine methods retain their 30-second deadline, including mutation and
+publication helpers (`chunk` and `fence` included). Cancellation of an active
+request still waits for the child to drain; it does not restart/replay the channel
+or prove quiescence immediately. A slow read can therefore delay queued work.
+Current authority, revision/branch fencing, resource/transport limits and per-Git
+bounds remain in effect. This changes no stored data, capacity, publication rule,
+permission or native writer's separate 120-second lease.
+
 Engine status reports only newly observed native attempt metadata.
 `latestAttempt` is null when absent or invalidated; unknown progress and
 unobserved tool ends remain null. It does not inspect historical private attempts,
@@ -477,8 +489,8 @@ The owner verifies archive/quarantine completeness, unchanged canonical bytes,
 HEAD and raw index/config, clean active Git state, remaining typed terminal
 journals/capacity, and cold committed certification through the existing data
 engine. That dedicated offline certification remains cancellable and
-revision/permission fenced, but is completion-driven rather than inheriting the
-ordinary 30-second interactive request deadline. The explicit operator also has
+revision/permission fenced and completion-driven, like the ordinary read-only
+engine methods; mutation/publication engine methods retain their 30-second deadline. The explicit operator also has
 no fixed wall-clock kill: resource ceilings, per-Git and holder-inspection bounds,
 process/output bounds and operator cancellation remain, while a valid large
 archive is allowed to finish naturally. It persists `completed` before releasing

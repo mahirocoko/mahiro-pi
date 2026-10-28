@@ -1386,6 +1386,28 @@ test('already provisioned exact grants preserve legitimate default deny without 
   })
 })
 
+test('new installation defaults RTK off and preserves every existing explicit compatibility default', () => {
+  policyFixture((r) => {
+    const plan = inspectActiveBootstrap(r)
+    assert.equal(plan.featureInstallation!.rtkDefault, 'off-created')
+    const defaults = join(r.agentDir, 'preferences/rtk/default.json')
+    assert.deepEqual(JSON.parse(plan.changes.find((c) => c.path === defaults)!.next), {
+      version: 1,
+      mode: 'off',
+    })
+  })
+  for (const mode of ['off', 'suggest', 'rewrite-safe', 'rewrite-rtk'])
+    policyFixture((r) => {
+      const defaults = join(r.agentDir, 'preferences/rtk/default.json')
+      put(defaults, { version: 1, mode })
+      const before = readFileSync(defaults, 'utf8')
+      const plan = inspectActiveBootstrap(r)
+      assert.equal(plan.featureInstallation!.rtkDefault, 'existing-preserved')
+      assert.ok(!plan.changes.some((c) => c.path === defaults))
+      assert.equal(readFileSync(defaults, 'utf8'), before)
+    })
+})
+
 test('revocation preserves explicit RTK off and execution-time policy mutation without clobbering', () => {
   policyFixture((r, target) => {
     r.components.removeDefaultDeny = true

@@ -259,7 +259,38 @@ function statusFixture() {
   }
 }
 
-test('Biome version/format and compound commands retain semantics without bypassing policy', async () => {
+test('every persisted RTK mode leaves Bash untouched without consulting execution collaborators', async () => {
+  const f = statusFixture()
+  try {
+    for (const mode of ['off', 'suggest', 'rewrite-safe', 'rewrite-rtk']) {
+      f.state(mode)
+      let unavailable = false
+      const check = () => {
+        if (unavailable) assert.fail('compatibility transform consulted an owner')
+        return true
+      }
+      const a = f.create({
+        current: check,
+        access: check,
+        permission: check,
+        finalArgs: check,
+      })
+      a.runtime.initialize(f.ctx)
+      unavailable = true
+      a.deny()
+      const input = { command: 'ls safe.txt', timeout: 10 }
+      assert.equal(await a.runtime.transform(input, f.ctx, check), input)
+      unavailable = false
+      await a.emit('session_shutdown')
+      unavailable = true
+      assert.equal(await a.runtime.transform(input, f.ctx, check), input)
+    }
+  } finally {
+    f.restore()
+  }
+})
+
+test('Biome version/format resolver preview preserves semantics; transform never consults helper', async () => {
   const f = statusFixture()
   const helper = installRTKHelper(f.ctx.cwd)
   const previous = process.env.PATH
@@ -289,20 +320,20 @@ test('Biome version/format and compound commands retain semantics without bypass
         assert.deepEqual(await resolveRTKRewrite(command, f.ctx), { status: 'unchanged', command: null })
         const input = { command, timeout: 10 }
         assert.deepEqual(await a.runtime.transform(input, f.ctx), input, command)
-        assert.ok(checks.includes(command), 'preserved original still needs Bash permission')
+        assert.equal(checks.length, 0, 'compatibility transform performs no authorization')
         assert.deepEqual(helper.calls().at(-1).args, ['rewrite', '--', command])
       }
     }
     const command = 'pnpm exec biome --version; node --version'
     helper.set({ code: 2, out: 'rtk lint --version; node --version\n' })
     assert.deepEqual(await resolveRTKRewrite(command, f.ctx), { status: 'denied', command: null })
-    await assert.rejects(a.runtime.transform({ command }, f.ctx), /rewrite denied/)
+    assert.deepEqual(await a.runtime.transform({ command }, f.ctx), { command })
     const denied = f.create({ permission: () => ({ state: 'deny' }) })
     denied.runtime.initialize(f.ctx)
     helper.set({ out: 'rtk lint --version\n' })
     const calls = helper.calls().length
-    await assert.rejects(denied.runtime.transform({ command }, f.ctx), /Bash permission required/)
-    assert.equal(helper.calls().length, calls, 'original denial precedes helper')
+    assert.deepEqual(await denied.runtime.transform({ command }, f.ctx), { command })
+    assert.equal(helper.calls().length, calls, 'no-op transform ignores RTK preview permission')
     assert.equal(helper.spawns().length, 0, 'neither version nor format candidate is executed')
   } finally {
     if (previous === undefined) delete process.env.PATH
@@ -490,7 +521,7 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
   }
 })
 
-test('RTK transform and rewrite preview accept yolo and approved catch-all rewrites while rejecting denies, floors and specific ask patterns', async () => {
+test('explicit RTK preview needs original permission; compatibility transform never authorizes candidates', async () => {
   const f = statusFixture()
   const helper = installRTKHelper(f.ctx.cwd)
   const previousPath = process.env.PATH
@@ -517,14 +548,14 @@ test('RTK transform and rewrite preview accept yolo and approved catch-all rewri
     )
     runtime.initialize(f.ctx)
     helper.set({ code: 3, out: 'rtk ls safe.txt\n' })
-    // 1. YOLO mode (origin: 'yolo'): preview and transform succeed
+    // 1. YOLO permits explicit preview, while transform remains unchanged.
     await commands.get('mh-rtk').handler('rewrite ls safe.txt', f.ctx)
     assert.equal(f.notifications.at(-1).level, 'info')
     assert.equal(JSON.parse(f.notifications.at(-1).text).command, 'rtk ls safe.txt')
     assert.equal(
       (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).command,
-      'rtk ls safe.txt',
-      'yolo transform without receipt',
+      'ls safe.txt',
+      'yolo transform is a no-op',
     )
     // 2. Command-specific config rule (original allowed by 'ls *', candidate falls through to default ask)
     evaluate = (surface, value) => {
@@ -542,10 +573,10 @@ test('RTK transform and rewrite preview accept yolo and approved catch-all rewri
     assert.equal(f.notifications.at(-1).level, 'info')
     assert.equal(
       (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).command,
-      'rtk ls safe.txt',
-      'config rule + default catch-all ask candidate',
+      'ls safe.txt',
+      'mode state does not rewrite command-specific grants',
     )
-    // 3. Specific ask rule on candidate ('rtk proxy *': 'ask') is rejected
+    // 3. A specific ask rule on an unsolicited candidate is never consulted.
     helper.set({ code: 3, out: 'rtk proxy ls safe.txt\n' })
     evaluate = (surface, value) => {
       if (surface !== 'bash') return { state: 'allow' }
@@ -558,11 +589,8 @@ test('RTK transform and rewrite preview accept yolo and approved catch-all rewri
         askingUnits: [{ command: value ?? '' }],
       }
     }
-    await assert.rejects(
-      runtime.transform({ command: 'ls safe.txt' }, f.ctx),
-      /RTK original\/final Bash permission required/,
-    )
-    // 4. Indirection/wrapper floor on candidate is rejected
+    assert.deepEqual(await runtime.transform({ command: 'ls safe.txt' }, f.ctx), { command: 'ls safe.txt' })
+    // 4. Candidate wrapper floors likewise have no automatic execution effect.
     helper.set({ code: 3, out: 'env FOO=1 rtk ls safe.txt\n' })
     evaluate = (surface, value) => {
       if (surface !== 'bash') return { state: 'allow' }
@@ -575,10 +603,12 @@ test('RTK transform and rewrite preview accept yolo and approved catch-all rewri
         askingUnits: [{ command: value ?? '', floor: '<indirection-bash-wrapper>' }],
       }
     }
-    await assert.rejects(
-      runtime.transform({ command: 'ls safe.txt' }, f.ctx),
-      /RTK original\/final Bash permission required/,
-    )
+    assert.deepEqual(await runtime.transform({ command: 'ls safe.txt' }, f.ctx), { command: 'ls safe.txt' })
+    evaluate = () => ({ state: 'deny' })
+    const calls = helper.calls().length
+    await commands.get('mh-rtk').handler('rewrite ls safe.txt', f.ctx)
+    assert.equal(f.notifications.at(-1).level, 'error')
+    assert.equal(helper.calls().length, calls, 'explicit denial precedes preview helper')
     await events.emit('session_shutdown')
   } finally {
     if (previousPath === undefined) delete process.env.PATH

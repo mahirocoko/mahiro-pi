@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.9.1.md)
+[← Documentation](README.md) · [Source release record](releases/0.10.0.md)
 
 ## Dependencies and checks
 
@@ -40,11 +40,16 @@ double quotes and no trailing commas; JSX quote defaults are unchanged. Run
 `pnpm format` after each completed change phase, then the read-only format gates.
 `check:continuity-format` remains a compatible subset of `check:format`.
 `biome.json` positively owns source/tooling roots and hard-excludes private state,
-`node_modules`, immutable upstream oracles and the two original Letta factories
-(`lib/guards/mahiro-secret-read-guard.js` and
-`lib/guards/mahiro-commit-attribution-guard.js`). Those factory bytes are SHA-pinned
-by `lib/guards/provenance.json`; patch files also remain byte-exact upstream
-evidence, outside the authored formatter contract.
+`node_modules` and immutable upstream `test/oracles/`. The original Letta guard
+factories live only in `test/oracles/letta/`; `lib/guards/provenance.json` points
+to those SHA-pinned test originals. `check-package.mjs` checks their hashes against
+the frozen oracle manifest and verifies that neither legacy factory has a runtime
+copy. Patch files remain byte-exact upstream evidence outside the authored
+formatter contract.
+
+When a security-audit execution constraint applies, do not run target-controlled
+checks, builds or formatters without the required sandbox. Limit verification to
+source/diff inspection and report the unrun checks explicitly.
 
 Focused session-work checks (serialize with other SDK/heavy jobs):
 

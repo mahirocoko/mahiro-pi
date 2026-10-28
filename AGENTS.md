@@ -46,19 +46,16 @@ dated source records, not current installation instructions.
   public PSS permissions, including wildcard/yolo, not exact DATA attestation.
   Preserve primary-session, revision, root binding and owner-lock invariants.
 - `lib/guards/` owns thin final native execution enforcement: lightweight secret
-  file-operand rules, four standalone filtered inspectors, commit-attribution
-  stripping and RTK final-argument authorization. It has no tool dispatch
-  allowlist, package realpath/version permission pins or throwing PowerShell
-  wrapper. Ordinary native execution does not require feature-kernel readiness.
-  Public PSS alone resolves policy. File rules apply to recognized file operands, not arbitrary
-  prompt/query/comment/content text. PSS's first recognized Bash operand gate
-  and Root's final command-policy recheck are distinct, not a universal sandbox.
-  Preserve effective Bash approval binding/revocation and exact-command rewrite
-  rules in `docs/guards.md`; never replace them with unit decision/path caches.
-- RTK authorizes original, candidate and sanitizer-transformed final arguments
-  before spawn. Direct git commit bypasses the helper, not the commit guard.
-  Explicit installation defaults absent state to rewrite-rtk, preserves explicit
-  off, and never grants shell/helper authority.
+  file-operand rules and four standalone filtered inspectors. It has no tool
+  dispatch allowlist, package realpath/version permission pins, commit rewriting,
+  second commit permission checker or throwing PowerShell wrapper. Ordinary native
+  execution does not require feature-kernel readiness. Public PSS alone resolves
+  policy. File rules apply to recognized file operands, not arbitrary
+  prompt/query/comment/content text. Preserve effective Bash approval
+  binding/revocation; never replace it with unit decision/path caches.
+- RTK is explicit non-executing rewrite preview only. It never intercepts native
+  Bash execution and new installations default absent state to off. Existing
+  compatibility mode state is preserved but grants no shell/helper authority.
 - Source loading/startup provisions nothing. Explicit installation alone composes
   public owners, three package roles and narrow DATA grants. Default-deny removal
   requires explicit consent and removes only scalar `permission["*"]: "deny"`,
@@ -84,7 +81,9 @@ dated source records, not current installation instructions.
 Run `pnpm check` after changes when the authorized test window is available;
 run the explicit public-host geometry smoke for geometry changes. Serialize heavy
 checks. Synthetic/source checks are not rendered, installed or human acceptance.
-Use a fresh verifier for independent QA.
+Use a fresh verifier for independent QA. Under an explicit security-audit
+execution constraint, do not run target-controlled tests, builds or formatters
+without the required sandbox; report source/diff checks and unrun gates instead.
 
 Follow repository-local Biome: two spaces, single JavaScript/TypeScript quotes,
 ASI-safe semicolons only as needed, 110 columns, trailing commas, LF, parenthesized
@@ -93,8 +92,10 @@ and no trailing commas. Run `pnpm format` (writes) after each completed change
 phase, then verify with `pnpm check:format`; `check:continuity-format` remains a
 compatible subset. All authored JS/TS/JSON, including root tooling and legacy
 owned files, share this contract. Private state/node_modules are hard-excluded.
-The two SHA-pinned original Letta guard factories, `test/oracles/` and patch bytes
-are immutable upstream evidence, not formatter omissions.
+`test/oracles/` (including both SHA-pinned original Letta guard factories) and
+patch bytes are immutable upstream evidence, not formatter omissions. Neither
+legacy guard factory is a runtime dependency; do not restore production copies
+or pin maintained runtime code as original upstream bytes.
 
 `pnpm check` includes `check:types` and formatting before the existing source/SDK
 gates. `tsconfig.json` owns strict NodeNext/noEmit checking with explicit Node 22

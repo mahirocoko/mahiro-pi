@@ -11,7 +11,7 @@ pnpm install:profile
 
 `install.mjs` composes one canonical source checkout, pinned public owners,
 three package roles, ordinary ABI2 memory selection, narrow feature-data authority
-and the absent-state RTK `rewrite-rtk` default. The manifest is guards-first13:
+and an absent-state RTK `off` default. The manifest is guards-first13:
 bootstrap, one Root guard,
 ten features and the rendering-only UI adapter. Worker activity is optional and
 outside that default graph. No theme is automatically selected.
@@ -100,8 +100,11 @@ Completed receipts say prior outcome unknown; they do not claim human acceptance
 The explicit operator is completion-driven: it retains fixed resource, output,
 Git-command and holder-inspection bounds but does not terminate a valid large
 archive on an arbitrary whole-operation wall clock. Its dedicated cold
-certification remains cancellable and fully fenced while ordinary engine requests
-keep their 30-second deadline. Success is the validated maintenance receipt; a
+certification remains cancellable and fully fenced. Ordinary read-only engine
+requests are also completion-driven and caller-cancellable; mutation/publication
+methods keep their 30-second deadline. See the [engine contract](agent-memory.md#ordinary-memory-engine)
+for the exact read-only method set and drain limits. The native writer's separate
+120-second lease is unchanged. Success is the validated maintenance receipt; a
 separate profile reload/runtime check owns later projection and activation proof.
 
 ## Grants and retained restrictions

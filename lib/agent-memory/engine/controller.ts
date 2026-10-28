@@ -43,8 +43,23 @@ interface Pending {
   timer?: NodeJS.Timeout
 }
 const empty: Checkpoint = { physical: [], logical: [], kind: 'data' }
-export function engineRequestDeadline(method: Method) {
-  return method === 'offlineCertify' ? undefined : 30000
+export function engineRequestDeadline(method: Method, input?: Input<Method>) {
+  // Ordinary reads finish or drain under caller cancellation, not a whole-request clock.
+  // Publication helpers keep their deadline even when an individual step only reads.
+  if (
+    method === 'offlineCertify' ||
+    method === 'projection' ||
+    method === 'config' ||
+    method === 'status' ||
+    method === 'episodes' ||
+    method === 'conflicts' ||
+    method === 'read' ||
+    method === 'headRead' ||
+    method === 'stats' ||
+    (method === 'manage' && input && 'action' in input && ['doctor', 'palace'].includes(input.action))
+  )
+    return undefined
+  return 30000
 }
 export function assertCurrent(context: OperationContext, targets: Checkpoint = empty) {
   context.signal?.throwIfAborted()
@@ -257,7 +272,7 @@ export class MemoryEngineController {
       }
       recordMemoryDiagnostic(this.root, 'dispatch', { id: p.id, method: p.method })
       this.send(message)
-      const deadline = engineRequestDeadline(p.method)
+      const deadline = engineRequestDeadline(p.method, message.input)
       if (deadline !== undefined)
         p.timer = setTimeout(() => {
           p.cancelled = true

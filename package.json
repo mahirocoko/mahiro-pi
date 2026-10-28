@@ -1,6 +1,6 @@
 {
   "name": "@mahirocoko/mahiro-pi",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "description": "Native Pi companion UI, maintained memory, guarded RTK, explicit workflow tools and parent-scoped Herdr metadata.",
@@ -69,7 +69,10 @@
       "./extensions/mahiro-claude-ui.ts"
     ],
     "themes": [
-      "./themes/mahiro-claude-dark.json"
+      "./themes/mahiro-claude-dark.json",
+      "./themes/mahiro-obsidian-dark.json",
+      "./themes/mahiro-ember-dark.json",
+      "./themes/mahiro-nordic-dark.json"
     ]
   },
   "devDependencies": {

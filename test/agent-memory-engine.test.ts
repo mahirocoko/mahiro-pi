@@ -58,11 +58,40 @@ const engineError =
     return true
   }
 
-test('only explicit offline certification is completion-driven beyond the ordinary request deadline', () => {
-  assert.equal(engineRequestDeadline('offlineCertify'), undefined)
-  assert.equal(engineRequestDeadline('projection'), 30000)
-  assert.equal(engineRequestDeadline('status'), 30000)
-  assert.equal(engineRequestDeadline('headRead'), 30000)
+test('ordinary reads and offline certification are completion-driven; mutation/publication keep deadlines', () => {
+  for (const method of [
+    'offlineCertify',
+    'projection',
+    'config',
+    'status',
+    'episodes',
+    'conflicts',
+    'read',
+    'headRead',
+    'stats',
+  ] as const)
+    assert.equal(engineRequestDeadline(method), undefined, method)
+  for (const action of ['doctor', 'palace'] as const)
+    assert.equal(engineRequestDeadline('manage', { action, project: 'project' }), undefined, action)
+  for (const action of ['forget', 'rollback', 'init-project', 'migrate-v2'] as const)
+    assert.equal(engineRequestDeadline('manage', { action, project: 'project' }), 30000, action)
+  for (const method of [
+    'observe',
+    'manage',
+    'discard',
+    'cancel',
+    'create',
+    'edit',
+    'ready',
+    'prepare',
+    'chunk',
+    'fence',
+    'journal',
+    'claim',
+    'reconcile',
+    'recover',
+  ] as const)
+    assert.equal(engineRequestDeadline(method), 30000, method)
 })
 
 // Fixture owns the complete process env while active (tests in this file are serial).
@@ -823,11 +852,11 @@ test('logical path denies gate entire view; overlays/manifest corruption and for
   }
 })
 
-test('safe memory request deadline rejects with typed uncertainty and drains the same child without replay', async (t) => {
+test('mutation request deadline rejects with typed uncertainty and drains the same child without replay', async (t) => {
   const f = fixture(0)
   try {
     t.mock.timers.enable({ apis: ['setTimeout'] })
-    const request = f.engine.request('config', {}, f.context)
+    const request = f.engine.request('create', { project: 'project' }, f.context)
     const pid = f.engine.pid
     assert.ok(pid)
     const rejection = assert.rejects(request, (error: unknown) => {
@@ -844,6 +873,30 @@ test('safe memory request deadline rejects with typed uncertainty and drains the
     })
     assert.equal(f.engine.pid, pid, 'same controller/channel; no restart or replay')
     assert.equal(f.engine.queueSize, 0)
+  } finally {
+    t.mock.timers.reset()
+    await f.close()
+  }
+})
+
+test('ordinary reads outlive the former deadline and remain caller-cancellable', async (t) => {
+  const f = fixture(0)
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const abort = new AbortController()
+    const request = f.engine.request('config', {}, { current: () => true, signal: abort.signal })
+    let settled = false
+    const rejection = assert.rejects(request, /cancel|abort/i).finally(() => {
+      settled = true
+    })
+    t.mock.timers.tick(60000)
+    await Promise.resolve()
+    assert.equal(settled, false, 'no whole-request read deadline')
+    assert.equal(f.engine.queueSize, 1)
+    abort.abort()
+    t.mock.timers.reset()
+    await rejection
+    assert.equal(f.engine.queueSize, 0, 'active cancellation settles after child drain')
   } finally {
     t.mock.timers.reset()
     await f.close()

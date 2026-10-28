@@ -1,8 +1,17 @@
 // Closed own-UI data contract. No SDK, host settings, filesystem or grants.
 import { createHash } from 'node:crypto'
 
+export const PALETTE_THEMES = Object.freeze({
+  claude: 'mahiro-claude-dark',
+  obsidian: 'mahiro-obsidian-dark',
+  ember: 'mahiro-ember-dark',
+  nordic: 'mahiro-nordic-dark',
+})
+export type FixedPaletteMode = keyof typeof PALETTE_THEMES
+export const PALETTE_MODES = ['follow', 'claude', 'obsidian', 'ember', 'nordic'] as const
+export type PaletteMode = (typeof PALETTE_MODES)[number]
 export type UIPreferences = {
-  palette: 'follow' | 'claude'
+  palette: PaletteMode
   toolStyle: 'transparent' | 'tinted'
   diffView: 'split' | 'unified' | 'native'
   extraDetail: boolean
@@ -20,7 +29,7 @@ const preferenceKeys = ['palette', 'toolStyle', 'diffView', 'extraDetail']
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const validPreferences = (value: Record<string, unknown>) =>
-  ['follow', 'claude'].includes(value.palette as string) &&
+  (PALETTE_MODES as readonly string[]).includes(value.palette as string) &&
   ['transparent', 'tinted'].includes(value.toolStyle as string) &&
   ['split', 'unified', 'native'].includes(value.diffView as string) &&
   typeof value.extraDetail === 'boolean'

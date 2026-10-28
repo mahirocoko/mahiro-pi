@@ -1,9 +1,10 @@
 import type { ExtensionAPI, ExtensionContext, Theme, ToolRenderers } from '@earendil-works/pi-coding-agent'
 import {
-  CLAUDE_THEME,
   createToolPresentation,
+  type FixedPaletteMode,
   type Geometry,
   type NativePresentation,
+  PALETTE_THEMES,
   type PresentationRenderers,
   renderStartupHeader,
   supportedTools,
@@ -24,7 +25,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
   let preferences: UIPreferences = { ...UI_DEFAULTS }
   // Not part of the closed own-UI record. Each TUI session starts stable.
   let liveTail = false
-  let fixed: Theme | undefined
+  const themes = new Map<FixedPaletteMode, Theme>()
   let geometry: Geometry | undefined
   let native: NativePresentation | undefined
   let version = ''
@@ -45,18 +46,29 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     sameFunction(base.renderCall, original.renderCall, stable) &&
     sameFunction(base.renderResult, original.renderResult, stable) &&
     base.renderShell === original.renderShell
-  const palette = (host: Theme) => (preferences.palette === 'claude' && fixed ? fixed : host)
+  const loadThemes = (ctx: ExtensionContext) => {
+    themes.clear()
+    for (const [mode, themeName] of Object.entries(PALETTE_THEMES) as [FixedPaletteMode, string][]) {
+      const candidate = ctx.ui.getTheme(themeName)
+      if (candidate) themes.set(mode, candidate)
+    }
+  }
+  const hasPalette = (mode: UIPreferences['palette']) => mode === 'follow' || themes.has(mode)
+  const palette = (host: Theme) =>
+    preferences.palette === 'follow' ? host : (themes.get(preferences.palette) ?? host)
 
   // Register the resolver at load time, but do not import a runtime peer or
   // activate presentation until interactive startup. Keep custom same-name
   // renderers native too: compare public factory renderer identities, not names
   // alone, private tool registry fields, or guesses from descriptions.
   // Factories that return a new closure each call still have to match that
-  // factory's function source and renderShell. Codemode, subagents, MCP and
+  // factory's function source and renderShell. Built-in codemode keeps its
+  // native call/result renderer inside the self shell; subagents, MCP and
   // other custom tools are not in this map, so they stay on next().
   pi.registerToolRenderer((name, next) => {
     const base = next()
-    if (!supportedTools.includes(name) || !base) return base
+    if (!supportedTools.includes(name) || !base || (name === 'codemode' && base.renderShell !== undefined))
+      return base
     let adapted: ToolRenderers | undefined
     const choose = () => {
       if (!context || !geometry || !native) return undefined
@@ -152,7 +164,17 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     capture('grep', sdk.createGrepToolDefinition)
     capture('find', sdk.createFindToolDefinition)
     capture('ls', sdk.createLsToolDefinition)
-    fixed = ctx.ui.getTheme(CLAUDE_THEME)
+    capture('codemode', () => {
+      let definition: PresentationRenderers = {}
+      sdk.createCodemodeExtension()({
+        registerTool(tool: PresentationRenderers) {
+          definition = tool
+        },
+        on() {},
+      } as never)
+      return definition
+    })
+    loadThemes(ctx)
     try {
       const owner = ownUIOwner(ctx)
       if (!owner) throw Error('Unavailable')
@@ -162,7 +184,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     } catch {
       storageStatus = PERSISTENCE_LIMIT
     }
-    if (preferences.palette === 'claude' && !fixed) preferences = { ...preferences, palette: 'follow' }
+    if (!hasPalette(preferences.palette)) preferences = { ...preferences, palette: 'follow' }
     context = ctx
     installHeader(ctx)
   })
@@ -186,7 +208,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
     context = undefined
     geometry = undefined
     native = undefined
-    fixed = undefined
+    themes.clear()
     originals.clear()
     factoryStable.clear()
     liveTail = false
@@ -194,7 +216,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
   })
   const uiCommand: Parameters<ExtensionAPI['registerCommand']>[1] = {
     description:
-      'Mahiro UI live preview and explicit own-UI Save; theme status | follow | claude is runtime-only',
+      'Mahiro UI live preview and explicit own-UI Save; theme status | follow | claude | obsidian | ember | nordic is runtime-only',
     handler: async (args, ctx) => {
       if (ctx.mode !== 'tui' || !context) return
       const action = args.trim() || 'settings'
@@ -221,8 +243,8 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
         if (revision !== generation || !context || !geometry || !native) return
         const panelGeometry = geometry
         const panelNative = native
-        fixed = ctx.ui.getTheme(CLAUDE_THEME)
-        if (preferences.palette === 'claude' && !fixed) {
+        loadThemes(ctx)
+        if (!hasPalette(preferences.palette)) {
           preferences = { ...preferences, palette: 'follow' }
           requestRender()
           ctx.ui.notify('Fixed UI palette unavailable; following the host theme.', 'warning')
@@ -251,7 +273,7 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
             initial: preferences,
             current,
             change(value) {
-              if (!current() || (value.palette === 'claude' && !fixed)) return false
+              if (!current() || !hasPalette(value.palette)) return false
               preferences = { ...value }
               expected = preferences
               requestRender()
@@ -291,34 +313,35 @@ export default function mahiroClaudeUI(pi: ExtensionAPI) {
         )
         return
       }
-      if (action === 'theme claude') {
+      const themeMatch = /^theme\s+(claude|obsidian|ember|nordic)$/.exec(action)
+      if (themeMatch) {
+        const mode = themeMatch[1] as FixedPaletteMode
+        const themeName = PALETTE_THEMES[mode]
         // Public getTheme may load a resource: commands/startup only, never render.
-        const candidate = ctx.ui.getTheme(CLAUDE_THEME)
+        const candidate = ctx.ui.getTheme(themeName)
         if (!candidate) {
-          ctx.ui.notify(
-            `Theme resource ${CLAUDE_THEME} unavailable; keeping ${preferences.palette}.`,
-            'warning',
-          )
+          ctx.ui.notify(`Theme resource ${themeName} unavailable; keeping ${preferences.palette}.`, 'warning')
           return
         }
-        fixed = candidate
-        preferences = { ...preferences, palette: 'claude' }
+        themes.set(mode, candidate)
+        preferences = { ...preferences, palette: mode }
       } else if (action === 'theme follow') {
         preferences = { ...preferences, palette: 'follow' }
       } else if (action !== 'theme status' && action !== 'theme') {
         ctx.ui.notify(
-          'Usage: /mh-ui [settings] | theme status|follow|claude | live-tail status|on|off',
+          'Usage: /mh-ui [settings] | theme status|follow|claude|obsidian|ember|nordic | live-tail status|on|off',
           'warning',
         )
         return
       }
+      const fixedLabel = preferences.palette === 'claude' ? 'Claude' : preferences.palette
       context = ctx
       requestRender()
       ctx.ui.notify(
         `Mahiro UI palette: ${preferences.palette} · ${palette(ctx.ui.theme).name}. ` +
           (preferences.palette === 'follow'
             ? 'Follows the current Pi theme.'
-            : 'Fixed Claude palette for these tool rows/header and split/unified diff; native diff still follows Pi.') +
+            : `Fixed ${fixedLabel} palette for these tool rows/header and split/unified diff; native diff still follows Pi.`) +
           ` Host theme/footer unchanged. Theme commands are runtime-only; use settings → Save for authorized persistence. ${storageStatus}`,
         'info',
       )

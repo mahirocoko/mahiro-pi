@@ -510,6 +510,16 @@ test('real SelectList keyboard interaction changes actual preview; cancel restor
   assert.doesNotMatch(plain(p.instance.render(40)), /more rows/)
   p.enter() // follow -> claude
   assert.equal(p.value().palette, 'claude')
+  p.enter() // claude -> obsidian
+  assert.equal(p.value().palette, 'obsidian')
+  p.enter() // obsidian -> ember
+  assert.equal(p.value().palette, 'ember')
+  p.enter() // ember -> nordic
+  assert.equal(p.value().palette, 'nordic')
+  p.enter() // nordic -> follow
+  assert.equal(p.value().palette, 'follow')
+  p.enter() // follow -> claude
+  assert.equal(p.value().palette, 'claude')
   p.down()
   p.enter() // transparent -> tinted
   assert.equal(p.value().toolStyle, 'tinted')

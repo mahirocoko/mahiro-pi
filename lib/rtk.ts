@@ -1,7 +1,7 @@
 // Native RTK control. Explicit installation selects defaults; startup grants nothing.
 // No settings hooks, history DB, permission bypass or native usage mutation.
 import { execFile } from 'node:child_process'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { registerWorkflowCommand } from './workflow-hub.ts'
 import { registerWorkflowAttention } from './workflow-attention.ts'
 import { registerWorkflowPresentation, workflowRenderers } from './workflow-ui.ts'
@@ -43,7 +43,7 @@ export type RTKRewriteResult = {
   command: string | null
 }
 // No shell interprets the original here, including flag-looking input. stdout is
-// data until ALL host checks have accepted the proposed and final native args.
+// preview data only; this API never executes the proposed command.
 export async function resolveRTKRewrite(
   command: unknown,
   ctx: { cwd: string; signal?: AbortSignal },
@@ -102,8 +102,8 @@ export async function resolveRTKRewrite(
           // RTK can collapse Biome version/format invocations into `rtk lint`,
           // changing semantics. Keep the whole original line, including chains.
           // This conservative token veto is not a shell parser: even a Biome
-          // mention in quoted data forgoes acceleration. Helper denials above
-          // still win, and the caller still authorizes the guarded original.
+          // mention in quoted data forgoes a candidate. Helper denials above
+          // still win; the caller authorizes the preview input, never executes it.
           if (/\bbiome\b/.test(command)) return resolve({ status: 'unchanged', command: null })
           resolve({
             status: code === 3 ? 'approval-required' : 'candidate',
@@ -113,8 +113,8 @@ export async function resolveRTKRewrite(
       )
     } catch {
       // execFile can throw before a child exists (invalid launch options, etc.).
-      // No callback will release this slot. Optional acceleration must not poison
-      // all later commands; transform still rechecks current authority afterward.
+      // No callback will release this slot. A failed preview must not poison
+      // later previews; the caller still rechecks current authority afterward.
       helpersInFlight--
       if (ctx.signal?.aborted) reject(Error('RTK cancelled'))
       else resolve({ status: 'unavailable', command: null })
@@ -122,6 +122,7 @@ export async function resolveRTKRewrite(
   })
 }
 
+// Legacy pure candidate utility; no automatic execution path consumes it.
 export function rtkCandidate(command: unknown, mode: RTKMode) {
   if (
     mode === 'off' ||
@@ -197,7 +198,7 @@ export function registerRTK(
     statusOwners.set(ctx.ui, statusOwner)
     statusContext = ctx
     // Plain text inherits the existing footer's colors and geometry. This is
-    // the active control mode, never a helper availability or savings claim.
+    // the stored compatibility mode, never an interception or savings claim.
     ctx.ui.setStatus('mahiro-rtk', `RTK ${available ? mode : 'unavailable'}`)
   }
   const read = (ctx: any, operation = 'read', execution = false) => {
@@ -205,8 +206,8 @@ export function registerRTK(
     if (!b) throw Error('Canonical RTK profile/project binding unavailable')
     if (execution && owner.executionAccess) owner.executionAccess(ctx, b.root, b)
     else owner.access(ctx, b.root, operation)
-    // One fresh full binding per execution barrier, not three synchronous
-    // re-resolutions inside the same read. Publication retains its own checks.
+    // Initialization reuses one fresh full binding within this synchronous
+    // read. Preview and publication retain their own fresh binding checks.
     if (!execution) assertRTKBinding(b)
     const text = readRTKFile(join(b.root, 'state.json'))
     const defaultsText = text === null ? readRTKFile(join(b.root, 'default.json')) : null
@@ -229,26 +230,9 @@ export function registerRTK(
     binding = null
     recent.length = 0
   })
-  const authorize = (ctx: any, command: string) => {
+  const authorizePreview = (ctx: any, command: string) => {
     const d = owner.permission(ctx, 'bash', command)
-    if (d?.state !== 'allow') throw Error('RTK original/final Bash permission required')
-  }
-  const allowsTransformed = (ctx: any, command: string) => {
-    const d = owner.permission(ctx, 'bash', command)
-    if (!d || d.state === 'deny' || d.floor !== undefined) return false
-    if (d.state === 'allow') return true
-    const units =
-      Array.isArray(d.askingUnits) && d.askingUnits.length ? d.askingUnits : [{ command, floor: d.floor }]
-    return units.every((u: { command: string; floor?: string }) => {
-      if (u.floor !== undefined) return false
-      const ud = owner.permission(ctx, 'bash', u.command)
-      return (
-        !!ud &&
-        ud.state !== 'deny' &&
-        ud.floor === undefined &&
-        (ud.matchedPattern === undefined || ud.matchedPattern === '*')
-      )
-    })
+    if (d?.state !== 'allow') throw Error('RTK preview Bash permission required')
   }
   const assertPreview = (
     ctx: any,
@@ -285,7 +269,7 @@ export function registerRTK(
       if (
         !(await ctx.ui.confirm(
           'Mahiro RTK mode',
-          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nNo settings hooks or history access. Suggest/rewrite-rtk call the installed bounded rewrite helper; helper output is never a host grant. Original and final authorization required.`,
+          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nCompatibility state only: no mode intercepts Bash. Only explicit rewrite calls the bounded helper for a non-executing preview. No settings hooks or history access; preview is never an execution grant.`,
         ))
       )
         throw Error('RTK mode declined')
@@ -320,8 +304,8 @@ export function registerRTK(
     if (args.operation === 'rewrite') {
       const captured = epoch
       const original = await owner.finalArgs('bash', { command: args.command }, ctx)
-      if (!allowsTransformed(ctx, args.command) || !allowsTransformed(ctx, original.command))
-        throw Error('RTK original/final Bash permission required')
+      authorizePreview(ctx, args.command)
+      authorizePreview(ctx, original.command)
       assertPreview(ctx, captured, b, ticket)
       const result: RTKRewriteResult = /^\s*git\s+commit(?:\s|$)/.test(original.command)
         ? { status: 'unchanged', command: null }
@@ -333,14 +317,15 @@ export function registerRTK(
       mode: state.mode,
       sequence: state.sequence,
       activeThisGeneration: mode,
+      automaticInterception: false,
       recent: args.operation === 'log' ? structuredClone(recent) : undefined,
       savings: 'unverified; no history reads or native usage/quota changes',
       binaryProbe: false,
       resolver:
-        'installed rtk rewrite -- <original>; exit 0/3 are candidates, 1 unchanged, 2 denied; errors fall back to guarded original',
+        'explicit preview only: rtk rewrite -- <original>; exit 0/3 are candidates, 1 unchanged, 2 denied; errors return no candidate',
       helperBounds: RTK_HELPER_BOUNDS,
       supported:
-        'rewrite-safe: conservative git status/diff and ls; suggest/rewrite-rtk: real helper, no local command DSL',
+        'all modes are compatibility state only; explicit rewrite previews the real helper without executing',
       doctor: 'No availability/version probe or history access; rewrite explicitly invokes the resolver',
       projects: args.operation === 'projects' ? [b.project] : undefined,
     }
@@ -352,7 +337,7 @@ export function registerRTK(
     name: 'mh_rtk',
     label: 'Mahiro RTK',
     description:
-      'Native RTK control and real helper preview. Explicit installation defaults to rewrite-rtk; explicit off is preserved. No history or savings claims. Mode writes require exact sequence and actual UI.',
+      'Native RTK compatibility state and non-executing helper preview. New installations default off; existing state is preserved. No automatic Bash interception, history or savings claims. Mode writes require exact sequence and actual UI.',
     parameters: {
       type: 'object',
       properties: {
@@ -422,84 +407,10 @@ export function registerRTK(
       }
       publishStatus(ctx, binding !== null)
     },
-    async transform(input: any, ctx: any, effectiveBash?: (command: string) => boolean) {
-      const rawCommand = input.command
-      // A consumed PSS receipt is execution-local. Preview/control retain the
-      // original strict query; no capability is put on a shared context.
-      const authorizeExecution = (context: any, command: string) => {
-        if (!effectiveBash) {
-          authorize(context, rawCommand)
-          if (command !== rawCommand && !allowsTransformed(context, command))
-            throw Error('RTK original/final Bash permission required')
-          return
-        }
-        if (!effectiveBash(rawCommand) || !effectiveBash(command))
-          throw Error('RTK original/final Bash permission required')
-      }
-      // The disabled fast path performs no filesystem read, probe, helper or log work.
-      if (mode === 'off') return input
-      const captured = epoch
-      let revision: string | undefined
-      const assert = () => {
-        if (
-          !alive ||
-          captured !== epoch ||
-          !(owner.executionCurrent ?? owner.current)(ctx) ||
-          ctx.signal?.aborted ||
-          !binding ||
-          binding.project !== ctx.cwd
-        )
-          throw Error('RTK stale/cancelled')
-        const current = read(ctx, 'read', true)
-        if (
-          current.state.mode !== mode ||
-          JSON.stringify(current.b) !== JSON.stringify(binding) ||
-          (revision !== undefined && revision !== current.ticket)
-        )
-          throw Error('RTK configuration changed')
-        revision = current.ticket
-      }
-      assert()
-      // Always inspect the original BEFORE considering any rewrite, even unsupported syntax.
-      const original = await owner.finalArgs('bash', input, ctx)
-      assert()
-      authorizeExecution(ctx, input.command)
-      authorizeExecution(ctx, original.command)
-      // Preserve direct native commits: never send them through RTK (including
-      // already sanitized attribution). The host still checks/spawns the raw git.
-      if (/^\s*git\s+commit(?:\s|$)/.test(original.command)) return original
-      const candidate =
-        mode === 'rewrite-safe'
-          ? rtkCandidate(original.command, mode)
-          : await resolveRTKRewrite(original.command, ctx)
-      assert()
-      if (candidate && 'status' in candidate && candidate.status === 'denied')
-        throw Error('RTK rewrite denied (exit 2); no command executed')
-      if (!candidate?.command) return original
-      for (const operand of 'paths' in candidate ? candidate.paths : []) {
-        const path = resolve(ctx.cwd, operand)
-        if (path !== ctx.cwd && !path.startsWith(`${ctx.cwd}/`))
-          throw Error('RTK external operand unsupported')
-        for (const surface of ['read', 'path_read']) {
-          const d = owner.permission(ctx, surface, path)
-          if (d?.matchedPattern !== undefined && d.state !== 'allow') throw Error('RTK operand read denied')
-        }
-      }
-      authorizeExecution(ctx, candidate.command)
-      const final = await owner.finalArgs('bash', { ...original, command: candidate.command }, ctx)
-      assert()
-      authorizeExecution(ctx, input.command)
-      authorizeExecution(ctx, original.command)
-      authorizeExecution(ctx, candidate.command)
-      authorizeExecution(ctx, final.command)
-      assert()
-      recent.unshift({
-        action: mode === 'suggest' ? 'suggested' : 'rewritten',
-        commandHash: rtkHash(input.command),
-        savingsVerified: false,
-      })
-      recent.length = Math.min(recent.length, 20)
-      return mode === 'suggest' ? original : final
+    async transform(input: any, _ctx: any, _effectiveBash?: (command: string) => boolean) {
+      // Compatibility API only. No mode reads state, authorizes, invokes a
+      // helper, records a log or changes native execution through this hook.
+      return input
     },
   }
 }

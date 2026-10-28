@@ -398,7 +398,7 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     fs.writeFileSync(policyFile, JSON.stringify(policy))
     await call('mh_get_goal', {})
     // Genuine normal child perturbs the public singleton. Its own native Bash
-    // must still use the installed rewrite default and its own public decisions.
+    // remains under its own public decisions without automatic RTK interception.
     fs.writeFileSync(path.join(projectA, 'safe.txt'), 'SAFE\n')
     const helper = installRTKHelper(dir)
     const savedPath = process.env.PATH
@@ -460,8 +460,17 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     await service.waitForAll()
     process.env.PATH = savedPath
     assert.equal(service.getRecord(normal).status, 'completed')
-    assert.equal(helper.calls().length, 1, 'actual child entered bounded installed execFile resolver')
-    assert.equal(helper.spawns().length, 1, 'actual native factory spawned final candidate')
+    assert.equal(helper.calls().length, 0, 'native child did not consult the RTK preview resolver')
+    assert.equal(helper.spawns().length, 0, 'native child executed no RTK candidate')
+    assert.ok(
+      childContexts.some((c) =>
+        JSON.parse(c).some(
+          (m: any) =>
+            m.role === 'toolResult' && m.toolName === 'bash' && JSON.stringify(m).includes('safe.txt'),
+        ),
+      ),
+      'ordinary native child executed the original Bash command',
+    )
     assert.equal(
       node.managedMemory.parentService(),
       service,

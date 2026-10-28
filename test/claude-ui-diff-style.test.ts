@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { Theme } from '@earendil-works/pi-coding-agent'
 import { prepareDiff, renderPreparedDiff } from '../lib/claude-ui-diff.ts'
-import { createToolPresentation } from '../lib/claude-ui.ts'
-import { geometry, native, renderContext, theme } from './claude-ui-fixture.ts'
+import { createToolPresentation, PALETTE_THEMES } from '../lib/claude-ui.ts'
+import { geometry, native, renderContext, theme, themeFrom } from './claude-ui-fixture.ts'
 
 type Style = { fg: string; bg: string; bold: boolean; dim: boolean; inverse: boolean }
 type StyledChar = Style & { char: string }
@@ -123,6 +124,7 @@ for (const appearance of ['dark', 'light'] as const) {
     assert.equal(before.bold, false)
     assert.equal(changed.bold, true)
     assert.equal(after.bold, false)
+    assert.equal(stateAt(line, '     ').bg, 'default')
     assert.equal(separator.bg, 'default')
     assert.equal(separator.bold, false)
     assert.ok(styledChars(line).every((cell) => !cell.inverse))
@@ -134,14 +136,75 @@ for (const appearance of ['dark', 'light'] as const) {
   })
 }
 
-test('the authored dark theme also has measurable text contrast in the diff', () => {
-  const line = renderPreparedDiff(pair, 90, theme, geometry).find((value) =>
+test('all authored dark themes validate strictly against Pi schema and maintain diff contrast and non-block padding', () => {
+  const canonical = JSON.parse(
+    readFileSync(new URL('../themes/mahiro-claude-dark.json', import.meta.url), 'utf8'),
+  )
+  const tokenKeys = Object.keys(canonical.colors).sort()
+  assert.equal(tokenKeys.length, 56, 'Pi Theme JSON schema has 56 canonical token keys')
+  const accents = new Set<string>()
+  const surfaces = new Set<string>()
+  for (const themeName of Object.values(PALETTE_THEMES)) {
+    const raw = JSON.parse(readFileSync(new URL(`../themes/${themeName}.json`, import.meta.url), 'utf8'))
+    assert.equal(raw.$schema, 'https://pi.dev/schemas/theme.schema.json')
+    assert.equal(raw.name, themeName)
+    assert.equal(raw.appearance, 'dark')
+    assert.equal(typeof raw.vars, 'object')
+    assert.equal(typeof raw.export, 'object')
+    assert.deepEqual(Object.keys(raw.colors).sort(), tokenKeys, `${themeName} defines all 56 Pi theme tokens`)
+    const candidate = themeFrom(themeName)
+    accents.add(JSON.stringify(candidate.colors.accent))
+    surfaces.add(JSON.stringify(candidate.colors.toolPendingBg))
+    const line = renderPreparedDiff(pair, 90, candidate, geometry).find((value) =>
+      geometry.stripTerminalSequences(value).includes('alpha OLD tail'),
+    )!
+    for (const fragment of ['alpha', 'OLD', 'NEW']) {
+      const state = stateAt(line, fragment)
+      assert.ok(contrast(state.fg, state.bg) >= 4.5, `${themeName}: ${state.fg} on ${state.bg}`)
+    }
+    // Trailing cell padding after code content remains uncolored (no full-width block).
+    assert.equal(stateAt(line, '     ').bg, 'default', `${themeName}: trailing padding stays uncolored`)
+    const removedRow = rgb(stateAt(line, 'alpha').bg)
+    const removedWord = rgb(stateAt(line, 'OLD').bg)
+    const addedRow = rgb(stateAt(line, 'alpha', 1).bg)
+    const addedWord = rgb(stateAt(line, 'NEW').bg)
+    assert.ok(
+      removedRow[0]! > removedRow[1]! && removedRow[0]! > removedRow[2]!,
+      `${themeName} removed row ${removedRow}`,
+    )
+    assert.ok(
+      removedWord[0]! > removedWord[1]! && removedWord[0]! > removedWord[2]!,
+      `${themeName} removed word ${removedWord}`,
+    )
+    assert.ok(
+      addedRow[1]! > addedRow[0]! && addedRow[1]! > addedRow[2]!,
+      `${themeName} added row ${addedRow}`,
+    )
+    assert.ok(
+      addedWord[1]! > addedWord[0]! && addedWord[1]! > addedWord[2]!,
+      `${themeName} added word ${addedWord}`,
+    )
+  }
+  assert.equal(accents.size, Object.keys(PALETTE_THEMES).length, 'each dark theme has a distinct accent')
+  assert.equal(surfaces.size, Object.keys(PALETTE_THEMES).length, 'each dark theme has a distinct surface')
+})
+
+test('cool dark host surfaces deepen before diff mixing so additions do not wash out to cyan-grey', () => {
+  const hostLike = makeTheme('dark', 'truecolor', { surface: '#30333f' })
+  const line = renderPreparedDiff(pair, 90, hostLike, geometry).find((value) =>
     geometry.stripTerminalSequences(value).includes('alpha OLD tail'),
   )!
-  for (const fragment of ['alpha', 'OLD', 'NEW']) {
-    const state = stateAt(line, fragment)
+  const removedRow = stateAt(line, 'alpha')
+  const removedWord = stateAt(line, 'OLD')
+  const addedRow = stateAt(line, 'alpha', 1)
+  const addedWord = stateAt(line, 'NEW')
+  for (const state of [removedRow, removedWord, addedRow, addedWord]) {
     assert.ok(contrast(state.fg, state.bg) >= 4.5, `${state.fg} on ${state.bg}`)
   }
+  const [rR, rG, rB] = rgb(removedRow.bg)
+  const [aR, aG, aB] = rgb(addedRow.bg)
+  assert.ok(rR! >= rB! + 10 && rR! > rG!, `removed row stays warm crimson, got ${removedRow.bg}`)
+  assert.ok(aG! >= aB! + 8 && aG! > aR!, `added row stays green rather than cyan-slate, got ${addedRow.bg}`)
 })
 
 test('a faint theme text token is restored after a bold changed word', () => {

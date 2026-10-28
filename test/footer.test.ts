@@ -141,8 +141,8 @@ test('Git numeric line totals are distinct green/red cells; untracked remains a 
   f.state.git += ' added:247 deleted:89'
   const first = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)[0]
   assert.match(plain(first), /🌿 main \?2 ~1 ↑3 ↓4 \| \+247 \| −89/)
-  assert.ok(first.includes('\x1b[38;2;100;207;100m+247\x1b[0m'))
-  assert.ok(first.includes('\x1b[38;2;255;96;104m−89\x1b[0m'))
+  assert.ok(first.includes('\x1b[38;2;82;196;125m+247\x1b[0m'))
+  assert.ok(first.includes('\x1b[38;2;235;111;119m−89\x1b[0m'))
   f.state.git = 'git dirty:1 ?:247'
   const unknown = plain(renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)[0])
   assert.match(unknown, /\?247/)
@@ -362,6 +362,8 @@ test('minimal core rows retain native input/output, context semantics, palette a
   assert.deepEqual(COLORS, {
     folder: '#8C8CF9',
     git: '#64CF64',
+    diffAdded: '#52C47D',
+    diffRemoved: '#EB6F77',
     dirty: '#FEE19C',
     activity: '#20B2AA',
     context: '#BEBEEE',

@@ -5,6 +5,7 @@ import test from 'node:test'
 import type { ToolRenderers } from '@earendil-works/pi-coding-agent'
 import {
   createBashToolDefinition,
+  createCodemodeExtension,
   createEditToolDefinition,
   createPowerShellToolDefinition,
   createReadToolDefinition,
@@ -288,8 +289,8 @@ function harness() {
   const notifications: string[] = []
   const ui = {
     theme: themeFrom('host-theme'),
-    getTheme() {
-      return fixedAvailable ? theme : undefined
+    getTheme(name = 'mahiro-claude-dark') {
+      return fixedAvailable ? themeFrom(name) : undefined
     },
     setHeader(value: any) {
       header = value?.(
@@ -391,6 +392,17 @@ test('UI harness delivers all public lifecycle listeners in registration order',
   await h.handlers.get('session_shutdown')!({}, h.ctx)
 })
 
+function createCodemodeTool(): PresentationRenderers {
+  let definition: PresentationRenderers = {}
+  createCodemodeExtension()({
+    registerTool(tool: PresentationRenderers) {
+      definition = tool
+    },
+    on() {},
+  } as never)
+  return definition
+}
+
 test('resolver is native outside TUI; custom/specialized/codemode stay native; public builtins adapt', async () => {
   const h = harness()
   const read = createReadToolDefinition('/fixture')
@@ -400,6 +412,15 @@ test('resolver is native outside TUI; custom/specialized/codemode stay native; p
   assert.equal(beforeStartup.renderShell, 'self')
   const custom = { renderCall() {}, renderResult() {}, renderShell: 'self' }
   assert.equal(h.resolve('codemode', custom), custom)
+  const customDefaultShell = { renderCall() {}, renderResult() {} }
+  assert.equal(h.resolve('codemode', customDefaultShell).renderCall, customDefaultShell.renderCall)
+  assert.equal(h.resolve('codemode', customDefaultShell).renderShell, undefined)
+  const builtinCodemode = h.resolve('codemode', createCodemodeTool())
+  assert.equal(builtinCodemode.renderShell, 'self')
+  assert.match(
+    plain(builtinCodemode.renderCall!({ code: 'return 42' }, theme, renderContext()).render(80)),
+    /codemode[\s\S]*return 42/,
+  )
   assert.equal(h.resolve('subagent', custom), custom)
   assert.equal(h.resolve('mcp__docs__search', custom), custom)
   assert.equal(h.resolve('custom-tool', custom), custom)
@@ -477,10 +498,21 @@ test('runtime palette controls follow/fixed, missing theme, invalid args, redraw
   assert.match(h.notifications.at(-1)!, /claude · mahiro-claude-dark/)
   assert.match(h.notifications.at(-1)!, /native diff still follows Pi/)
   assert.equal(h.ui.theme, original)
+  for (const [mode, expectedTheme] of [
+    ['obsidian', 'mahiro-obsidian-dark'],
+    ['ember', 'mahiro-ember-dark'],
+    ['nordic', 'mahiro-nordic-dark'],
+  ] as const) {
+    await h.command(`theme ${mode}`)
+    assert.match(h.notifications.at(-1)!, new RegExp(`${mode} · ${expectedTheme}`))
+    assert.equal(h.ui.theme, original)
+  }
   await h.command('theme follow')
   h.missingTheme()
   await h.command('theme claude')
   assert.match(h.notifications.at(-1)!, /unavailable; keeping follow/)
+  await h.command('theme obsidian')
+  assert.match(h.notifications.at(-1)!, /mahiro-obsidian-dark unavailable; keeping follow/)
   await h.command('theme on')
   assert.match(h.notifications.at(-1)!, /Usage:/)
   assert.ok(h.renders() >= 3)
@@ -759,6 +791,103 @@ test('public native tool component preserves partial/error/expansion, without ex
     for (const width of [20, 80]) {
       for (const line of component.render(width)) assert.ok(geometry.visibleWidth(line) <= width)
     }
+    const rawCodemode = createCodemodeTool()
+    let callFactoryRuns = 0
+    let resultFactoryRuns = 0
+    const spiedCodemode: PresentationRenderers = {
+      renderShell: rawCodemode.renderShell,
+      renderCall: Object.assign(
+        (...args: Parameters<NonNullable<PresentationRenderers['renderCall']>>) => {
+          callFactoryRuns++
+          return rawCodemode.renderCall!(...args)
+        },
+        { toString: () => rawCodemode.renderCall!.toString() },
+      ),
+      renderResult: Object.assign(
+        (...args: Parameters<NonNullable<PresentationRenderers['renderResult']>>) => {
+          resultFactoryRuns++
+          return rawCodemode.renderResult!(...args)
+        },
+        { toString: () => rawCodemode.renderResult!.toString() },
+      ),
+    }
+    const codemodeRenderer = createToolPresentation(
+      'codemode',
+      spiedCodemode,
+      geometry,
+      native,
+      (host) => host,
+    )
+    assert.equal(h.resolve('codemode', rawCodemode).renderShell, 'self')
+    const originalNow = Date.now
+    let now = 1_000_000
+    Date.now = () => now
+    try {
+      const codemodeComponent = new ToolExecutionComponent(
+        'codemode',
+        'codemode-fixture',
+        { code: 'const out = await tools.read({ path: "README.md" });\nreturn out;' },
+        { outputPad, showImages: false },
+        codemodeRenderer,
+        { requestRender() {} } as never,
+        '/does-not-exist',
+      )
+      codemodeComponent.setArgsComplete()
+      codemodeComponent.markExecutionStarted()
+      // 5 seconds elapse before final result without durationMs; render() was not called at start.
+      now += 5000
+      codemodeComponent.updateResult(
+        {
+          content: [{ type: 'text', text: 'Script completed\nWall time 5.0 seconds\nOutput:\nok' }],
+          details: {
+            calls: [{ name: 'read', args: '{"path":"README.md"}', status: 'ok', durationMs: 12 }],
+          },
+          isError: false,
+        },
+        false,
+      )
+      const callRunsBeforeRender = callFactoryRuns
+      const resultRunsBeforeRender = resultFactoryRuns
+      assert.ok(callRunsBeforeRender > 0 && resultRunsBeforeRender > 0)
+      const callWrapper = (codemodeComponent as any).callRendererComponent
+      const resultWrapper = (codemodeComponent as any).resultRendererComponent
+      const callChildrenBefore = [...callWrapper.children]
+      const resultChildrenBefore = [...resultWrapper.children]
+      assert.ok(callChildrenBefore.length > 0)
+      assert.ok(resultChildrenBefore.length > 0)
+      const codemodeLines = codemodeComponent.render(80)
+      const codemodeSecondFrame = codemodeComponent.render(80)
+      assert.deepEqual(codemodeSecondFrame, codemodeLines)
+      assert.equal(callFactoryRuns, callRunsBeforeRender, 'render() does not re-run native renderCall')
+      assert.equal(resultFactoryRuns, resultRunsBeforeRender, 'render() does not re-run native renderResult')
+      assert.deepEqual(callWrapper.children, callChildrenBefore, 'call children retained across frames')
+      assert.deepEqual(resultWrapper.children, resultChildrenBefore, 'result children retained across frames')
+      const codemodePlain = plain(codemodeLines)
+      assert.match(codemodePlain, /codemode[\s\S]*✓ read[\s\S]*ok[\s\S]*Took 5\.0s/)
+      assert.ok(
+        !codemodeLines.join('\n').includes('\x1b[48;'),
+        'completed codemode does not fill a green box surface',
+      )
+      // Update args/result: native lastComponent and wrapper must be reused.
+      codemodeComponent.updateArgs({ code: 'return "updated";' })
+      assert.equal((codemodeComponent as any).callRendererComponent, callWrapper, 'call container reused')
+      // Malformed details.calls without args must be caught by ToolExecutionComponent.updateDisplay()
+      // try/catch and fall back to native text output rather than throwing during render().
+      codemodeComponent.updateResult(
+        {
+          content: [{ type: 'text', text: 'Fallback output on malformed calls' }],
+          details: {
+            calls: [{ name: 'read', status: 'ok' }],
+          },
+          isError: false,
+        },
+        false,
+      )
+      assert.equal((codemodeComponent as any).resultRendererComponent, undefined)
+      assert.match(plain(codemodeComponent.render(80)), /Fallback output on malformed calls/)
+    } finally {
+      Date.now = originalNow
+    }
   }
   await h.handlers.get('session_shutdown')!({}, h.ctx)
 })
@@ -937,7 +1066,12 @@ test('source contract: no execution/context/history/private hooks, settings writ
   )
   assert.doesNotMatch(source, /pi\.on\(\s*(['"])(?:context|tool_call|tool_result|before_agent_start|input)\1/)
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.deepEqual(pkg.pi.themes, ['./themes/mahiro-claude-dark.json'])
+  assert.deepEqual(pkg.pi.themes, [
+    './themes/mahiro-claude-dark.json',
+    './themes/mahiro-obsidian-dark.json',
+    './themes/mahiro-ember-dark.json',
+    './themes/mahiro-nordic-dark.json',
+  ])
   assert.equal(pkg.pi.extensions.at(-1), './extensions/mahiro-claude-ui.ts')
   assert.equal(pkg.pi.extensions.length, 13)
   const bootstrap = readFileSync(new URL('../lib/bootstrap.ts', import.meta.url), 'utf8')

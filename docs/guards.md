@@ -27,7 +27,7 @@ Root neither publishes feature nodes nor releases their memory holds.
 Features call their kernel ABI at the actual operation boundary. Current public
 registration, context and PSS decisions are checked there, without importing
 Root provenance or its executable host. Status remains available under the
-existing PSS authority when Root is omitted; optional execution transforms are
+existing PSS authority when Root is omitted; native argument checks are
 separate from feature readiness. Argument copying for recall/memory is a kernel
 context boundary, not a secret checker or guard-health dependency.
 
@@ -46,8 +46,8 @@ of an installed session, private-memory recovery or human acceptance.
 
 File-access policy concerns actual recognized file-path operands, not arbitrary
 text in a comment, prompt, query, patch or submitted content. Such text is not
-itself a file read. Explicit tool/path/Bash rules still apply; commit-attribution
-and managed-memory content screening have separate contracts.
+itself a file read. Explicit tool/path/Bash rules and managed-memory content
+screening have separate contracts.
 
 PSS's Bash path gate checks the **first recognized operand**, using its supported
 command grammar. It is not an exhaustive traversal of every operand, chain,
@@ -65,11 +65,12 @@ PowerShell.
 
 The manifest loads `lib/guards/bootstrap.ts`, then `lib/guards/index.ts`,
 before features. When loaded, Root checks its live native host, public PSS,
-cancellation, secret file operands, commit attribution and final arguments before
-spawn. It does not require kernel presence or package provenance for ordinary
-native execution. Optional RTK transformation uses a live owned kernel context;
-without it, the original sanitized command must still pass final authorization.
-Loading source grants no capability.
+cancellation, recognized secret file operands and final arguments before spawn. It does not require kernel presence or package provenance for ordinary
+native execution. Root applies only `host.finalArgs`, checks current PSS
+Bash authority and receipt validity again, then invokes native execution. It does
+not call RTK or require RTK state authority. All stored RTK modes are compatibility
+state only; explicit `mh_rtk rewrite` is a non-executing preview. Loading source
+grants no capability.
 
 For path tools, final execution queries public policy again after argument
 changes. A matched deny blocks. A matched ask requires consuming a same-turn
@@ -109,10 +110,15 @@ sandbox; PSS's supported Bash/file policy remains a separate boundary.
 Four standalone bounded inspectors preserve filtered configuration reads:
 `mh_npm_config`, `mh_env_config`, `mh_pypi_config` and `mh_certificate_info`.
 They do not load or instantiate the old secret checker. Their explicit/default
-paths still undergo PSS decisions; only filtered metadata is returned. The
-immutable upstream factory remains source evidence, not a runtime dependency.
-Optional [BASIC read defaults](bootstrap.md#optional-basic-read-defaults) remain
-finite and incomplete.
+paths still undergo PSS decisions; only filtered metadata is returned.
+
+Both original Letta guard factories remain frozen test-only evidence under
+`test/oracles/letta/`. Neither has a runtime copy in `lib/`: the secret factory
+was superseded by the bounded path/inspector implementation, and the commit
+factory was retired rather than retaining a parser that could rewrite command
+meaning. Runtime commit arguments are not rewritten. Optional
+[BASIC read defaults](bootstrap.md#optional-basic-read-defaults) remain finite and
+incomplete.
 
 ## Effective Bash approval
 
@@ -124,14 +130,11 @@ bound before awaiting to:
 - Full toolCallId and complete original command, including heredoc body;
 - Current cwd and the PSS-selected principal.
 
-Root consumes the receipt **before asynchronous transformations**. The returned
-execution-local checker re-queries current Bash policy under that principal.
-Deny always vetoes. Only the identical effectively approved command may lift a
-wrapper/parse floor; a changed original, RTK candidate or sanitizer-transformed
-final command must remain **unfloored and undenied** under current Bash policy
-(allowing wildcard/yolo and approved catch-all asks, without bypassing specific
-ask rules). Approval of one command never lifts a floor or specific ask rule on
-a rewrite.
+Root consumes the receipt before awaiting final host checks and rechecks that
+same original invocation immediately before native execution. The execution-local
+checker re-queries current Bash policy under the captured principal. Deny always
+vetoes; revocation or lifecycle replacement also blocks execution. Root does not run a
+second transformed-command permission algorithm.
 
 Unit decision events and path caches never supply Bash authority. Completion,
 cancellation, turn end, reload and shutdown revoke receipts and retained
@@ -139,8 +142,12 @@ checkers; late approvals from old generations cannot restore them. Without the
 capability or valid receipt, Root retains raw allow checks and refuses asks.
 This is not a second prompt or a replacement for other PSS pipeline gates.
 
-RTK checks the original, proposal and final sanitized command before native
-spawn. Direct `git commit` bypasses the RTK helper, not commit-attribution checks.
+Automatic RTK interception is retired: no helper proposal or RTK authorization
+runs in native execution. Root retains original approval, revocation and the
+final current check after its bounded host checks. Explicit denies still veto.
+Direct `git commit` never needs the RTK helper and remains under ordinary PSS
+authorization without custom command rewriting. An explicit RTK rewrite preview
+also bypasses the helper for direct `git commit`; it never executes any candidate.
 
 ## Feature authority and failures
 

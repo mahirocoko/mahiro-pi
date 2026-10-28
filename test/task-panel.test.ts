@@ -94,7 +94,7 @@ test('task panel renders reference-inspired progress, state markers and bounded 
   }
 })
 
-test('read-only widget shares the dialog card and state markers without fake controls', () => {
+test('read-only widget aligns its heading with other widgets and renders frameless progress', () => {
   const state: TaskState = {
     ...emptyTasks(),
     tasks: [
@@ -106,8 +106,9 @@ test('read-only widget shares the dialog card and state markers without fake con
   const widget = new TaskWidget(state, theme, { truncateToWidth, visibleWidth }, () => true)
   const lines = widget.render(88)
   const text = lines.join('\n')
-  assert.match(lines[0], /^┌─+┐$/)
-  assert.match(lines.at(-1)!, /^└─+┘$/)
+  assert.doesNotMatch(text, /[┌┐┘│]|└─+┘/)
+  assert.match(lines[0]!, /^● Todos \(1\/3\)$/)
+  assert.match(lines[1]!, /^ {2}├─ ✓ ~Finished ภาษาไทย 中文 👩🏽‍💻~$/)
   assert.match(text, /● Todos \(1\/3\)/)
   assert.match(text, /✓ ~Finished ภาษาไทย 中文 👩🏽‍💻~/)
   assert.match(text, /◐ Active step \(Current work\)/)
@@ -121,8 +122,10 @@ test('read-only widget shares the dialog card and state markers without fake con
   assert.equal(active, completed + 1, 'completed and open rows remain connected')
   for (const width of [1, 2, 11, 12, 24, 36, 40, 60, 80, 88, 120, 160]) {
     const rows = widget.render(width)
-    for (const line of rows) assert.ok(visibleWidth(line) <= width, `${width}: overflow`)
-    assert.doesNotMatch(rows.join('\n'), /branch-local|not tsk or human acceptance/)
+    for (const line of rows) {
+      assert.ok(visibleWidth(line) <= (width >= 12 ? width - 1 : width), `${width}: overflow`)
+    }
+    assert.doesNotMatch(rows.join('\n'), /[┌┐┘│]|└─+┘|branch-local|not tsk or human acceptance/)
   }
 })
 
@@ -200,7 +203,7 @@ test('widget bounds completed and open previews, preserves active visibility and
   )
 })
 
-test('styled completed rows do not leak strikethrough past a truncated card boundary', () => {
+test('styled completed rows do not leak strikethrough past a truncated widget or card boundary', () => {
   const ansiTheme = {
     fg: (_tone: string, text: string) => `\x1b[38;2;31;52;73m${text}\x1b[39m`,
     strikethrough: (text: string) => `\x1b[9m${text}\x1b[29m`,
@@ -213,8 +216,28 @@ test('styled completed rows do not leak strikethrough past a truncated card boun
     ],
   }
   const widget = new TaskWidget(state, ansiTheme, { truncateToWidth, visibleWidth }, () => true)
+  const dialog = new TaskPanel({
+    state,
+    tui: { requestRender() {} },
+    theme: ansiTheme,
+    keys: { matches: (data, action) => data === action },
+    done() {},
+    geometry: { truncateToWidth, visibleWidth },
+  })
   for (const width of [12, 24, 48, 120]) {
-    const lines = widget.render(width)
+    const widgetLines = widget.render(width)
+    assert.ok(widgetLines.every((line) => visibleWidth(line) <= width - 1))
+    assert.doesNotMatch(stripTerminalSequences(widgetLines.join('\n')), /[┌┐┘│]|└─+┘/)
+    let widgetStrike = false
+    for (const match of widgetLines[1]!.matchAll(/\x1b\[([\d;]*)m/g)) {
+      for (const code of (match[1] || '0').split(';').map(Number)) {
+        if (code === 0 || code === 29) widgetStrike = false
+        else if (code === 9) widgetStrike = true
+      }
+    }
+    assert.equal(widgetStrike, false, `strikethrough leaked past widget truncation at width ${width}`)
+
+    const lines = dialog.render(width)
     assert.ok(lines.every((line) => visibleWidth(line) === width))
     const completed = lines[2]!
     assert.ok(stripTerminalSequences(completed).endsWith('│'))

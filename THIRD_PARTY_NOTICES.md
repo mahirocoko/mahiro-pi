@@ -5,8 +5,8 @@
 `themes/mahiro-claude-dark.json` adapts only the optional palette from
 [cc-my-pi](https://github.com/timvdhoorn/cc-my-pi),
 commit `6746292ff4359b2bdca987109ff49c8da055bb23`,
-`themes/cc-my-pi-dark.json`. Changes: unique name, explicit dark appearance,
-current public schema URL and formatting. No entrypoints, diff implementation,
+`themes/cc-my-pi-dark.json`. Changes include a unique name, explicit dark appearance,
+current public schema, retuned palette values and semantic token mappings. No entrypoints, diff implementation,
 header scaffolding, mascot or vendored plugins are copied.
 
 The following complete upstream root notice is retained (including its vendor

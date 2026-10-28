@@ -2,8 +2,22 @@ import type { KeybindingsManager, Theme, ToolRenderers } from '@earendil-works/p
 import type { Component, SelectItem, SettingItem } from '@earendil-works/pi-tui'
 import { createToolPresentation, type Geometry, type NativePresentation } from './claude-ui.ts'
 
-import { UI_DEFAULTS, type UIPreferences } from './claude-ui-preferences.ts'
-export { UI_DEFAULTS, type UIPreferences } from './claude-ui-preferences.ts'
+import {
+  PALETTE_MODES,
+  PALETTE_THEMES,
+  UI_DEFAULTS,
+  type FixedPaletteMode,
+  type PaletteMode,
+  type UIPreferences,
+} from './claude-ui-preferences.ts'
+export {
+  PALETTE_MODES,
+  PALETTE_THEMES,
+  UI_DEFAULTS,
+  type FixedPaletteMode,
+  type PaletteMode,
+  type UIPreferences,
+} from './claude-ui-preferences.ts'
 export const PERSISTENCE_LIMIT =
   'Not persisted: no authorized own-UI DATA storage owner is available. Runtime controls remain usable; host settings and grants are unchanged.'
 export type UISaveResult = { saved: boolean; message: string }
@@ -57,8 +71,9 @@ export function createSettingsPanel(options: {
       id: 'palette',
       label: 'Palette',
       currentValue: draft.palette,
-      values: ['follow', 'claude'],
-      description: 'Only Mahiro tool rows and header; never the host theme or footer.',
+      values: [...PALETTE_MODES],
+      description:
+        'Only Mahiro tool rows and header (follow, claude, obsidian, ember, nordic); never the host theme or footer.',
     },
     {
       id: 'toolStyle',

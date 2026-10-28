@@ -117,7 +117,6 @@ const denied = (message) => (result) => {
 const memoryDenied = denied(
   'Managed memory unavailable: valid arguments, scope, CAS, separate permission and healthy native binding required (reason: unknown)',
 )
-const rtkDenied = denied('RTK original/final Bash permission required')
 const step = (id, tool, args, verify = ok, control = false) =>
   inspect(id, () => call(tool, args), verify, control)
 const close = async () => {
@@ -546,10 +545,10 @@ try {
   helper.set({ out: 'rtk ls safe.txt\n' })
   await step('rtk.rewrite-preview', 'mh_rtk', { operation: 'rewrite', command: 'ls safe.txt' })
   const beforeRewrite = helper.spawns().length
-  await step('rtk.native-rewrite', 'bash', { command: 'ls safe.txt' }, (result) => {
+  await step('rtk.native-pass-through', 'bash', { command: 'ls safe.txt' }, (result) => {
     ok(result)
-    assert.match(result.text, /FAKE_RTK_NATIVE/)
-    assert.equal(helper.spawns().length, beforeRewrite + 1)
+    assert.match(result.text, /safe\.txt/)
+    assert.equal(helper.spawns().length, beforeRewrite)
   })
   const beforeDeniedOriginal = helper.calls().length
   writePolicy({
@@ -571,43 +570,18 @@ try {
     permission: { ...explicit.permission, bash: { '*': 'allow', 'rtk ls safe.txt': 'deny' } },
   })
   const beforeDeniedCandidate = helper.spawns().length
-  await step(
-    'rtk.candidate-denied',
-    'bash',
-    { command: 'ls safe.txt' },
-    (result) => {
-      rtkDenied(result)
-      assert.equal(helper.spawns().length, beforeDeniedCandidate)
-    },
-    true,
-  )
-  // Exercise the real sanitizer's final-command recheck, not just RTK's candidate
-  // check. The proposal is allowed; only its attribution-stripped final form is denied.
-  helper.set({ out: "git commit -m 'Co-Authored-By: Letta Code <noreply@letta.com>'\n" })
-  const headBefore = command(['/usr/bin/git', 'rev-parse', 'HEAD']).stdout
-  const callsBeforeFinal = helper.calls().length
-  const spawnsBeforeFinal = helper.spawns().length
-  writePolicy({
-    ...explicit,
-    permission: { ...explicit.permission, bash: { '*': 'allow', "git commit -m ''": 'deny' } },
+  await step('rtk.candidate-policy-not-native', 'bash', { command: 'ls safe.txt' }, (result) => {
+    ok(result)
+    assert.match(result.text, /safe\.txt/)
+    assert.equal(helper.spawns().length, beforeDeniedCandidate)
   })
-  await step(
-    'rtk.sanitized-final-denied',
-    'bash',
-    { command: 'ls safe.txt' },
-    (result) => {
-      rtkDenied(result)
-      assert.equal(helper.calls().length, callsBeforeFinal + 1)
-      assert.equal(helper.spawns().length, spawnsBeforeFinal)
-      assert.equal(command(['/usr/bin/git', 'rev-parse', 'HEAD']).stdout, headBefore)
-    },
-    true,
-  )
   writePolicy(explicit)
   helper.set({ code: 1 })
-  await step('rtk.original-fallback', 'bash', { command: 'printf SYNTHETIC_ORIGINAL' }, (result) => {
+  const beforePassThrough = helper.spawns().length
+  await step('rtk.original-pass-through', 'bash', { command: 'printf SYNTHETIC_ORIGINAL' }, (result) => {
     ok(result)
     assert.match(result.text, /SYNTHETIC_ORIGINAL/)
+    assert.equal(helper.spawns().length, beforePassThrough)
   })
   save('rtk-transport.json', JSON.stringify({ resolver: helper.calls(), native: helper.spawns() }, null, 2))
   // Headless slash-command dispatch exercises owner paths without claiming UI acceptance.

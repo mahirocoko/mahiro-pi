@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import test from 'node:test'
 import {
+  PALETTE_MODES,
   UI_DEFAULTS,
   decodeUIState,
   nextUIState,
@@ -19,6 +20,10 @@ test('own-UI closed state: absence, raw-byte CAS, bounded strict UTF-8 and fixed
   assert.deepEqual(initial.state, { version: 1, sequence: 0, ...UI_DEFAULTS })
   const next = nextUIState(initial, { ...UI_DEFAULTS, palette: 'claude' })
   assert.equal(next.sequence, 1)
+  for (const palette of PALETTE_MODES) {
+    const candidate = nextUIState(initial, { ...UI_DEFAULTS, palette })
+    assert.equal(decodeUIState(Buffer.from(JSON.stringify(candidate))).state.palette, palette)
+  }
   const bytes = Buffer.from(JSON.stringify(next))
   assert.deepEqual(decodeUIState(bytes).state, next)
   assert.notEqual(uiStateTicket(bytes), uiStateTicket(Buffer.concat([bytes, Buffer.from('\n')])))

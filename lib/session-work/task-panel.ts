@@ -255,14 +255,12 @@ export class TaskWidget implements Component {
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines
     if (width < 12) return [this.geometry.truncateToWidth('● Todos', width, '')]
 
-    const { innerWidth, border, line } = cardFrame(width, this.theme, this.geometry)
+    const contentWidth = width - 1
+    const line = (text = '') => this.geometry.truncateToWidth(text, contentWidth, '…')
     const openLimit = this.state.config.view === 'compact' ? 5 : 3
     const shownCompleted = completed.slice(0, 2)
     const shownOpen = open.slice(0, openLimit)
-    const lines = [
-      border(`┌${'─'.repeat(innerWidth)}┐`),
-      line(this.theme.fg('accent', `● Todos (${completed.length}/${this.tasks.length})`)),
-    ]
+    const lines = [line(this.theme.fg('accent', `● Todos (${completed.length}/${this.tasks.length})`))]
     const addTask = (task: Task) => {
       const branch = task === this.tasks.at(-1) ? '└─' : '├─'
       lines.push(line(taskRow(task, this.state, this.theme, branch)))
@@ -276,7 +274,6 @@ export class TaskWidget implements Component {
       ...(hiddenOpen ? [`${hiddenOpen} more`] : []),
     ]
     if (overflow.length) lines.push(line(this.theme.fg('dim', `  … ${overflow.join(' · ')} · /mh-todos`)))
-    lines.push(border(`└${'─'.repeat(innerWidth)}┘`))
     this.cachedWidth = width
     this.cachedLines = lines
     return lines

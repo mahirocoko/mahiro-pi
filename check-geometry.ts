@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { pack, renderFooter, COLORS } from './lib/footer.ts'
 import { quotaFooterSegments } from './lib/quota.ts'
 import type { Theme } from '@earendil-works/pi-coding-agent'
-import { TaskPanel } from './lib/session-work/task-panel.ts'
+import { TaskPanel, TaskWidget } from './lib/session-work/task-panel.ts'
 import { emptyTasks, type Task } from './lib/session-work/task-model.ts'
 
 const args = process.argv.slice(2).filter((arg) => arg !== '--')
@@ -116,30 +116,32 @@ const taskTheme = {
   strikethrough: (text: string) => `\x1b[9m${text}\x1b[29m`,
 } as unknown as Theme
 for (const count of [0, 3, 24]) {
+  const taskState = {
+    ...emptyTasks(),
+    tasks: Array.from(
+      { length: count },
+      (_, index): Task => ({
+        id: String(index),
+        revision: 1,
+        subject: `ตรวจสอบงานที่ ${index} ภาษาไทย 中文 👩🏽‍💻 👨‍👩‍👧‍👦 `.repeat(5),
+        description: 'กำลังทดสอบความกว้าง 中文 👩🏽‍💻'.repeat(5),
+        status: index % 3 === 0 ? 'completed' : index % 3 === 1 ? 'in_progress' : 'pending',
+        blockedBy: index % 3 === 2 ? ['1'] : [],
+        completedTurn: index % 3 === 0 ? 0 : null,
+        owner: '',
+        metadata: {},
+      }),
+    ),
+  }
   const panel = new TaskPanel({
-    state: {
-      ...emptyTasks(),
-      tasks: Array.from(
-        { length: count },
-        (_, index): Task => ({
-          id: String(index),
-          revision: 1,
-          subject: `ตรวจสอบงานที่ ${index} ภาษาไทย 中文 👩🏽‍💻 👨‍👩‍👧‍👦 `.repeat(5),
-          description: 'กำลังทดสอบความกว้าง 中文 👩🏽‍💻'.repeat(5),
-          status: index % 3 === 0 ? 'completed' : index % 3 === 1 ? 'in_progress' : 'pending',
-          blockedBy: index % 3 === 2 ? ['1'] : [],
-          completedTurn: index % 3 === 0 ? 0 : null,
-          owner: '',
-          metadata: {},
-        }),
-      ),
-    },
+    state: taskState,
     tui: { requestRender() {} },
     theme: taskTheme,
     keys: { matches: (data, action) => data === action },
     done() {},
     geometry,
   })
+  const widget = new TaskWidget(taskState, taskTheme, geometry, () => true)
   for (let step = 0; step < Math.max(1, count); step++) {
     for (const width of [1, 2, 8, 11, 12, 24, 40, 60, 80, 120, 160]) {
       const rows = panel.render(width)
@@ -153,10 +155,17 @@ for (const count of [0, 3, 24]) {
           rows.every((row) => geometry.visibleWidth(row) === width),
           `${width}: task panel right edge`,
         )
+      const widgetRows = widget.render(width)
+      assert.ok(widgetRows.length <= 14, `${width}: task widget bounded height`)
+      assert.ok(
+        widgetRows.every((row) => geometry.visibleWidth(row) <= (width >= 12 ? width - 1 : width)),
+        `${width}: task widget overflow`,
+      )
+      assert.doesNotMatch(widgetRows.map(plain).join('\n'), /[┌┐┘│]|└─+┘/, `${width}: frameless task widget`)
     }
     panel.handleInput('tui.select.down')
   }
 }
 console.log(
-  'Public host footer + TaskPanel geometry passed: 40/60/80/120/160 and tiny columns, Thai/CJK/ZWJ labels (not human rendered acceptance).',
+  'Public host footer + TaskPanel/TaskWidget geometry passed: 40/60/80/120/160 and tiny columns, Thai/CJK/ZWJ labels (not human rendered acceptance).',
 )

@@ -5,6 +5,8 @@ import { text } from './status.ts'
 export const COLORS = {
   folder: '#8C8CF9',
   git: '#64CF64',
+  diffAdded: '#52C47D',
+  diffRemoved: '#EB6F77',
   dirty: '#FEE19C',
   activity: '#20B2AA',
   context: '#BEBEEE',
@@ -307,7 +309,12 @@ export function renderFooter(
       const count = state.git.match(new RegExp(`\\b${key}:(\\d+)`))?.[1]
       return count === undefined
         ? []
-        : [cell(`${key === 'added' ? '+' : '−'}${count}`, key === 'added' ? COLORS.git : '#FF6068')]
+        : [
+            cell(
+              `${key === 'added' ? '+' : '−'}${count}`,
+              key === 'added' ? COLORS.diffAdded : COLORS.diffRemoved,
+            ),
+          ]
     }),
   ]
   const { stats, context } = totals(ctx)

@@ -4,15 +4,15 @@
   "sourceRevision": "2b54c639a196c0b59352ed26d82a55c4c7a050a3",
   "originals": [
     {
-      "path": "mahiro-secret-read-guard.js",
+      "path": "../../test/oracles/letta/mahiro-secret-read-guard.js",
       "sha256": "2016ff8719318f55fe0242c0a294aef49805f51e35897daee293929ec29d6804",
       "original": "mods/mahiro-secret-read-guard.js"
     },
     {
-      "path": "mahiro-commit-attribution-guard.js",
+      "path": "../../test/oracles/letta/mahiro-commit-attribution-guard.js",
       "sha256": "c09cad3bfea844a7db9243d8871e52be1d8ddbeb9dd80dfa48eb0d7d84c19d38",
       "original": "mods/mahiro-commit-attribution-guard.js"
     }
   ],
-  "adaptation": "Pi registration ABI only; original Letta factories unchanged. Native Core is not Letta MemFS."
+  "adaptations": []
 }

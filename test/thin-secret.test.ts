@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { assertSecretPaths, isSecretPath } from '../lib/guards/secret-paths.mjs'
 import { createFilteredTools, __testing as filtered } from '../lib/guards/filtered-config.mjs'
-import { __testing as upstream } from '../lib/guards/mahiro-secret-read-guard.js'
 import { createGuardHost } from '../lib/guards/host.mjs'
 
 test('lightweight secret rules inspect actual file operands, not content or query strings', () => {
@@ -38,6 +37,9 @@ test('lightweight secret rules inspect actual file operands, not content or quer
 })
 
 test('standalone filtered helpers preserve upstream payloads without loading its checker', async () => {
+  // Computed test-only import keeps the frozen oracle outside the compiler program.
+  const oracle = new URL('./oracles/letta/mahiro-secret-read-guard.js', import.meta.url)
+  const { __testing: upstream } = await import(oracle.href)
   const cwd = mkdtempSync(join(tmpdir(), 'thin-filtered-'))
   try {
     const inputs = [

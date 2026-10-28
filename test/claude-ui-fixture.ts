@@ -30,8 +30,15 @@ geometry.setKeybindings(
 )
 
 export { geometry }
+const knownThemeFiles = new Set([
+  'mahiro-claude-dark',
+  'mahiro-obsidian-dark',
+  'mahiro-ember-dark',
+  'mahiro-nordic-dark',
+])
 export const themeFrom = (name = 'mahiro-claude-dark') => {
-  const json = JSON.parse(readFileSync(new URL('../themes/mahiro-claude-dark.json', import.meta.url), 'utf8'))
+  const file = knownThemeFiles.has(name) ? name : 'mahiro-claude-dark'
+  const json = JSON.parse(readFileSync(new URL(`../themes/${file}.json`, import.meta.url), 'utf8'))
   const resolve = (value: string | number): string | number =>
     typeof value === 'string' && json.vars[value] ? resolve(json.vars[value]) : value
   const colors = Object.fromEntries(

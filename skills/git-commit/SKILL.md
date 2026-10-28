@@ -54,9 +54,9 @@ a concise subject explaining the purpose; omit an invented scope or trailing per
 ## Message and failure boundaries
 
 Keep stored messages free of generated-by lines, bot signatures, attribution
-trailers and orphan markers. If higher-priority runtime instructions require
-attribution in command input, follow them and let the canonical guard sanitize
-it. Inspect the stored message rather than assuming the guard covered this cwd.
+trailers and orphan markers. No runtime guard rewrites commit messages. If a
+higher-priority instruction requires attribution, stop and report the conflict
+rather than assuming later sanitization. Inspect the stored message after commit.
 
 On denial, hook failure, unexpected committed scope or forbidden stored
 attribution, stop and report the actual index/commit state. Do not bypass guards,

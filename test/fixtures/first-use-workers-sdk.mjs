@@ -726,7 +726,7 @@ try {
       ['/mh-memory remember', note(/Usage:/), { control: true }],
       ['/mh-memory unsupported', note(/Use \/mh-memory/), { control: true }],
       ['/mh-memory status', jsonNote((data) => assert.equal(data.readiness, 'Ready'))],
-      ['/mh-rtk status', jsonNote((data) => assert.equal(data.mode, 'rewrite-rtk'))],
+      ['/mh-rtk status', jsonNote((data) => assert.equal(data.mode, 'off'))],
       ['/mh-goal help', note(/Mahiro Goal:/)],
       ['/mh-goal status', jsonNote((data) => assert.equal(data.goal, null))],
       ['/mh-goal-status', jsonNote((data) => assert.equal(data.goal, null))],

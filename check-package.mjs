@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,7 +8,7 @@ import ts from 'typescript'
 const root = fileURLToPath(new URL('.', import.meta.url))
 const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@mahirocoko/mahiro-pi')
-assert.equal(manifest.version, '0.9.1')
+assert.equal(manifest.version, '0.10.0')
 const rootGuard = await readFile(resolve(root, 'lib/guards/index.ts'), 'utf8')
 assert.doesNotMatch(rootGuard, /owned-provenance|createMetaProvenance|unsupported tool\/alias/)
 assert.doesNotMatch(
@@ -19,6 +20,26 @@ const guardHost = await readFile(resolve(root, 'lib/guards/host.mjs'), 'utf8')
 assert.match(guardHost, /createFilteredTools/)
 assert.match(guardHost, /assertSecretPaths/)
 assert.doesNotMatch(guardHost, /activateSecrets|createChecker|from ['"].*mahiro-secret-read-guard/)
+assert.doesNotMatch(guardHost, /permissions:|checks\.values|COMMIT_CHECK|tools:\s*\{|tool_start/)
+const guardProvenance = JSON.parse(await readFile(resolve(root, 'lib/guards/provenance.json'), 'utf8'))
+const oracleProvenance = JSON.parse(
+  await readFile(resolve(root, 'test/oracles/letta/provenance.json'), 'utf8'),
+)
+assert.equal(guardProvenance.originals.length, 2)
+for (const entry of guardProvenance.originals) {
+  const original = oracleProvenance.files.find((file) => file.original === entry.original)
+  assert.ok(original, `Unknown guard original: ${entry.original}`)
+  assert.equal(entry.path, `../../test/oracles/letta/${original.path}`)
+  assert.equal(entry.sha256, original.sha256)
+  const bytes = await readFile(resolve(root, 'lib/guards', entry.path))
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256)
+}
+assert.deepEqual(guardProvenance.adaptations, [])
+for (const path of [
+  'lib/guards/mahiro-secret-read-guard.js',
+  'lib/guards/mahiro-commit-attribution-guard.js',
+])
+  await assert.rejects(readFile(resolve(root, path)), { code: 'ENOENT' })
 const filtered = await readFile(resolve(root, 'lib/guards/filtered-config.mjs'), 'utf8')
 assert.doesNotMatch(filtered, /node:child_process|createChecker|const POLICY/)
 const kernel = await readFile(resolve(root, 'lib/kernel/index.ts'), 'utf8')
@@ -81,10 +102,13 @@ for (const pattern of [
   '!!.agent-state',
   '!!**/node_modules',
   '!!test/oracles',
+])
+  assert.ok(biome.files.includes.includes(pattern), `Missing formatter owner/boundary: ${pattern}`)
+for (const pattern of [
   '!!lib/guards/mahiro-secret-read-guard.js',
   '!!lib/guards/mahiro-commit-attribution-guard.js',
 ])
-  assert.ok(biome.files.includes.includes(pattern), `Missing formatter owner/boundary: ${pattern}`)
+  assert.ok(!biome.files.includes.includes(pattern), `Deleted runtime guard must not be excluded: ${pattern}`)
 assert.equal(manifest.letta, undefined)
 assert.equal(manifest.scripts.setup, 'node setup.mjs')
 assert.equal(manifest.scripts.bootstrap, 'node bootstrap.mjs')
@@ -103,7 +127,12 @@ assert.ok(
 assert.ok(imports(await readFile(resolve(root, 'setup.mjs'), 'utf8')).includes('./lib/setup.ts'))
 assert.ok((await readFile(resolve(root, 'lib/setup.ts'), 'utf8')).includes('export const planSetup'))
 assert.deepEqual(manifest.pi.skills, ['./skills'])
-assert.deepEqual(manifest.pi.themes, ['./themes/mahiro-claude-dark.json'])
+assert.deepEqual(manifest.pi.themes, [
+  './themes/mahiro-claude-dark.json',
+  './themes/mahiro-obsidian-dark.json',
+  './themes/mahiro-ember-dark.json',
+  './themes/mahiro-nordic-dark.json',
+])
 for (const peer of ['@earendil-works/pi-coding-agent', '@earendil-works/pi-tui']) {
   assert.equal(manifest.peerDependencies[peer], '>=1.3.0')
   assert.equal(manifest.peerDependenciesMeta[peer].optional, true)

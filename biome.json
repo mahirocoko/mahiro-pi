@@ -11,9 +11,7 @@
       "themes/**",
       "!!.agent-state",
       "!!**/node_modules",
-      "!!test/oracles",
-      "!!lib/guards/mahiro-secret-read-guard.js",
-      "!!lib/guards/mahiro-commit-attribution-guard.js"
+      "!!test/oracles"
     ]
   },
   "formatter": {

@@ -1,7 +1,14 @@
 import type { Theme, ToolRenderers } from '@earendil-works/pi-coding-agent'
 import type { Component } from '@earendil-works/pi-tui'
 import { prepareDiff, renderPreparedDiff, unifiedToNative } from './claude-ui-diff.ts'
-import type { UIPreferences } from './claude-ui-settings.ts'
+import {
+  PALETTE_MODES,
+  PALETTE_THEMES,
+  type FixedPaletteMode,
+  type PaletteMode,
+  type UIPreferences,
+} from './claude-ui-preferences.ts'
+export { PALETTE_MODES, PALETTE_THEMES, type FixedPaletteMode, type PaletteMode }
 
 // The SDK's resolver erases tool parameter types. Method signatures retain the
 // native renderer's variance at this presentation-only boundary; Pi still owns
@@ -16,8 +23,7 @@ export interface PresentationRenderers {
 
 // Clean presentation implementation. Visual references and palette provenance:
 // docs/claude-ui.md and THIRD_PARTY_NOTICES.md. No upstream entrypoints.
-export const CLAUDE_THEME = 'mahiro-claude-dark'
-export type PaletteMode = 'follow' | 'claude'
+export const CLAUDE_THEME = PALETTE_THEMES.claude
 export type Geometry = Pick<
   typeof import('@earendil-works/pi-tui'),
   | 'visibleWidth'
@@ -42,7 +48,7 @@ const labels: Record<string, string> = {
   ls: 'List',
 }
 const LIVE_TAIL_CHARS = 4096
-export const supportedTools = Object.keys(labels)
+export const supportedTools = [...Object.keys(labels), 'codemode']
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
 const string = (value: unknown) => (typeof value === 'string' ? value : '')
@@ -185,6 +191,103 @@ export function createToolPresentation(
       rows = produce()
       key = next
       return rows
+    }
+  }
+  if (name === 'codemode') {
+    type ShellSlot = {
+      rawRender: (width: number) => string[]
+      pad: number
+      host: Theme
+      renderedTheme: Theme
+      bg: () => 'toolErrorBg' | 'toolPendingBg' | 'customMessageBg'
+      rebuild: (theme: Theme, lastComponent?: Component) => Component
+    }
+    const slots = new WeakMap<Component, ShellSlot>()
+    const codemodeContext = (ctx: ToolRenderContext, lastComponent?: Component): ToolRenderContext => ({
+      ...ctx,
+      state: Object.isFrozen(ctx.state) ? { ...ctx.state } : ctx.state,
+      lastComponent: lastComponent ?? ctx.lastComponent,
+    })
+    const mountShell = (
+      ctx: ToolRenderContext,
+      host: Theme,
+      bg: () => 'toolErrorBg' | 'toolPendingBg' | 'customMessageBg',
+      build: (theme: Theme, lastComponent?: Component) => Component,
+    ): Component => {
+      const renderedTheme = palette(host)
+      const child = build(renderedTheme, ctx.lastComponent as Component | undefined)
+      const existing = slots.get(child)
+      if (existing) {
+        existing.pad = ctx.outputPad
+        existing.host = host
+        existing.renderedTheme = renderedTheme
+        existing.bg = bg
+        existing.rebuild = build
+        return child
+      }
+      const slot: ShellSlot = {
+        rawRender: child.render.bind(child),
+        pad: ctx.outputPad,
+        host,
+        renderedTheme,
+        bg,
+        rebuild: build,
+      }
+      slots.set(child, slot)
+      child.render = (width: number) => {
+        if (width <= 0) return []
+        const nextTheme = palette(slot.host)
+        if (nextTheme !== slot.renderedTheme) {
+          const rebuilt = slot.rebuild(nextTheme, child)
+          if (rebuilt !== child) slot.rawRender = rebuilt.render.bind(rebuilt)
+          slot.renderedTheme = nextTheme
+        }
+        const inset = Math.min(slot.pad, Math.max(0, Math.floor((width - 1) / 2)))
+        const rows = slot
+          .rawRender(Math.max(1, width - inset * 2))
+          .map((line) => geometry.truncateToWidth(`${' '.repeat(inset)}${line}`, width))
+        if (preferences().toolStyle === 'transparent') return rows
+        const token = slot.bg()
+        return rows.map((line) => nextTheme.bg(token, line))
+      }
+      return child
+    }
+    return {
+      renderShell: 'self',
+      renderCall: base.renderCall
+        ? (args, host, ctx) =>
+            mountShell(
+              ctx,
+              host,
+              () =>
+                ctx.isError
+                  ? 'toolErrorBg'
+                  : ctx.isPartial || !ctx.executionStarted
+                    ? 'toolPendingBg'
+                    : 'customMessageBg',
+              (theme, lastComponent) => base.renderCall!(args, theme, codemodeContext(ctx, lastComponent)),
+            )
+        : undefined,
+      renderResult: base.renderResult
+        ? (result, options, host, ctx) =>
+            mountShell(
+              ctx,
+              host,
+              () =>
+                ctx.isError
+                  ? 'toolErrorBg'
+                  : options.isPartial || ctx.isPartial
+                    ? 'toolPendingBg'
+                    : 'customMessageBg',
+              (theme, lastComponent) => {
+                const delegateCtx = codemodeContext(ctx, lastComponent)
+                const out = base.renderResult!(result, options, theme, delegateCtx)
+                const timer = delegateCtx.state.interval as { unref?: () => void } | undefined
+                timer?.unref?.()
+                return out
+              },
+            )
+        : undefined,
     }
   }
   return {
@@ -408,7 +511,7 @@ export function renderStartupHeader(
   ]
   const right = [
     theme.bold(theme.fg('accent', 'Getting started')),
-    theme.fg('muted', '/mh-ui theme status · follow · claude'),
+    theme.fg('muted', '/mh-ui theme status · follow · claude · obsidian · ember · nordic'),
     theme.bold(theme.fg('accent', 'Available via public API')),
     theme.fg(
       'muted',

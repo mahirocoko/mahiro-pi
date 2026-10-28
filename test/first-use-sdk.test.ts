@@ -33,8 +33,6 @@ test('first-use public installation and feature matrix preserves authorization c
     'pss.memory-exact-root-deny',
     'pss.file-deny',
     'rtk.original-denied',
-    'rtk.candidate-denied',
-    'rtk.sanitized-final-denied',
     'wildcard.memory-no-exact-root',
     'yolo.memory-no-exact-root',
   ]

@@ -342,7 +342,7 @@ export interface BootstrapPlan {
     capabilities: string[]
     removedDefaultDeny: boolean
     retainedRestrictionSurfaces: string[]
-    rtkDefault: 'rewrite-rtk-created' | 'existing-preserved'
+    rtkDefault: 'off-created' | 'existing-preserved'
     runtimePolicy: 'public-service-authoritative'
   } | null
   skills: any
@@ -1214,14 +1214,14 @@ export const inspectBootstrap = (
     for (const dir of [join(r.agentDir, 'preferences'), dirname(defaults)])
       if (existsSync(dir) && (lstatSync(dir).mode & 0o7777) !== 0o700)
         throw Error('Private RTK data directory required')
-    if (!existing) change(defaults, json({ version: 1, mode: 'rewrite-rtk' }), 'rtk-default')
+    if (!existing) change(defaults, json({ version: 1, mode: 'off' }), 'rtk-default')
     featureInstallation = {
       capabilities: [...new Set(grants)],
       removedDefaultDeny,
       retainedRestrictionSurfaces: Object.entries(permission)
         .filter(([, value]) => value !== 'allow')
         .map(([key]) => key),
-      rtkDefault: existing ? 'existing-preserved' : 'rewrite-rtk-created',
+      rtkDefault: existing ? 'existing-preserved' : 'off-created',
       runtimePolicy: 'public-service-authoritative',
     }
   }
