@@ -9,7 +9,8 @@ explicitly with the frozen lockfile. No private corpus or sibling runtime is
 required. This repository authors the guards, dependency patches and narrow ABIs.
 
 ```sh
-pnpm check
+pnpm check:fast # default static tier; pnpm check is an alias
+pnpm check:state # read-only whole-state budget
 pnpm check:docs
 pnpm check:types
 pnpm format # writes the owned formatter surface
@@ -19,9 +20,40 @@ pnpm check:geometry -- /absolute/public/pi-coding-agent/package.json
 git diff --check
 ```
 
-`check` runs the strict TypeScript and formatting gates, package/import/whitespace
-validation, documentation checks, serial source tests and required public SDK
-fixtures. `check:types` uses the pinned public TypeScript **6.0.3** and Node 22
+`check` / `check:fast` run strict TypeScript, formatting, package/import/whitespace,
+documentation and read-only state-budget checks, without behavioral suites.
+For behavior changes, select exact relevant test files, for example:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/candidate-isolation.test.ts
+```
+
+Heavy tiers require explicit scope and run serially:
+
+- `check:source`: the full serial source-test suite followed by whole-state accounting.
+- `check:public-sdk`: the offline public-SDK integration suite with owned-stage cleanup.
+- `check:release`: fast, source, public-SDK, then final state accounting; the explicit combined release gate.
+
+These commands describe gates, not evidence that any full gate was run.
+
+The **whole** `.agent-state` must remain strictly below **1,073,741,824 bytes** (1 GiB),
+not just `runtime/`. `check:state` reports bounded tree bytes without following
+stable symlinks and fails closed on unsafe root identity or excessive entry count. It is
+read-only: no automatic blanket cleanup. This is checkpoint accounting at gate/staging
+boundaries, not an OS quota against arbitrary concurrent writes; every test owner must
+still bound its writes and cleanup. Never prune memory, retrospectives, learnings, inbox,
+metrics, unknown directories or live paths.
+
+Disposable staged fixtures under `.agent-state/runtime/` register exact newly-created
+roots, return idempotent `cleanup()` and have a process-exit fallback. Prefer explicit
+`finally` cleanup; forced termination can prevent fallback. Staging checks the whole
+state before and after copying, removes its own new root on failure, and propagates
+`MAHIRO_PI_TEST_STATE_ROOT` to child/staged processes so accounting stays bound to
+the original checkout. Do not override this binding in nested jobs. The SDK gate
+captures suite failures, measures state, then cleans its three stages before rethrowing;
+only three marked, completed `required-sdk-*` receipt directories with known flat
+contents are retained, with bounded log capture.
+Unknown or unmarked proof directories are not automatically removed. `check:types` uses the pinned public TypeScript **6.0.3** and Node 22
 **22.19.19** declarations with strict NodeNext resolution, explicit Node types,
 TypeScript-extension imports and `noEmit`. The inventory check verifies every
 authored TS file under `lib/`, `extensions/`, `test/` and root TS tooling against
@@ -108,7 +140,7 @@ For offline QA without modifying this checkout's `node_modules`, select an
 explicit reviewed public-package supply:
 
 ```sh
-MAHIRO_PI_TEST_MODULES=/absolute/public/node_modules pnpm check
+MAHIRO_PI_TEST_MODULES=/absolute/public/node_modules pnpm check:public-sdk
 ```
 
 The loader maps canonical source imports and required public packages; it never
@@ -155,8 +187,10 @@ request does not authorize authentication, profile, model or runtime changes.
 2. Choose a version from actual release history. Align `package.json`, package
    validation, every exact guard provenance pin, README and a dated release note.
    Do not widen provenance to accept arbitrary versions.
-3. Update current guides and third-party notices as needed. Run combined gates
-   and independent review against the final source, not an earlier checkpoint.
+3. Update current guides and third-party notices as needed. With explicit release-gate
+   authorization, run `pnpm check:release` serially and obtain independent review against
+   the final source, not an earlier checkpoint. Report any suspended/unrun tier truthfully;
+   focused checks are not a passing combined release gate.
 4. Inspect the exact approved diff/artifact inventory. Keep profiles, credentials,
    transcripts, caches, installed copies and runtime reports out of source payloads.
    `.gitattributes` excludes `.agent-state` and `.pi` from source archives; this is

@@ -5,9 +5,9 @@
 ## Install and configure
 
 - [Installation and upgrades](getting-started.md) — requirements, preview/apply,
-  profile selection, memory readiness, customization and intentional fresh loading.
-- [Profile installation contract](bootstrap.md) — exact grants, default-deny
-  consent, optional BASIC read policy and reviewed advanced composition.
+  optional repo commit-skill selection, profile choice, memory readiness and intentional fresh loading.
+- [Profile installation contract](bootstrap.md) — exact grants, supported commit-skill exclusion,
+  default-deny consent, optional BASIC read policy and reviewed advanced composition.
 - [Guards and permissions](guards.md) — public PSS, effective Bash approval,
   final checks and the limits of file-access enforcement.
 
@@ -31,7 +31,8 @@
 
 ## Develop and release
 
-- [Development and release](development.md) — dependency supply, checks and source artifacts.
+- [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
+  disposable fixture ownership, whole-state budget and source artifacts.
 - [v0.10.1 source release record](releases/0.10.1.md) — optional repo commit-skill selection and
   clearer informational workflow attention.
 - [v0.10.0 source release record](releases/0.10.0.md) — theme choices, diff and Todos refinements,

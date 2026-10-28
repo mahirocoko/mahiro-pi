@@ -22,6 +22,18 @@ pnpm install:profile --preview
 pnpm install:profile
 ```
 
+The repo-owned `git-commit` skill is included by default. To opt out instead:
+
+```sh
+pnpm install:profile --without-git-commit-skill --preview
+pnpm install:profile --without-git-commit-skill
+```
+
+Ordinary upgrades preserve that choice. To restore it explicitly, use
+[`--with-git-commit-skill`](docs/bootstrap.md#optional-git-commit-package-skill)
+with preview first, then apply. This selection changes package skill discovery
+only; it does not remove the separate `git-commit` agent role or authorize commits.
+
 The explicit installer registers the canonical checkout, pinned public permission
 and subagent packages, three package-owned roles and narrow feature-data grants.
 It selects the ordinary memory engine (ABI2) per profile, preserving explicit

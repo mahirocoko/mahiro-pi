@@ -78,9 +78,14 @@ dated source records, not current installation instructions.
 
 ## Verification and style
 
-Run `pnpm check` after changes when the authorized test window is available;
-run the explicit public-host geometry smoke for geometry changes. Serialize heavy
-checks. Synthetic/source checks are not rendered, installed or human acceptance.
+Use scoped static checks (`check:fast`, also the default `check`) and exact relevant
+regression test files for ordinary changes when the authorized test window is available.
+Run the explicit public-host geometry smoke for geometry changes. Full source/SDK suites
+and combined `check:release` require explicit scope; serialize heavy checks.
+The whole `.agent-state` must remain strictly below 1 GiB. State gates are bounded
+checkpoint accounting, not an OS quota; test owners must bound writes and cleanup exact
+newly-created runtime roots. Never prune unknown/live state or private knowledge.
+Synthetic/source checks are not rendered, installed or human acceptance.
 Use a fresh verifier for independent QA. Under an explicit security-audit
 execution constraint, do not run target-controlled tests, builds or formatters
 without the required sandbox; report source/diff checks and unrun gates instead.
@@ -97,8 +102,9 @@ patch bytes are immutable upstream evidence, not formatter omissions. Neither
 legacy guard factory is a runtime dependency; do not restore production copies
 or pin maintained runtime code as original upstream bytes.
 
-`pnpm check` includes `check:types` and formatting before the existing source/SDK
-gates. `tsconfig.json` owns strict NodeNext/noEmit checking with explicit Node 22
+`pnpm check` / `check:fast` include types, formatting, package/docs and read-only
+state-budget gates, not behavioral suites. `check:source` and `check:public-sdk`
+are separate heavy tiers; `check:release` explicitly combines all tiers. `tsconfig.json` owns strict NodeNext/noEmit checking with explicit Node 22
 types; `check-types.mjs` verifies every authored TS file under lib/extensions/test
 and root TS tooling is actually in the compiler program, and refuses private or
 oracle inputs. JS interoperability uses inference with `checkJs: false`; this is

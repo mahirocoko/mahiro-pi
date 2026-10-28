@@ -76,8 +76,22 @@ assert.equal(manifest.devDependencies['@biomejs/biome'], '2.5.14')
 assert.equal(manifest.devDependencies.typescript, '6.0.3')
 assert.equal(manifest.devDependencies['@types/node'], '22.19.19')
 assert.equal(manifest.scripts['check:types'], 'node check-types.mjs')
-assert.ok(manifest.scripts.check.split(' && ').includes('pnpm check:types'))
-assert.ok(manifest.scripts.check.split(' && ').includes('pnpm check:format'))
+assert.equal(manifest.scripts.check, 'pnpm check:fast')
+assert.equal(
+  manifest.scripts['check:fast'],
+  'pnpm check:state && pnpm check:types && pnpm check:format && node check-package.mjs && pnpm check:docs',
+)
+assert.equal(
+  manifest.scripts['check:source'],
+  'node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts && pnpm check:state',
+)
+assert.equal(
+  manifest.scripts['check:release'],
+  'pnpm check:fast && pnpm check:source && pnpm check:public-sdk && pnpm check:state',
+)
+assert.equal(manifest.scripts.test, 'pnpm check:source')
+assert.equal(manifest.scripts['check:state'], 'node check-state.mjs')
+assert.equal(manifest.scripts['check:public-sdk'], 'node check-public-sdk.mjs')
 assert.equal(manifest.scripts.format, 'biome format --write .')
 assert.equal(manifest.scripts['check:format'], 'biome format .')
 const biome = JSON.parse(await readFile(resolve(root, 'biome.json'), 'utf8'))
@@ -153,6 +167,8 @@ const files = new Set([
   'check-types.mjs',
   'check-docs.mjs',
   'check-public-sdk.mjs',
+  'check-state.mjs',
+  'test-state.mjs',
   'biome.json',
   'tsconfig.json',
   'setup.mjs',
