@@ -22,8 +22,8 @@ it never imports a personal corpus or overwrites existing Core/data.
 | `Core.md` | Concise identity, confirmed preferences and reusable methods |
 | `index.md` | Navigation to selectively read detail |
 | `system/persona.md` | Tiered v2 always-loaded agent identity |
-| `system/human/<name>.md` | Tiered v2 always-loaded human context and `prefs/<name>.md` |
-| `projects/<project-id>/system/<name>.md` | Tiered v2 always-loaded project system context |
+| `system/human/<name>.md` | On-demand human context and `prefs/<name>.md`; protected retention |
+| `projects/<project-id>/system/<name>.md` | Protected project context; only current-project `overview.md` and `conventions.md` are always loaded |
 | `projects/<project-id>/reference/<name>.md` | Tiered v2 on-demand project reference detail |
 | `reference/<name>.md` | Tiered v2 on-demand global reference detail |
 | `archives/<slug>/<name>.md` | Historical provenance material (never projected into prompt) |
@@ -107,6 +107,15 @@ loaded runtime actually advertises.
    one-shot prompt context is separate from the metadata-only review records below.
 
 `agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `palace`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+
+Discovery is path/index-driven: committed `Core.md` and `index.md` remain loaded alongside
+`system/persona.md` and only the current project's `system/overview.md` and
+`system/conventions.md`. Other human/project details are read on demand, not injected automatically.
+Palace exhaustively counts broken wiki links, with `criticalBrokenLinksTotal` for those discovery
+surfaces and `advisoryBrokenLinksTotal` for all other non-archive files. `healthy` requires complete
+inspection, total bytes within budget, and zero critical broken links; advisory detail links do not
+block health. Archives are retained evidence, not inspected or authoritative discovery surfaces.
+The diagnostic list remains bounded; totals cover every inspected link, even outside the sample.
 
 Palace presentation is capped at 240 KiB for the complete encoded JSON reply, including
 escaped/multibyte metadata and the `palace` wrapper, leaving room for the engine transport

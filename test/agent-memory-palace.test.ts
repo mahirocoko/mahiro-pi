@@ -9,7 +9,7 @@ import {
 } from '../lib/agent-memory/retrieval.ts'
 import { validateReply } from '../lib/agent-memory/engine/replies.ts'
 import { encode, transportLimits } from '../lib/agent-memory/engine/protocol.ts'
-import { allowedPath } from '../lib/agent-memory/engine/schema.ts'
+import { allowedPath, isAlwaysLoadedTieredPath } from '../lib/agent-memory/engine/schema.ts'
 
 function inputFor(activePaths: string[], body = ''): PalaceInput {
   return {
@@ -80,7 +80,9 @@ test('palace charges escaped/multibyte metadata and inspects late links beyond p
   assert.equal(palace.coverage.filesTruncated, true)
   assert.ok(!palace.files.some((entry) => entry.path === paths.at(-1)))
   assert.deepEqual(palace.brokenLinks, [{ source: paths.at(-1), target: 'missing-target' }])
-  assert.equal(palace.healthy, false)
+  assert.equal(palace.coverage.criticalBrokenLinksTotal, 0)
+  assert.equal(palace.coverage.advisoryBrokenLinksTotal, 1)
+  assert.equal(palace.healthy, true)
   checkReply(palace)
 })
 
@@ -118,6 +120,52 @@ test('palace inspects full-length targets before bounded presentation without ch
   checkReply(oversized)
 })
 
+test('palace health follows discovery sources, not detail links or foreign project navigation', () => {
+  const critical = [
+    'Core.md',
+    'index.md',
+    'system/persona.md',
+    'projects/project/system/overview.md',
+    'projects/project/system/conventions.md',
+  ]
+  const advisory = [
+    'system/human/prefs/editor.md',
+    'projects/project/system/work.md',
+    'projects/other/system/overview.md',
+    'projects/other/system/conventions.md',
+    'reference/detail.md',
+  ]
+  for (const path of [...critical, ...advisory]) {
+    const palace = buildMemoryPalace(inputFor([path], '[[missing]]'))
+    const isCritical = critical.includes(path)
+    assert.equal(palace.healthy, !isCritical, path)
+    assert.equal(palace.coverage.criticalBrokenLinksTotal, Number(isCritical), path)
+    assert.equal(palace.coverage.advisoryBrokenLinksTotal, Number(!isCritical), path)
+    checkReply(palace)
+  }
+  const input = inputFor([...critical, ...advisory, 'archives/old/topic.md'], '[[missing]]')
+  const palace = buildMemoryPalace(input)
+  assert.equal(palace.coverage.brokenLinksTotal, critical.length + advisory.length)
+  assert.equal(palace.budget.alwaysLoadedBytes, critical.length * Buffer.byteLength('[[missing]]'))
+  checkReply(palace)
+  input.project = 'other'
+  const other = buildMemoryPalace(input)
+  assert.equal(other.coverage.criticalBrokenLinksTotal, 5)
+  assert.equal(
+    other.files.find((file) => file.path === 'projects/project/system/overview.md')?.alwaysLoaded,
+    false,
+  )
+  assert.equal(isAlwaysLoadedTieredPath('projects/project/system/overview.md'), false)
+  assert.equal(isAlwaysLoadedTieredPath('projects/project/system/conventions.md'), false)
+
+  const partial = inputFor(['Core.md', 'reference/uninspected.md'])
+  delete partial.fileTexts['reference/uninspected.md']
+  const incomplete = buildMemoryPalace(partial)
+  assert.equal(incomplete.coverage.complete, false)
+  assert.equal(incomplete.healthy, false)
+  checkReply(incomplete)
+})
+
 test('palace validates canonical retention and project-dependent always-loaded flags', () => {
   const paths = [
     'Core.md',
@@ -135,8 +183,8 @@ test('palace validates canonical retention and project-dependent always-loaded f
     ['Core.md', true, true],
     ['index.md', false, true],
     ['system/persona.md', true, true],
-    ['system/human/prefs/editor.md', true, true],
-    ['projects/project/system/work.md', true, true],
+    ['system/human/prefs/editor.md', true, false],
+    ['projects/project/system/work.md', true, false],
     ['projects/other/system/work.md', true, false],
     ['reference/topic.md', false, false],
     ['archives/legacy/topic.md', false, false],
@@ -187,6 +235,12 @@ test('palace validator rejects forged size, layers, coverage, sample totals and 
     },
     ({ palace }) => {
       palace.coverage.complete = false
+    },
+    ({ palace }) => {
+      palace.coverage.criticalBrokenLinksTotal++
+    },
+    ({ palace }) => {
+      palace.coverage.advisoryBrokenLinksTotal++
     },
     ({ palace }) => {
       palace.files[0].description = '😀'.repeat(palaceReplyBytes)

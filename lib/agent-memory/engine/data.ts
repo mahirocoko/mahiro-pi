@@ -65,6 +65,16 @@ interface Prepared {
   receipt: Receipt
   record: OperationRecord
 }
+interface RetainedConflictCandidate {
+  id: string
+  baseRevision: string
+  fileCount: number
+  modern: boolean
+  raw: string
+  rawHash: string
+  physical: string
+  draft?: Draft
+}
 const same = isDeepStrictEqual
 const maintenanceViewTtl = 30 * 60 * 1000
 const bump = (counts: Record<string, number>, path: string) => {
@@ -374,7 +384,7 @@ export class MemoryDataEngine {
       const episodes = (await this.episodeNames()).length
       const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
       const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
-      const conflicts = (await this.retainedConflicts(scope)).length
+      const conflicts = (await this.retainedConflictCandidates(scope)).length
       return {
         doctor: {
           revision: now.revision,
@@ -779,31 +789,64 @@ export class MemoryDataEngine {
       physical,
     }
   }
-  private async retainedConflicts(project: string) {
+  private async retainedDiscarded(id: string, rawHash: string) {
+    const marker = join(this.folder, 'discarded', `${id}.json`)
+    try {
+      const discarded = JSON.parse(await this.read(marker, 1024))
+      if (
+        !objectShape(discarded, ['id', 'hash']) ||
+        Object.keys(discarded).length !== 2 ||
+        discarded.id !== id ||
+        discarded.hash !== rawHash
+      )
+        throw Error('Invalid retained discard marker')
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  }
+  private retainedDraftFileCount(draft: Draft) {
+    const sizes = new Map(Object.entries(draft.base.refs).map(([path, ref]) => [path, ref.size]))
+    for (const [path, ref] of Object.entries(draft.overlay)) {
+      if (ref === null) sizes.delete(path)
+      else sizes.set(path, ref.size)
+    }
+    if (
+      !sizes.has('Core.md') ||
+      !sizes.has('index.md') ||
+      sizes.size > limits.files ||
+      [...sizes].some(([path, size]) => size > fileLimit(path, recoveryCeiling))
+    )
+      throw Error('Invalid retained layout')
+    const total = [...sizes.values()].reduce((sum, size) => sum + size, 0)
+    if (total > limits.total) throw Error('Invalid retained total budget')
+    return sizes.size
+  }
+  private async retainedConflictCandidates(project: string) {
     const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
     const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
     if (legacy.length + modern.length > limits.views)
       throw memoryFailure('capacity', 'Private view capacity exceeded')
-    const matches: Awaited<ReturnType<MemoryDataEngine['retained']>>[] = []
-    const accepted = async (selected: Awaited<ReturnType<MemoryDataEngine['retained']>>) => {
-      if (selected.v.project !== project || selected.v.state !== 'conflict') return
-      const marker = join(this.folder, 'discarded', `${selected.v.id}.json`)
-      try {
-        const discarded = JSON.parse(await this.read(marker, 1024))
-        if (
-          !objectShape(discarded, ['id', 'hash']) ||
-          Object.keys(discarded).length !== 2 ||
-          discarded.id !== selected.v.id ||
-          discarded.hash !== selected.rawHash
-        )
-          throw Error('Invalid retained discard marker')
-        return
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      matches.push(selected)
+    const matches: RetainedConflictCandidate[] = []
+    for (const name of legacy) {
+      const id = name.slice(0, -5)
+      const physical = join(this.root, '.views', name)
+      const raw = await this.read(physical, 40 * 1024 * 1024)
+      const view = legacyView(raw, id)
+      if (view.project !== project || view.state !== 'conflict') continue
+      const rawHash = digest(raw)
+      if (await this.retainedDiscarded(id, rawHash)) continue
+      matches.push({
+        id,
+        baseRevision: view.base.revision,
+        fileCount: Object.keys(view.files).length,
+        modern: false,
+        raw,
+        rawHash,
+        physical,
+      })
     }
-    for (const name of legacy) await accepted(await this.retained(name.slice(0, -5), false))
     for (const name of modern) {
       const id = name.slice(0, -5)
       const physical = join(this.folder, 'drafts', name)
@@ -812,23 +855,34 @@ export class MemoryDataEngine {
       if (draft.id !== id) throw Error('Invalid persisted view metadata')
       if (draft.project !== project || draft.state !== 'conflict') continue
       const rawHash = digest(raw)
-      const marker = join(this.folder, 'discarded', `${id}.json`)
-      try {
-        const discarded = JSON.parse(await this.read(marker, 1024))
-        if (
-          !objectShape(discarded, ['id', 'hash']) ||
-          Object.keys(discarded).length !== 2 ||
-          discarded.id !== id ||
-          discarded.hash !== rawHash
-        )
-          throw Error('Invalid retained discard marker')
-        continue
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      matches.push(await this.retained(id, true, { raw, draft, physical }))
+      if (await this.retainedDiscarded(id, rawHash)) continue
+      matches.push({
+        id,
+        baseRevision: draft.base.revision,
+        fileCount: this.retainedDraftFileCount(draft),
+        modern: true,
+        raw,
+        rawHash,
+        physical,
+        draft,
+      })
     }
     return matches
+  }
+  private async retainedConflict(project: string, target: string, candidates?: RetainedConflictCandidate[]) {
+    const candidate = (candidates ?? (await this.retainedConflictCandidates(project))).find(
+      ({ id }) => id === target,
+    )
+    if (!candidate) throw Error('Unknown scoped conflict')
+    const selected = candidate.modern
+      ? await this.retained(candidate.id, true, {
+          raw: candidate.raw,
+          draft: candidate.draft!,
+          physical: candidate.physical,
+        })
+      : await this.retained(candidate.id, false)
+    if (selected.rawHash !== candidate.rawHash) throw Error('Retained view changed during recovery')
+    return selected
   }
   private async conflicts(args: Input<'conflicts'>) {
     const offset = args.offset ?? 0
@@ -845,20 +899,19 @@ export class MemoryDataEngine {
     const { configHash } = await this.config()
     const revision = await this.head()
     const ledger = await this.ledger(revision)
-    const matches = await this.retainedConflicts(args.project)
+    const candidates = await this.retainedConflictCandidates(args.project)
     let result: Record<string, unknown>
     if (args.target === undefined)
       result = {
-        conflicts: matches.slice(0, 8).map(({ v }) => ({
-          id: v.id,
-          baseRevision: v.base.revision,
-          fileCount: Object.keys(v.files).length,
+        conflicts: candidates.slice(0, 8).map(({ id, baseRevision, fileCount }) => ({
+          id,
+          baseRevision,
+          fileCount,
         })),
-        total: matches.length,
+        total: candidates.length,
       }
     else {
-      const selected = matches.find(({ v }) => v.id === args.target)
-      if (!selected) throw Error('Unknown scoped conflict')
+      const selected = await this.retainedConflict(args.project, args.target, candidates)
       const { v } = selected
       if (args.path === undefined) result = { id: v.id, files: Object.keys(v.files).sort() }
       else {
@@ -896,8 +949,7 @@ export class MemoryDataEngine {
     return result
   }
   private async discard(args: Input<'discard'>) {
-    const selected = (await this.retainedConflicts(args.project)).find(({ v }) => v.id === args.target)
-    if (!selected) throw Error('Unknown scoped conflict')
+    const selected = await this.retainedConflict(args.project, args.target)
     await this.initializeNamespace() // unknown mutation records are never discardable
     if ((await this.head()) !== args.revision) throw memoryFailure('CAS', 'Stale memory revision')
     if (digest(await this.read(selected.physical, 40 * 1024 * 1024)) !== selected.rawHash)

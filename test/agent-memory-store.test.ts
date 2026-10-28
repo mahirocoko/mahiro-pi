@@ -775,7 +775,9 @@ test('tiered v2 schema, surgical patch/append, lossless retention guard, directo
     const palace = f.store.palace('project')
     assert.equal(palace.revision, revBeforePalace)
     assert.equal(palace.project, 'project')
-    assert.equal(palace.healthy, false, 'broken link in notes.md makes palace report unhealthy')
+    assert.equal(palace.healthy, true, 'detail broken links are advisory')
+    assert.equal(palace.coverage.criticalBrokenLinksTotal, 0)
+    assert.equal(palace.coverage.advisoryBrokenLinksTotal, 1)
     assert.ok(palace.layers.core.includes('Core.md'))
     assert.ok(palace.layers.system.includes('system/persona.md'))
     assert.ok(palace.layers.projectSystem.includes('projects/project/system/conventions.md'))
@@ -812,7 +814,7 @@ test('tiered v2 schema, surgical patch/append, lossless retention guard, directo
   }
 })
 
-test('palace inspects 65+ non-archive files across archive-heavy ordering, catches last broken link, and refuses healthy on uninspected content', () => {
+test('palace exhaustively reports advisory links beyond 64 files and refuses healthy on uninspected content', () => {
   const f = fixture()
   try {
     const configPath = join(f.root, 'config.json')
@@ -867,7 +869,9 @@ test('palace inspects 65+ non-archive files across archive-heavy ordering, catch
     assert.equal(palace.coverage.inspectedFiles, 68)
     assert.equal(palace.coverage.totalFiles, 138)
     assert.equal(palace.coverage.complete, true)
-    assert.equal(palace.healthy, false, 'broken link in 68th non-archive file must mark palace unhealthy')
+    assert.equal(palace.healthy, true, 'late detail broken link is advisory but still reported')
+    assert.equal(palace.coverage.criticalBrokenLinksTotal, 0)
+    assert.equal(palace.coverage.advisoryBrokenLinksTotal, 1)
     assert.equal(palace.coverage.brokenLinksTotal, 1)
     assert.deepEqual(palace.brokenLinks, [
       { source: 'system/human/zz-last.md', target: 'reference/missing-68th-target.md' },
@@ -883,12 +887,22 @@ test('palace inspects 65+ non-archive files across archive-heavy ordering, catch
       'all non-archive files precede archives in palace.files',
     )
     assert.equal(palace.files[lastEntryIdx].name, 'human-zz-last')
-    assert.equal(palace.files[lastEntryIdx].alwaysLoaded, true)
+    assert.equal(palace.files[lastEntryIdx].alwaysLoaded, false)
+    const projection = f.store.projection('project')
+    assert.equal(projection.system?.['system/human/zz-last.md'], undefined)
+    assert.equal(projection.projectSystem?.['projects/other/system/foreign.md'], undefined)
+    assert.equal(
+      palace.budget.alwaysLoadedBytes,
+      Buffer.byteLength(projection.core) +
+        Buffer.byteLength(projection.index) +
+        Object.values(projection.system ?? {}).reduce((sum, text) => sum + Buffer.byteLength(text), 0) +
+        Object.values(projection.projectSystem ?? {}).reduce((sum, text) => sum + Buffer.byteLength(text), 0),
+    )
     assert.ok(foreignEntry, 'shared-primary palace exposes foreign project file')
     assert.equal(foreignEntry.layer, 'projectSystem')
     assert.equal(foreignEntry.alwaysLoaded, false)
 
-    // Fix the broken link in the 68th non-archive file and verify palace becomes healthy
+    // Fix the advisory link and verify exhaustive diagnostics clear
     const vFix = f.store.createView('project')
     const lastRead = f.store.read(vFix, 'system/human/zz-last.md')
     assert.ok('hash' in lastRead && lastRead.hash)

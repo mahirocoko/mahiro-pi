@@ -30,6 +30,7 @@ import {
   applySurgicalEdit,
   assertLosslessRetention,
   isAlwaysLoadedTieredPath,
+  isCriticalLinkSource,
   legacyV1Migration,
   projectOfPath,
   withMigrationFrontmatter,
@@ -1235,7 +1236,10 @@ export function createMemoryStore(
       return {
         revision: now.revision,
         project,
-        healthy: gitEntries <= 8192 && totalBytesUsed <= c.totalBytes && brokenLinks.length === 0,
+        healthy:
+          gitEntries <= 8192 &&
+          totalBytesUsed <= c.totalBytes &&
+          brokenLinks.every((link) => !isCriticalLinkSource(link.source, project)),
         gitEntries,
         gitEntryCeiling: 8192,
         fileCount: activePaths.length,

@@ -6,6 +6,7 @@ import {
   allowedPath,
   idPattern,
   isAlwaysLoadedTieredPath,
+  isCriticalLinkSource,
   isProtectedRetentionPath,
   limits,
   parseConfig,
@@ -176,6 +177,8 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
           'filesTruncated',
           'layersTruncated',
           'brokenLinksTotal',
+          'criticalBrokenLinksTotal',
+          'advisoryBrokenLinksTotal',
           'brokenLinksTruncated',
         ])
         const budget = shape(palace.budget, [
@@ -262,6 +265,16 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
             integer(coverage.filesReturned, limits.files) &&
             typeof coverage.filesTruncated === 'boolean' &&
             integer(coverage.brokenLinksTotal) &&
+            integer(coverage.criticalBrokenLinksTotal) &&
+            integer(coverage.advisoryBrokenLinksTotal) &&
+            coverage.brokenLinksTotal ===
+              (coverage.criticalBrokenLinksTotal as number) + (coverage.advisoryBrokenLinksTotal as number) &&
+            palace.brokenLinks.filter((entry) =>
+              isCriticalLinkSource(entry.source as string, input.project as string),
+            ).length <= (coverage.criticalBrokenLinksTotal as number) &&
+            palace.brokenLinks.filter(
+              (entry) => !isCriticalLinkSource(entry.source as string, input.project as string),
+            ).length <= (coverage.advisoryBrokenLinksTotal as number) &&
             typeof coverage.brokenLinksTruncated === 'boolean' &&
             (coverage.inspectedFiles as number) <= (coverage.nonArchiveFiles as number) &&
             (coverage.nonArchiveFiles as number) <= (coverage.totalFiles as number) &&
@@ -276,7 +289,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
               palace.brokenLinks.length < (coverage.brokenLinksTotal as number) &&
             palace.healthy ===
               (coverage.complete &&
-                coverage.brokenLinksTotal === 0 &&
+                coverage.criticalBrokenLinksTotal === 0 &&
                 (budget.totalBytesUsed as number) <= (budget.totalBytesCeiling as number)),
         )
         const views = shape(palace.views, ['total', 'open', 'conflict', 'committed', 'cancelled'])

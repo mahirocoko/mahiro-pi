@@ -25,16 +25,8 @@ export const allowedPath = (path: string, project?: string) => {
   if (/^(global|procedures)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
   if (/^system\/human\/(?:prefs\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
   if (/^reference\/(?:[a-z0-9][a-z0-9-]{0,63}\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
-  if (/^archives\/[a-z0-9][a-z0-9-]{0,63}(?:\/[a-z0-9][a-z0-9-]{0,63}){1,3}\.md$/.test(path) && !project)
-    return true
-  if (
-    /^archives\/([a-z0-9][a-z0-9-]{0,63})\/(?:[a-z0-9][a-z0-9-]{0,63}\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(
-      path,
-    )
-  ) {
-    const seg = path.split('/')[1]
-    return !project || seg === project || seg.startsWith('legacy-v1')
-  }
+  const archive = /^archives\/([a-z0-9][a-z0-9-]{0,63})(?:\/[a-z0-9][a-z0-9-]{0,63}){1,3}\.md$/.exec(path)
+  if (archive) return !project || archive[1] === project || archive[1].startsWith('legacy-v1')
   const deferred = /^deferred\/([a-z0-9][a-z0-9-]{0,63})\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
   if (deferred) return !project || deferred[1] === project
   const tieredProject =
@@ -97,10 +89,12 @@ export function withMigrationFrontmatter(text: string, migration: LegacyV1Migrat
 
 export const isAlwaysLoadedTieredPath = (path: string, project?: string) => {
   if (path === 'system/persona.md') return true
-  if (/^system\/human\/(?:prefs\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
-  const m = /^projects\/([a-z0-9][a-z0-9-]{0,63})\/system\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
-  return !!m && (!project || m[1] === project)
+  const m = /^projects\/([a-z0-9][a-z0-9-]{0,63})\/system\/(?:overview|conventions)\.md$/.exec(path)
+  return !!m && m[1] === project
 }
+export const isCriticalLinkSource = (path: string, project?: string) =>
+  path === 'Core.md' || path === 'index.md' || isAlwaysLoadedTieredPath(path, project)
+
 export const isProtectedRetentionPath = (path: string) =>
   path === 'Core.md' ||
   path === 'system/persona.md' ||

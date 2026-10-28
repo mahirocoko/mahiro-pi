@@ -36,6 +36,7 @@ import {
 import { MemoryDataEngine } from '../lib/agent-memory/engine/data.ts'
 import { encode, Frames, transportLimits, type Plan } from '../lib/agent-memory/engine/protocol.ts'
 import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
+import { recoveryCeiling } from '../lib/agent-memory/engine/recovery.ts'
 import {
   allowedPath as newPath,
   limits,
@@ -1053,7 +1054,7 @@ test('operation plans separately bound migration deltas that exceed the resultin
   )
 })
 
-test('doctor filters irrelevant modern drafts before body recovery and batches the selected live-scale conflict', async () => {
+test('doctor counts validated conflict manifests without hydrating retained bodies', async () => {
   const f = fixture(286)
   try {
     await f.engine.request('create', { project: 'project', shared: true }, f.context)
@@ -1073,8 +1074,27 @@ test('doctor filters irrelevant modern drafts before body recovery and batches t
     const readsAfter = Object.values(after.blobReads).reduce((sum, count) => sum + count, 0)
     assert.ok(report.views >= 2)
     assert.equal(report.conflicts, 1)
-    assert.equal(readsAfter - readsBefore, 288, 'only the selected conflict is hydrated once')
-    assert.ok(after.gitCalls - before.gitCalls <= 20, 'selected conflict bodies use bounded native batches')
+    assert.equal(readsAfter - readsBefore, 0, 'conflict discovery does not hydrate retained bodies')
+    assert.ok(after.gitCalls - before.gitCalls <= 4, 'conflict discovery uses bounded metadata checks')
+  } finally {
+    await f.close()
+  }
+})
+
+test('conflict discovery rejects effective Core and index sizes above recovery ceilings', async () => {
+  const f = fixture(1)
+  try {
+    const conflict = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    const manifest = join(f.root, '.views', '.engine-v2', 'drafts', `${conflict.view}.json`)
+    const draft = JSON.parse(readFileSync(manifest, 'utf8'))
+    draft.state = 'conflict'
+    draft.base.refs['Core.md'].size = recoveryCeiling.coreBytes + 1
+    writeFileSync(manifest, `${JSON.stringify(draft)}\n`)
+    await assert.rejects(f.engine.request('conflicts', { project: 'project' }, f.context), engineError())
+    await assert.rejects(
+      f.engine.request('manage', { action: 'doctor', project: 'project' }, f.context),
+      engineError(),
+    )
   } finally {
     await f.close()
   }
@@ -1374,6 +1394,8 @@ test('engine migration publishes segmented archives then initializes and diagnos
           filesReturned: number
           filesTruncated: boolean
           brokenLinksTotal: number
+          criticalBrokenLinksTotal: number
+          advisoryBrokenLinksTotal: number
           brokenLinksTruncated: boolean
         }
         files: { path: string; layer: string; alwaysLoaded: boolean; name?: string }[]
@@ -1383,7 +1405,9 @@ test('engine migration publishes segmented archives then initializes and diagnos
     assert.ok(bulkPalace.coverage.nonArchiveFiles >= 65)
     assert.equal(bulkPalace.coverage.inspectedFiles, bulkPalace.coverage.nonArchiveFiles)
     assert.equal(bulkPalace.coverage.complete, true)
-    assert.equal(bulkPalace.healthy, false, '65th+ non-archive broken link must make ABI2 palace unhealthy')
+    assert.equal(bulkPalace.healthy, true, 'detail broken links are advisory across the ABI2 boundary')
+    assert.equal(bulkPalace.coverage.criticalBrokenLinksTotal, 0)
+    assert.equal(bulkPalace.coverage.advisoryBrokenLinksTotal, 1)
     assert.equal(bulkPalace.coverage.brokenLinksTotal, 1)
     assert.deepEqual(bulkPalace.brokenLinks, [
       { source: 'system/human/zz-beyond-64.md', target: 'reference/nonexistent-beyond-64.md' },
@@ -1400,6 +1424,10 @@ test('engine migration publishes segmented archives then initializes and diagnos
     )
     assert.ok(foreignAbi2Entry, 'foreign project file is visible in shared-primary ABI2 palace')
     assert.equal(foreignAbi2Entry.alwaysLoaded, false)
+    assert.equal(bulkPalace.files[trailingIdx].alwaysLoaded, false)
+    const projection = await f.engine.request('projection', { project: 'project', shared: true }, f.context)
+    assert.equal(projection.system?.['system/human/zz-beyond-64.md'], undefined)
+    assert.equal(projection.projectSystem?.['projects/other/system/foreign-abi2.md'], undefined)
   } finally {
     await f.close()
   }
@@ -1493,6 +1521,32 @@ test('management forgetting and rollback match old snapshot oracle without schem
     )
   } finally {
     await oracle.close()
+    await f.close()
+  }
+})
+
+test('project management can forget deeply nested legacy migration archives', async () => {
+  const f = fixture(1)
+  const path = 'archives/legacy-v1-abcdef123456/deferred/project/overview.md'
+  try {
+    const view = f.store.createView('project', 120000, true)
+    f.store.edit(view, path, null, '# Archived project memory\n', [])
+    f.store.integrate(view)
+    const revision = f.store.snapshot().revision
+    const prepared = await f.engine.request(
+      'manage',
+      { action: 'forget', project: 'project', revision, paths: [path], sources: [] },
+      f.context,
+    )
+    assert.ok('plan' in prepared)
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    const snapshot = f.store.snapshot()
+    assert.equal(snapshot.files[path], undefined)
+    assert.ok(snapshot.forgottenPaths.includes(path))
+  } finally {
     await f.close()
   }
 })
@@ -1594,6 +1648,17 @@ test('retained v2 and legacy conflicts recover after restart with code-point pag
       restarted.request('conflicts', { project: 'project', target: proposal.view }, f.context),
       engineError(),
     )
+    assert.equal(
+      (await restarted.request('conflicts', { project: 'project' }, f.context)).total,
+      1,
+      'validated discovery metadata remains available when exact recovery fails',
+    )
+    const tamperedDoctor = (await restarted.request(
+      'manage',
+      { action: 'doctor', project: 'project' },
+      f.context,
+    )) as unknown as { doctor: { conflicts: number } }
+    assert.equal(tamperedDoctor.doctor.conflicts, 1)
     // Explicitly restore only this test's tamper to probe a separate negative boundary.
     writeFileSync(manifest, originalManifest)
     assert.equal((await restarted.request('conflicts', { project: 'project' }, f.context)).total, 1)
@@ -1826,6 +1891,8 @@ test('hardlinks and loose modes rejected; legacy/default import does not activat
       'global/a.md',
       'procedures/a.md',
       'deferred/project/a.md',
+      'archives/project/history/a.md',
+      'archives/legacy-v1-abcdef123456/deferred/project/a.md',
       '../Core.md',
       'global/A.md',
       'global/x/y.md',

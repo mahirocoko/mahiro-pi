@@ -1,5 +1,10 @@
 import { bytes, digest, objectShape } from '../continuity/records.ts'
-import { isAlwaysLoadedTieredPath, isProtectedRetentionPath, limits } from './engine/schema.ts'
+import {
+  isAlwaysLoadedTieredPath,
+  isCriticalLinkSource,
+  isProtectedRetentionPath,
+  limits,
+} from './engine/schema.ts'
 import type { MemoryConfig, MemoryFile } from './store.ts'
 
 // Derived, operation-local metadata only. These selectors never select authority.
@@ -376,6 +381,8 @@ export function buildMemoryPalace(input: PalaceInput) {
   let inspectedFiles = 0
   let uninspectedNonArchive = 0
   let brokenLinksTotal = 0
+  let criticalBrokenLinksTotal = 0
+  let advisoryBrokenLinksTotal = 0
   let filesBytesUsed = 0
   let filesCapped = false
   const files: PalaceFileEntry[] = []
@@ -398,6 +405,8 @@ export function buildMemoryPalace(input: PalaceInput) {
       const normalized = link.endsWith('.md') ? link : `${link}.md`
       if (!activeSet.has(link) && !activeSet.has(normalized)) {
         brokenLinksTotal++
+        if (isCriticalLinkSource(p, input.project)) criticalBrokenLinksTotal++
+        else advisoryBrokenLinksTotal++
         if (brokenLinks.length < 64) {
           brokenLinks.push({ source: p, target: link.slice(0, 128) })
         }
@@ -433,7 +442,7 @@ export function buildMemoryPalace(input: PalaceInput) {
   const palace = {
     revision: input.revision,
     project: input.project,
-    healthy: complete && totalBytesUsed <= input.config.totalBytes && brokenLinksTotal === 0,
+    healthy: complete && totalBytesUsed <= input.config.totalBytes && criticalBrokenLinksTotal === 0,
     coverage: {
       complete,
       inspectedFiles,
@@ -443,6 +452,8 @@ export function buildMemoryPalace(input: PalaceInput) {
       filesTruncated: files.length < sortedPaths.length,
       layersTruncated: files.length < sortedPaths.length,
       brokenLinksTotal,
+      criticalBrokenLinksTotal,
+      advisoryBrokenLinksTotal,
       brokenLinksTruncated: brokenLinks.length < brokenLinksTotal,
     },
     budget: {
