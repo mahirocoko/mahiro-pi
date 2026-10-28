@@ -37,11 +37,27 @@ again after asynchronous selection. Before-navigation events invalidate pending
 pickers, not future navigation if another extension cancels the transition.
 Actual replacement rebinds surfaces; shutdown permanently retires old factories.
 
-Tool cards use structured result details for bounded state, revision and blocker
-summaries. Partial results remain pending and failures remain errors; neutral card framing
-does not turn an ordinary returned result into green workflow success. A returned
-result is not worker completion or human acceptance. Native expansion exposes
-captured text and details without changing tool execution or stored raw results.
+Tool activity uses one compact identity row: feature, then `requested` before
+execution, followed by action/operation and a bounded subject when supplied. The
+call marker stays neutral because Pi's HTML exporter replays completed calls through
+a partial call context; partial/result truth therefore belongs to the result row.
+A semantic neutral `●` call marker and subordinate `⎿` result prefix/indent provide
+native terminal hierarchy, not success signals. At narrow widths framing and padding
+are omitted to prioritize state and the non-acceptance disclaimer. The subordinate result does not repeat
+the feature label. Its state is `Partial · pending`, `Error`, or neutral
+`Returned · not acceptance`; partial errors retain both facts. An ordinary return
+is not green workflow success, worker completion or human acceptance.
+
+Collapsed results have a state row and at most one summary or fallback-text row.
+Structured errors/reasons and nonzero blockers/issues/conflicts take priority over
+state, revision, next action and optional identifiers/counts, independent of field
+order. Nested paths remain internal ordering keys; visible facts use leaf labels
+such as `stage`, `rev`, `current rev` and `base rev`, with identical visible facts
+deduplicated. Long hex revisions are abbreviated only in this collapsed summary. Native
+expansion exposes all captured text (with honest non-text placeholders) and exact
+serialized details under compact Output/Details labels, retaining the same truthful
+state. Display text is sanitized and width-bounded without changing tool execution
+or stored raw results.
 Public TUI geometry loads at session lifecycle; until available the renderer uses
 a width-safe placeholder. No footer/header colors, persistent feature rows,
 provider/auth lookup or appearance Save behavior are changed. Appearance Save

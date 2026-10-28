@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.10.1.md)
+[← Documentation](README.md) · [Source release record](releases/0.11.0.md)
 
 ## Dependencies and checks
 

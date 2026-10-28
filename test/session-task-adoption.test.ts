@@ -70,8 +70,11 @@ for (let generation = 0; generation < 2; generation++) {
     const call = tool.renderCall(args, theme, renderContext).render(100).join('\\n')
     const output = tool.renderResult(result, options, theme, renderContext).render(100).join('\\n')
     if (mode === 'tui') {
-      assert.match(call, new RegExp(name.replace(/^mh_/, '').replaceAll('_', ' ') + ' · pending'))
-      assert.match(output, /result \\(not acceptance\\)/)
+      assert.equal(call, '● ' + name.replace(/^mh_/, '').replaceAll('_', ' '))
+      assert.doesNotMatch(call, /pending|running|requested/)
+      assert.match(output, /Returned · not acceptance/)
+      assert.doesNotMatch(output, /task list|task get|Expand for/)
+      assert.equal(output.split('\\n').length, 2)
       assert.match(output, name === 'mh_task_list' ? /tasks: 1/ : /Readable isolated task/)
       assert.notEqual(call, '...')
       assert.notEqual(output, '...')

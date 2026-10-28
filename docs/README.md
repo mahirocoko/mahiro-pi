@@ -33,6 +33,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.11.0 source release record](releases/0.11.0.md) — bounded test state, path/index memory
+  repair and compact truthful MH activity cards.
 - [v0.10.1 source release record](releases/0.10.1.md) — optional repo commit-skill selection and
   clearer informational workflow attention.
 - [v0.10.0 source release record](releases/0.10.0.md) — theme choices, diff and Todos refinements,

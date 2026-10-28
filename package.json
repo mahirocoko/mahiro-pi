@@ -1,6 +1,6 @@
 {
   "name": "@mahirocoko/mahiro-pi",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "description": "Native Pi companion UI, maintained memory, guarded RTK, explicit workflow tools and parent-scoped Herdr metadata.",

@@ -57,7 +57,7 @@ function label(name: string) {
 function subject(value: unknown): string | undefined {
   const object = record(value)
   if (!object) return
-  for (const key of ['title', 'subject', 'objective', 'mission']) {
+  for (const key of ['title', 'subject', 'objective', 'mission', 'summary']) {
     if (typeof object[key] === 'string') return short(object[key])
     const nested = record(object[key])
     if (typeof nested?.title === 'string') return short(nested.title)
@@ -78,21 +78,41 @@ function short(value: unknown) {
 
 /** Only structured result fields are summarized; assistant prose never becomes workflow state. */
 export function workflowSummary(details: unknown): string[] {
-  const lines: string[] = []
+  const facts: { priority: number; path: string; text: string }[] = []
   const visit = (value: unknown, prefix: string, depth: number) => {
     const object = record(value)
-    if (!object || depth > 3 || lines.length >= 6) return
+    if (!object || depth > 3) return
+    const add = (key: string, priority: number, text: string) =>
+      facts.push({ priority, path: `${prefix}${key}`, text })
     const heading = subject(object)
-    if (heading) lines.push(`${prefix}${heading}`)
+    if (heading) add('subject', 5, heading)
     for (const [key, item] of Object.entries(object)) {
-      if (lines.length >= 6) break
       if (
         /^(id|goal_id|task_id|status|state|stage|phase|revision|currentRevision|baseRevision|sequence|mode|freshness|error|reason|outcome|automatic|next_action|nextAction)$/.test(
           key,
         ) &&
         (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')
       ) {
-        lines.push(`${prefix}${key}: ${short(item)}`)
+        const priority = /^(error|reason)$/.test(key)
+          ? 0
+          : /^(state|status|stage|phase|outcome)$/.test(key)
+            ? 2
+            : /revision/i.test(key)
+              ? 3
+              : /^(next_action|nextAction)$/.test(key)
+                ? 4
+                : 6
+        const text =
+          /revision/i.test(key) && typeof item === 'string' && /^[a-f0-9]{12,}$/i.test(item)
+            ? item.slice(0, 8) + '…'
+            : short(item)
+        const captions: Record<string, string> = {
+          revision: 'rev',
+          currentRevision: 'current rev',
+          baseRevision: 'base rev',
+        }
+        const caption = captions[key] ?? key
+        add(key, priority, `${caption}: ${text}`)
       } else if (/^(blockers|completion_issues|issues|conflicts)$/.test(key) && Array.isArray(item)) {
         const open =
           key === 'blockers'
@@ -100,55 +120,74 @@ export function workflowSummary(details: unknown): string[] {
                 (entry) => record(entry)?.status !== 'resolved' && record(entry)?.status !== 'closed',
               )
             : item
-        lines.push(
-          `${prefix}${key}: ${open.length}${open.length ? ` · ${short(typeof open[0] === 'string' ? open[0] : (subject(open[0]) ?? record(open[0])?.reason ?? record(open[0])?.summary ?? record(open[0])?.status ?? 'details on expand'))}` : ''}`,
+        add(
+          key,
+          open.length ? 1 : 6,
+          `${key}: ${open.length}${open.length ? ` · ${short(typeof open[0] === 'string' ? open[0] : (record(open[0])?.reason ?? subject(open[0]) ?? record(open[0])?.status ?? 'details on expand'))}` : ''}`,
         )
       } else if (/^(tasks|criteria|evidence|lanes|checks|results|items)$/.test(key) && Array.isArray(item)) {
-        lines.push(`${prefix}${key}: ${item.length}`)
+        add(key, 6, `${key}: ${item.length}`)
       } else if (/^(goal|workflow|run|report|task|result|data|state)$/.test(key) && record(item))
         visit(item, `${prefix}${key}.`, depth + 1)
-      else if (item === null && /^(goal|workflow|run|report)$/.test(key)) lines.push(`${prefix}${key}: none`)
+      else if (item === null && /^(goal|workflow|run|report)$/.test(key)) add(key, 5, `${key}: none`)
     }
   }
   visit(details, '', 0)
-  return lines
+  const ordered = facts
+    .sort((a, b) => a.priority - b.priority || a.path.localeCompare(b.path, 'en'))
+    .map((fact) => fact.text)
+  return [...new Set(ordered)].slice(0, 6)
 }
 
+type Tone = 'toolTitle' | 'accent' | 'muted' | 'dim' | 'warning' | 'error' | 'toolOutput'
+type Segment = { text: string; tone: Tone }
+type Line = Segment[]
+const row = (text: string, tone: Tone): Line => [{ text, tone }]
+
 class WorkflowText implements Component {
-  private lines: string[]
+  private lines: Line[]
   private theme: Theme
-  private tone: 'muted' | 'warning' | 'error'
   private expanded: boolean
   private outputPad: number
+  private marker: Segment
   constructor(
-    lines: string[],
+    lines: Line[],
     theme: Theme,
-    tone: 'muted' | 'warning' | 'error',
     expanded = false,
     outputPad = 0,
+    marker: Segment = { text: '⎿', tone: 'dim' },
   ) {
     this.lines = lines
     this.theme = theme
-    this.tone = tone
     this.expanded = expanded
     this.outputPad = outputPad
+    this.marker = marker
   }
   invalidate() {}
   render(width: number): string[] {
     if (width <= 0) return []
     // No guessed character widths, including during offline/non-TUI bootstrap.
     if (!geometry) return ['.'.repeat(Math.min(3, Math.floor(width)))]
-    const padding = ' '.repeat(Math.min(Math.max(0, Math.floor(this.outputPad)), Math.floor((width - 1) / 2)))
-    const innerWidth = width - padding.length * 2
+    // At narrow widths spend the available cells on state, not framing or padding.
+    const pad = Math.max(0, Math.floor(this.outputPad))
+    const framed = width - pad * 2 >= 30
+    const padding = framed ? ' '.repeat(pad) : ''
+    const innerWidth = width - padding.length * 2 - (framed ? 2 : 0)
     const wrapped: string[] = []
     for (const line of this.lines) {
-      const safe = clean(line)
-      if (!this.expanded) wrapped.push(geometry.truncateToWidth(safe, innerWidth))
-      else wrapped.push(...geometry.wrapTextWithAnsi(safe, innerWidth))
+      // Sanitize captured data before adding trusted theme styling.
+      const styled = line.map(({ text, tone }) => this.theme.fg(tone, clean(text))).join('')
+      if (!this.expanded) wrapped.push(geometry.truncateToWidth(styled, innerWidth))
+      else wrapped.push(...geometry.wrapTextWithAnsi(styled, innerWidth))
     }
-    return wrapped.map((line) =>
-      geometry!.truncateToWidth(`${padding}${this.theme.fg(this.tone, line)}${padding}`, width),
-    )
+    return wrapped.map((line, index) => {
+      const prefix = !framed
+        ? ''
+        : index === 0
+          ? `${this.theme.fg(this.marker.tone, this.marker.text)} `
+          : '  '
+      return geometry!.truncateToWidth(`${padding}${prefix}${line}${padding}`, width)
+    })
   }
 }
 
@@ -162,46 +201,62 @@ export function workflowRenderers(name: string): ToolRenderers {
     renderCall(args, theme, context) {
       const operation = record(args)?.operation ?? record(args)?.action
       const title = subject(args)
+      // `isPartial` is also used by Pi's HTML exporter when replaying a completed call,
+      // so only pre-execution `requested` is truthful at this boundary. Partial/result
+      // state belongs to renderResult, where the host supplies the actual result phase.
+      const state = !context.executionStarted ? 'requested' : undefined
       return new WorkflowText(
         [
-          `${label(name)}${operation ? ` · ${short(operation)}` : ''} · ${context.executionStarted ? 'pending' : 'requested'}`,
-          ...(title ? [title] : []),
+          [
+            { text: label(name), tone: 'toolTitle' },
+            ...(state ? [{ text: ` · ${state}`, tone: 'dim' as const }] : []),
+            ...(operation ? [{ text: ` · ${short(operation)}`, tone: 'accent' as const }] : []),
+            ...(title ? [{ text: ` · ${title}`, tone: 'muted' as const }] : []),
+          ],
         ],
         theme,
-        'muted',
         false,
         context.outputPad,
+        { text: '●', tone: 'muted' },
       )
     },
     renderResult(result, options, theme, context) {
       const summary = workflowSummary(result.details)
       const object = record(result.details)
       const failed = context.isError || Boolean(object?.error) || object?.ok === false
-      const state = failed ? 'error' : options.isPartial ? 'partial · pending' : 'result (not acceptance)'
+      const partial = options.isPartial
+      const state = partial
+        ? `Partial · pending${failed ? ' · Error' : ''}`
+        : failed
+          ? 'Error'
+          : 'Returned · not acceptance'
       const text = result.content
         .map((part) =>
           part.type === 'text' ? part.text : `[${part.type} content retained in native result]`,
         )
         .join('\n')
-      const lines = options.expanded
+      const stateLine = row(state, failed ? 'error' : partial ? 'warning' : 'muted')
+      const lines: Line[] = options.expanded
         ? [
-            `${label(name)} · ${state}`,
-            text,
-            ...(result.details === undefined ? [] : ['Details', json(result.details)]),
-          ].flatMap((line) => line.split('\n'))
-        : [
-            `${label(name)} · ${state}`,
-            ...summary,
-            ...(summary.length ? [] : [short(text)]),
-            'Expand for captured output/details',
+            stateLine,
+            row('Output', 'muted'),
+            ...text.split('\n').map((line) => row(line, 'toolOutput')),
+            ...(result.details === undefined
+              ? []
+              : [
+                  row('Details', 'muted'),
+                  ...json(result.details)
+                    .split('\n')
+                    .map((line) => row(line, 'toolOutput')),
+                ]),
           ]
-      return new WorkflowText(
-        lines,
-        theme,
-        failed ? 'error' : options.isPartial ? 'warning' : 'muted',
-        options.expanded,
-        context.outputPad,
-      )
+        : [
+            stateLine,
+            ...((summary.length ? summary.join(' · ') : short(text))
+              ? [row(summary.length ? summary.join(' · ') : short(text), 'muted')]
+              : []),
+          ]
+      return new WorkflowText(lines, theme, options.expanded, context.outputPad)
     },
   }
 }
