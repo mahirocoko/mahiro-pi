@@ -35,6 +35,13 @@ the canonical source and pinned public owners, install the three package-owned
 roles and compose narrow feature-data authority. It is not a dependency installer
 or startup hook. It does not reload an existing session.
 
+The repo-owned git-commit skill is included by default. You can opt out with
+`--without-git-commit-skill` on both preview and apply, or restore it with
+`--with-git-commit-skill`. With neither flag, upgrades preserve the exact supported
+exclusion. This does not remove the separate `agents/git-commit.md` system role.
+See [the optional skill contract](bootstrap.md#optional-git-commit-package-skill)
+for the supported configuration shape and retained guard restrictions.
+
 The profile defaults to `PI_CODING_AGENT_DIR` when set, otherwise `~/.pi/agent`.
 For another profile, select it explicitly on both commands:
 

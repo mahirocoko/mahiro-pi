@@ -49,9 +49,11 @@ must never persist workflow, policy or memory state.
 
 A single shared, at-most-two-row attention widget appears for meaningful structured
 blocker, stale, setup or unavailable observations returned by an existing owner
-operation. It says **last observed** and links back to `/mh`; it is not a live
-state monitor, worker signal or acceptance record. It does not poll, perform
-additional reads, parse command prose, or persist another workflow store. Plain
+operation. It labels the value as **observed status**, links to that feature's exact
+status command and explicitly identifies the row as informational rather than a
+permission gate. It is not a live state monitor, worker signal or acceptance record.
+It does not poll, perform additional reads, parse command prose, or persist another
+workflow store. Plain
 text responses and thrown exceptions are not converted into invented metadata.
 A healthy/empty observation clears only that feature's own displayed attention.
 The next agent run, navigation and shutdown expire the projection; generation,

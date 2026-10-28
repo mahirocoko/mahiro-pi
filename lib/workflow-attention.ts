@@ -10,6 +10,14 @@ const labels: Record<AttentionFeature, string> = {
   memory: 'Managed Memory',
   rtk: 'RTK',
 }
+const statusCommands: Record<AttentionFeature, string> = {
+  goal: '/mh-goal status',
+  evidence: '/mh-evidence status',
+  ux: '/mh-ux status',
+  run: '/mh-run status',
+  memory: '/mh-memory status',
+  rtk: '/mh-rtk status',
+}
 const object = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -192,8 +200,8 @@ export function registerWorkflowAttention(pi: ExtensionAPI) {
           owner: current.owner,
           feature,
           rows: [
-            `${labels[feature]} · last observed: ${attention}`,
-            '/mh · inspect current owner state · not acceptance',
+            `${labels[feature]} · observed status: ${attention}`,
+            `${statusCommands[feature]} to review · informational, not a permission gate`,
           ],
         }
         slot.display = display

@@ -302,6 +302,8 @@ export interface BootstrapRequest {
   dependencyModules?: string
   components: {
     packages?: true
+    /** Package skill only; does not select or remove the git-commit system role. */
+    gitCommitSkill?: 'include' | 'exclude'
     roles?: true
     /** Standard installer-owned ABI2 selection; absent preserves ABI1 compatibility. */
     memoryEngine?: true
@@ -392,6 +394,7 @@ const validateRequest = (value: unknown): BootstrapRequest => {
       (key) =>
         ![
           'packages',
+          'gitCommitSkill',
           'roles',
           'memoryEngine',
           'managedWriterRoute',
@@ -415,6 +418,8 @@ const validateRequest = (value: unknown): BootstrapRequest => {
     'removeDefaultDeny',
   ] as const)
     if (c[key] !== undefined && c[key] !== true) throw new Error('Unsupported component selection')
+  if (c.gitCommitSkill !== undefined && (!c.packages || !['include', 'exclude'].includes(c.gitCommitSkill)))
+    throw Error('gitCommitSkill requires packages and an include/exclude selection')
   if (c.managedWriterRoute !== undefined) {
     if (
       !object(c.managedWriterRoute) ||
@@ -894,6 +899,7 @@ export const inspectBootstrap = (
     )
       throw new Error('Required package has explicit extension overrides; review first')
     const next: any[] = []
+    let gitCommitSkillExcluded = false
     for (const entry of packages) {
       const source = typeof entry === 'string' ? entry : entry.source
       // Public Pi package contract: local paths are based on the containing
@@ -902,6 +908,19 @@ export const inspectBootstrap = (
       const absolute = local
         ? resolve(r.agentDir, source.startsWith('~/') ? join(homedir(), source.slice(2)) : source)
         : source
+      // The sole supported filtered Root declaration excludes only the optional skill.
+      if (
+        object(entry) &&
+        source === product &&
+        Object.keys(entry).sort().join() === 'skills,source' &&
+        Array.isArray(entry.skills) &&
+        entry.skills.length === 1 &&
+        entry.skills[0] === '-skills/git-commit'
+      ) {
+        canonical(product, true)
+        gitCommitSkillExcluded = true
+        continue
+      }
       // Only unfiltered lexical paths to this exact canonical Root can upgrade.
       // canonical() rejects symlink ancestors; no name/prefix/inode inference.
       if (absolute === product && typeof entry === 'string') {
@@ -968,7 +987,11 @@ export const inspectBootstrap = (
     }
     // Public services must register before Root captures the native parent.
     // Preserve unrelated declarations, then one permissions/subagents/Root graph.
-    for (const source of required) if (!next.includes(source)) next.push(source)
+    const excludeSkill =
+      r.components.gitCommitSkill === 'exclude' ||
+      (r.components.gitCommitSkill === undefined && gitCommitSkillExcluded)
+    for (const source of required)
+      next.push(source === product && excludeSkill ? { source, skills: ['-skills/git-commit'] } : source)
     const nextSettings = {
       ...settings,
       packages: next,

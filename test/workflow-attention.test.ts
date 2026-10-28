@@ -93,7 +93,7 @@ test('attention uses actual nested owner output shapes and fixed safe wording on
   )
 })
 
-test('one bounded above-editor last-observed projection; healthy only clears its own feature', async () => {
+test('one bounded above-editor informational projection; healthy only clears its own feature', async () => {
   const h = harness()
   const attention = registerWorkflowAttention(h.pi)
   await h.emit('session_start')
@@ -101,8 +101,11 @@ test('one bounded above-editor last-observed projection; healthy only clears its
   assert.equal(h.updates.at(-1)?.key, WORKFLOW_ATTENTION_WIDGET)
   assert.equal(h.updates.at(-1)?.options.placement, 'aboveEditor')
   assert.equal(h.lines().length, 2)
-  assert.match(h.lines().join('\n'), /Goal · last observed: 1 open blocker/)
-  assert.match(h.lines().join('\n'), /\/mh/)
+  const lines = h.lines().join('\n')
+  assert.match(lines, /Goal · observed status: 1 open blocker/)
+  assert.match(lines, /\/mh-goal status to review/)
+  assert.match(lines, /informational, not a permission gate/)
+  assert.doesNotMatch(lines, /\/mh · inspect current owner state/)
   attention.capture(h.ctx)('memory', { readiness: 'Ready' })
   assert.match(h.lines().join('\n'), /Goal/)
   attention.capture(h.ctx)('memory', { readiness: 'Needs setup' })

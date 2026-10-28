@@ -16,13 +16,14 @@ try {
   const args = process.argv.slice(2)
   if (args.includes('--help') || args.includes('-h')) {
     console.log(
-      'Usage: pnpm install:profile [--agent-dir /canonical/profile] [--preview] [--inspect-memory] [--remove-default-deny] [--native-basic-file-policy] [--managed-writer-model exact-provider/model-id --managed-writer-thinking off|minimal|low|medium|high|xhigh|max]\nExplicitly compose one Root guard owner, pinned public permission/subagents resources, three owned system roles, ordinary feature DATA authority and RTK off default. Retains restrictions and existing RTK state, Core/data and unrelated settings. --remove-default-deny explicitly deletes ONLY scalar permission["*"]="deny" (unset falls back to public ask, never blanket allow). Retained required tool/DATA restrictions refuse before writes; this flag cannot override them. Standard installation selects ordinary ABI2 per profile; explicit legacy/off records are preserved. Fresh memory gets an editable starter persona through guarded native initialization; existing Core/customization is never reseeded. Existing canonical writer routes survive; explicit route flags review only model/thinking slots. Reflection denies remain intact; historical quote-learning is optional and never granted here. No dependency install, provider call or reload. Startup grants nothing. --native-basic-file-policy independently opts in to finite BASIC read-deny defaults; not a sandbox or complete secret protection. Public runtime policy, project overrides and yolo remain authoritative. --inspect-memory requires --preview and exposes bounded read-only blocker metadata, never repair authority or private file bodies.',
+      'Usage: pnpm install:profile [--agent-dir /canonical/profile] [--preview] [--without-git-commit-skill | --with-git-commit-skill] [--inspect-memory] [--remove-default-deny] [--native-basic-file-policy] [--managed-writer-model exact-provider/model-id --managed-writer-thinking off|minimal|low|medium|high|xhigh|max]\nExplicitly compose one Root guard owner, pinned public permission/subagents resources, three owned system roles, ordinary feature DATA authority and RTK off default. Retains restrictions and existing RTK state, Core/data and unrelated settings. --remove-default-deny explicitly deletes ONLY scalar permission["*"]="deny" (unset falls back to public ask, never blanket allow). Retained required tool/DATA restrictions refuse before writes; this flag cannot override them. Standard installation selects ordinary ABI2 per profile; explicit legacy/off records are preserved. Fresh memory gets an editable starter persona through guarded native initialization; existing Core/customization is never reseeded. Existing canonical writer routes survive; explicit route flags review only model/thinking slots. Reflection denies remain intact; historical quote-learning is optional and never granted here. Fresh installs include the git-commit package skill; --without-git-commit-skill excludes it and --with-git-commit-skill restores it. Without either flag, upgrades preserve the exact supported exclusion. Neither flag removes the separately installed git-commit system role. No dependency install, provider call or reload. Startup grants nothing. --native-basic-file-policy independently opts in to finite BASIC read-deny defaults; not a sandbox or complete secret protection. Public runtime policy, project overrides and yolo remain authoritative. --inspect-memory requires --preview and exposes bounded read-only blocker metadata, never repair authority or private file bodies.',
     )
   } else {
     let agentDir,
       preview = false,
       removeDefaultDeny = false,
       nativeBasicFilePolicy = false,
+      gitCommitSkill,
       managedWriterModel,
       managedWriterThinking
     for (let i = 0; i < args.length; i++) {
@@ -31,6 +32,8 @@ try {
       else if (args[i] === '--remove-default-deny' && !removeDefaultDeny) removeDefaultDeny = true
       else if (args[i] === '--native-basic-file-policy' && !nativeBasicFilePolicy)
         nativeBasicFilePolicy = true
+      else if (args[i] === '--without-git-commit-skill' && !gitCommitSkill) gitCommitSkill = 'exclude'
+      else if (args[i] === '--with-git-commit-skill' && !gitCommitSkill) gitCommitSkill = 'include'
       else if (args[i] === '--agent-dir' && !agentDir && args[i + 1]) agentDir = args[++i]
       else if (args[i] === '--managed-writer-model' && !managedWriterModel && args[i + 1])
         managedWriterModel = args[++i]
@@ -68,6 +71,7 @@ try {
         },
         components: {
           packages: true,
+          ...(gitCommitSkill ? { gitCommitSkill } : {}),
           roles: true,
           memoryEngine: true,
           ...(managedWriterRoute ? { managedWriterRoute } : {}),

@@ -28,6 +28,35 @@ Source/profile paths must be canonical and non-symlinked, with safe ancestors;
 profiles cannot overlap source roots. Safe profile containers may be 0755;
 owned private data directories/files remain 0700/0600.
 
+## Optional git-commit package skill
+
+Fresh standard installations include the repository's `skills/git-commit` skill
+through a canonical package string. To exclude it, preview and apply explicitly:
+
+```sh
+pnpm install:profile --without-git-commit-skill --preview
+pnpm install:profile --without-git-commit-skill
+```
+
+To restore it, use `--with-git-commit-skill` on both preview and apply. The flags
+are mutually exclusive and cannot be repeated. Without either flag, upgrades
+preserve an existing supported exclusion, or include the skill by default.
+The only supported filtered declaration is exactly:
+
+```json
+{
+  "source": "/absolute/canonical/mahiro-pi",
+  "skills": ["-skills/git-commit"]
+}
+```
+
+`source` must be the exact canonical checkout path. Additional fields, aliases,
+other skill filters and extension/theme/prompt filters still refuse, as do filters
+on the permission/subagent packages. An explicit include/exclude choice does not
+sanitize unsupported declarations. Public owners retain their required ordering.
+This choice affects only package skill discovery; it does **not** remove the
+separately installed `agents/git-commit.md` system role or authorize a commit.
+
 ## Read-only memory blocker inspection
 
 ```sh
@@ -164,7 +193,8 @@ survives ordinary upgrades; all other descriptor bytes remain fixed.
 
 The installer registers public permission/subagent packages before this package.
 Children retain guards and permission ownership; duplicate/conflicting owners,
-unsupported aliases and required-resource exclusions refuse. A source path change
+unsupported aliases and required-resource exclusions refuse. The exact optional
+git-commit skill exclusion above is preserved unless explicitly changed. A source path change
 must align with public native-factory provenance, not be bypassed with a second guard.
 
 Standard installation writes a private 0600 `<profile>/.mahiro-memory-engine.json`
@@ -239,6 +269,7 @@ Optional components:
 
 | Selection | Contract |
 | --- | --- |
+| `gitCommitSkill: "include"` or `"exclude"` | Requires `packages: true`; same optional package-skill choice as above; omission preserves the supported exclusion |
 | `removeDefaultDeny: true` | Requires `featureData: true`; same scalar-only consent as above |
 | `nativeBasicFilePolicy: true` | Independent finite BASIC read defaults |
 | `skillPolicy: true` | Calls the existing default skill-policy owner |

@@ -120,7 +120,9 @@ export default function fixture(pi) {
       await f.runtime.session.prompt('Exercise independent file-loaded observation owners')
       const widget = f.widgets.get(WORKFLOW_ATTENTION_WIDGET)
       assert.ok(widget, 'healthy Goal cannot clear the newer Managed Memory projection')
-      assert.match(widget.render(80).join('\n'), /Managed Memory.*last observed: needs setup/)
+      const rows = widget.render(80).join('\n')
+      assert.match(rows, /Managed Memory.*observed status: needs setup/)
+      assert.match(rows, /\/mh-memory status to review.*not a permission gate/)
       assert.deepEqual(f.errors, [])
     }
   } finally {
@@ -231,7 +233,7 @@ test('public SDK tree navigation clears a captured usage panel and keeps fresh u
   }
 })
 
-test('public SDK returned observation produces bounded last-observed attention and expires next run', async () => {
+test('public SDK returned observation produces bounded informational attention and expires next run', async () => {
   const f = await fixture()
   try {
     await f.invoke('fixture_workflow_observation')
@@ -239,8 +241,10 @@ test('public SDK returned observation produces bounded last-observed attention a
     const widget = f.widgets.get(WORKFLOW_ATTENTION_WIDGET)!
     const rows = widget.render(80)
     assert.equal(rows.length, 2)
-    assert.ok(rows.some((row) => row.includes('last observed: 1 open blocker')))
-    assert.ok(rows.some((row) => row.includes('not acceptance')))
+    assert.ok(rows.some((row) => row.includes('Goal · observed status: 1 open blocker')))
+    assert.ok(rows.some((row) => row.includes('/mh-goal status to review')))
+    assert.ok(rows.some((row) => row.includes('informational, not a permission gate')))
+    assert.ok(rows.every((row) => !row.includes('/mh · inspect current owner state')))
     for (const width of [4, 20, 40, 80]) {
       assert.ok(widget.render(width).every((row) => f.tui.visibleWidth(row) <= width))
     }

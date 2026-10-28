@@ -17,7 +17,7 @@ import {
 } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { test } from 'node:test'
-import type { BootstrapRequest } from '../lib/bootstrap.ts'
+import type { BootstrapPlan, BootstrapRequest } from '../lib/bootstrap.ts'
 import {
   inspectBootstrap as inspectActiveBootstrap,
   applyBootstrap as applyActiveBootstrap,
@@ -434,6 +434,117 @@ localTest(
       })
   },
 )
+
+test('git-commit package skill defaults included, preserves exclusion and obeys explicit selections', () => {
+  fixture((_root, r) => {
+    r.components = { packages: true, roles: true }
+    const settings = join(r.agentDir, 'settings.json')
+    const exclusion = { source: product, skills: ['-skills/git-commit'] }
+    const preview = () => {
+      const before = existsSync(settings) ? readFileSync(settings, 'utf8') : null
+      const plan: BootstrapPlan = inspectBootstrap(r)
+      assert.equal(existsSync(settings) ? readFileSync(settings, 'utf8') : null, before)
+      assert.ok(plan.changes.some((c) => c.path === join(r.agentDir, 'agents/git-commit.md')))
+      const packages = JSON.parse(plan.changes.find((c) => c.path === settings)!.next).packages
+      assert.deepEqual(packages.slice(-3, -1), [plan.dependencies.permissions, plan.dependencies.subagents])
+      return packages.at(-1)
+    }
+    assert.equal(preview(), product)
+    assert.equal(existsSync(r.agentDir), false)
+    for (const existing of [product, exclusion]) {
+      put(settings, { packages: ['/unrelated/local-package', existing], quietStartup: true })
+      const original = readFileSync(settings, 'utf8')
+      delete r.components.gitCommitSkill
+      assert.deepEqual(preview(), existing)
+      r.components.gitCommitSkill = 'exclude'
+      assert.deepEqual(preview(), exclusion)
+      const excludedPlan = inspectBootstrap(r)
+      applyBootstrap(excludedPlan, excludedPlan.digest)
+      assert.deepEqual(parse(settings).packages.at(-1), exclusion)
+      assert.equal(parse(settings).packages[0], '/unrelated/local-package')
+      assert.equal(parse(settings).quietStartup, true)
+      r.components.gitCommitSkill = 'include'
+      assert.equal(preview(), product)
+      const includedPlan = inspectBootstrap(r)
+      applyBootstrap(includedPlan, includedPlan.digest)
+      assert.equal(parse(settings).packages.at(-1), product)
+      put(settings, original)
+    }
+  })
+})
+
+test('git-commit skill selection is closed and cannot sanitize unsupported package filters', () => {
+  fixture((_root, r) => {
+    const settings = join(r.agentDir, 'settings.json')
+    const exclusion = { source: product, skills: ['-skills/git-commit'] }
+    for (const entry of [
+      { ...exclusion, extensions: [] },
+      { ...exclusion, themes: [] },
+      { ...exclusion, prompts: [] },
+      { ...exclusion, autoload: false },
+      { ...exclusion, extra: true },
+      { ...exclusion, source: relative(r.agentDir, product) },
+      { ...exclusion, skills: [] },
+      { ...exclusion, skills: ['!skills/git-commit'] },
+      { ...exclusion, skills: ['-skills/git-commit', '-skills/other'] },
+      { ...exclusion, skills: ['-skills/git-commit', '-skills/git-commit'] },
+      { ...exclusion, source: join(candidate.modules, '@gotgenes/pi-subagents') },
+      { ...exclusion, source: join(candidate.modules, '@gotgenes/pi-permission-system') },
+    ]) {
+      put(settings, { packages: [entry] })
+      for (const gitCommitSkill of [undefined, 'include', 'exclude'] as const) {
+        r.components = { packages: true, ...(gitCommitSkill ? { gitCommitSkill } : {}) }
+        assert.throws(() => inspectBootstrap(r), JSON.stringify(entry))
+      }
+    }
+    for (const components of [
+      { packages: true, gitCommitSkill: false },
+      { packages: true, gitCommitSkill: 'other' },
+      { roles: true, gitCommitSkill: 'exclude' },
+    ]) {
+      r.components = components as any
+      assert.throws(() => inspectBootstrap(r), /gitCommitSkill/)
+    }
+  })
+})
+
+test('git-commit skill CLI choices preview without writes and reject conflicting or duplicate arguments', () => {
+  const root = mkdtempSync(join(candidate.root, 'git-commit-cli-'))
+  const agentDir = join(root, 'agent')
+  const run = (flags: string[]) =>
+    spawnSync(
+      process.execPath,
+      [join(activeProduct, 'install.mjs'), '--agent-dir', agentDir, '--preview', ...flags],
+      {
+        cwd: activeProduct,
+        encoding: 'utf8',
+        env: { ...process.env, MAHIRO_PI_TEST_MODULES: candidate.modules },
+        timeout: 60000,
+      },
+    )
+  try {
+    for (const flags of [[], ['--without-git-commit-skill'], ['--with-git-commit-skill']]) {
+      const result = run(flags)
+      assert.equal(result.status, 0, result.stderr)
+      assert.ok(JSON.parse(result.stdout).steps.some((s: any) => s.kind === 'packages'))
+      assert.equal(existsSync(agentDir), false)
+    }
+    for (const flags of [
+      ['--with-git-commit-skill', '--without-git-commit-skill'],
+      ['--without-git-commit-skill', '--with-git-commit-skill'],
+      ['--without-git-commit-skill', '--without-git-commit-skill'],
+      ['--with-git-commit-skill', '--with-git-commit-skill'],
+      ['--with-git-commit-skill=include'],
+    ]) {
+      const result = run(flags)
+      assert.equal(result.status, 1)
+      assert.match(result.stderr, /Invalid install arguments/)
+      assert.equal(existsSync(agentDir), false)
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('owned upgrade rejects filtered/unsupported aliases, guard exclusions, symlink owners and dual legacy guards', () => {
   fixture((root, r) => {
