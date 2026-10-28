@@ -12,9 +12,23 @@ export default async function bootstrap(pi: ExtensionAPI) {
   } catch {
     activationFailed = true
   }
+  // Optional advisory failures must not prevent mandatory kernel activation.
+  // Await registration so sections still precede memory/session-step overrides.
+  let terraFailed = false
+  try {
+    const { registerTerraPersistence } = await import('../terra-persistence.ts')
+    registerTerraPersistence(pi)
+  } catch {
+    terraFailed = true
+  }
   // Kernel readiness is diagnostic, not permission to use ordinary tools.
   // Feature state operations check their own live session and ownership.
   pi.on('session_start', (_event, ctx) => {
+    if (terraFailed)
+      ctx.ui.notify(
+        'Terra persistence advisory unavailable; feature kernel and PSS are independent.',
+        'warning',
+      )
     const node = (globalThis as typeof globalThis & { [key]?: KernelRegistry })[key]?.get(
       ctx.sessionManager.getSessionId(),
     )

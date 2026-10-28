@@ -2,6 +2,41 @@
 
 [← Documentation](README.md)
 
+## Terra persistence pilot
+
+The existing bootstrap registers a bounded persistence advisory only for ordinary
+primary user runs whose selected model is exactly `openai/gpt-6.1-terra`.
+Other providers, aliases/preview IDs, custom-message runs, child/fork/worker
+contexts and unavailable kernel identity skip it. No model or profile is changed.
+Disable it with the native boolean flag `--mahiro-terra-persistence-disable`.
+Source availability does not activate it in an already-running session.
+
+The advisory distinguishes intermediate checkpoints from completion, asks for
+already-authorized investigation/implementation/verification rather than repeated
+promises or permission questions, and preserves questions, plan/research-only
+requests, explicit stops, actual blockers and required approvals. It grants no
+extra scope, Goal, commit, publish, installation or automatic continuation.
+It does not execute tools, inspect responses, enqueue follow-ups or retry runs.
+
+Owner: `lib/terra-persistence.ts`, registered by the existing
+`lib/guards/bootstrap.ts` entry without changing manifest order. It mutates only
+`systemPromptOptions.sections.mahiro_terra_persistence` through the public
+`before_agent_start` hook. It runs before maintained-memory and session-step
+prompt replacements so their normal primary composition retains the rendered
+section. An already-forced opaque prompt is deliberately not rewritten; a later
+owner that discards the full prompt can omit the advisory. Model selection is
+checked afresh at each run start, not on a mid-run physical/virtual route change.
+
+Focused public SDK/Faux fixtures cover exact model switches, disable/reload,
+section preservation, a memory-style prompt replacement followed by the real
+session-step owner, and no forced continuation after a partial response. Memory
+composition here is a fixture of its public hook pattern, not live private-memory
+or provider acceptance. Prompt text assertions for scan/partial-edit/test and
+question/stop/blocker/approval cases do not prove Terra follows them. A small live
+baseline/pilot comparison with synthetic primary identity observed both variants
+complete and respect the tested boundaries; it did not establish an advantage.
+No follow-up reduction, latency/cost benefit or behavioral resolution is claimed.
+
 ## Realign
 
 `/realign [focus]` asks the assistant to reorient around current repository rules
