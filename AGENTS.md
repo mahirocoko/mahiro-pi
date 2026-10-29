@@ -79,8 +79,13 @@ dated source records, not current installation instructions.
   not change installer defaults or live reflection policy. The worker may read
   and edit files only through the confined worktree adapter. It has no shell,
   Git, network, or credential handle. The coordinator remains the only publisher.
-  Entry text is untrusted evidence. This path is not a live or installed model
-  worker.
+  Entry text is untrusted evidence. Phase D adds an optional public-SDK model
+  maintenance adapter that a caller may pass as this callback. It launches one
+  isolated session per job and exposes only the confined workspace tools.
+  Extension, kernel, installer, and profile code do not import it. It is not an
+  installed model worker and it does not publish. Its trajectory prompt cap is
+  not the whole model context. Aggregate assistant, tool-call, argument, and
+  tool-result caps plus a cooperative session abort stay inside that callback.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
   Preserve their authored route/lock/tool contracts; only the canonical installed
   managed-memory-writer model/thinking slots may vary through explicit paired

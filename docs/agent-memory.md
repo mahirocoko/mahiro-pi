@@ -579,11 +579,34 @@ The deterministic worker receives the bounded range as untrusted data and a
 worktree adapter for read, list, search, write, edit, delete, and rename. It
 has no shell, Git handle, network, credentials, or absolute path. The adapter
 refuses `.git`, symlink traversal, and paths outside the worktree. The
-coordinator remains the only Git publisher. There is no model or provider call
-and no installed role descriptor. Ordinary non-reflection jobs still use the
-existing worker. Reopening this service for reflection requires the same
-synthetic policy and maintenance callback. This path is not live and is not
-selected by installation.
+coordinator remains the only Git publisher. There is no installed role
+descriptor. Ordinary non-reflection jobs still use the existing worker.
+Reopening this service for reflection requires the same synthetic policy and
+maintenance callback. This path is not live and is not selected by installation.
+
+Phase D adds an optional model maintenance adapter in
+`lib/agent-memory/local/model-worker.ts`. A caller may pass it as the synthetic
+maintenance callback. Each job launches one isolated public SDK session with an
+in-memory transcript, an empty disposable working directory, and only the
+confined workspace tools. The adapter does not read credentials, provider
+catalogs, Pi sessions, or a live profile. Extension, kernel, installer, and
+package-manifest code do not import it. It does not use a subagent role
+descriptor. `maxPromptBytes` counts only the rendered trajectory prompt, not the
+whole model context. Assistant text, tool-call count, serialized tool
+arguments, complete call bytes (tool name plus arguments), and tool-result
+text have separate aggregate caps. A bounded
+deadline aborts that public session cooperatively; it is not an operating-system
+kill, and the supplied runtime is expected to honor the abort. The worker waits
+until that prompt settles before it returns. Final classification uses the
+session's authoritative messages. Timeout outranks overflow, provider, and
+cancelled, and those outrank a later generic tool error. The fixed categories
+are malformed, overflow, cancelled, timeout, provider, and cleanup. Thinking
+content in a thinking-off session is malformed. Ordinary final text with no file writes remains a no-op.
+Those failures throw, so the existing job becomes `failed` and the watermark
+stays put until an explicit retry of that same snapshot. `repair-needed`
+remains the coordinator's conflict state and stays blocked. Synthetic function
+callbacks remain valid. This adapter is not selected by installation and does
+not publish.
 
 This owner is not ABI3. Source loading does not construct it. Profiles, kernel
 bindings, role descriptors, private memory roots, and `/mh-memory` commands do

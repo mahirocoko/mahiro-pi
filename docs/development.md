@@ -124,6 +124,14 @@ deterministic maintenance-worker check:
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-trajectory.test.ts
 ```
 
+`test/agent-memory-local-model-worker.test.ts` is the optional public-SDK model
+maintenance adapter check. It uses Faux transport. It does not select
+installation or import the adapter from the extension, kernel, or profile:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-model-worker.test.ts
+```
+
 Those files do not select an installed engine, bind the kernel, or change
 profile records. They exercise one in-process coordinator and a service-owned
 bare repository. Live maintained memory remains ABI1/ABI2.
