@@ -23,6 +23,7 @@ import {
   gitCommitParents,
   gitCommitTree,
   gitBlobPrefix,
+  gitBlobSize,
   gitEntriesRecursive,
   gitEntryAt,
   gitEmptyIndex,
@@ -94,6 +95,14 @@ import {
   suppressForgotten,
 } from './forgetting.ts'
 import {
+  type PalaceCorpusFact,
+  type PalaceJobFact,
+  type PalaceRecoveryFact,
+  type PalaceSnapshot,
+  buildPalaceSnapshot,
+  palacePreviewLimits,
+} from './palace.ts'
+import {
   type LocalMemoryList,
   type LocalMemoryPrompt,
   type LocalMemoryRead,
@@ -129,6 +138,7 @@ export interface SyntheticLocalMemoryService {
     limit?: number
   }): Promise<LocalMemoryList>
   importTombstones(input: TombstoneImport): Promise<ForgettingMetadata>
+  palacePreview(): Promise<PalaceSnapshot>
 }
 
 export type { LocalJobRecord, LocalWorker }
@@ -335,6 +345,7 @@ export async function createSyntheticLocalMemoryService(options: {
   const metaPath = join(stateRoot, 'meta.json')
   let failRemoves = options.injection?.failCleanupRemoves ?? 0
   let forgettingInitialized = false
+  let recoveryNotes: PalaceRecoveryFact[] = []
 
   const missingFile = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
@@ -452,11 +463,19 @@ export async function createSyntheticLocalMemoryService(options: {
   }
 
   const recover = async (job: LocalJobRecord): Promise<LocalJobRecord> => {
+    const finish = (next: LocalJobRecord): LocalJobRecord => {
+      if (job.status === 'running') {
+        if (next.status === 'committed') recoveryNotes.push({ jobId: job.id, outcome: 'committed' })
+        else if (next.status === 'failed') recoveryNotes.push({ jobId: job.id, outcome: 'failed' })
+        else if (next.status === 'running') recoveryNotes.push({ jobId: job.id, outcome: 'interrupted' })
+      }
+      return next
+    }
     if (job.status !== 'running') return job
-    if (!job.worktreePath) return saveJob(stateRoot, { ...job, status: 'failed' })
+    if (!job.worktreePath) return finish(await saveJob(stateRoot, { ...job, status: 'failed' }))
     const ownership = (await listOwnership(stateRoot)).find((item) => item.jobId === job.id)
     if (!ownership || ownership.path !== job.worktreePath || ownership.nonce !== meta.nonce)
-      return saveJob(stateRoot, { ...job, status: 'failed' })
+      return finish(await saveJob(stateRoot, { ...job, status: 'failed' }))
     const stat = await lstat(job.worktreePath).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined
       throw error
@@ -467,7 +486,7 @@ export async function createSyntheticLocalMemoryService(options: {
       stat.isDirectory() &&
       String(stat.dev) === ownership.dev &&
       String(stat.ino) === ownership.ino
-    if (!sameIdentity) return saveJob(stateRoot, { ...job, status: 'failed' })
+    if (!sameIdentity) return finish(await saveJob(stateRoot, { ...job, status: 'failed' }))
     const head = await gitWorktreeHead(git, ownership.gitDir, job.worktreePath)
     const parents = await gitCommitParents(git, head)
     if (parents.length !== 1 || parents[0] !== job.baseHead) {
@@ -481,11 +500,11 @@ export async function createSyntheticLocalMemoryService(options: {
           false,
           options.injection?.stopAfter === 'recover-removed',
         )
-        if (stopped) return job
+        if (stopped) return finish(job)
       }
-      return saveJob(stateRoot, { ...job, status: 'failed' })
+      return finish(await saveJob(stateRoot, { ...job, status: 'failed' }))
     }
-    return saveJob(stateRoot, { ...job, status: 'committed', workerCommit: head })
+    return finish(await saveJob(stateRoot, { ...job, status: 'committed', workerCommit: head }))
   }
 
   const ours = async (path: string, gitDir: string | null) => {
@@ -590,6 +609,7 @@ export async function createSyntheticLocalMemoryService(options: {
 
   const turnOnce = <T>(body: () => Promise<T>): Promise<T> =>
     turn(stateRoot, async () => {
+      recoveryNotes = []
       await reconcile()
       await readyPolicy()
       for (const job of await listJobs(stateRoot)) if (job.status === 'running') await recover(job)
@@ -1036,6 +1056,118 @@ export async function createSyntheticLocalMemoryService(options: {
   const publicSnapshot = <T>(body: () => Promise<T>): Promise<T> =>
     turnOnce(body).catch((error: unknown) => refuseRead(error))
 
+  const palacePreview = async (): Promise<PalaceSnapshot> => {
+    try {
+      await certifyIdentity()
+    } catch {
+      throw Error('Local memory palace stale')
+    }
+    let snapshot: PalaceSnapshot
+    try {
+      const policy = await loadForgetting(stateRoot)
+      const guard = forgettingGuard(policy)
+      const head = await gitMain(git)
+      await gitRequireCommit(git, head)
+      const listed = await gitEntriesRecursive(git, head)
+      const visible: { fact: PalaceCorpusFact; bytesOf: string | null }[] = []
+      let forgotten = 0
+      const seen = new Set<string>()
+      for (const entry of listed) {
+        if (seen.has(entry.path)) throw Error('Local memory palace refused')
+        seen.add(entry.path)
+        if (suppressForgotten(entry.path, entry.oid, guard)) {
+          forgotten += 1
+          continue
+        }
+        visible.push({
+          fact: { path: entry.path, mode: entry.mode, type: entry.type, bytes: null },
+          bytesOf: entry.mode === '100644' && entry.type === 'blob' ? entry.oid : null,
+        })
+      }
+      visible.sort((left, right) =>
+        left.fact.path < right.fact.path ? -1 : left.fact.path > right.fact.path ? 1 : 0,
+      )
+      for (const item of visible.slice(0, palacePreviewLimits.pageSize)) {
+        if (item.bytesOf) item.fact.bytes = await gitBlobSize(git, item.bytesOf)
+      }
+      const sourceForbidden = (path: string) =>
+        policy.snapshot?.sources.some((source) => source.source === path || source.project === path) ?? false
+      const conflictVisible = async (path: string, commits: readonly string[]) => {
+        if (guard.pathForbidden(path) || sourceForbidden(path)) return false
+        if (guard.metadata.blobCount === 0) return true
+        let proved = false
+        for (const commit of commits) {
+          try {
+            const entry = await gitEntryAt(git, commit, path)
+            if (!entry) continue
+            if (entry.type !== 'blob' || guard.oidForbidden(entry.oid)) return false
+            proved = true
+          } catch {
+            return false
+          }
+        }
+        return proved
+      }
+      const jobs: PalaceJobFact[] = []
+      let hiddenConflicts = 0
+      for (const job of await listJobs(stateRoot)) {
+        const commits = [head]
+        if (job.workerCommit) commits.push(job.workerCommit)
+        const paths: string[] = []
+        for (const path of job.conflictPaths) {
+          if (await conflictVisible(path, commits)) paths.push(path)
+          else hiddenConflicts += 1
+        }
+        let runningTree = false
+        if (job.status === 'running' && job.worktreePath) {
+          try {
+            const stat = await lstat(job.worktreePath)
+            runningTree = !stat.isSymbolicLink() && stat.isDirectory()
+          } catch {
+            runningTree = false
+          }
+        }
+        jobs.push({
+          id: job.id,
+          kind: job.kind,
+          status: job.status,
+          sequence: job.sequence,
+          baseHead: job.baseHead,
+          workerCommit: job.workerCommit,
+          integratedCommit: job.integratedCommit,
+          pendingIntegration: job.pendingIntegration,
+          expectedParent: job.expectedParent,
+          conflictPaths: paths,
+          detached: runningTree,
+        })
+      }
+      snapshot = buildPalaceSnapshot({
+        head,
+        forgotten,
+        forgetting: {
+          phase: guard.metadata.phase,
+          policyRevision: guard.metadata.policyRevision,
+          pathCount: guard.metadata.pathCount,
+          blobCount: guard.metadata.blobCount,
+          sourceCount: guard.metadata.sourceCount,
+        },
+        corpus: visible.map((item) => item.fact),
+        jobs,
+        recovery: recoveryNotes,
+        hiddenConflicts,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Local memory palace refused') throw error
+      throw Error('Local memory palace refused')
+    }
+    try {
+      await certifyIdentity()
+    } catch {
+      throw Error('Local memory palace stale')
+    }
+    return snapshot
+  }
+
   await turn(stateRoot, () => readyPolicy())
 
   return {
@@ -1102,5 +1234,6 @@ export async function createSyntheticLocalMemoryService(options: {
         ),
       ),
     importTombstones: (input) => turnOnce(() => importTombstones(input)),
+    palacePreview: () => turnOnce(() => palacePreview()),
   }
 }

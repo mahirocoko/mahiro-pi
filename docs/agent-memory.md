@@ -109,7 +109,7 @@ loaded runtime actually advertises.
    a bounded, unverified continuity checkpoint is preserved for the next turn. This
    one-shot prompt context is separate from the metadata-only review records below.
 
-`agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. `/mh-memory palace` currently prints that bounded JSON report in a TUI notification only; it has no HTML page, dashboard, graph viewer or file export. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `palace`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+`agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. `/mh-memory palace` currently prints that bounded JSON report in a TUI notification only; it has no HTML page, dashboard, graph viewer or file export. The experimental local preview is a separate synthetic page and does not change this command. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `palace`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
 Discovery is path/index-driven: committed `Core.md` and `index.md` remain loaded alongside
 `system/persona.md` and only the current project's `system/overview.md` and
@@ -770,6 +770,34 @@ gone. Existing service handles then fail. It does not switch live authority.
 
 Extension, kernel, installer, and profile code do not import this adapter. It
 does not call a provider, publish, or select installation.
+
+Phase H adds a disconnected synthetic Palace HTML preview on this same
+coordinator. `palacePreview` builds one metadata snapshot inside the service
+turn, after that turn's recovery. The snapshot lists relative corpus paths,
+canonical `refs/heads/main`, unpublished detached job work, job lifecycle,
+visible conflict paths, synthetic publication, and read-only retry/resume
+guidance. It does not include file text, excerpts, prompts, frontmatter, diffs,
+reflection or trajectory text, job summaries, raw errors, ownership records,
+worktree paths, or the state root. Forgotten corpus paths and forgotten
+conflict paths stay omitted; a hidden conflict count may remain. Detached rows
+are unpublished `committed` or `repair-needed` commits, or a running worktree
+that is still present. Integrated, noop, and cleaned jobs are not detached
+work, and detached work is not a Git branch. `repair-needed` has no repair or
+abandon transition here; resume and retry cannot advance it. Each collection
+returns at most 32 entries. The serialized snapshot is at most 48 KiB, and
+counts say when a page is truncated.
+
+`pnpm memory:palace-preview` creates a fresh temporary synthetic service and
+serves that snapshot on `127.0.0.1` at an unguessable path. It does not accept
+a state path and does not read a private memory root. The HTTP surface is
+GET/HEAD only, with a fixed page route and a fixed snapshot route. The page is
+static HTML: reload is a link, and nothing on the page mutates the service.
+`/mh-memory palace` stays the JSON-only TUI notification. Extension, kernel,
+installer, and profile code do not import this preview. It does not publish,
+select installation, or become live authority. The preview is labelled not live authority.
+Live publication remains ABI2.
+Wiring an accepted page to the live coordinator is later work; this phase does
+not.
 
 ## Historical recall and quoted notes
 

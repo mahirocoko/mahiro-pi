@@ -38,6 +38,7 @@
     "bootstrap": "node bootstrap.mjs",
     "install:profile": "node install.mjs",
     "memory:maintenance": "node memory-maintenance.mjs",
+    "memory:palace-preview": "node palace-preview.mjs",
     "goal:preview": "node goal-preview.mjs",
     "test": "pnpm check:source",
     "check:docs": "node check-docs.mjs",

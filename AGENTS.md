@@ -109,6 +109,16 @@ dated source records, not current installation instructions.
   root and installs Phase F tombstones there. Rollback waits on the migration
   turn, then the service turn, and renames only a quiescent root. Extension, kernel, installer, and profile code do not import it.
   It does not publish, select installation, apply, reload, or switch live authority.
+  Phase H adds a disconnected synthetic Palace HTML preview for that same
+  service. The coordinator turn builds one metadata snapshot: relative corpus
+  paths, canonical main, unpublished detached work, lifecycle, visible conflict
+  paths, and read-only retry/resume guidance. Integrated and cleaned commits
+  are not detached work. Forgotten conflict paths are counts only. It omits
+  file text, reflection, summaries,
+  raw errors, worktree paths, and the state root. A loopback page serves a fresh
+  temporary synthetic service and is not live authority. `/mh-memory palace`
+  stays JSON-only. Extension, kernel, installer, and profile code do not import
+  it. It does not publish, select installation, or switch live authority.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
   Preserve their authored route/lock/tool contracts; only the canonical installed
   managed-memory-writer model/thinking slots may vary through explicit paired

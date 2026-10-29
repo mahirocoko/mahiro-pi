@@ -164,6 +164,15 @@ installation or read a live private root:
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-migration.test.ts
 ```
 
+`test/agent-memory-local-palace.test.ts` is the disconnected synthetic Palace
+preview. It checks the metadata snapshot, loopback page, and
+`pnpm memory:palace-preview`. It does not read a live private root or change
+`/mh-memory palace`:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-palace.test.ts
+```
+
 Those files do not select an installed engine, bind the kernel, or change
 profile records. They exercise one in-process coordinator and a service-owned
 bare repository. Live maintained memory remains ABI1/ABI2.

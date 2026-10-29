@@ -156,6 +156,12 @@ const contracts = [
   ['docs/claude-ui.md', /runtime-only/, 'Apply is not Save'],
   ['docs/claude-ui.md', /create\/overwrite unknown/, 'no write before-image'],
   ['docs/agent-memory.md', /not secure Git\/history erasure/, 'logical forgetting'],
+  ['docs/agent-memory.md', /not live authority/, 'synthetic palace is not live authority'],
+  [
+    'docs/agent-memory.md',
+    /\/mh-memory palace` currently prints that bounded JSON report/,
+    'live palace stays JSON',
+  ],
   ['docs/workflows.md', /never executed/, 'recorded commands are metadata'],
   ['docs/integrations.md', /UNKNOWN/, 'unavailable is not zero'],
 ]
