@@ -156,21 +156,42 @@ export function extractFrontmatterAndLinks(
   ]
   return { ...(name ? { name } : {}), ...(description ? { description } : {}), links }
 }
-export function directoryIndex(files: Record<string, MemoryFile>, prefix: string) {
-  const clean = prefix.replace(/\/+$/, '')
-  const entries = Object.keys(files)
-    .filter((p) => p.startsWith(`${clean}/`))
-    .sort()
-    .map((p) => {
-      const meta = extractFrontmatterAndLinks(files[p].text)
-      return {
-        path: p,
-        ...(meta.name ? { name: meta.name } : {}),
-        ...(meta.description ? { description: meta.description } : {}),
-        ...(meta.links.length ? { links: meta.links } : {}),
-      }
-    })
-  return { directory: clean, entries, total: entries.length, hash: null as string | null }
+export function directoryPage(paths: string[], prefix: string, offset: number, limit: number) {
+  const directory = prefix.replace(/\/+$/, '')
+  const all = [...new Set(paths.filter((p) => p.startsWith(`${directory}/`)))].sort()
+  const boundedLimit = Math.min(limit, retrievalLimits.page)
+  const pagePaths = all.slice(offset, offset + boundedLimit)
+  const nextOffset = offset + pagePaths.length
+  return {
+    directory,
+    paths: pagePaths,
+    total: all.length,
+    offset,
+    limit: boundedLimit,
+    truncated: offset > 0 || nextOffset < all.length,
+    ...(nextOffset < all.length ? { nextOffset } : {}),
+  }
+}
+export function directoryIndex(files: Record<string, MemoryFile>, page: ReturnType<typeof directoryPage>) {
+  const entries = page.paths.map((p) => {
+    const meta = extractFrontmatterAndLinks(files[p].text)
+    return {
+      path: p,
+      ...(meta.name ? { name: meta.name } : {}),
+      ...(meta.description ? { description: meta.description } : {}),
+      ...(meta.links.length ? { links: meta.links } : {}),
+    }
+  })
+  return {
+    directory: page.directory,
+    entries,
+    total: page.total,
+    hash: null as string | null,
+    offset: page.offset,
+    limit: page.limit,
+    truncated: page.truncated,
+    ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}),
+  }
 }
 
 // Map folded UTF-16 positions back to ORIGINAL code-point offsets. Grapheme-local

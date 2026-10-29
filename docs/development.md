@@ -110,6 +110,24 @@ Focused maintained-memory checks (also serialize with SDK/heavy jobs):
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory*.test.ts
 ```
 
+`test/agent-memory-local-lifecycle.test.ts` is the synthetic local Git/worktree
+lifecycle check. It is included by the glob above and can be run alone:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-lifecycle.test.ts
+```
+
+`test/agent-memory-local-trajectory.test.ts` is the synthetic trajectory and
+deterministic maintenance-worker check:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-trajectory.test.ts
+```
+
+Those files do not select an installed engine, bind the kernel, or change
+profile records. They exercise one in-process coordinator and a service-owned
+bare repository. Live maintained memory remains ABI1/ABI2.
+
 Standard explicit installation selects ordinary memory ABI2 through private
 per-profile selection metadata; an absent record retains ABI1 compatibility and
 explicit off/legacy are preserved. Disposable fixtures additionally exercise

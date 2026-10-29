@@ -62,9 +62,25 @@ dated source records, not current installation instructions.
   never sets blanket allow. Preserve targeted restrictions and refuse missing
   required grants truthfully. See `docs/bootstrap.md`.
 - Maintained knowledge has one private Markdown/Git owner, separate from historical
-  recall. Exact-root authority is mandatory. Native writers use identity-bound
-  private views and public prompt replacement, not cwd overrides, shell tools or
-  inherited private corpus. Preserve existing memory; initialize only absent roots.
+  recall. Live publication is ABI1 or ABI2: exact-root authority is mandatory.
+  Native writers use identity-bound private views and public prompt replacement, not
+  cwd overrides, shell tools or inherited private corpus. Preserve existing memory;
+  initialize only absent roots. The approved experimental local Git/worktree service
+  under `lib/agent-memory/local/` is synthetic-only. One in-process coordinator
+  creates and reopens its own bare repository. It does not adopt an arbitrary
+  Git repository, synchronize a parent checkout, or claim resistance to another
+  same-user process editing its metadata. It is not ABI3, is not selected by
+  installation, and is not authorized to publish into a live profile, private
+  root, prompt, or Palace surface. Synthetic Phase C adds a harness-supplied
+  trajectory and a deterministic maintenance worker inside this same service.
+  The trajectory owner reads only the explicit entry array passed by its caller.
+  It does not read Pi sessions, private memory, transcripts, or live profiles.
+  `off`, `compaction`, and `step-count` are synthetic constructor config and do
+  not change installer defaults or live reflection policy. The worker may read
+  and edit files only through the confined worktree adapter. It has no shell,
+  Git, network, or credential handle. The coordinator remains the only publisher.
+  Entry text is untrusted evidence. This path is not a live or installed model
+  worker.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
   Preserve their authored route/lock/tool contracts; only the canonical installed
   managed-memory-writer model/thinking slots may vary through explicit paired

@@ -1,5 +1,5 @@
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
-import { palaceLayerFor, palaceReplyBytes, parseMemoryRead } from '../retrieval.ts'
+import { palaceLayerFor, palaceReplyBytes, parseMemoryRead, retrievalLimits } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
 import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
 import {
@@ -465,6 +465,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
           'text',
           'sources',
           'offset',
+          'limit',
           'totalCharacters',
           'truncated',
           'nextOffset',
@@ -502,22 +503,45 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       }
       if (selection.mode === 'path') {
         if (selected.directory !== undefined) {
-          const v = shape(selected, ['directory', 'entries', 'total', 'hash'])
+          const v = shape(
+            selected,
+            ['directory', 'entries', 'total', 'hash', 'offset', 'limit', 'truncated', 'nextOffset'],
+            ['directory', 'entries', 'total', 'hash', 'offset', 'limit', 'truncated'],
+          )
+          const effectiveLimit = Math.min(selection.limit, retrievalLimits.page)
           ensure(
             v.directory === selection.path.replace(/\/+$/, '') &&
               v.hash === null &&
               Array.isArray(v.entries) &&
-              v.entries.length <= limits.files &&
-              v.total === v.entries.length,
+              integer(v.total, limits.files) &&
+              v.offset === selection.offset &&
+              v.limit === effectiveLimit &&
+              v.entries.length ===
+                Math.min(effectiveLimit, Math.max(0, (v.total as number) - selection.offset)) &&
+              typeof v.truncated === 'boolean' &&
+              v.truncated ===
+                (selection.offset > 0 || selection.offset + v.entries.length < (v.total as number)),
           )
+          const more = selection.offset + v.entries.length < (v.total as number)
+          if (!more) ensure(v.nextOffset === undefined)
+          else
+            ensure(
+              integer(v.nextOffset, limits.files) &&
+                v.nextOffset === selection.offset + v.entries.length &&
+                (v.nextOffset as number) > selection.offset &&
+                (v.nextOffset as number) < (v.total as number),
+            )
+          const entryPaths: string[] = []
           for (const entry of v.entries) {
             const e = shape(entry, ['path', 'name', 'description', 'links'], ['path'])
-            ensure(paths([e.path], 1))
+            ensure(paths([e.path], 1) && (e.path as string).startsWith(`${v.directory}/`))
+            entryPaths.push(e.path as string)
             if (e.name !== undefined) ensure(text(e.name, 512))
             if (e.description !== undefined) ensure(text(e.description, 4096))
             if (e.links !== undefined)
               ensure(Array.isArray(e.links) && e.links.every((link) => text(link, 512)))
           }
+          ensure(entryPaths.every((path, index) => index === 0 || entryPaths[index - 1] < path))
           return
         }
         ensure(selected.path === selection.path)

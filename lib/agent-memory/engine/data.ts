@@ -7,6 +7,7 @@ import { bytes, digest, objectShape, validId } from '../../continuity/records.ts
 import {
   buildMemoryPalace,
   directoryIndex,
+  directoryPage,
   extractFrontmatterAndLinks,
   parseMemoryRead,
   retrieveMemory,
@@ -1416,10 +1417,11 @@ export class MemoryDataEngine {
           const archiveDirectory =
             v.shared && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
           if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory)) {
+            const page = directoryPage(paths, cleanDir, selection.offset, selection.limit)
             const dirFiles: Record<string, MemoryFile> = {}
-            for (const p of paths.filter((p) => p.startsWith(`${cleanDir}/`)))
+            for (const p of page.paths)
               dirFiles[p] = { text: await this.body(p, refs[p]), sources: refs[p].sources }
-            result = directoryIndex(dirFiles, cleanDir)
+            result = directoryIndex(dirFiles, page)
           } else {
             if (!allowedPath(selection.path, v.shared ? undefined : v.project))
               throw Error('Memory path outside scope')

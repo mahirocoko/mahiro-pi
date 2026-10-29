@@ -38,6 +38,7 @@ import {
 import {
   buildMemoryPalace,
   directoryIndex,
+  directoryPage,
   discoveryVersion,
   extractFrontmatterAndLinks,
   topicMetadata,
@@ -774,7 +775,7 @@ export function createMemoryStore(
       return v
     },
     inspect,
-    read(v: View, path: string) {
+    read(v: View, path: string, offset = 0, limit = 4096) {
       return inspect(v, (files) => {
         const cleanDir = typeof path === 'string' ? path.replace(/\/+$/, '') : ''
         const allowedDirs = new Set([
@@ -787,7 +788,7 @@ export function createMemoryStore(
         const archiveDirectory =
           v.scope === 'primary' && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
         if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory))
-          return directoryIndex(files, cleanDir)
+          return directoryIndex(files, directoryPage(Object.keys(files), cleanDir, offset, limit))
         if (!allowedPath(path, v.scope === 'primary' ? undefined : v.project))
           throw new Error('Memory path outside scope')
         const f = files[path]

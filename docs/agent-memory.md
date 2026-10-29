@@ -16,6 +16,9 @@ not the ordinary ABI2 selector and grants no authority. Configuration, drafts an
 episode metadata stay private.
 The standard installer initializes only an absent root with a generic editable starter;
 it never imports a personal corpus or overwrites existing Core/data.
+Live publication remains ABI1 or ABI2. The approved
+[experimental local Git/worktree service](#experimental-local-gitworktree-service)
+is a synthetic scaffold and is not the installed writer, prompt projection, or Palace surface.
 
 | Path | Purpose |
 | --- | --- |
@@ -54,7 +57,7 @@ authority and curation fundamentals separately from editable persona.
 | Input | Result |
 | --- | --- |
 | `{}` | Legacy authorized file list |
-| `{path, offset?, limit?}` | Original Unicode code-point paging (limit 1–4096) or tiered directory index (`system`, `system/human`, `reference`, `projects/<id>/system`, `projects/<id>/reference`) |
+| `{path, offset?, limit?}` | Original Unicode code-point paging (limit 1–4096) or tiered directory-entry paging (at most 32 entries per page) for `system`, `system/human`, `reference`, `projects/<id>/system`, and `projects/<id>/reference` |
 | `{topic: "", offset?, limit?}` | Namespace/count discovery, limit 1–32 |
 | `{topic: "*", offset?, limit?}` | All authorized files with YAML frontmatter `name`/`description` and `[[wiki-links]]`, limit 1–32 |
 | `{topic: "global"}`, `"procedures"`, `"deferred/<id>"`, `"system"`, `"reference"` | A selected namespace |
@@ -106,7 +109,7 @@ loaded runtime actually advertises.
    a bounded, unverified continuity checkpoint is preserved for the next turn. This
    one-shot prompt context is separate from the metadata-only review records below.
 
-`agent_memory_manage` provides primary-only status/cancel, `doctor` health/budget/broken-link auditing, `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `palace`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+`agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. `/mh-memory palace` currently prints that bounded JSON report in a TUI notification only; it has no HTML page, dashboard, graph viewer or file export. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `palace`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
 Discovery is path/index-driven: committed `Core.md` and `index.md` remain loaded alongside
 `system/persona.md` and only the current project's `system/overview.md` and
@@ -123,7 +126,7 @@ envelope. Paths are never shortened. `layers` indexes exactly the returned `file
 entire active corpus; `coverage.layersTruncated` equals `coverage.filesTruncated`. Presentation
 truncation does not stop inspection of any non-archive active file: coverage counts and broken-link
 totals still describe the full inspection, while `brokenLinksTruncated` identifies a bounded sample.
-`healthy` requires complete inspection, zero broken links and total usage within the configured ceiling.
+`healthy` requires complete inspection, zero critical broken links and total usage within the configured ceiling.
 
 Forgetting is logical filtering, **not secure Git/history erasure**. Revise
 Core/index to remove the forgotten knowledge/source link while preserving identity
@@ -515,6 +518,77 @@ automatically; any later owner-authorized snapshot cleanup is a separate destruc
 operation after HEAD, Git cleanliness and doctor health are reverified. Receipts
 are source-operation evidence, not semantic recovery, installed activation or
 human acceptance.
+
+## Experimental local Git/worktree service
+
+Live publication remains the ABI1 and ABI2 behavior documented above. Installation
+still selects ABI2 only through the private per-profile record, and an absent
+record still retains ABI1. This section describes an approved experimental
+replacement scaffold. It is not the live writer, prompt projection, doctor,
+Palace command, or installer path.
+
+`createSyntheticLocalMemoryService` in `lib/agent-memory/local/service.ts` is a
+single in-process coordinator. It creates its own bare repository at
+`stateRoot/canonical.git` and may reopen only that repository when its identity
+manifest matches. It does not adopt an arbitrary pre-existing Git repository.
+Worker worktrees are linked to that bare repository. There is no parent checkout
+and no `read-tree` reset. `initialFiles` seeds `main` only while the service is
+creating that repository. An open that finds that bare repository and its identity
+manifest, but not a seeded `refs/heads/main`, fails closed. The service does not
+reseed it. Restoring that repository is an explicit repair by its owner. A
+private-root import is a separate authorized step
+and is not implemented here.
+
+The trust boundary is the service process. Another same-user process that edits
+`canonical.git`, service state, or worktree metadata is outside the product
+contract. The service does not claim to resist those races. Transcript text and
+worker file writes stay untrusted: paths are checked with `lstat` and
+`O_NOFOLLOW`, Git commands use a fixed argument list and bounded output, and
+publication is the bare `refs/heads/main` ref. Refusing a symlink or hard link
+that is already present is not protection against an ancestor directory being
+swapped during the write. Public Node has no `openat`, so that race is outside
+this contract. A pending commit is published only when its parent count and tree
+match the worker commit and the expected parent. A coordinator crash is recovered
+by reading durable job records in the next single service process. There is no
+cross-process lock.
+
+Synthetic Phase C adds a trajectory owner and a deterministic maintenance
+worker on that coordinator. The harness passes an explicit public-session entry
+array. The service does not read Pi session files, private memory, transcripts,
+reasoning, credentials, `.agent-state`, or a live profile. Each entry carries a
+session id, branch id, ordered entry id, role (`user`, `assistant`, or `tool`),
+bounded text, and timestamp. One contiguous review range starts after that
+branch's watermark. The immutable snapshot, digest, and job kind (`ordinary` or
+`reflection`) are stored on the job record itself. Duplicate ids, non-monotonic
+order, and a branch or session mismatch are refused. Text past the entry bound
+is truncated explicitly. The first entry that does not fit the range budget, and
+every entry after it, stays deferred. The watermark never advances past omitted
+text. A compaction boundary does not drop an unreviewed pre-compaction prefix.
+Forks keep separate watermarks. Settlement of one branch does not gate committed
+reads or ordinary jobs.
+
+`off`, `compaction`, and `step-count` are synthetic constructor config. They do
+not change installer defaults or the live reflection policy. The branch
+watermark advances only after the matching maintenance job is `integrated` or a
+verified `noop`. A failed reflection job can be retried explicitly with the same
+snapshot. `repair-needed` keeps that snapshot and stays blocked until the
+conflict is resolved. A no-op advances once. Restart reads the stored snapshot
+and digest and does not create a second job for that window.
+
+The deterministic worker receives the bounded range as untrusted data and a
+worktree adapter for read, list, search, write, edit, delete, and rename. It
+has no shell, Git handle, network, credentials, or absolute path. The adapter
+refuses `.git`, symlink traversal, and paths outside the worktree. The
+coordinator remains the only Git publisher. There is no model or provider call
+and no installed role descriptor. Ordinary non-reflection jobs still use the
+existing worker. Reopening this service for reflection requires the same
+synthetic policy and maintenance callback. This path is not live and is not
+selected by installation.
+
+This owner is not ABI3. Source loading does not construct it. Profiles, kernel
+bindings, role descriptors, private memory roots, and `/mh-memory` commands do
+not call it. Live adoption remains unauthorized. The lifecycle source test is
+not installed or human acceptance.
 
 ## Historical recall and quoted notes
 

@@ -17,9 +17,11 @@
 - [Status and notifications](status.md) — compact footer, `/mh-usage`, activity,
   supported cached quota boundaries and completion voice.
 - [RTK](rtk.md) — modes, resolver bounds and guarded failure behavior.
-- [Memory and historical recall](agent-memory.md) — maintained knowledge, discovery,
+- [Memory and historical recall](agent-memory.md) — live ABI1/ABI2 maintained knowledge, discovery,
   editable starter, ordinary engine, readiness/policy limits, scoped writing,
-  conflict recovery and separate quotation controls.
+  conflict recovery and separate quotation controls. The
+  [experimental local Git/worktree service](agent-memory.md#experimental-local-gitworktree-service)
+  is synthetic-only and is not the installed engine.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),
   readable tool cards, [Goals](workflows.md#goals),

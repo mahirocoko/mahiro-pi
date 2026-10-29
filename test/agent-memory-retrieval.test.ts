@@ -4,8 +4,11 @@ import { syncBuiltinESMExports } from 'node:module'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
+import { validateReply } from '../lib/agent-memory/engine/replies.ts'
 import { createMemoryStore, type MemoryFile } from '../lib/agent-memory/store.ts'
 import {
+  directoryIndex,
+  directoryPage,
   memoryReadSchema,
   parseMemoryRead,
   retrieveMemory,
@@ -120,6 +123,77 @@ test('paging defaults only undefined values; all selectors reject explicit null 
       assert.deepEqual(parseMemoryRead({ ...selector, [key]: undefined }), parseMemoryRead(selector))
     }
   }
+})
+test('directory indexes page descendant metadata without reading beyond the selected paths', () => {
+  const files: Record<string, MemoryFile> = {}
+  for (let i = 0; i < 70; i++) {
+    const path = `reference/group/file-${i.toString().padStart(2, '0')}.md`
+    files[path] = {
+      text: `---\nname: File ${i}\ndescription: Description ${i}\n---\n# File ${i}\n[[Core.md]]\n`,
+      sources: [],
+    }
+  }
+  const paths = Object.keys(files)
+  const first = directoryPage(paths, 'reference', 0, 4096)
+  assert.equal(first.limit, retrievalLimits.page)
+  assert.equal(first.total, 70)
+  assert.equal(first.paths.length, retrievalLimits.page)
+  assert.equal(first.nextOffset, retrievalLimits.page)
+  const firstIndex = directoryIndex(Object.fromEntries(first.paths.map((path) => [path, files[path]])), first)
+  assert.equal(firstIndex.entries.length, retrievalLimits.page)
+  assert.equal(firstIndex.entries[0].description, 'Description 0')
+  assert.equal(firstIndex.nextOffset, retrievalLimits.page)
+  const second = directoryPage(paths, 'reference', first.nextOffset!, 10)
+  const secondIndex = directoryIndex(
+    Object.fromEntries(second.paths.map((path) => [path, files[path]])),
+    second,
+  )
+  assert.equal(secondIndex.offset, retrievalLimits.page)
+  assert.equal(secondIndex.limit, 10)
+  assert.equal(secondIndex.entries.length, 10)
+  assert.equal(secondIndex.entries[0].path, 'reference/group/file-32.md')
+  assert.equal(secondIndex.nextOffset, 42)
+  assert.ok(
+    firstIndex.entries.every((entry) => !secondIndex.entries.some((next) => next.path === entry.path)),
+  )
+
+  const beyond = directoryPage(paths, 'reference', 100, 32)
+  const beyondIndex = directoryIndex({}, beyond)
+  assert.equal(beyondIndex.entries.length, 0)
+  assert.equal(beyondIndex.nextOffset, undefined)
+  assert.equal(beyondIndex.truncated, true)
+
+  const revision = digest('directory-reply-revision')
+  const envelope = {
+    revision,
+    baseRevision: revision,
+    currentRevision: revision,
+    basis: 'view-snapshot',
+    freshness: 'current',
+  }
+  const input = { selection: { path: 'reference' } }
+  validateReply('headRead', input, { ...envelope, ...firstIndex })
+  validateReply(
+    'headRead',
+    { selection: { path: 'reference', offset: 100, limit: 32 } },
+    { ...envelope, ...beyondIndex },
+  )
+  for (const forged of [
+    { ...firstIndex, entries: [], nextOffset: 0 },
+    {
+      ...firstIndex,
+      total: 0,
+      entries: firstIndex.entries.slice(0, 1),
+      truncated: false,
+      nextOffset: undefined,
+    },
+    { ...firstIndex, limit: 31 },
+    {
+      ...firstIndex,
+      entries: [firstIndex.entries[0], firstIndex.entries[0], ...firstIndex.entries.slice(2)],
+    },
+  ])
+    assert.throws(() => validateReply('headRead', input, { ...envelope, ...forged }))
 })
 test('literal English/Thai/multiword/path search gives late original Unicode excerpts, not normalized offsets', () => {
   const text = `# Fictional\n${'prefix 😀 '.repeat(800)}Cafe\u0301 İSTANBUL 😀 ชอบกาแฟเย็น violet compass\n`

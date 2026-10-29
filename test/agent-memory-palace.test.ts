@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   buildMemoryPalace,
   directoryIndex,
+  directoryPage,
   extractFrontmatterAndLinks,
   palaceReplyBytes,
   type PalaceInput,
@@ -108,7 +109,10 @@ test('palace inspects full-length targets before bounded presentation without ch
       checkReply(resolved)
       assert.deepEqual(extractFrontmatterAndLinks(body).links, ['Core.md'])
       assert.deepEqual(
-        directoryIndex({ 'reference/topic.md': { text: body, sources: [] } }, 'reference').entries[0].links,
+        directoryIndex(
+          { 'reference/topic.md': { text: body, sources: [] } },
+          directoryPage(['reference/topic.md'], 'reference', 0, 32),
+        ).entries[0].links,
         ['Core.md'],
       )
     }

@@ -223,6 +223,61 @@ function blobFrame(body: Buffer, algorithm = 'sha1') {
   }
 }
 
+test('ABI2 directory reads page large descendant metadata below the transport cap', async () => {
+  const f = fixture(0)
+  try {
+    const seed = f.store.createView('project', 120000, true)
+    for (let i = 0; i < 80; i++)
+      f.store.edit(
+        seed,
+        `reference/group/file-${i.toString().padStart(2, '0')}.md`,
+        null,
+        `---\nname: File ${i}\ndescription: ${'d'.repeat(3500)}${i}\n---\n# File ${i}\n`,
+      )
+    f.store.integrate(seed)
+    const first = (await f.engine.request(
+      'headRead',
+      { project: 'project', shared: true, selection: { path: 'reference' } },
+      f.context,
+    )) as any
+    assert.ok(Buffer.byteLength(JSON.stringify(first)) < transportLimits.reply)
+    assert.equal(first.offset, 0)
+    assert.equal(first.limit, 32)
+    assert.equal(first.entries.length, 32)
+    assert.equal(first.total, 80)
+    assert.equal(first.nextOffset, 32)
+    const second = (await f.engine.request(
+      'headRead',
+      {
+        project: 'project',
+        shared: true,
+        selection: { path: 'reference', offset: first.nextOffset, limit: 32 },
+      },
+      f.context,
+    )) as any
+    assert.equal(second.offset, 32)
+    assert.equal(second.entries.length, 32)
+    assert.equal(second.nextOffset, 64)
+    assert.ok(
+      first.entries.every((entry: any) => !second.entries.some((next: any) => next.path === entry.path)),
+    )
+    const final = (await f.engine.request(
+      'headRead',
+      {
+        project: 'project',
+        shared: true,
+        selection: { path: 'reference', offset: second.nextOffset, limit: 32 },
+      },
+      f.context,
+    )) as any
+    assert.equal(final.entries.length, 16)
+    assert.equal(final.nextOffset, undefined)
+    assert.equal(final.truncated, true)
+  } finally {
+    await f.close()
+  }
+})
+
 test('cold Git batch framing is byte-exact, ordered, hashed and strict UTF-8 with fixed bounds', () => {
   const a = blobFrame(Buffer.from('# First 😀\u2028\u2029\n'))
   const b = blobFrame(Buffer.from('\ufeff# BOM retained\n'), 'sha256')

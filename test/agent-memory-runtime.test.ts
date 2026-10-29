@@ -243,6 +243,25 @@ function fixture(twoProjects = false) {
   }
 }
 
+test('memory help identifies Palace as JSON-only diagnostics and distinguishes ABI1/ABI2 doctor fields', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const notifications: string[] = []
+    f.ctx.ui = { notify: (text: string) => notifications.push(text) }
+    await f.commands.get('mh-memory').handler('help', f.ctx)
+    const help = notifications.at(-1)!
+    assert.match(help, /doctor returns engine-specific JSON diagnostics/)
+    assert.match(help, /ABI2 reports budget, missing-description, unmigrated-path and conflict state/)
+    assert.match(help, /legacy ABI1 also reports Git-entry and broken-link findings/)
+    assert.match(help, /palace returns a JSON-only structural\/link\/view\/episode report/)
+    assert.match(help, /no HTML page, dashboard or file export/)
+    assert.doesNotMatch(help, /doctor runs health, budget and link checks/)
+  } finally {
+    f.close()
+  }
+})
+
 test('safe memory reasons sanitize registered tools and every command including status without trusting error text', async () => {
   const f = fixture()
   try {
@@ -469,6 +488,49 @@ test('registered read execution rejects all six null paging inputs as its intege
         )
       }
     }
+  } finally {
+    f.close()
+  }
+})
+
+test('ABI1 directory reads page descendant metadata at 32 entries and preserve total/next offsets', async () => {
+  const f = fixture()
+  try {
+    const seed = f.store.createView('project')
+    for (let i = 0; i < 70; i++)
+      f.store.edit(
+        seed,
+        `reference/group/file-${i.toString().padStart(2, '0')}.md`,
+        null,
+        `---\nname: File ${i}\ndescription: Description ${i}\n---\n# File ${i}\n`,
+      )
+    f.store.integrate(seed)
+    await f.emit('session_start')
+    const first: any = await f.runtime.run('agent_memory_read', { path: 'reference', limit: 4096 }, f.ctx)
+    assert.equal(first.directory, 'reference')
+    assert.equal(first.offset, 0)
+    assert.equal(first.limit, 32)
+    assert.equal(first.entries.length, 32)
+    assert.equal(first.total, 70)
+    assert.equal(first.nextOffset, 32)
+    const second: any = await f.runtime.run(
+      'agent_memory_read',
+      { path: 'reference', offset: first.nextOffset, limit: 32 },
+      f.ctx,
+    )
+    assert.equal(second.entries.length, 32)
+    assert.equal(second.nextOffset, 64)
+    assert.ok(
+      first.entries.every((entry: any) => !second.entries.some((next: any) => next.path === entry.path)),
+    )
+    const final: any = await f.runtime.run(
+      'agent_memory_read',
+      { path: 'reference', offset: second.nextOffset, limit: 32 },
+      f.ctx,
+    )
+    assert.equal(final.entries.length, 6)
+    assert.equal(final.nextOffset, undefined)
+    assert.equal(final.truncated, true)
   } finally {
     f.close()
   }

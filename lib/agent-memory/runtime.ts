@@ -6,7 +6,7 @@ import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
 import { createMemoryStore, allowedPath, type View, type TurnEpisode, type EditModeOptions } from './store.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { resolveAgentDir } from '../setup.ts'
-import { directoryIndex, parseMemoryRead, retrieveMemory } from './retrieval.ts'
+import { directoryIndex, directoryPage, parseMemoryRead, retrieveMemory } from './retrieval.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
 import type { ManagedMemoryABI } from './experimental-contracts.ts'
 
@@ -526,7 +526,8 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           cleanDir === `projects/${view.project}/system` ||
           cleanDir === `projects/${view.project}/reference`
         ) {
-          return directoryIndex(files, cleanDir)
+          const page = directoryPage(Object.keys(files), cleanDir, offset, limit)
+          return directoryIndex(files, page)
         }
         if (!allowedPath(path, view.scope === 'primary' ? undefined : view.project))
           throw new Error('Memory path outside scope')
