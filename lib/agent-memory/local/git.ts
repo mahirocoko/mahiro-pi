@@ -367,15 +367,30 @@ export async function gitStage(
   object: string,
   path: string,
 ): Promise<void> {
+  await gitStageMode(context, indexFile, '100644', object, path)
+}
+
+export async function gitStageMode(
+  context: LocalGitContext,
+  indexFile: string,
+  mode: string,
+  object: string,
+  path: string,
+): Promise<void> {
+  if (!/^[0-7]{6}$/.test(mode)) throw Error('Local Git object refused')
   assertOid(object)
   assertRelativePath(path)
   await bareGit(
     context,
-    ['update-index', '--add', '--cacheinfo', `100644,${object},${path}`],
+    ['update-index', '--add', '--cacheinfo', `${mode},${object},${path}`],
     [0],
     undefined,
     indexFile,
   )
+}
+
+export async function gitEmptyIndex(context: LocalGitContext, indexFile: string): Promise<void> {
+  await bareGit(context, ['read-tree', '--empty'], [0], undefined, indexFile)
 }
 
 export async function gitWriteTree(context: LocalGitContext, indexFile: string): Promise<string> {
@@ -498,4 +513,62 @@ export async function gitEntriesRecursive(
   assertOid(commit)
   const result = await bareGit(context, ['ls-tree', '-r', '-z', commit])
   return parseTree(result.stdout)
+}
+
+export interface LocalIndexEntry {
+  mode: string
+  oid: string
+  path: string
+}
+
+export async function gitWorktreeIndex(
+  context: LocalGitContext,
+  gitDir: string,
+  worktree: string,
+): Promise<LocalIndexEntry[]> {
+  const result = await runGit(
+    context,
+    ['--git-dir', gitDir, '--work-tree', worktree],
+    ['ls-files', '-s', '-z'],
+    [0],
+  )
+  return parseIndex(result.stdout)
+}
+
+export async function gitWorktreeUnstage(
+  context: LocalGitContext,
+  gitDir: string,
+  worktree: string,
+  path: string,
+): Promise<void> {
+  assertRelativePath(path)
+  await runGit(
+    context,
+    ['--git-dir', gitDir, '--work-tree', worktree],
+    ['update-index', '--force-remove', '--', path],
+    [0],
+  )
+}
+
+function parseIndex(stdout: Buffer): LocalIndexEntry[] {
+  const entries: LocalIndexEntry[] = []
+  let start = 0
+  for (let index = 0; index <= stdout.length; index += 1) {
+    if (index !== stdout.length && stdout[index] !== 0) continue
+    if (index === start) {
+      start = index + 1
+      continue
+    }
+    let line: string
+    try {
+      line = new TextDecoder('utf-8', { fatal: true }).decode(stdout.subarray(start, index))
+    } catch {
+      throw Error('Local Git object refused')
+    }
+    const match = /^([0-7]{6}) ([0-9a-f]{40,64}) ([0-3])\t(.+)$/.exec(line)
+    if (!match || match[3] !== '0') throw Error('Local Git object refused')
+    entries.push({ mode: match[1], oid: match[2], path: match[4] })
+    start = index + 1
+  }
+  return entries
 }

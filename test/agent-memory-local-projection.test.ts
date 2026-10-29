@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { canonicalGitDirectoryName, localGitIdentity } from '../lib/agent-memory/local/contracts.ts'
+import { emptyForgettingMetadata } from '../lib/agent-memory/local/forgetting.ts'
 import { localProjectionLimits, type LocalMemoryPrompt } from '../lib/agent-memory/local/projection.ts'
 import { createSyntheticLocalMemoryService, type LocalWorker } from '../lib/agent-memory/local/service.ts'
 
@@ -464,6 +465,7 @@ test('replaced identity, a bad commit, and interrupted integration fail closed',
       bytes: Buffer.byteLength('base\n'),
       returnedBytes: Buffer.byteLength('base\n'),
       truncated: false,
+      forgetting: emptyForgettingMetadata(),
     })
   } finally {
     interrupted.close()

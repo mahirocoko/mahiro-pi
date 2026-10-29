@@ -12,6 +12,12 @@ import {
 import { join, sep } from 'node:path'
 import { writeNoFollow } from './confine.ts'
 import { assertRelativePath, localMemoryLimits } from './contracts.ts'
+import {
+  type ForgettingGuard,
+  inactiveForgettingGuard,
+  isProtectedMemoryPath,
+  suppressForgotten,
+} from './forgetting.ts'
 
 // Confined worktree adapter. No shell, Git, network, or absolute-path authority.
 export interface MaintenanceSearchHit {
@@ -107,7 +113,7 @@ function readAt(target: string): string {
       if (count === 0) break
       offset += count
     }
-    return new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, offset))
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, offset))
   } catch (error) {
     if (error instanceof Error && error.message === 'Local memory path refused') throw error
     refuse()
@@ -137,14 +143,53 @@ function occurrenceCount(text: string, needle: string): number {
   return count
 }
 
+function forgotten(guard: ForgettingGuard, relativePath: string, text?: string): boolean {
+  if (guard.pathForbidden(relativePath)) return true
+  if (text !== undefined && guard.textForbidden(text)) return true
+  return false
+}
+
+function rejectForgotten(guard: ForgettingGuard, relativePath: string, text?: string): void {
+  if (guard.pathForbidden(relativePath) || (text !== undefined && guard.textForbidden(text)))
+    throw Error('Local memory forgetting refused')
+}
+
+export function removeHiddenMemoryFile(root: string, relativePath: string): void {
+  const parts = partsOf(relativePath)
+  let current = root
+  for (const [index, part] of parts.entries()) {
+    const next = join(current, part)
+    let stat: ReturnType<typeof lstatSync> | undefined
+    try {
+      stat = lstatSync(next)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    if (index < parts.length - 1) {
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return
+      current = next
+      continue
+    }
+    if (stat.isSymbolicLink() || stat.isFile()) unlinkSync(next)
+  }
+}
+
 export function createMaintenanceWorkspace(
   root: string,
   track: { reserve(paths: readonly string[]): void; remember(paths: readonly string[]): void },
+  guard: ForgettingGuard = inactiveForgettingGuard(),
 ): MaintenanceWorkspace {
-  const read = (relativePath: string): string => readAt(walk(root, relativePath, false))
+  const read = (relativePath: string): string => {
+    if (guard.pathForbidden(relativePath)) refuse()
+    const text = readAt(walk(root, relativePath, false))
+    if (suppressForgotten(relativePath, undefined, guard) || forgotten(guard, relativePath, text)) refuse()
+    return text
+  }
   const write = (relativePath: string, text: string): void => {
     partsOf(relativePath)
     assertText(text)
+    rejectForgotten(guard, relativePath, text)
     track.reserve([relativePath])
     writeNoFollow(root, relativePath, text)
     track.remember([relativePath])
@@ -152,6 +197,7 @@ export function createMaintenanceWorkspace(
   return {
     read,
     list(relativePath?: string): string[] {
+      if (relativePath && guard.pathForbidden(relativePath)) refuse()
       const target = directoryAt(root, relativePath)
       const names = readdirSync(target, { withFileTypes: true })
       if (names.length > localMemoryLimits.maxDirectoryEntries) refuse()
@@ -160,6 +206,12 @@ export function createMaintenanceWorkspace(
         if (entry.name === '.git') continue
         if (entry.isSymbolicLink()) refuse()
         if (!entry.isFile() && !entry.isDirectory()) refuse()
+        const relative = relativePath ? `${relativePath}/${entry.name}` : entry.name
+        if (guard.pathForbidden(relative)) continue
+        if (entry.isFile()) {
+          const text = readAt(join(target, entry.name))
+          if (forgotten(guard, relative, text)) continue
+        }
         visible.push(entry.name)
       }
       visible.sort()
@@ -181,13 +233,16 @@ export function createMaintenanceWorkspace(
           const relative = prefix ? `${prefix}/${entry.name}` : entry.name
           const next = join(directory, entry.name)
           if (entry.isDirectory()) {
+            if (guard.pathForbidden(relative)) continue
             visit(next, relative)
             continue
           }
           if (!entry.isFile()) refuse()
+          if (guard.pathForbidden(relative)) continue
+          const text = readAt(next)
+          if (forgotten(guard, relative, text)) continue
           files += 1
           if (files > localMemoryLimits.maxDirectoryEntries) refuse()
-          const text = read(relative)
           const lines = text.split('\n')
           for (const [index, line] of lines.entries()) {
             if (!line.includes(query)) continue
@@ -202,7 +257,9 @@ export function createMaintenanceWorkspace(
     write,
     edit(relativePath: string, oldText: string, newText: string): void {
       if (typeof oldText !== 'string' || oldText.length < 1) refuse()
+      rejectForgotten(guard, relativePath)
       const current = read(relativePath)
+      if (guard.textForbidden(current)) throw Error('Local memory forgetting refused')
       if (occurrenceCount(current, oldText) !== 1) refuse()
       write(
         relativePath,
@@ -210,15 +267,35 @@ export function createMaintenanceWorkspace(
       )
     },
     delete(relativePath: string): void {
+      if (guard.active && isProtectedMemoryPath(relativePath)) throw Error('Local memory forgetting refused')
+      if (guard.pathForbidden(relativePath)) {
+        track.reserve([relativePath])
+        removeHiddenMemoryFile(root, relativePath)
+        track.remember([relativePath])
+        return
+      }
       const target = walk(root, relativePath, false)
+      const text = readAt(target)
+      if (guard.textForbidden(text) && !isProtectedMemoryPath(relativePath)) {
+        track.reserve([relativePath])
+        unlinkSync(target)
+        track.remember([relativePath])
+        return
+      }
       track.reserve([relativePath])
       unlinkSync(target)
       track.remember([relativePath])
     },
     rename(from: string, to: string): void {
+      if (guard.active && (isProtectedMemoryPath(from) || isProtectedMemoryPath(to)))
+        throw Error('Local memory forgetting refused')
+      rejectForgotten(guard, from)
+      rejectForgotten(guard, to)
       const source = walk(root, from, false)
       const destination = walk(root, to, true)
       if (lstatSync(source).isSymbolicLink()) refuse()
+      const text = readAt(source)
+      if (guard.textForbidden(text)) throw Error('Local memory forgetting refused')
       try {
         const existing = lstatSync(destination)
         if (existing.isSymbolicLink() || existing.isFile() || existing.isDirectory()) refuse()

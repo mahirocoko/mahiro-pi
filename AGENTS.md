@@ -92,6 +92,15 @@ dated source records, not current installation instructions.
   the named project's overview and conventions when requested, stay distinct
   from deferred files. Extension, kernel, installer, and profile code do not
   import it, and it does not publish or replace the live prompt.
+  Phase F adds coordinator-owned logical forgetting for that same service.
+  A versioned checksummed record under service state stores exact imported
+  path, blob, and source exclusions plus rollback metadata. Import can remove
+  matching paths from current `main` without rewriting history. Tombstones
+  filter worktree, workspace, publication, projection, and later seed inputs.
+  Required `Core.md` and `index.md` stay in the tree. A tombstoned blob of
+  either file is not shown. Empty policy is created only during initial
+  setup. This is not secure Git-history erasure, not a private-root
+  migration, and not a live cutover.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
   Preserve their authored route/lock/tool contracts; only the canonical installed
   managed-memory-writer model/thinking slots may vary through explicit paired

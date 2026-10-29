@@ -22,6 +22,10 @@ import {
   gitCommit,
   gitCommitParents,
   gitCommitTree,
+  gitBlobPrefix,
+  gitEntriesRecursive,
+  gitEntryAt,
+  gitEmptyIndex,
   gitRequireCommit,
   gitHashObject,
   gitIndexClean,
@@ -32,9 +36,13 @@ import {
   gitMergeTree,
   gitShow,
   gitStage,
+  gitStageMode,
+  gitTree,
   gitUpdateMain,
   gitWorktreeDirty,
   gitWorktreeHead,
+  gitWorktreeIndex,
+  gitWorktreeUnstage,
   gitWriteTree,
   localGitEnvironment,
   publicationMatches,
@@ -65,7 +73,26 @@ import {
   settleReflection,
   trajectoryView,
 } from './trajectory.ts'
-import { createMaintenanceWorkspace } from './workspace.ts'
+import { createMaintenanceWorkspace, removeHiddenMemoryFile } from './workspace.ts'
+import {
+  type ForgettingGuard,
+  type ForgettingMetadata,
+  type ForgettingRecord,
+  type TombstoneImport,
+  createEmptyForgetting,
+  forgettingFile,
+  forgettingGuard,
+  forgettingMetadata,
+  forgettingRemovalRecord,
+  forgettingRemovedRecord,
+  isProtectedMemoryPath,
+  loadForgetting,
+  localGitBlobId,
+  parseTombstoneImport,
+  prepareForgettingImport,
+  saveForgetting,
+  suppressForgotten,
+} from './forgetting.ts'
 import {
   type LocalMemoryList,
   type LocalMemoryPrompt,
@@ -101,6 +128,7 @@ export interface SyntheticLocalMemoryService {
     offset?: number
     limit?: number
   }): Promise<LocalMemoryList>
+  importTombstones(input: TombstoneImport): Promise<ForgettingMetadata>
 }
 
 export type { LocalJobRecord, LocalWorker }
@@ -152,7 +180,7 @@ async function openState(
   stateRoot: string,
   initialFiles: Record<string, string> | undefined,
   stopAfter?: string,
-): Promise<{ meta: LocalServiceMeta; git: LocalGitContext; bare: string }> {
+): Promise<{ meta: LocalServiceMeta; git: LocalGitContext; bare: string; created: boolean }> {
   await clearSeedIndex(stateRoot)
   const bare = join(stateRoot, canonicalGitDirectoryName)
   const metaPath = join(stateRoot, 'meta.json')
@@ -206,7 +234,7 @@ async function openState(
     await writeJson(metaPath, meta)
     if ((await gitMainPresence(git)) !== 'absent') throw Error('Local memory repository refused')
     await seed(git, stateRoot, initialFiles)
-    return { meta, git, bare }
+    return { meta, git, bare, created: true }
   }
   if (!bareStat?.isDirectory() || !metaStat?.isFile()) throw Error('Local memory repository refused')
   if ((await realpath(bare)) !== bare) throw Error('Local memory repository refused')
@@ -222,7 +250,7 @@ async function openState(
   await certifyServiceFiles(stateRoot)
   const git = gitBase()
   if ((await gitMainPresence(git)) !== 'present') throw Error('Local memory repository refused')
-  return { meta, git, bare }
+  return { meta, git, bare, created: false }
 }
 
 async function seed(
@@ -285,9 +313,109 @@ export async function createSyntheticLocalMemoryService(options: {
     openState(stateRoot, options.initialFiles, options.injection?.stopAfter),
   )
   let meta = opened.meta
-  const { git, bare } = opened
+  const { git, bare, created } = opened
   const metaPath = join(stateRoot, 'meta.json')
   let failRemoves = options.injection?.failCleanupRemoves ?? 0
+  let forgettingInitialized = false
+
+  const missingFile = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+
+  const clearIndex = async (index: string) => {
+    const stat = await lstat(index).catch((error: unknown) => {
+      if (missingFile(error)) return undefined
+      throw error
+    })
+    if (!stat) return
+    if (!stat.isFile() || stat.isSymbolicLink()) throw Error('Local memory forgetting refused')
+    await unlink(index)
+  }
+
+  const installForgetting = async () => {
+    const stat = await lstat(forgettingFile(stateRoot)).catch((error: unknown) => {
+      if (missingFile(error)) return undefined
+      throw error
+    })
+    if (!stat) {
+      if (forgettingInitialized || !created) throw Error('Local memory forgetting refused')
+      await createEmptyForgetting(stateRoot)
+      forgettingInitialized = true
+      return
+    }
+    if (stat.isSymbolicLink() || !stat.isFile()) throw Error('Local memory forgetting refused')
+    await loadForgetting(stateRoot)
+    forgettingInitialized = true
+  }
+
+  const readyPolicy = async (): Promise<ForgettingRecord> => {
+    await installForgetting()
+    let record = await loadForgetting(stateRoot)
+    if (record.migration?.phase !== 'removing') return record
+    const removal = record.migration.removalCommit
+    if (!removal) throw Error('Local memory forgetting refused')
+    await gitRequireCommit(git, removal)
+    const guard = forgettingGuard(record)
+    for (const entry of await gitEntriesRecursive(git, removal)) {
+      if (suppressForgotten(entry.path, entry.oid, guard)) throw Error('Local memory forgetting refused')
+    }
+    const main = await gitMain(git)
+    if (main === record.migration.priorMain) await gitUpdateMain(git, removal, record.migration.priorMain)
+    else if (main !== removal) throw Error('Local memory forgetting refused')
+    const removed = forgettingRemovedRecord(record)
+    await saveForgetting(stateRoot, removed, record.digest)
+    record = await loadForgetting(stateRoot)
+    if (record.digest !== removed.digest || record.migration?.phase !== 'removed')
+      throw Error('Local memory forgetting refused')
+    return record
+  }
+
+  const protectedFallbackOid = async (
+    record: ForgettingRecord,
+    path: string,
+    guard: ForgettingGuard,
+  ): Promise<string | undefined> => {
+    const candidates = [record.migration?.removalCommit, record.migration?.priorMain].filter(
+      (commit): commit is string => typeof commit === 'string',
+    )
+    for (const commit of candidates) {
+      const entry = await gitEntryAt(git, commit, path)
+      if (!entry || entry.type !== 'blob' || entry.mode !== '100644') continue
+      if (guard.oidForbidden(entry.oid)) continue
+      return entry.oid
+    }
+    return undefined
+  }
+
+  const stripTree = async (treeish: string, guard: ForgettingGuard, fallback: string): Promise<string> => {
+    const entries = await gitEntriesRecursive(git, treeish)
+    const previous = new Map((await gitEntriesRecursive(git, fallback)).map((entry) => [entry.path, entry]))
+    const index = join(stateRoot, 'forget.index')
+    await clearIndex(index)
+    try {
+      await gitEmptyIndex(git, index)
+      const seen = new Set<string>()
+      for (const entry of entries) {
+        if (seen.has(entry.path)) throw Error('Local Git object refused')
+        seen.add(entry.path)
+        let kept = entry
+        if (isProtectedMemoryPath(entry.path) && guard.oidForbidden(entry.oid)) {
+          const stable = previous.get(entry.path)
+          if (!stable || guard.oidForbidden(stable.oid)) throw Error('Local memory forgetting refused')
+          kept = stable
+        } else if (suppressForgotten(entry.path, entry.oid, guard)) continue
+        await gitStageMode(git, index, kept.mode, kept.oid, kept.path)
+      }
+      for (const path of ['Core.md', 'index.md']) {
+        if (seen.has(path)) continue
+        const stable = previous.get(path)
+        if (!stable || stable.type !== 'blob') continue
+        if (guard.oidForbidden(stable.oid)) throw Error('Local memory forgetting refused')
+        await gitStageMode(git, index, stable.mode, stable.oid, path)
+      }
+      return await gitWriteTree(git, index)
+    } finally {
+      await clearIndex(index)
+    }
+  }
 
   const readJob = async (id: string): Promise<LocalJobRecord> => {
     const job = await loadJob(stateRoot, id)
@@ -445,6 +573,7 @@ export async function createSyntheticLocalMemoryService(options: {
   const turnOnce = <T>(body: () => Promise<T>): Promise<T> =>
     turn(stateRoot, async () => {
       await reconcile()
+      await readyPolicy()
       for (const job of await listJobs(stateRoot)) if (job.status === 'running') await recover(job)
       return body()
     })
@@ -478,7 +607,81 @@ export async function createSyntheticLocalMemoryService(options: {
     return markIntegrated(job, pending)
   }
 
+  const treeHasForgotten = async (commit: string, guard: ForgettingGuard) =>
+    (await gitEntriesRecursive(git, commit)).some((entry) => suppressForgotten(entry.path, entry.oid, guard))
+
+  const integrateActive = async (id: string, policy: ForgettingRecord): Promise<LocalJobRecord> => {
+    const guard = forgettingGuard(policy)
+    const current = await readJob(id)
+    if (current.status === 'integrated' || current.status === 'noop' || current.status === 'failed')
+      return current
+    if (current.status === 'repair-needed') return current
+    if (current.status !== 'committed' || !current.workerCommit)
+      throw Error('Local memory job is not committed')
+    const workerCommit = current.workerCommit
+    let job = current
+    const assertBound = async () => {
+      const latest = await loadForgetting(stateRoot)
+      if (latest.policyRevision !== policy.policyRevision || latest.digest !== policy.digest)
+        throw Error('Local memory forgetting stale')
+    }
+    const publishClean = async (pending: string, expected: string) => {
+      await assertBound()
+      const pendingTree = await gitTree(git, pending)
+      const merged = await gitMergeTree(git, expected, workerCommit)
+      if (merged.conflicts.some((path) => !guard.pathForbidden(path)))
+        throw Error('Local memory publication refused')
+      const cleaned = await stripTree(merged.tree, guard, expected)
+      if (pendingTree !== cleaned) throw Error('Local memory publication refused')
+      const parents = await gitCommitParents(git, pending)
+      const fastForward = pending === workerCommit && parents.length === 1 && parents[0] === expected
+      const merge = parents.length === 2 && parents[0] === expected && parents[1] === workerCommit
+      if (!fastForward && !merge) throw Error('Local memory publication refused')
+      const workerParents = await gitCommitParents(git, workerCommit)
+      const workerParent = workerParents[0]
+      if (workerParents.length !== 1 || workerParent === undefined)
+        throw Error('Local memory publication refused')
+      if (!(await gitIsAncestor(git, workerParent, expected))) throw Error('Local memory publication refused')
+      const head = await gitMain(git)
+      if (head === pending) return markIntegrated(job, pending)
+      if (head !== expected) throw Error('Local memory publication refused')
+      await gitUpdateMain(git, pending, expected)
+      return markIntegrated(job, pending)
+    }
+    const main = await gitMain(git)
+    if (job.pendingIntegration && job.expectedParent)
+      return publishClean(job.pendingIntegration, job.expectedParent)
+    if (
+      (main === workerCommit || (await gitIsAncestor(git, workerCommit, main))) &&
+      !(await treeHasForgotten(main, guard))
+    )
+      return markIntegrated(job, main === workerCommit ? workerCommit : main)
+    const merged = await gitMergeTree(git, main, workerCommit)
+    const conflicts = merged.conflicts.filter((path) => !guard.pathForbidden(path))
+    if (conflicts.length)
+      return saveJob(stateRoot, {
+        ...job,
+        status: 'repair-needed',
+        conflictPaths: conflicts,
+        pendingIntegration: null,
+        expectedParent: null,
+      })
+    const cleaned = await stripTree(merged.tree, guard, main)
+    const workerTree = await gitTree(git, workerCommit)
+    if (cleaned === workerTree && main === job.baseHead) {
+      const parents = await gitCommitParents(git, workerCommit)
+      if (parents.length !== 1 || parents[0] !== job.baseHead) throw Error('Local memory job refused')
+      job = await saveJob(stateRoot, { ...job, pendingIntegration: workerCommit, expectedParent: main })
+      return publishClean(workerCommit, main)
+    }
+    const createdCommit = await gitCommitTree(git, cleaned, [main, workerCommit], commitMessage(job.summary))
+    job = await saveJob(stateRoot, { ...job, pendingIntegration: createdCommit, expectedParent: main })
+    return publishClean(createdCommit, main)
+  }
+
   const integrate = async (id: string): Promise<LocalJobRecord> => {
+    const policy = await loadForgetting(stateRoot)
+    if (forgettingGuard(policy).active) return integrateActive(id, policy)
     const current = await readJob(id)
     if (current.status === 'integrated' || current.status === 'noop' || current.status === 'failed')
       return current
@@ -533,6 +736,30 @@ export async function createSyntheticLocalMemoryService(options: {
       job = await saveJob(stateRoot, { ...job, worktreePath: owned.path })
       await deleteProgress(stateRoot, id)
       if (options.injection?.stopAfter === 'worktree-path') return job
+      const policy = await loadForgetting(stateRoot)
+      const guard = forgettingGuard(policy)
+      if (guard.active) {
+        for (const entry of await gitEntriesRecursive(git, baseHead)) {
+          if (isProtectedMemoryPath(entry.path)) {
+            if (!guard.oidForbidden(entry.oid)) continue
+            const fallback = await protectedFallbackOid(policy, entry.path, guard)
+            if (!fallback) throw Error('Local memory forgetting refused')
+            const loaded = await gitBlobPrefix(git, fallback, localMemoryLimits.maxFileBytes)
+            if (loaded.bytes.length !== loaded.total) throw Error('Local memory forgetting refused')
+            let text: string
+            try {
+              text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(loaded.bytes)
+            } catch {
+              throw Error('Local memory forgetting refused')
+            }
+            if (localGitBlobId(text) !== fallback) throw Error('Local memory forgetting refused')
+            writeNoFollow(owned.path, entry.path, text)
+            continue
+          }
+          if (!suppressForgotten(entry.path, entry.oid, guard)) continue
+          removeHiddenMemoryFile(owned.path, entry.path)
+        }
+      }
       const written: string[] = []
       if (job.kind === 'reflection') {
         const maintenance = trajectoryRuntime?.maintenance
@@ -551,7 +778,7 @@ export async function createSyntheticLocalMemoryService(options: {
         await maintenance({
           jobId: id,
           trajectory: trajectoryView(job.reflection),
-          workspace: createMaintenanceWorkspace(owned.path, { reserve, remember }),
+          workspace: createMaintenanceWorkspace(owned.path, { reserve, remember }, guard),
         })
       } else {
         await options.worker({
@@ -567,6 +794,8 @@ export async function createSyntheticLocalMemoryService(options: {
               throw Error('Local memory content refused')
             if (written.length >= localMemoryLimits.maxPaths && !written.includes(relativePath))
               throw Error('Local memory path bound refused')
+            if (guard.pathForbidden(relativePath) || guard.textForbidden(text))
+              throw Error('Local memory forgetting refused')
             writeNoFollow(owned.path, relativePath, text)
             if (!written.includes(relativePath)) written.push(relativePath)
           },
@@ -579,6 +808,24 @@ export async function createSyntheticLocalMemoryService(options: {
       }
       if (!written.length) return finishNoop()
       await gitAddAll(git, owned.gitDir, owned.path)
+      if (guard.active) {
+        const staged = await gitWorktreeIndex(git, owned.gitDir, owned.path)
+        let violated = false
+        for (const entry of staged) {
+          const protectedBytes = isProtectedMemoryPath(entry.path) && guard.oidForbidden(entry.oid)
+          const hidden = suppressForgotten(entry.path, entry.oid, guard)
+          if (!protectedBytes && !hidden) continue
+          if (written.includes(entry.path) || protectedBytes) violated = true
+          if (!isProtectedMemoryPath(entry.path)) {
+            await gitWorktreeUnstage(git, owned.gitDir, owned.path, entry.path)
+            removeHiddenMemoryFile(owned.path, entry.path)
+          }
+        }
+        if (violated) throw Error('Local memory forgetting refused')
+        const latest = await loadForgetting(stateRoot)
+        if (latest.policyRevision !== policy.policyRevision || latest.digest !== policy.digest)
+          throw Error('Local memory forgetting stale')
+      }
       if (await gitIndexClean(git, owned.gitDir, owned.path)) return finishNoop()
       await gitCommit(git, owned.gitDir, owned.path, commitMessage(job.summary))
       if (options.injection?.stopAfter === 'commit') return job
@@ -674,6 +921,35 @@ export async function createSyntheticLocalMemoryService(options: {
     })
   }
 
+  const importTombstones = async (input: TombstoneImport): Promise<ForgettingMetadata> => {
+    const parsed = parseTombstoneImport(input)
+    const current = await loadForgetting(stateRoot)
+    const decision = prepareForgettingImport(current, parsed)
+    if (decision.kind === 'same') return forgettingMetadata(current, false)
+    const main = await gitMain(git)
+    for (const entry of await gitEntriesRecursive(git, main)) {
+      if (isProtectedMemoryPath(entry.path) && parsed.snapshot.blobs.includes(entry.oid))
+        throw Error('Local memory forgetting refused')
+    }
+    const guard = forgettingGuard(decision.record)
+    const cleaned = await stripTree(main, guard, main)
+    const removal =
+      cleaned === (await gitTree(git, main))
+        ? null
+        : await gitCommitTree(git, cleaned, [main], 'Forget local memory (history retained)')
+    const removing = forgettingRemovalRecord(decision.record, main, removal)
+    await saveForgetting(stateRoot, removing, current.digest)
+    if (options.injection?.stopAfter === 'forgetting-recorded')
+      throw Error('Local memory forgetting interrupted')
+    if (removal) {
+      await gitUpdateMain(git, removal, main)
+      const saved = await loadForgetting(stateRoot)
+      if (saved.digest !== removing.digest) throw Error('Local memory forgetting stale')
+      await saveForgetting(stateRoot, forgettingRemovedRecord(saved), saved.digest)
+    }
+    return forgettingMetadata(await loadForgetting(stateRoot), removal !== null)
+  }
+
   const safeReadMessages = new Set([
     'Local memory path refused',
     'Local memory project refused',
@@ -683,6 +959,9 @@ export async function createSyntheticLocalMemoryService(options: {
     'Local memory identity refused',
     'Local memory state refused',
     'Local memory record refused',
+    'Local memory forgetting refused',
+    'Local memory forgetting stale',
+    'Local memory forgetting conflict',
     'Local Git object refused',
     'Local Git timed out',
     'Local Git output exceeded',
@@ -739,6 +1018,8 @@ export async function createSyntheticLocalMemoryService(options: {
   const publicSnapshot = <T>(body: () => Promise<T>): Promise<T> =>
     turnOnce(body).catch((error: unknown) => refuseRead(error))
 
+  await turn(stateRoot, () => readyPolicy())
+
   return {
     enqueue: (input) => turnOnce(() => enqueue(input)),
     start: (id) => turnOnce(() => start(id)),
@@ -746,7 +1027,16 @@ export async function createSyntheticLocalMemoryService(options: {
     resume: (id) => turnOnce(() => resume(id)),
     readCommitted: (relativePath) => {
       assertRelativePath(relativePath)
-      return turnOnce(() => gitShow(git, relativePath))
+      return turnOnce(async () => {
+        const guard = forgettingGuard(await loadForgetting(stateRoot))
+        if (guard.active) {
+          const main = await gitMain(git)
+          const entry = await gitEntryAt(git, main, relativePath)
+          if (!entry || suppressForgotten(relativePath, entry.oid, guard))
+            throw Error('Local memory path refused')
+        }
+        return gitShow(git, relativePath)
+      })
     },
     job: (id) => turnOnce(() => readJob(id)),
     head: () => turnOnce(() => gitMain(git)),
@@ -771,10 +1061,28 @@ export async function createSyntheticLocalMemoryService(options: {
       return turnOnce(() => readWatermarkView(stateRoot, identity))
     },
     compilePrompt: (input) =>
-      publicSnapshot(() => readSnapshot((commit) => compileLocalMemoryPrompt(git, commit, input?.project))),
+      publicSnapshot(() =>
+        readSnapshot(async (commit) =>
+          compileLocalMemoryPrompt(
+            git,
+            commit,
+            input?.project,
+            forgettingGuard(await loadForgetting(stateRoot)),
+          ),
+        ),
+      ),
     readMemory: (input) =>
-      publicSnapshot(() => readSnapshot((commit) => readLocalMemory(git, commit, input))),
+      publicSnapshot(() =>
+        readSnapshot(async (commit) =>
+          readLocalMemory(git, commit, input, forgettingGuard(await loadForgetting(stateRoot))),
+        ),
+      ),
     listMemory: (input) =>
-      publicSnapshot(() => readSnapshot((commit) => listLocalMemory(git, commit, input))),
+      publicSnapshot(() =>
+        readSnapshot(async (commit) =>
+          listLocalMemory(git, commit, input, forgettingGuard(await loadForgetting(stateRoot))),
+        ),
+      ),
+    importTombstones: (input) => turnOnce(() => importTombstones(input)),
   }
 }

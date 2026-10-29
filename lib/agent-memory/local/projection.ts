@@ -1,5 +1,11 @@
 import { assertOid, assertRelativePath, localMemoryLimits } from './contracts.ts'
 import {
+  type ForgettingGuard,
+  type ForgettingMetadata,
+  inactiveForgettingGuard,
+  suppressForgotten,
+} from './forgetting.ts'
+import {
   type LocalGitContext,
   type LocalGitTreeEntry,
   gitBlobPrefix,
@@ -49,6 +55,7 @@ export interface LocalMemoryPrompt {
   absent: string[]
   deferred: LocalMemoryPathList<string>
   blocked: LocalMemoryPathList<LocalMemoryBlocked>
+  forgetting: ForgettingMetadata
 }
 
 export interface LocalMemoryRead {
@@ -60,6 +67,7 @@ export interface LocalMemoryRead {
   bytes: number
   returnedBytes: number
   truncated: boolean
+  forgetting: ForgettingMetadata
 }
 
 export interface LocalMemoryListEntry {
@@ -76,6 +84,7 @@ export interface LocalMemoryList {
   total: number
   truncated: boolean
   nextOffset?: number
+  forgetting: ForgettingMetadata
 }
 
 interface CompactOwner {
@@ -90,6 +99,11 @@ interface PromptBody {
   absent: string[]
   deferred: LocalMemoryPathList<string>
   blocked: LocalMemoryPathList<LocalMemoryBlocked>
+  forgetting: ForgettingMetadata
+}
+
+function described(guard: ForgettingGuard, filtered: boolean): ForgettingMetadata {
+  return { ...guard.metadata, filtered }
 }
 
 function assertProject(project: string | undefined): string | undefined {
@@ -255,20 +269,28 @@ export async function compileLocalMemoryPrompt(
   git: LocalGitContext,
   commit: string,
   project: string | undefined,
+  guard: ForgettingGuard = inactiveForgettingGuard(),
 ): Promise<LocalMemoryPrompt> {
   assertOid(commit)
   const scope = assertProject(project)
   const owners = compactOwners(scope)
   const entries = await gitEntriesRecursive(git, commit)
   const byPath = new Map<string, LocalGitTreeEntry>()
+  const hidden = new Set<string>()
   const deferredPaths: string[] = []
   const blocked: LocalMemoryBlocked[] = []
+  let filtered = false
   for (const entry of entries) {
-    if (byPath.has(entry.path)) throw Error('Local Git object refused')
+    if (byPath.has(entry.path) || hidden.has(entry.path)) throw Error('Local Git object refused')
     try {
       assertPortableMemoryPath(entry.path)
     } catch {
       throw Error('Local memory projection refused')
+    }
+    if (suppressForgotten(entry.path, entry.oid, guard)) {
+      filtered = true
+      hidden.add(entry.path)
+      continue
     }
     byPath.set(entry.path, entry)
     const kind = entryKind(entry)
@@ -283,6 +305,10 @@ export async function compileLocalMemoryPrompt(
     const entry = byPath.get(owner.path)
     if (!entry) {
       if (owner.required) throw Error('Local memory projection refused')
+      if (hidden.has(owner.path) || guard.pathForbidden(owner.path)) {
+        filtered = true
+        continue
+      }
       absent.push(owner.path)
       continue
     }
@@ -315,6 +341,7 @@ export async function compileLocalMemoryPrompt(
       blocked.filter((entry) => visible(entry.path)),
       localProjectionLimits.maxListedPaths,
     ),
+    forgetting: described(guard, filtered),
   })
   return {
     ...fitted.body,
@@ -327,10 +354,12 @@ export async function readLocalMemory(
   git: LocalGitContext,
   commit: string,
   input: { path: string; project?: string; offset?: number; limit?: number },
+  guard: ForgettingGuard = inactiveForgettingGuard(),
 ): Promise<LocalMemoryRead> {
   assertOid(commit)
   const project = assertProject(input?.project)
   assertProjectPath(input?.path, project)
+  if (suppressForgotten(input.path, undefined, guard)) throw Error('Local memory path refused')
   const window = pageBounds(
     input.offset,
     input.limit,
@@ -339,6 +368,7 @@ export async function readLocalMemory(
   )
   const entry = await gitEntryAt(git, commit, input.path)
   if (!entry || entryKind(entry) !== 'file') throw Error('Local memory path refused')
+  if (suppressForgotten(input.path, entry.oid, guard)) throw Error('Local memory path refused')
   const total = await gitBlobSize(git, entry.oid)
   if (window.offset > total) throw Error('Local memory path refused')
   if (window.offset === total) {
@@ -351,6 +381,7 @@ export async function readLocalMemory(
       bytes: total,
       returnedBytes: 0,
       truncated: false,
+      forgetting: described(guard, false),
     }
   }
   const fetched = await gitBlobPrefix(git, entry.oid, Math.min(total, window.offset + window.limit))
@@ -368,6 +399,7 @@ export async function readLocalMemory(
     bytes: total,
     returnedBytes: clipped.length,
     truncated: window.offset + clipped.length < total,
+    forgetting: described(guard, false),
   }
 }
 
@@ -375,12 +407,14 @@ export async function listLocalMemory(
   git: LocalGitContext,
   commit: string,
   input?: { path?: string; project?: string; offset?: number; limit?: number },
+  guard: ForgettingGuard = inactiveForgettingGuard(),
 ): Promise<LocalMemoryList> {
   assertOid(commit)
   const project = assertProject(input?.project)
   const directory = input?.path
   if (directory === '') throw Error('Local memory path refused')
   if (directory !== undefined) assertProjectPath(directory, project)
+  if (directory !== undefined && guard.pathForbidden(directory)) throw Error('Local memory path refused')
   const page = pageBounds(
     input?.offset,
     input?.limit,
@@ -393,6 +427,7 @@ export async function listLocalMemory(
   }
   const listedEntries = await gitTreeAt(git, commit, directory)
   const entries: LocalMemoryListEntry[] = []
+  let filtered = false
   for (const entry of listedEntries) {
     if (entry.path.includes('/') || entry.path.includes('\\') || entry.path.includes('\0'))
       throw Error('Local Git object refused')
@@ -403,6 +438,10 @@ export async function listLocalMemory(
       throw Error('Local memory path refused')
     }
     if (project && !pathInProject(path, project)) continue
+    if (suppressForgotten(path, entry.oid, guard)) {
+      filtered = true
+      continue
+    }
     entries.push({ path, kind: entryKind(entry) })
   }
   entries.sort((left, right) => comparePath(left.path, right.path))
@@ -419,5 +458,6 @@ export async function listLocalMemory(
     total: entries.length,
     truncated,
     ...(truncated ? { nextOffset: next } : {}),
+    forgetting: described(guard, filtered),
   }
 }

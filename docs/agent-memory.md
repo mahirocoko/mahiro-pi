@@ -659,6 +659,67 @@ such as `Local memory path refused`, `Local memory projection refused`,
 Extension, kernel, installer, and profile code do not import this layer. It does
 not call a provider, publish, or select installation.
 
+Phase F adds logical forgetting on this same coordinator. The durable record
+is `forgetting.json` in the service state directory. Workers cannot edit it.
+The record is version 1, bounded to 4096 paths, 4096 blob ids, and 4096
+sources, and at most 512 KiB. Its digest is a SHA-256 of the canonical
+policy. An empty record is written only during the constructor's initial
+setup of a new repository. After that setup, a missing record fails closed
+on the same service instance and on reopen. It is not recreated empty.
+A malformed or digest-mismatched record also fails closed with
+`Local memory forgetting refused`. A well-formed replacement by another
+same-user process remains outside this trust boundary.
+
+`importTombstones` accepts one snapshot shaped for a later canonical import:
+source revision, digest, exact relative paths, Git blob ids, and source
+identities. The snapshot digest is checked. The same snapshot is idempotent.
+A different snapshot with a stale expected policy revision or digest throws
+`Local memory forgetting stale`. A different snapshot presented with the
+current revision and digest throws `Local memory forgetting conflict`.
+`Core.md` and `index.md` cannot be path exclusions, and publication does not
+delete them. A blob id that is the current text of either required owner is
+refused. An older blob id may be imported after those files change. The call
+does not read a private memory root.
+
+When matching files are on current `main`, import writes a removal commit
+whose parent is that `main`, then moves `refs/heads/main` to it. The parent
+stays reachable. There is no history rewrite and no claim of secure erasure.
+The record stores the source revision, source digest, prior `main`, and
+removal commit. If the process stops after that record is durable and before
+the ref moves, the next call on that service, including a reopen, finishes
+the same removal. Forgotten
+paths and exact blob ids are then absent from published `main`.
+
+The same policy filters later reads. Worktrees hide matching files before a
+worker or model maintenance callback runs. A required owner whose blob is
+forbidden is not deleted. The worktree file is replaced with a non-forbidden
+blob from the import's removal commit or prior `main` when that blob exists.
+Decoding keeps a leading U+FEFF. The reconstructed text is written only when
+its Git blob id matches that selected blob.
+Otherwise the worker is not started. Workspace read, list, and search omit
+forbidden bytes, including former Core and index text. Write, edit, and
+rename of a tombstoned path, or of the exact tombstoned bytes, fail with
+`Local memory forgetting refused`. While a tombstone policy is active, delete
+and rename cannot remove `Core.md` or `index.md`. A worker may delete other
+visible files. Deleting or renaming does not remove a tombstone. Staging
+drops a forbidden path before commit, and a worker that tried to add one
+fails without publishing it. Integration strips those paths and blob ids
+from the published tree, including a merge of a commit made before the
+import. If that cleaning leaves the current `main` tree unchanged, the
+service still publishes a two-parent integration commit with that tree
+through the pending update, so the worker commit stays an ancestor of the
+recorded integration. `compilePrompt`, `readMemory`, `listMemory`, and
+`readCommitted` apply the same filter even when `refs/heads/main` is moved
+back to an older commit. A required owner whose current blob is forbidden
+fails the projection or read closed instead of returning that text. Forgotten
+paths are not listed as deferred, blocked, or absent. Results include policy
+revision, digest, phase, and counts, not the forgotten paths or text.
+
+Turns on one service stay serialized, so an import and a later integration do
+not publish a mix of old and new policy. Extension, kernel, installer, and
+profile code do not import this record. It does not call a provider or select
+installation.
+
 This owner is not ABI3. Source loading does not construct it. Profiles, kernel
 bindings, role descriptors, private memory roots, and `/mh-memory` commands do
 not call it. Live adoption remains unauthorized. The lifecycle source test is
