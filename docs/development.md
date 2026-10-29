@@ -132,6 +132,14 @@ installation or import the adapter from the extension, kernel, or profile:
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-model-worker.test.ts
 ```
 
+`test/agent-memory-local-projection.test.ts` is the disconnected committed
+projection and explicit `Memory(path)` read check. It does not select
+installation or read a live private root:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-projection.test.ts
+```
+
 Those files do not select an installed engine, bind the kernel, or change
 profile records. They exercise one in-process coordinator and a service-owned
 bare repository. Live maintained memory remains ABI1/ABI2.

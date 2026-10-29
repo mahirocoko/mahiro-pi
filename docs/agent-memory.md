@@ -18,7 +18,7 @@ The standard installer initializes only an absent root with a generic editable s
 it never imports a personal corpus or overwrites existing Core/data.
 Live publication remains ABI1 or ABI2. The approved
 [experimental local Git/worktree service](#experimental-local-gitworktree-service)
-is a synthetic scaffold and is not the installed writer, prompt projection, or Palace surface.
+is a synthetic scaffold and is not the installed writer, live prompt, or Palace surface.
 
 | Path | Purpose |
 | --- | --- |
@@ -524,7 +524,7 @@ human acceptance.
 Live publication remains the ABI1 and ABI2 behavior documented above. Installation
 still selects ABI2 only through the private per-profile record, and an absent
 record still retains ABI1. This section describes an approved experimental
-replacement scaffold. It is not the live writer, prompt projection, doctor,
+replacement scaffold. It is not the live writer, live prompt, doctor,
 Palace command, or installer path.
 
 `createSyntheticLocalMemoryService` in `lib/agent-memory/local/service.ts` is a
@@ -607,6 +607,57 @@ stays put until an explicit retry of that same snapshot. `repair-needed`
 remains the coordinator's conflict state and stays blocked. Synthetic function
 callbacks remain valid. This adapter is not selected by installation and does
 not publish.
+
+Phase E adds a disconnected committed projection and explicit `Memory(path)`
+reads on this same coordinator. `compilePrompt`, `readMemory`, and `listMemory`
+resolve `refs/heads/main` to one commit, then read only that commit's objects.
+They do not read a reflection worktree, an unintegrated job, a private draft,
+or the process working directory. A later integration is visible on the next
+call. A prompt string that has already been returned stays as it was. Reopening
+the service and compiling the same commit returns the same prompt bytes. There
+is no cache and no profile reload.
+
+The automatic prompt keeps exact text for committed `Core.md`, `index.md`, and,
+when that blob is a regular file, `system/persona.md`. Passing a project id also
+includes that project's `system/overview.md` and `system/conventions.md` when
+those regular blobs exist. This matches the live always-loaded set: Core, index,
+persona, and only the named project's overview and conventions. `system/human/**`,
+reference files, other project files, and every other committed file stay
+deferred. The projection does not summarize them. It lists at most 32 deferred
+paths and reports the true total when more remain. Missing `Core.md` or
+`index.md`, or a compact owner that is a symlink, submodule, or non-regular
+file, fails the projection. An optional compact owner that is simply absent is
+named in `absent`.
+
+| Bound | Value |
+| --- | --- |
+| Prompt file text | 8192 source bytes |
+| Prompt JSON | 48 KiB |
+| Deferred and blocked path lists | 32 |
+| Directory page | 32 immediate children |
+| `Memory(path)` text | 8192 bytes |
+| `Memory(path)` byte offset | at most 262144, and not past the blob |
+
+Truncation keeps an exact UTF-8 prefix and reports `bytes`, `returnedBytes`, and
+`truncated: true`. A directory page is sorted by relative path. `nextOffset` is
+present only when later entries remain. `truncated` on that page means the same
+thing. Only mode `100644` blobs are text. Symlinks, submodules, and any other
+mode fail a read and are not followed. A directory listing may name them with
+kind `symlink`, `submodule`, or `special`, without a target or blob id. Paths
+are portable and relative: an absolute path, a `..` segment, NUL, or a backslash
+is refused. With a project id, another project's `projects/`, `deferred/`, or
+non-legacy `archives/` path is refused. Results carry the commit id and relative
+paths. They do not carry absolute paths, blob ids, or symlink targets.
+
+A tree listing that exceeds the existing 1 MiB Git output bound fails closed.
+Missing paths, a non-commit or malformed object, a replaced service identity, and
+an interrupted integration that has not moved `refs/heads/main` also fail closed
+or continue to show the last published commit. Errors stay on fixed sentences
+such as `Local memory path refused`, `Local memory projection refused`,
+`Local memory repository refused`, and `Local Git object refused`.
+
+Extension, kernel, installer, and profile code do not import this layer. It does
+not call a provider, publish, or select installation.
 
 This owner is not ABI3. Source loading does not construct it. Profiles, kernel
 bindings, role descriptors, private memory roots, and `/mh-memory` commands do

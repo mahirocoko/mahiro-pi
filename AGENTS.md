@@ -86,6 +86,12 @@ dated source records, not current installation instructions.
   installed model worker and it does not publish. Its trajectory prompt cap is
   not the whole model context. Aggregate assistant, tool-call, argument, and
   tool-result caps plus a cooperative session abort stay inside that callback.
+  Phase E adds a disconnected committed prompt projection and explicit
+  Memory(path) reads on that same service. Each call resolves `refs/heads/main`
+  once and reads only that commit. Compact Core, index, and persona text, plus
+  the named project's overview and conventions when requested, stay distinct
+  from deferred files. Extension, kernel, installer, and profile code do not
+  import it, and it does not publish or replace the live prompt.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
   Preserve their authored route/lock/tool contracts; only the canonical installed
   managed-memory-writer model/thinking slots may vary through explicit paired

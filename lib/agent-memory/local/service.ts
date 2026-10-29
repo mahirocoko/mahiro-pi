@@ -22,6 +22,7 @@ import {
   gitCommit,
   gitCommitParents,
   gitCommitTree,
+  gitRequireCommit,
   gitHashObject,
   gitIndexClean,
   gitInitBare,
@@ -65,6 +66,14 @@ import {
   trajectoryView,
 } from './trajectory.ts'
 import { createMaintenanceWorkspace } from './workspace.ts'
+import {
+  type LocalMemoryList,
+  type LocalMemoryPrompt,
+  type LocalMemoryRead,
+  compileLocalMemoryPrompt,
+  listLocalMemory,
+  readLocalMemory,
+} from './projection.ts'
 
 // Synthetic bare-repository service. Not ABI3 and not an installed memory selector.
 export interface SyntheticLocalMemoryService {
@@ -79,6 +88,19 @@ export interface SyntheticLocalMemoryService {
   reflect(request: SyntheticTrajectoryRequest): Promise<ReflectionReceipt>
   retry(id: string): Promise<LocalJobRecord>
   watermark(identity: { sessionId: string; branchId: string }): Promise<WatermarkView>
+  compilePrompt(input?: { project?: string }): Promise<LocalMemoryPrompt>
+  readMemory(input: {
+    path: string
+    project?: string
+    offset?: number
+    limit?: number
+  }): Promise<LocalMemoryRead>
+  listMemory(input?: {
+    path?: string
+    project?: string
+    offset?: number
+    limit?: number
+  }): Promise<LocalMemoryList>
 }
 
 export type { LocalJobRecord, LocalWorker }
@@ -652,6 +674,71 @@ export async function createSyntheticLocalMemoryService(options: {
     })
   }
 
+  const safeReadMessages = new Set([
+    'Local memory path refused',
+    'Local memory project refused',
+    'Local memory projection refused',
+    'Local memory read refused',
+    'Local memory repository refused',
+    'Local memory identity refused',
+    'Local memory state refused',
+    'Local memory record refused',
+    'Local Git object refused',
+    'Local Git timed out',
+    'Local Git output exceeded',
+    'Local Git diagnostics exceeded',
+  ])
+
+  const refuseRead = (error: unknown): never => {
+    const message = error instanceof Error ? error.message : ''
+    if (safeReadMessages.has(message)) throw error instanceof Error ? error : Error(message)
+    if (message.startsWith('Local Git failed')) throw Error('Local Git object refused')
+    throw Error('Local memory read refused')
+  }
+
+  const certifyIdentity = async (): Promise<void> => {
+    try {
+      const stat = await lstat(bare)
+      if (stat.isSymbolicLink() || !stat.isDirectory() || (await realpath(bare)) !== bare)
+        throw Error('Local memory repository refused')
+      const identity = await readRegularFile(join(stateRoot, 'git-identity'))
+      if (identity.text !== localGitIdentity) throw Error('Local memory identity refused')
+      let parsed: unknown
+      try {
+        parsed = JSON.parse((await readRegularFile(metaPath)).text)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Local memory record refused') throw error
+        throw Error('Local memory state refused')
+      }
+      const disk = parseMeta(parsed, bare)
+      if (disk.nonce !== meta.nonce || disk.repository !== bare)
+        throw Error('Local memory repository refused')
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === 'Local memory repository refused' ||
+          error.message === 'Local memory identity refused' ||
+          error.message === 'Local memory state refused' ||
+          error.message === 'Local memory record refused')
+      )
+        throw error
+      throw Error('Local memory repository refused')
+    }
+  }
+
+  const readSnapshot = async <T>(read: (commit: string) => Promise<T>): Promise<T> => {
+    await certifyIdentity()
+    const commit = await gitMain(git).catch((error: unknown) => refuseRead(error))
+    await gitRequireCommit(git, commit).catch((error: unknown) => refuseRead(error))
+    if (options.injection?.afterCommitResolved) await options.injection.afterCommitResolved(commit)
+    const value = await read(commit).catch((error: unknown) => refuseRead(error))
+    await certifyIdentity()
+    return value
+  }
+
+  const publicSnapshot = <T>(body: () => Promise<T>): Promise<T> =>
+    turnOnce(body).catch((error: unknown) => refuseRead(error))
+
   return {
     enqueue: (input) => turnOnce(() => enqueue(input)),
     start: (id) => turnOnce(() => start(id)),
@@ -683,5 +770,11 @@ export async function createSyntheticLocalMemoryService(options: {
       if (!trajectoryRuntime) throw Error('Local memory trajectory refused')
       return turnOnce(() => readWatermarkView(stateRoot, identity))
     },
+    compilePrompt: (input) =>
+      publicSnapshot(() => readSnapshot((commit) => compileLocalMemoryPrompt(git, commit, input?.project))),
+    readMemory: (input) =>
+      publicSnapshot(() => readSnapshot((commit) => readLocalMemory(git, commit, input))),
+    listMemory: (input) =>
+      publicSnapshot(() => readSnapshot((commit) => listLocalMemory(git, commit, input))),
   }
 }

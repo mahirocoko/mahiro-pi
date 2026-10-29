@@ -113,6 +113,8 @@ export interface SyntheticLocalInjection {
     | 'recover-removed'
     | 'identity'
   failCleanupRemoves?: number
+  /** Test seam. Runs after an operation captures refs/heads/main and before it reads objects. */
+  afterCommitResolved?: (commit: string) => Promise<void> | void
 }
 
 export function assertJobId(id: string): void {

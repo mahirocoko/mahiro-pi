@@ -35,7 +35,8 @@ function runGit(
   input?: string,
   indexFile?: string,
   cwd?: string,
-): Promise<{ code: number; stdout: Buffer }> {
+  capture?: { maxBytes: number },
+): Promise<{ code: number; stdout: Buffer; truncated: boolean }> {
   const argv = [
     ...prefix,
     '--no-pager',
@@ -75,6 +76,7 @@ function runGit(
     let length = 0
     let diagnostics = 0
     let settled = false
+    let truncated = false
     const fail = (error: Error) => {
       if (settled) return
       settled = true
@@ -91,6 +93,24 @@ function runGit(
     }
     if (!child.stdout || !child.stderr) throw Error('Local Git failed (stdio)')
     child.stdout.on('data', (chunk: Buffer) => {
+      if (capture) {
+        if (length >= capture.maxBytes) {
+          truncated = true
+          child.kill('SIGTERM')
+          return
+        }
+        const room = capture.maxBytes - length
+        if (chunk.length > room) {
+          stdout.push(chunk.subarray(0, room))
+          length = capture.maxBytes
+          truncated = true
+          child.kill('SIGTERM')
+          return
+        }
+        length += chunk.length
+        stdout.push(chunk)
+        return
+      }
       length += chunk.length
       if (length > outputLimit) {
         child.kill('SIGTERM')
@@ -110,11 +130,16 @@ function runGit(
     child.once('close', (code, signal) => {
       if (settled) return
       clearTimeout(timer)
+      if (truncated) {
+        settled = true
+        resolvePromise({ code: code ?? 0, stdout: Buffer.concat(stdout), truncated: true })
+        return
+      }
       if (signal || code === null || !allowedCodes.includes(code))
         fail(Error(`Local Git failed (${code ?? signal})`))
       else {
         settled = true
-        resolvePromise({ code, stdout: Buffer.concat(stdout) })
+        resolvePromise({ code, stdout: Buffer.concat(stdout), truncated: false })
       }
     })
   })
@@ -136,8 +161,9 @@ async function bareGit(
   codes: readonly number[] = [0],
   input?: string,
   indexFile?: string,
-): Promise<{ code: number; stdout: Buffer }> {
-  return runGit(context, ['--git-dir', context.bare], args, codes, input, indexFile)
+  capture?: { maxBytes: number },
+): Promise<{ code: number; stdout: Buffer; truncated: boolean }> {
+  return runGit(context, ['--git-dir', context.bare], args, codes, input, indexFile, undefined, capture)
 }
 
 export async function gitInitBare(context: LocalGitContext, path: string): Promise<void> {
@@ -148,6 +174,12 @@ export async function gitMain(context: LocalGitContext): Promise<string> {
   const ref = text(await bareGit(context, ['symbolic-ref', '--quiet', 'HEAD']))
   if (ref !== 'refs/heads/main') throw Error('Local Git branch refused')
   return oid(await bareGit(context, ['rev-parse', '--verify', 'refs/heads/main']))
+}
+
+export async function gitRequireCommit(context: LocalGitContext, objectId: string): Promise<void> {
+  assertOid(objectId)
+  const kind = text(await bareGit(context, ['cat-file', '-t', objectId]))
+  if (kind !== 'commit') throw Error('Local Git object refused')
 }
 
 export async function gitMainPresence(context: LocalGitContext): Promise<'present' | 'absent'> {
@@ -369,4 +401,101 @@ export async function publicationMatches(
   const merged = await gitMergeTree(context, expected, worker)
   if (merged.conflicts.length) return false
   return (await gitTree(context, pending)) === merged.tree
+}
+
+export interface LocalGitTreeEntry {
+  mode: string
+  type: 'blob' | 'tree' | 'commit'
+  oid: string
+  path: string
+}
+
+function parseTree(stdout: Buffer): LocalGitTreeEntry[] {
+  const entries: LocalGitTreeEntry[] = []
+  let start = 0
+  for (let index = 0; index <= stdout.length; index += 1) {
+    if (index !== stdout.length && stdout[index] !== 0) continue
+    if (index === start) {
+      start = index + 1
+      continue
+    }
+    let line: string
+    try {
+      line = new TextDecoder('utf-8', { fatal: true }).decode(stdout.subarray(start, index))
+    } catch {
+      throw Error('Local Git object refused')
+    }
+    const match = /^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})\t(.+)$/.exec(line)
+    if (!match) throw Error('Local Git object refused')
+    const type = match[2]
+    if (type !== 'blob' && type !== 'tree' && type !== 'commit') throw Error('Local Git object refused')
+    entries.push({ mode: match[1], type, oid: match[3], path: match[4] })
+    start = index + 1
+  }
+  return entries
+}
+
+export async function gitBlobSize(context: LocalGitContext, objectId: string): Promise<number> {
+  assertOid(objectId)
+  const raw = text(await bareGit(context, ['cat-file', '-s', objectId]))
+  if (!/^[0-9]+$/.test(raw)) throw Error('Local Git object refused')
+  const total = Number(raw)
+  if (!Number.isSafeInteger(total) || total < 0) throw Error('Local Git object refused')
+  return total
+}
+
+export async function gitBlobPrefix(
+  context: LocalGitContext,
+  objectId: string,
+  maxBytes: number,
+): Promise<{ bytes: Buffer; total: number }> {
+  assertOid(objectId)
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > outputLimit)
+    throw Error('Local Git object refused')
+  const total = await gitBlobSize(context, objectId)
+  if (total === 0) return { bytes: Buffer.alloc(0), total }
+  if (total <= maxBytes) {
+    const exact = await bareGit(context, ['cat-file', 'blob', objectId])
+    if (exact.truncated || exact.stdout.length !== total) throw Error('Local Git object refused')
+    return { bytes: exact.stdout, total }
+  }
+  const partial = await bareGit(context, ['cat-file', 'blob', objectId], [0], undefined, undefined, {
+    maxBytes,
+  })
+  if (partial.stdout.length !== maxBytes) throw Error('Local Git object refused')
+  return { bytes: partial.stdout, total }
+}
+
+export async function gitEntryAt(
+  context: LocalGitContext,
+  commit: string,
+  path: string,
+): Promise<LocalGitTreeEntry | undefined> {
+  assertOid(commit)
+  assertRelativePath(path)
+  const result = await bareGit(context, ['ls-tree', '-z', commit, '--', path])
+  const entries = parseTree(result.stdout).filter((entry) => entry.path === path)
+  if (entries.length > 1) throw Error('Local Git object refused')
+  return entries[0]
+}
+
+export async function gitTreeAt(
+  context: LocalGitContext,
+  commit: string,
+  directory?: string,
+): Promise<LocalGitTreeEntry[]> {
+  assertOid(commit)
+  if (directory !== undefined) assertRelativePath(directory)
+  const spec = directory === undefined ? commit : `${commit}:${directory}`
+  const result = await bareGit(context, ['ls-tree', '-z', spec])
+  return parseTree(result.stdout)
+}
+
+export async function gitEntriesRecursive(
+  context: LocalGitContext,
+  commit: string,
+): Promise<LocalGitTreeEntry[]> {
+  assertOid(commit)
+  const result = await bareGit(context, ['ls-tree', '-r', '-z', commit])
+  return parseTree(result.stdout)
 }
