@@ -286,10 +286,20 @@ async function seed(
 }
 
 const turns = new Map<string, Promise<void>>()
+const retiredRoots = new Set<string>()
 
 function turn<T>(stateRoot: string, body: () => Promise<T>): Promise<T> {
   const previous = turns.get(stateRoot) ?? Promise.resolve()
-  const run = previous.then(body, body)
+  const run = previous.then(
+    () => {
+      if (retiredRoots.has(stateRoot)) throw Error('Local memory repository refused')
+      return body()
+    },
+    () => {
+      if (retiredRoots.has(stateRoot)) throw Error('Local memory repository refused')
+      return body()
+    },
+  )
   turns.set(
     stateRoot,
     run.then(
@@ -298,6 +308,14 @@ function turn<T>(stateRoot: string, body: () => Promise<T>): Promise<T> {
     ),
   )
   return run
+}
+
+export function localMemoryTurn<T>(stateRoot: string, body: () => Promise<T>): Promise<T> {
+  return turn(stateRoot, body)
+}
+
+export function retireLocalMemoryRoot(stateRoot: string): void {
+  retiredRoots.add(stateRoot)
 }
 
 export async function createSyntheticLocalMemoryService(options: {

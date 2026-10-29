@@ -5,6 +5,12 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
 import {
+  canonicalLedgerDigest,
+  migrationExportPageLimit,
+  migrationSourceIndex,
+  pageMigrationExport,
+} from '../migration-export.ts'
+import {
   buildMemoryPalace,
   directoryIndex,
   directoryPage,
@@ -361,7 +367,42 @@ export class MemoryDataEngine {
         throw Error('Unreconciled publication blocks mutation; no replay')
     }
   }
+  private async migrationExport(args: Input<'manage'>) {
+    if (args.action !== 'migration-export') throw Error('Invalid memory migration export')
+    const { config, configHash } = await this.config()
+    if (!config.projects.some((project) => project.id === args.project))
+      throw Error('Explicit mapped management scope required')
+    const revision = await this.head()
+    if (typeof args.revision !== 'string' || args.revision !== revision)
+      throw memoryFailure('CAS', 'Stale memory revision')
+    const raw = await this.git(['show', `${revision}:.memory.json`], ['.memory.json'])
+    const ledger = parseLedger(raw)
+    const offset = args.offset ?? 0
+    const limit = args.limit ?? migrationExportPageLimit
+    const contentHashes: Record<string, string> = {}
+    if (args.section === 'sources') {
+      const index = migrationSourceIndex(ledger)
+      if (offset > index.length) throw Error('Invalid memory migration export')
+      for (const row of index.slice(offset, offset + limit))
+        contentHashes[row.path] = digest(
+          await this.git(['cat-file', 'blob', `${revision}:${row.path}`], [row.path]),
+        )
+    }
+    const page = pageMigrationExport({
+      revision,
+      configHash,
+      ledgerDigest: canonicalLedgerDigest(raw),
+      ledger,
+      section: args.section ?? '',
+      offset,
+      limit,
+      contentHashes,
+    })
+    if ((await this.head()) !== revision) throw memoryFailure('CAS', 'Stale memory revision')
+    return page
+  }
   private async management(args: Input<'manage'>) {
+    if (args.action === 'migration-export') return { migrationExport: await this.migrationExport(args) }
     const { config, configHash } = await this.config()
     const now = await this.certify(config, configHash)
     const scope = args.project

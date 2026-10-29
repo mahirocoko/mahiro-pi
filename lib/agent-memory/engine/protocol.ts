@@ -1,5 +1,6 @@
 import type { Episode, MemoryConfig } from '../store.ts'
 import { objectShape } from '../../continuity/records.ts'
+import { migrationExportPageLimit, migrationExportSections } from '../migration-export.ts'
 import { idPattern, revisionPattern, uuidPattern } from './schema.ts'
 import type { LockOwner } from './operation.ts'
 import type { MemoryFailureCode } from '../reasons.ts'
@@ -93,12 +94,15 @@ export interface Operations {
   observe: { input: { episode: Episode }; output: { recorded: true } }
   manage: {
     input: {
-      action: 'forget' | 'rollback' | 'doctor' | 'palace' | 'init-project' | 'migrate-v2'
+      action: 'forget' | 'rollback' | 'doctor' | 'palace' | 'init-project' | 'migrate-v2' | 'migration-export'
       project: string
       revision?: string
       paths?: string[]
       sources?: string[]
       target?: string
+      section?: string
+      offset?: number
+      limit?: number
     }
     output:
       | { plan: Plan }
@@ -106,6 +110,7 @@ export interface Operations {
       | { revision: string; added: string[]; changed: false }
       | { doctor: Record<string, unknown> }
       | { palace: Record<string, unknown> }
+      | { migrationExport: Record<string, unknown> }
   }
   conflicts: {
     input: { project: string; target?: string; path?: string; offset?: number; limit?: number }
@@ -215,7 +220,7 @@ export function validateInput(method: Method, input: unknown) {
     offlineCertify: ['revision'],
     episodes: ['project'],
     observe: ['episode'],
-    manage: ['action', 'project', 'revision', 'paths', 'sources', 'target'],
+    manage: ['action', 'project', 'revision', 'paths', 'sources', 'target', 'section', 'offset', 'limit'],
     conflicts: ['project', 'target', 'path', 'offset', 'limit'],
     discard: ['project', 'target', 'revision'],
     cancel: ['view'],
@@ -298,9 +303,29 @@ export function validateInput(method: Method, input: unknown) {
       throw Error('Expected current memory revision')
     if (
       method === 'manage' &&
-      !['forget', 'rollback', 'doctor', 'palace', 'init-project', 'migrate-v2'].includes(
+      !['forget', 'rollback', 'doctor', 'palace', 'init-project', 'migrate-v2', 'migration-export'].includes(
         input.action as string,
       )
+    )
+      throw Error('Invalid management action')
+    if (method === 'manage' && input.action === 'migration-export') {
+      if (
+        typeof input.section !== 'string' ||
+        !(migrationExportSections as readonly string[]).includes(input.section) ||
+        (input.offset !== undefined &&
+          (!Number.isSafeInteger(input.offset) || (input.offset as number) < 0)) ||
+        (input.limit !== undefined &&
+          (!Number.isSafeInteger(input.limit) ||
+            (input.limit as number) < 1 ||
+            (input.limit as number) > migrationExportPageLimit)) ||
+        input.paths !== undefined ||
+        input.sources !== undefined ||
+        input.target !== undefined
+      )
+        throw Error('Invalid memory migration export')
+    } else if (
+      method === 'manage' &&
+      (input.section !== undefined || input.offset !== undefined || input.limit !== undefined)
     )
       throw Error('Invalid management action')
     if (

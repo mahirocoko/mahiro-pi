@@ -49,6 +49,10 @@ interface ToolEndObservation {
   isError: boolean | null
 }
 const toolEndSink = Symbol.for('@mahirocoko/agent-memory:tool-end-sink')
+function actionOf(args: unknown): unknown {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined
+  return (args as { action?: unknown }).action
+}
 interface WorkerValue {
   [toolEndSink]?: () => ((sample: ToolEndObservation) => void) | undefined
   view: View
@@ -320,11 +324,10 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
   }
   const run = async (name: string, args: unknown, ctx: ExtensionContext, signal?: AbortSignal) => {
     if (!memoryTools.includes(name as (typeof memoryTools)[number])) throw new Error('Unknown memory tool')
-    const doctorRead =
-      name === 'agent_memory_manage' &&
-      objectShape(args, ['action']) &&
-      (args.action === 'doctor' || args.action === 'palace')
-    const operation = name === 'agent_memory_read' || doctorRead ? 'read' : 'write'
+    const manageRead = (action: unknown) =>
+      action === 'doctor' || action === 'palace' || action === 'migration-export'
+    const requestedRead = name === 'agent_memory_manage' && manageRead(actionOf(args))
+    const operation = name === 'agent_memory_read' || requestedRead ? 'read' : 'write'
     const f = owner(ctx, name, operation, signal)
     await f.abi.authorize(f.tool, ctx, root, operation, signal)
     f.current()
@@ -355,6 +358,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         throw new Error('Invalid memory management arguments')
       if (
         (args.offset !== undefined || args.limit !== undefined) &&
+        args.action !== 'migration-export' &&
         (args.action !== 'conflicts' || typeof args.target !== 'string' || typeof args.path !== 'string')
       )
         throw new Error('Conflict file required for paging')
@@ -384,12 +388,28 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           contextActivation: 'next-primary-request',
         }
       }
-      const p = primary(ctx, name, args.action === 'doctor' || args.action === 'palace' ? 'read' : 'write')
+      const p = primary(ctx, name, manageRead(args.action) ? 'read' : 'write')
       if (args.action === 'doctor') {
         return p.store.doctor(p.project)
       }
       if (args.action === 'palace') {
         return p.store.palace(p.project)
+      }
+      if (args.action === 'migration-export') {
+        if (
+          typeof args.revision !== 'string' ||
+          typeof args.section !== 'string' ||
+          ['paths', 'sources', 'target', 'text', 'core', 'projectId', 'automatic', 'configHash', 'path'].some(
+            (key) => args[key] !== undefined,
+          )
+        )
+          throw new Error('Invalid memory migration export')
+        return p.store.migrationExport(p.project, {
+          revision: args.revision,
+          section: args.section,
+          ...(typeof args.offset === 'number' ? { offset: args.offset } : {}),
+          ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
+        })
       }
       if (args.action === 'init-project') {
         return p.store.initProject(p.project)

@@ -56,7 +56,10 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
     method === 'read' ||
     method === 'headRead' ||
     method === 'stats' ||
-    (method === 'manage' && input && 'action' in input && ['doctor', 'palace'].includes(input.action))
+    (method === 'manage' &&
+      input &&
+      'action' in input &&
+      ['doctor', 'palace', 'migration-export'].includes(input.action))
   )
     return undefined
   return 30000

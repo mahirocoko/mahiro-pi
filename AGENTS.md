@@ -98,9 +98,17 @@ dated source records, not current installation instructions.
   matching paths from current `main` without rewriting history. Tombstones
   filter worktree, workspace, publication, projection, and later seed inputs.
   Required `Core.md` and `index.md` stay in the tree. A tombstoned blob of
-  either file is not shown. Empty policy is created only during initial
+  either file is not shown.   Empty policy is created only during initial
   setup. This is not secure Git-history erasure, not a private-root
   migration, and not a live cutover.
+  Phase G adds a read-only canonical `migration-export` manage action for ABI1
+  and ABI2, plus a disconnected shadow adapter at `lib/agent-memory/local/migration.ts`.
+  The export pages committed ledger metadata, including each active file's
+  committed SHA-256 content hash, and returns no file text or root path.
+  The adapter seeds only a caller-supplied in-memory bundle into a fresh shadow
+  root and installs Phase F tombstones there. Rollback waits on the migration
+  turn, then the service turn, and renames only a quiescent root. Extension, kernel, installer, and profile code do not import it.
+  It does not publish, select installation, apply, reload, or switch live authority.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
   Preserve their authored route/lock/tool contracts; only the canonical installed
   managed-memory-writer model/thinking slots may vary through explicit paired

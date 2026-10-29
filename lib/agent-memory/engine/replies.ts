@@ -1,4 +1,5 @@
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
+import { assertMigrationExportPage } from '../migration-export.ts'
 import { palaceLayerFor, palaceReplyBytes, parseMemoryRead, retrievalLimits } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
 import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
@@ -326,6 +327,20 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
               ].includes(operation.stage as string) &&
               integer(operation.recordBytes, operationLimit),
           )
+        }
+        return
+      }
+      if (method === 'manage' && input.action === 'migration-export') {
+        const outer = shape(value, ['migrationExport'])
+        try {
+          const page = assertMigrationExportPage(outer.migrationExport)
+          ensure(page.revision === input.revision && page.section === input.section)
+          if (input.offset !== undefined) ensure(page.offset === input.offset)
+          if (input.limit !== undefined) ensure(page.limit === input.limit)
+          else ensure(page.limit === 32)
+        } catch (error) {
+          if (error instanceof Error && error.message === 'Invalid deeply validated engine reply') throw error
+          throw Error('Invalid deeply validated engine reply')
         }
         return
       }

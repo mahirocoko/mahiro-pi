@@ -148,6 +148,22 @@ read a live private root:
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-forgetting.test.ts
 ```
 
+`test/agent-memory-migration-export.test.ts` pages the read-only canonical
+`migration-export` action through ABI1 and ABI2. It does not read a live private
+root or apply a migration:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-migration-export.test.ts
+```
+
+`test/agent-memory-local-migration.test.ts` is the disconnected shadow adapter.
+It seeds an in-memory bundle into a fresh state root and does not select
+installation or read a live private root:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-migration.test.ts
+```
+
 Those files do not select an installed engine, bind the kernel, or change
 profile records. They exercise one in-process coordinator and a service-owned
 bare repository. Live maintained memory remains ABI1/ABI2.

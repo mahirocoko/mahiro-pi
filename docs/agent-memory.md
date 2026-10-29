@@ -134,6 +134,19 @@ before source-forgetting. Source-linked global/deferred/procedure files may be
 removed conservatively as whole files. Rollback and conflicts still honor current
 forgetting; retained views are not a way to resurrect forgotten material.
 
+`agent_memory_manage {action: "migration-export", revision, section, offset, limit}`
+is a primary read of the current committed revision on both ABI1 and ABI2. `section`
+is `binding`, `sources`, `forgotten-paths`, `forgotten-sources` or `reviewed`.
+Each page has at most 32 entries and repeats the committed revision, config hash
+and whole ledger digest. `total` and `nextOffset` describe that section. A revision
+that is no longer current fails stale. The page carries active source IDs, each
+active file's committed SHA-256 content hash (the same whole-file hash as
+`agent_memory_read`), forgotten paths, forgotten sources and reviewed IDs. It does
+not carry file text, credentials, root paths, draft or conflict bodies, or any other
+private corpus. Hashing reads that commit only and does not require a healthy
+mutation journal. `/mh-memory` does not call it, and loading this source does not
+apply, reload or migrate a live root.
+
 ## Compaction provenance and compatibility
 
 With existing automatic reflection enabled, successful compaction can admit an
@@ -724,6 +737,39 @@ This owner is not ABI3. Source loading does not construct it. Profiles, kernel
 bindings, role descriptors, private memory roots, and `/mh-memory` commands do
 not call it. Live adoption remains unauthorized. The lifecycle source test is
 not installed or human acceptance.
+
+Phase G adds a disconnected shadow adapter in `lib/agent-memory/local/migration.ts`.
+It consumes one in-memory bundle assembled from `migration-export` pages plus the
+active file bytes those pages identify. It checks the shared revision and ledger
+digest, complete pages of at most 32 entries, portable unique paths, Core and index,
+exact content hashes, and file-count and byte totals that fit the current corpus
+(about 293 files and 3.8 MiB, inside the existing 1024-file and 8 MiB ceilings).
+Every file also carries a committed-read envelope: `revision`, `currentRevision`,
+`basis: "view-snapshot"` and `freshness: "current"`. The supplied text must hash
+to that committed hash and to the export row. A private draft, stale read, mixed
+revision, or altered text is refused.
+Forgotten paths and sources are removed before seed, including when the export
+also listed them as active. Ambiguous, stale, or incomplete bundles fail closed.
+
+The adapter creates only a fresh shadow state root. It seeds the remaining
+committed files, installs the Phase F tombstone snapshot, and writes a
+coordinator-owned receipt with the source revision, ledger and export digests,
+config hash, file count, bytes, manifest hash, initial head, forgetting digest,
+reviewed IDs, and the exact rollback identity. The receipt does not contain file
+text or a private memory root. Before the receipt is written, the sorted path and
+Git blob manifest of the seed must match the prepared bundle exactly. Reopening
+the same complete bundle verifies that receipt, including the manifest, and returns
+it unchanged. A different bundle, a replaced repository, an equal-length content
+change, or a partial root that is not the recorded owner fails closed. An
+interrupted create can be resumed when the owner identity and manifest still match.
+Rollback waits on the migration turn and then the service turn, in that order,
+and renames only a quiescent owned root: no queued, running, committed, or
+repair-needed job, no pending publication, and no ownership, progress, or worktree
+residue. Integrated, noop, and failed jobs may remain only after that residue is
+gone. Existing service handles then fail. It does not switch live authority.
+
+Extension, kernel, installer, and profile code do not import this adapter. It
+does not call a provider, publish, or select installation.
 
 ## Historical recall and quoted notes
 

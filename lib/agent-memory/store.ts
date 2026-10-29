@@ -36,6 +36,12 @@ import {
   withMigrationFrontmatter,
 } from './engine/schema.ts'
 import {
+  canonicalLedgerDigest,
+  migrationExportPageLimit,
+  migrationSourceIndex,
+  pageMigrationExport,
+} from './migration-export.ts'
+import {
   buildMemoryPalace,
   directoryIndex,
   directoryPage,
@@ -1367,6 +1373,51 @@ export function createMemoryStore(
         if (!changed) return { revision: now.revision, migrated: [], changed: 0 }
         const committed = writeRevision(now, next, 'Losslessly migrate v1 memory into tiered v2 layout')
         return { revision: committed.revision, migrated, changed }
+      })
+    },
+    migrationExport(
+      project: string,
+      request: { revision: string; section: string; offset?: number; limit?: number },
+    ) {
+      if (authority !== 'primary') throw new Error('Primary operation required')
+      managementProject(project)
+      const offset = request.offset ?? 0
+      const limit = request.limit ?? migrationExportPageLimit
+      if (
+        typeof request.revision !== 'string' ||
+        !hash.test(request.revision) ||
+        typeof request.section !== 'string' ||
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        !Number.isSafeInteger(limit) ||
+        limit < 1 ||
+        limit > migrationExportPageLimit
+      )
+        throw new Error('Invalid memory migration export')
+      return lock(() => {
+        const revision = head()
+        if (revision !== request.revision) throw memoryFailure('CAS', 'Stale memory revision')
+        const raw = git(['show', `${revision}:.memory.json`])
+        const ledger = parseLedger(raw)
+        const contentHashes: Record<string, string> = {}
+        if (request.section === 'sources') {
+          const index = migrationSourceIndex(ledger)
+          if (offset > index.length) throw new Error('Invalid memory migration export')
+          for (const row of index.slice(offset, offset + limit))
+            contentHashes[row.path] = digest(git(['cat-file', 'blob', `${revision}:${row.path}`]))
+        }
+        const page = pageMigrationExport({
+          revision,
+          configHash: digest(JSON.stringify(config())),
+          ledgerDigest: canonicalLedgerDigest(raw),
+          ledger,
+          section: request.section,
+          offset,
+          limit,
+          contentHashes,
+        })
+        if (head() !== revision) throw memoryFailure('CAS', 'Stale memory revision')
+        return page
       })
     },
   }

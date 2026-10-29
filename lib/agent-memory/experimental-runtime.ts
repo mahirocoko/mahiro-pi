@@ -46,6 +46,10 @@ interface Job {
   cancel(outcome?: AttemptOutcome): void
   finish(): Promise<void>
 }
+function actionOf(args: unknown): unknown {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined
+  return (args as { action?: unknown }).action
+}
 const bounded = (value: unknown, max = 2048): string | undefined => {
   if (
     typeof value !== 'string' ||
@@ -621,11 +625,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       assertCurrent(context)
       return await offlineMaintenance(f.engine, context, args as unknown as MaintenanceRequest)
     }
-    const statusRead =
-      name === 'agent_memory_manage' &&
-      objectShape(args, ['action']) &&
-      (args.action === 'status' || args.action === 'doctor' || args.action === 'palace')
-    const f = await resolve(ctx, name, name === 'agent_memory_read' || statusRead ? 'read' : 'write', signal)
+    const manageRead = (action: unknown) =>
+      action === 'status' || action === 'doctor' || action === 'palace' || action === 'migration-export'
+    const requestedRead = name === 'agent_memory_manage' && manageRead(actionOf(args))
+    const f = await resolve(
+      ctx,
+      name,
+      name === 'agent_memory_read' || requestedRead ? 'read' : 'write',
+      signal,
+    )
     if (name === 'agent_memory_reflect') {
       if (!objectShape(args, ['assignment']) || typeof args.assignment !== 'string')
         throw Error('Bounded assignment required')
@@ -654,6 +662,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         throw Error('Primary management required')
       if (
         (args.offset !== undefined || args.limit !== undefined) &&
+        args.action !== 'migration-export' &&
         (args.action !== 'conflicts' || typeof args.target !== 'string' || typeof args.path !== 'string')
       )
         throw Error('Conflict file required for paging')
@@ -666,6 +675,26 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         const res = await f.request('manage', { action: 'palace', project: f.project })
         if ('palace' in res) return res.palace
         throw Error('Palace result unavailable')
+      }
+      if (args.action === 'migration-export') {
+        if (
+          typeof args.revision !== 'string' ||
+          typeof args.section !== 'string' ||
+          ['paths', 'sources', 'target', 'text', 'core', 'projectId', 'automatic', 'configHash', 'path'].some(
+            (key) => args[key] !== undefined,
+          )
+        )
+          throw Error('Invalid memory migration export')
+        const res = await f.request('manage', {
+          action: 'migration-export',
+          project: f.project,
+          revision: args.revision,
+          section: args.section,
+          ...(typeof args.offset === 'number' ? { offset: args.offset } : {}),
+          ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
+        })
+        if ('migrationExport' in res) return res.migrationExport
+        throw Error('Migration export unavailable')
       }
       if (args.action === 'init-project' || args.action === 'migrate-v2') {
         job?.cancel()

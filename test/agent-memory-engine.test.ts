@@ -72,7 +72,7 @@ test('ordinary reads and offline certification are completion-driven; mutation/p
     'stats',
   ] as const)
     assert.equal(engineRequestDeadline(method), undefined, method)
-  for (const action of ['doctor', 'palace'] as const)
+  for (const action of ['doctor', 'palace', 'migration-export'] as const)
     assert.equal(engineRequestDeadline('manage', { action, project: 'project' }), undefined, action)
   for (const action of ['forget', 'rollback', 'init-project', 'migrate-v2'] as const)
     assert.equal(engineRequestDeadline('manage', { action, project: 'project' }), 30000, action)
