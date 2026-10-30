@@ -14,7 +14,6 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import { canonicalGitDirectoryName } from '../lib/agent-memory/local/contracts.ts'
-import { loadJob, saveJob } from '../lib/agent-memory/local/jobs.ts'
 import {
   openShadowMigration,
   rollbackShadowMigration,
@@ -400,20 +399,24 @@ test('shadow learn, repair, retrieval, restart and rollback keep tombstones', as
       /Local memory path refused/,
     )
     await assert.rejects(() => rollbackShadowMigration(fx.stateRoot), /Local memory migration refused/)
+    const abandoned = await restarted.service.abandon('overlap')
+    assert.equal(abandoned.status, 'abandoned')
+    assert.deepEqual(abandoned.conflictPaths, blocked.conflictPaths)
+    assert.equal(abandoned.workerCommit, blocked.workerCommit)
+    // A terminal disposition alone is not quiescence: the owned tree still blocks.
+    await assert.rejects(() => rollbackShadowMigration(fx.stateRoot), /Local memory migration refused/)
     for (const id of ['learn-1', 'overlap', 'same', 'aside']) {
       const job = await opened.service.job(id)
       if (!job.worktreePath) continue
       await opened.service.cleanup(job.worktreePath)
     }
-    const repair = await loadJob(fx.stateRoot, 'overlap')
-    await saveJob(fx.stateRoot, {
-      ...repair,
-      status: 'failed',
-      worktreePath: null,
-      conflictPaths: [],
-      pendingIntegration: null,
-      expectedParent: null,
-    })
+    assert.deepEqual(await restarted.service.abandon('overlap'), abandoned)
+    for (const name of ['repair.index', 'repair.index.lock']) {
+      const residue = join(fx.stateRoot, name)
+      writeFileSync(residue, 'synthetic residue')
+      await assert.rejects(() => rollbackShadowMigration(fx.stateRoot), /Local memory migration refused/)
+      rmSync(residue)
+    }
     const quarantined = await rollbackShadowMigration(fx.stateRoot)
     await assert.rejects(() => restarted.service.head(), /Local memory repository refused/)
     assert.ok(quarantined.quarantined.includes('.quarantine-'))

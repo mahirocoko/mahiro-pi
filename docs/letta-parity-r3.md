@@ -87,8 +87,11 @@ No text, paths, secrets or progress history are added to it.
 Watermarks remain job/digest/session/branch-bound and monotonic. Duplicate
 settlement is idempotent; stale completions cannot rewind a later watermark.
 Failed, committed-but-unintegrated, conflicted and explicitly retried jobs do not
-settle. `retry(jobId)` reuses the immutable snapshot and does not launch a worker;
-`repair-needed` remains blocked by the existing coordinator contract.
+settle. `retry(jobId)` reuses only a failed reflection's immutable snapshot and
+never launches a worker. [R5 recovery](letta-parity-r5.md) adds explicit synthetic
+repair/abandon; neither transition settles progress. Repaired/abandoned snapshots
+release the held range for a fresh eligible job only with captured-range coverage.
+Resume and retry cannot repair conflicts or reopen either terminal state.
 
 Ordinary selection is the pending prefix of the explicit caller array. Replay
 requires an exact job ID and digest from the same session/branch; it returns

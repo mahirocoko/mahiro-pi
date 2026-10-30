@@ -28,6 +28,8 @@ const guidanceCodes = [
   'resume-unchanged',
   'retry-requeues',
   'retry-blocked',
+  'repaired-unconsumed',
+  'abandoned-unconsumed',
   'running-recovers-next-turn',
 ] as const
 const recoveryOutcomes = ['committed', 'failed', 'interrupted'] as const
@@ -60,6 +62,9 @@ export interface PalaceJobFact {
   pendingIntegration: string | null
   expectedParent: string | null
   conflictPaths: readonly string[]
+  conflictHead?: string | null
+  reviewedHead?: string | null
+  repairCandidate?: string | null
   detached: boolean
 }
 
@@ -103,6 +108,9 @@ export interface PalaceJobEntry {
   pendingIntegration: string | null
   expectedParent: string | null
   conflictCount: number
+  conflictHead: string | null
+  reviewedHead: string | null
+  repairCandidate: string | null
   detached: boolean
   resume: PalaceResume
   retry: PalaceRetry
@@ -257,17 +265,21 @@ function eligibility(
         ? 'requeues'
         : 'refused'
   const guidance: PalaceGuidance =
-    status === 'running'
-      ? 'running-recovers-next-turn'
-      : status === 'repair-needed'
-        ? 'retry-blocked'
-        : kind === 'reflection' && status === 'failed'
-          ? 'retry-requeues'
-          : status === 'queued'
-            ? 'resume-starts'
-            : status === 'committed'
-              ? 'resume-integrates'
-              : 'resume-unchanged'
+    status === 'repaired'
+      ? 'repaired-unconsumed'
+      : status === 'abandoned'
+        ? 'abandoned-unconsumed'
+        : status === 'running'
+          ? 'running-recovers-next-turn'
+          : status === 'repair-needed'
+            ? 'retry-blocked'
+            : kind === 'reflection' && status === 'failed'
+              ? 'retry-requeues'
+              : status === 'queued'
+                ? 'resume-starts'
+                : status === 'committed'
+                  ? 'resume-integrates'
+                  : 'resume-unchanged'
   return { resume, retry, guidance }
 }
 
@@ -293,13 +305,15 @@ function jobEntry(job: PalaceJobFact): PalaceJobEntry {
   const expectedParent = nullableOid(job.expectedParent)
   if ((pendingIntegration === null) !== (expectedParent === null)) refused()
   if (!Array.isArray(job.conflictPaths) || job.conflictPaths.length > palacePreviewLimits.pageSize) refused()
-  if (job.status !== 'repair-needed' && job.conflictPaths.length > 0) refused()
+  if (!['repair-needed', 'repaired', 'abandoned'].includes(job.status) && job.conflictPaths.length > 0)
+    refused()
   const conflictPaths = [...job.conflictPaths]
   for (const path of conflictPaths) assertRelativePath(path)
   if (typeof job.detached !== 'boolean') refused()
   const access = eligibility(job.kind, job.status)
   const detached =
-    ((job.status === 'committed' || job.status === 'repair-needed') && workerCommit !== null) ||
+    ((job.status === 'committed' || job.status === 'repair-needed' || job.status === 'abandoned') &&
+      workerCommit !== null) ||
     (job.status === 'running' && job.detached)
   return {
     id: job.id,
@@ -312,6 +326,9 @@ function jobEntry(job: PalaceJobFact): PalaceJobEntry {
     pendingIntegration,
     expectedParent,
     conflictCount: conflictPaths.length,
+    conflictHead: nullableOid(job.conflictHead ?? null),
+    reviewedHead: nullableOid(job.reviewedHead ?? null),
+    repairCandidate: nullableOid(job.repairCandidate ?? null),
     detached,
     resume: access.resume,
     retry: access.retry,
@@ -476,7 +493,10 @@ export function buildPalaceSnapshot(input: PalaceSnapshotFacts): PalaceSnapshot 
   conflicts.sort(compareKeyed)
   const detached: PalaceDetachedEntry[] = []
   for (const job of jobs) {
-    if ((job.status === 'committed' || job.status === 'repair-needed') && job.workerCommit)
+    if (
+      (job.status === 'committed' || job.status === 'repair-needed' || job.status === 'abandoned') &&
+      job.workerCommit
+    )
       detached.push({ jobId: job.id, sequence: job.sequence, role: 'detached-commit', oid: job.workerCommit })
     else if (job.status === 'running' && job.detached)
       detached.push({ jobId: job.id, sequence: job.sequence, role: 'detached-worktree', oid: null })
@@ -740,6 +760,9 @@ export function parsePalaceSnapshot(value: unknown): PalaceSnapshot {
     assertKeys(entry, [
       'baseHead',
       'conflictCount',
+      'conflictHead',
+      'reviewedHead',
+      'repairCandidate',
       'detached',
       'expectedParent',
       'guidance',
@@ -770,11 +793,15 @@ export function parsePalaceSnapshot(value: unknown): PalaceSnapshot {
       pendingIntegration: readNullableOid(entry.pendingIntegration),
       expectedParent: readNullableOid(entry.expectedParent),
       conflictCount: readInt(entry.conflictCount),
+      conflictHead: readNullableOid(entry.conflictHead),
+      reviewedHead: readNullableOid(entry.reviewedHead),
+      repairCandidate: readNullableOid(entry.repairCandidate),
       detached: (() => {
         const workerCommit = readNullableOid(entry.workerCommit)
         const claimed = readBool(entry.detached)
         const actual =
-          ((status === 'committed' || status === 'repair-needed') && workerCommit !== null) ||
+          ((status === 'committed' || status === 'repair-needed' || status === 'abandoned') &&
+            workerCommit !== null) ||
           (status === 'running' && claimed)
         if (claimed !== actual) refused()
         return claimed

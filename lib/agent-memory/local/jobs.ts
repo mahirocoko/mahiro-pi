@@ -11,6 +11,7 @@ import {
   type LocalJobKind,
   type LocalJobRecord,
   type LocalJobStatus,
+  type LocalRepairEvidence,
   type LocalOwnershipRecord,
   type LocalProgressRecord,
   type LocalServiceMeta,
@@ -87,7 +88,27 @@ export function parseJob(value: unknown, expected: { id: string; stateRoot: stri
   if (!Array.isArray(job.conflictPaths) || job.conflictPaths.length > 32)
     throw Error('Local memory job refused')
   for (const path of job.conflictPaths) assertRelativePath(path)
-  if (job.status !== 'repair-needed' && job.conflictPaths.length) throw Error('Local memory job refused')
+  if (new Set(job.conflictPaths).size !== job.conflictPaths.length) throw Error('Local memory job refused')
+  const recovery = ['repair-needed', 'repaired', 'abandoned'].includes(job.status)
+  if (!recovery && job.conflictPaths.length) throw Error('Local memory job refused')
+  const conflictHead = nullableOid(job.conflictHead ?? null)
+  const repair = parseRepairEvidence(job.repair ?? null)
+  if (!recovery && (conflictHead || repair)) throw Error('Local memory job refused')
+  if (repair && repair.workerCommit !== workerCommit) throw Error('Local memory job refused')
+  if (
+    job.status === 'repair-needed' &&
+    repair &&
+    (pendingIntegration !== repair.candidate || expectedParent !== repair.reviewedHead)
+  )
+    throw Error('Local memory job refused')
+  if (
+    job.status === 'repaired' &&
+    (!repair || integratedCommit !== repair.candidate || pendingIntegration !== null)
+  )
+    throw Error('Local memory job refused')
+  if (job.status === 'abandoned' && (repair || integratedCommit || pendingIntegration))
+    throw Error('Local memory job refused')
+  if (recovery && workerCommit === null) throw Error('Local memory job refused')
   const open = workerCommit === null && integratedCommit === null && pendingIntegration === null
   if ((job.status === 'queued' || job.status === 'running' || job.status === 'noop') && !open)
     throw Error('Local memory job refused')
@@ -126,9 +147,26 @@ export function parseJob(value: unknown, expected: { id: string; stateRoot: stri
     expectedParent,
     worktreePath: job.worktreePath,
     conflictPaths: [...job.conflictPaths],
+    conflictHead,
+    repair,
     sequence: job.sequence,
     reflection,
   }
+}
+
+export function parseRepairEvidence(value: unknown): LocalRepairEvidence | null {
+  if (value === null) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Local memory job refused')
+  const record = value as LocalRepairEvidence
+  if (
+    Object.keys(record).sort().join() !==
+    'candidate,forgettingDigest,resolutionDigest,reviewedHead,tree,workerCommit'
+  )
+    throw Error('Local memory job refused')
+  for (const oid of [record.reviewedHead, record.workerCommit, record.tree, record.candidate]) assertOid(oid)
+  for (const digest of [record.forgettingDigest, record.resolutionDigest])
+    if (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) throw Error('Local memory job refused')
+  return { ...record }
 }
 
 export function parseOwnership(value: unknown): LocalOwnershipRecord {
@@ -203,6 +241,15 @@ export async function saveJob(stateRoot: string, job: LocalJobRecord): Promise<L
   if (prior) {
     const previous = parseJob(JSON.parse(prior.text), { id: stored.id, stateRoot })
     if (previous.kind !== stored.kind) throw Error('Local memory trajectory refused')
+    if (['repair-needed', 'repaired', 'abandoned'].includes(previous.status)) {
+      for (const key of ['baseHead', 'workerCommit', 'conflictHead', 'conflictPaths'] as const)
+        if (JSON.stringify(previous[key]) !== JSON.stringify(stored[key]))
+          throw Error('Local memory recovery evidence refused')
+      if (previous.repair && JSON.stringify(previous.repair) !== JSON.stringify(stored.repair))
+        throw Error('Local memory recovery evidence refused')
+      if (previous.status !== 'repair-needed' && previous.status !== stored.status)
+        throw Error('Local memory recovery terminal')
+    }
     if (previous.kind === 'reflection' && previous.reflection?.digest !== stored.reflection?.digest)
       throw Error('Local memory trajectory refused')
   }

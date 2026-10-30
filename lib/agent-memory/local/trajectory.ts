@@ -797,8 +797,19 @@ export async function performReflection(input: {
       job,
     )
   }
-  const holding = branchJobs(jobs, request.sessionId, request.branchId).filter(
-    (job) => job.reflection?.afterOrder === orderNow && (job.reflection?.endOrder ?? 0) > orderNow,
+  const branch = branchJobs(jobs, request.sessionId, request.branchId)
+  // Recovery releases a range without consuming it. A fresh attempt still needs
+  // the captured evidence; abandonment must not turn omission into permission to skip.
+  for (const job of branch) {
+    if ((job.status === 'repaired' || job.status === 'abandoned') && job.reflection?.afterOrder === orderNow)
+      assertCovers(entries, job.reflection)
+  }
+  const holding = branch.filter(
+    (job) =>
+      job.status !== 'repaired' &&
+      job.status !== 'abandoned' &&
+      job.reflection?.afterOrder === orderNow &&
+      (job.reflection?.endOrder ?? 0) > orderNow,
   )
   if (holding.length > 1) refuse()
   const current = holding[0]

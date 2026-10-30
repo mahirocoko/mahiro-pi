@@ -81,7 +81,11 @@ const guidanceCopy: Record<PalaceGuidance, string> = {
   'resume-unchanged': 'Resume would leave this job unchanged.',
   'retry-requeues': 'Retry would queue this failed reflection again. This preview does not retry it.',
   'retry-blocked':
-    'Resume and retry cannot advance this state. A separately supported coordinator repair operation is required.',
+    'Resume and retry cannot advance this state. The synthetic coordinator requires explicit repair resolutions or abandonment.',
+  'repaired-unconsumed':
+    'Explicit resolutions were published. Conflict evidence is retained; trajectory progress did not advance. A fresh reflection may review it again.',
+  'abandoned-unconsumed':
+    'Abandoned without publication or trajectory progress. Conflict evidence is retained; a fresh reflection may review it again.',
   'running-recovers-next-turn':
     'The next coordinator turn recovers a running job. This preview does not resume it.',
 }
@@ -94,6 +98,8 @@ const statusLabel: Record<LocalJobStatus, string> = {
   noop: 'No change',
   failed: 'Failed',
   'repair-needed': 'Needs repair',
+  repaired: 'Repaired',
+  abandoned: 'Abandoned',
 }
 
 const statusMark: Record<LocalJobStatus, string> = {
@@ -104,6 +110,8 @@ const statusMark: Record<LocalJobStatus, string> = {
   noop: '-',
   failed: '!',
   'repair-needed': 'x',
+  repaired: '+',
+  abandoned: '-',
 }
 
 const groupTitle = {
@@ -1747,7 +1755,7 @@ function repairHtml(snapshot: PalaceSnapshot): string {
   const truncated = snapshot.conflicts.truncated
     ? '<p>Not every visible conflict path fits in this page.</p>'
     : ''
-  return `<section><h3>Needs repair</h3>${coverage}<p>${escapePalaceText(guidanceCopy['retry-blocked'])}</p><p>Current resume and retry cannot repair it. A separately supported repair operation is required. This preview does not show a conflict diff or a job body.</p>${listed}${hidden}${truncated}</section>`
+  return `<section><h3>Conflict evidence</h3>${coverage}<p>${escapePalaceText(guidanceCopy['retry-blocked'])}</p><p>Resume and retry never repair conflicts. Explicit repair or abandonment is available only through the synthetic coordinator, not this preview. Terminal jobs retain historical conflicts. This preview does not show a conflict diff or a job body.</p>${listed}${hidden}${truncated}</section>`
 }
 
 function diagnosticsHtml(snapshot: PalaceSnapshot): string {

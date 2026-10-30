@@ -144,8 +144,18 @@ test('setup resolves explicit and native override without accessing a profile', 
     '/isolated/custom',
   )
   assert.equal(resolveAgentDir(undefined, {}, '/isolated'), '/isolated/.pi/agent')
-  for (const path of ['relative', '/root/../other', '/root/'])
+  assert.equal(resolveAgentDir(undefined, { PI_CODING_AGENT_DIR: '~' }, '/isolated'), '/isolated')
+  assert.equal(resolveAgentDir(undefined, { PI_CODING_AGENT_DIR: '' }, '/isolated'), '/isolated/.pi/agent')
+  for (const path of ['relative', '/root/../other', '/root/']) {
     assert.throws(() => resolveAgentDir(path, {}, '/isolated'))
+    assert.throws(() => resolveAgentDir(undefined, { PI_CODING_AGENT_DIR: path }, '/isolated'))
+  }
+  // Source wiring assertion, not installed root-isolation evidence. Kernel keeps
+  // its additional realpath check after using the same public profile resolver.
+  const kernel = readFileSync(join(root, 'lib/kernel/index.ts'), 'utf8')
+  assert.match(kernel, /const resolveGoalProfile = \(\) => \{\s*const value = resolveAgentDir\(\)/)
+  assert.doesNotMatch(kernel, /process\.env\.PI_CODING_AGENT_DIR/)
+  assert.match(kernel, /realpathSync\(value\) !== value/)
 })
 
 test('setup rejects symlink ancestors, dangling/target symlinks, directories, hardlinks and unsafe modes', () =>

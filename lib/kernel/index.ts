@@ -6,7 +6,6 @@ import { lstatSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { nodes as sharedNodes, claimKernel } from './registry.mjs'
 import { isAbsolute, relative, resolve, join } from 'node:path'
-import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { evidenceGitCommand } from './evidence-git.mjs'
 import { rtkBinding } from '../rtk-state.ts'
@@ -47,13 +46,7 @@ const learningPermission = (root: string) => {
 }
 
 const resolveGoalProfile = () => {
-  const override = process.env.PI_CODING_AGENT_DIR
-  const value =
-    override === '~'
-      ? homedir()
-      : override?.startsWith('~/')
-        ? join(homedir(), override.slice(2))
-        : override || join(homedir(), '.pi/agent')
+  const value = resolveAgentDir()
   if (!isAbsolute(value) || resolve(value) !== value || realpathSync(value) !== value)
     throw new Error('Canonical Goal profile required')
   return value

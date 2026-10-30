@@ -18,11 +18,30 @@ export const localJobStatuses = [
   'integrated',
   'noop',
   'repair-needed',
+  'repaired',
+  'abandoned',
   'failed',
 ] as const
 
 export type LocalJobStatus = (typeof localJobStatuses)[number]
 export type LocalJobKind = 'ordinary' | 'reflection'
+
+export interface LocalRepairEvidence {
+  reviewedHead: string
+  workerCommit: string
+  resolutionDigest: string
+  forgettingDigest: string
+  tree: string
+  candidate: string
+}
+
+export interface LocalRepairRequest {
+  id: string
+  expectedHead: string
+  workerCommit: string
+  /** Exact conflict coverage. null explicitly deletes a non-required file. */
+  resolutions: Record<string, string | null>
+}
 
 export interface LocalJobRecord {
   version: 1
@@ -37,6 +56,9 @@ export interface LocalJobRecord {
   expectedParent: string | null
   worktreePath: string | null
   conflictPaths: string[]
+  /** Absent in legacy version-1 records; never infer a historical conflict head. */
+  conflictHead?: string | null
+  repair?: LocalRepairEvidence | null
   sequence: number
   reflection: TrajectoryProjection | null
 }
@@ -113,6 +135,9 @@ export interface SyntheticLocalInjection {
     | 'recover-removed'
     | 'identity'
     | 'forgetting-recorded'
+    | 'repair-prepared'
+    | 'repair-published'
+    | 'repair-terminal'
   failCleanupRemoves?: number
   /** Test seam. Runs after an operation captures refs/heads/main and before it reads objects. */
   afterCommitResolved?: (commit: string) => Promise<void> | void

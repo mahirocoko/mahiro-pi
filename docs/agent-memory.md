@@ -673,9 +673,13 @@ reads or ordinary jobs.
 not change installer defaults or the live reflection policy. The branch
 watermark advances only after the matching maintenance job is `integrated` or a
 verified `noop`. A failed reflection job can be retried explicitly with the same
-snapshot. `repair-needed` keeps that snapshot and stays blocked until the
-conflict is resolved. A no-op advances once. Restart reads the stored snapshot
-and digest and does not create a second job for that window.
+snapshot. `repair-needed` keeps that snapshot; resume/retry cannot resolve it.
+[R5 recovery](letta-parity-r5.md) adds explicit synthetic `repair`/`abandon`
+methods with terminal `repaired`/`abandoned` records, retained conflict evidence
+and **no watermark advancement**, including successful repair. A fresh eligible
+reflection can review the released range from the unchanged watermark only with
+captured-range coverage. A no-op advances once. Restart reads the stored snapshot
+and digest; it does not duplicate a still-held attempt.
 
 The deterministic worker receives the bounded range as untrusted data and a
 worktree adapter for read, list, search, write, edit, delete, and rename. It
@@ -719,7 +723,8 @@ are malformed, overflow, cancelled, timeout, provider, and cleanup. Thinking
 content in a thinking-off session is malformed. Ordinary final text with no file writes remains a no-op.
 Those failures throw, so the existing job becomes `failed` and the watermark
 stays put until an explicit retry of that same snapshot. `repair-needed`
-remains the coordinator's conflict state and stays blocked. Synthetic function
+requires explicit coordinator repair or abandonment; neither consumes trajectory.
+Synthetic function
 callbacks remain valid. This adapter is not selected by installation and does
 not publish.
 
@@ -867,8 +872,10 @@ interrupted create can be resumed when the owner identity and manifest still mat
 Rollback waits on the migration turn and then the service turn, in that order,
 and renames only a quiescent owned root: no queued, running, committed, or
 repair-needed job, no pending publication, and no ownership, progress, or worktree
-residue. Integrated, noop, and failed jobs may remain only after that residue is
-gone. Existing service handles then fail. It does not switch live authority.
+residue, including a repair index/lock. Integrated, noop, failed, repaired and
+abandoned jobs may remain only after that residue is gone. Public abandonment
+retains evidence and publishes nothing; exact cleanup is separate. Existing
+service handles then fail. It does not switch live authority.
 
 Extension, kernel, installer, and profile code do not import this adapter. It
 does not call a provider, publish, or select installation.
@@ -881,12 +888,16 @@ visible conflict paths, synthetic publication, and read-only retry/resume
 guidance. It does not include file text, excerpts, prompts, frontmatter, diffs,
 reflection or trajectory text, job summaries, raw errors, ownership records,
 worktree paths, or the state root. Forgotten corpus paths and forgotten
-conflict paths stay omitted; a hidden conflict count may remain. Detached rows
-are unpublished `committed` or `repair-needed` commits, or a running worktree
-that is still present. Integrated, noop, and cleaned jobs are not detached
-work, and detached work is not a Git branch or Git commit history.
-`repair-needed` has no repair or abandon transition here; resume and retry
-cannot advance it. Each collection returns at most 32 entries. The serialized
+conflict paths stay omitted; a hidden conflict count may remain. Detached rows are unpublished `committed`, `repair-needed`, or `abandoned`
+worker commits, or a running worktree that is still present. Abandonment keeps
+the unpublished commit as historical evidence even after exact worktree cleanup.
+Integrated, noop, repaired, and failed jobs are not detached work, and detached
+work is not a Git branch or canonical Git commit history.
+`repair-needed` cannot be advanced by resume/retry. The synthetic coordinator's
+explicit repair/abandon methods are not controls in this read-only preview.
+Repaired/abandoned status, retained historical conflicts and reviewed publication
+IDs remain visible, with explicit unchanged-trajectory guidance. Each collection
+returns at most 32 entries. The serialized
 snapshot is at most 48 KiB, and counts say when a page is truncated.
 `palaceDocument` is a separate read for one relative path at the canonical
 commit resolved for that call. The HTTP document and read routes carry a

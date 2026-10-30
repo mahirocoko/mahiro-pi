@@ -5,6 +5,7 @@ import { join, sep } from 'node:path'
 import { readRegularFile, writeNoFollow } from './confine.ts'
 import {
   type LocalJobRecord,
+  type LocalRepairRequest,
   type LocalServiceMeta,
   type LocalWorker,
   type SyntheticLocalInjection,
@@ -127,6 +128,8 @@ import {
   readLocalMemory,
 } from './projection.ts'
 
+import { abandonLocalJob, repairLocalJob } from './repair.ts'
+
 // Synthetic bare-repository service. Not ABI3 and not an installed memory selector.
 export interface SyntheticLocalMemoryService {
   enqueue(input: { id: string; summary: string }): Promise<LocalJobRecord>
@@ -139,6 +142,8 @@ export interface SyntheticLocalMemoryService {
   cleanup(path: string): Promise<void>
   reflect(request: SyntheticTrajectoryRequest): Promise<ReflectionReceipt>
   retry(id: string): Promise<LocalJobRecord>
+  repair(input: LocalRepairRequest): Promise<LocalJobRecord>
+  abandon(id: string): Promise<LocalJobRecord>
   watermark(identity: { sessionId: string; branchId: string }): Promise<WatermarkView>
   compilePrompt(input?: { project?: string }): Promise<LocalMemoryPrompt>
   readMemory(input: {
@@ -636,7 +641,13 @@ export async function createSyntheticLocalMemoryService(options: {
 
   const inFlight = async (exceptId?: string) => {
     const jobs = await listJobs(stateRoot)
-    if (jobs.some((job) => job.id !== exceptId && (job.status === 'running' || job.status === 'committed')))
+    if (
+      jobs.some(
+        (job) =>
+          job.id !== exceptId &&
+          (job.status === 'running' || job.status === 'committed' || job.pendingIntegration !== null),
+      )
+    )
       throw Error('Local memory job in flight')
   }
 
@@ -669,9 +680,8 @@ export async function createSyntheticLocalMemoryService(options: {
   const integrateActive = async (id: string, policy: ForgettingRecord): Promise<LocalJobRecord> => {
     const guard = forgettingGuard(policy)
     const current = await readJob(id)
-    if (current.status === 'integrated' || current.status === 'noop' || current.status === 'failed')
+    if (['integrated', 'noop', 'failed', 'repair-needed', 'repaired', 'abandoned'].includes(current.status))
       return current
-    if (current.status === 'repair-needed') return current
     if (current.status !== 'committed' || !current.workerCommit)
       throw Error('Local memory job is not committed')
     const workerCommit = current.workerCommit
@@ -719,6 +729,7 @@ export async function createSyntheticLocalMemoryService(options: {
         ...job,
         status: 'repair-needed',
         conflictPaths: conflicts,
+        conflictHead: main,
         pendingIntegration: null,
         expectedParent: null,
       })
@@ -739,9 +750,8 @@ export async function createSyntheticLocalMemoryService(options: {
     const policy = await loadForgetting(stateRoot)
     if (forgettingGuard(policy).active) return integrateActive(id, policy)
     const current = await readJob(id)
-    if (current.status === 'integrated' || current.status === 'noop' || current.status === 'failed')
+    if (['integrated', 'noop', 'failed', 'repair-needed', 'repaired', 'abandoned'].includes(current.status))
       return current
-    if (current.status === 'repair-needed') return current
     if (current.status !== 'committed' || !current.workerCommit)
       throw Error('Local memory job is not committed')
     const workerCommit = current.workerCommit
@@ -763,6 +773,7 @@ export async function createSyntheticLocalMemoryService(options: {
         ...job,
         status: 'repair-needed',
         conflictPaths: merged.conflicts,
+        conflictHead: main,
         pendingIntegration: null,
         expectedParent: null,
       })
@@ -1163,6 +1174,9 @@ export async function createSyntheticLocalMemoryService(options: {
           pendingIntegration: job.pendingIntegration,
           expectedParent: job.expectedParent,
           conflictPaths: paths,
+          conflictHead: job.conflictHead ?? null,
+          reviewedHead: job.repair?.reviewedHead ?? null,
+          repairCandidate: job.repair?.candidate ?? null,
           detached: runningTree,
         })
       }
@@ -1330,6 +1344,25 @@ export async function createSyntheticLocalMemoryService(options: {
       }),
     reflect: (request) => turnOnce(() => reflect(request)),
     retry: (id) => turnOnce(() => retry(id)),
+    repair: (request) =>
+      turnOnce(async () => {
+        await certifyIdentity()
+        if (!request || typeof request !== 'object') throw Error('Local memory repair refused')
+        const job = await readJob(request.id)
+        if (job.status === 'repair-needed') await inFlight(request.id)
+        return repairLocalJob({
+          git,
+          stateRoot,
+          job,
+          request,
+          injection: options.injection,
+        })
+      }),
+    abandon: (id) =>
+      turnOnce(async () => {
+        await certifyIdentity()
+        return abandonLocalJob(stateRoot, await readJob(id))
+      }),
     watermark: (identity) => {
       if (!trajectoryRuntime) throw Error('Local memory trajectory refused')
       return turnOnce(() => readWatermarkView(stateRoot, identity))

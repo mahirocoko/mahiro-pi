@@ -340,21 +340,32 @@ block R4 activation; installed exercises use R4's approved seam. Moves:
 recovery/concurrency/lifecycle, authority/privacy/isolation, writer/publication.
 Audit gaps: 9–12.
 
-- [ ] **R5-01** Define authority-reviewed repair-needed → repaired/abandoned
-  terminal transitions, retry eligibility and retained conflict evidence. Never
-  auto-merge semantic conflicts or equate abandoned work with consumed trajectory.
-- [ ] **R5-02** Compare Letta abort/cleanup/retry behavior against Mahiro
-  uncertainty retention. Specify crash matrices at lease, worktree, write,
-  publication, rename, watermark and drain boundaries, including restart.
+- [x] **R5-01** 2026-10-30: [synthetic recovery contract](letta-parity-r5.md#explicit-recovery-contract--r5-01)
+  and focused recovery/migration/Palace fixtures implement explicit reviewed
+  repair-needed → repaired/abandoned, failed-reflection-only retry, exact candidate
+  CAS/restart and retained conflict evidence. Neither repair nor abandonment
+  settles trajectory; later reflection requires captured-range coverage. This is
+  source implementation, not independent R5-S or installed acceptance.
+- [x] **R5-02** 2026-10-30: [pinned comparison and crash matrix](letta-parity-r5.md#pinned-comparison-and-crash-matrix--r5-02)
+  records Letta 0.34.31 token/cleanup behavior, retained uncertainty and lease,
+  worktree, write, publication, rename, watermark and drain boundaries. New
+  prepared/CAS/terminal restart fixtures are source evidence; untested power-loss,
+  installed generation and helper outcomes remain explicitly open.
 - [ ] **R5-03** Define same-process and cross-process concurrency limits,
   generation identity, revocation, tokenized claims and stale callbacks. PID or
   dead-parent evidence alone must not erase unknown publication outcomes.
-- [ ] **R5-04** Audit config-root resolution across installer, kernel, memory,
-  agents, viewer, guards and test owners: relocated data/protection roots agree,
-  relative/legacy-root behavior is explicit and alternate roots do not bypass policy.
+- [x] **R5-04** 2026-10-30: [config-root source audit](letta-parity-r5.md#config-root-audit--r5-04)
+  maps installer, kernel, memory, agent, viewer, guard and test inputs. Kernel
+  now uses shared `resolveAgentDir` while retaining canonical realpath validation;
+  setup fixtures cover override/tilde/relative/default behavior. Installed
+  alternate-root policy isolation remains a separate R4/R5-I gate.
 - [ ] **R5-05** Audit bounded Git output/deadlines and HTTP/SSH child/helper
   teardown per supported OS; prove settlement before cleanup or lock release.
   A timeout return alone is not proof all descendants terminated.
+R5-03 cross-process ownership and R5-05 helper-tree settlement remain unresolved
+in the [source limitation matrices](letta-parity-r5.md). No completion is inferred
+from a ref CAS, PID/process death or direct-child timeout return.
+
 - [ ] **R5-S** Fault/state-machine fixtures establish recovery disposition,
   root-isolation negatives and helper-tree outcomes without weakened invariants.
 - [ ] **R5-I** Authorized disposable installed fault actors exercise actual

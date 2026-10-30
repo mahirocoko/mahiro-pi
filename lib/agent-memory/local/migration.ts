@@ -34,7 +34,7 @@ import {
   localGitEnvironment,
   type LocalGitContext,
 } from './git.ts'
-import { parseMeta } from './jobs.ts'
+import { loadJob, parseMeta } from './jobs.ts'
 import {
   createSyntheticLocalMemoryService,
   localMemoryTurn,
@@ -701,23 +701,24 @@ function parseOwner(text: string) {
 }
 
 async function assertQuiescent(stateRoot: string) {
-  const terminal = new Set(['integrated', 'noop', 'failed'])
+  const terminal = new Set(['integrated', 'noop', 'failed', 'repaired', 'abandoned'])
   const jobsDir = join(stateRoot, 'jobs')
   if (await exists(jobsDir)) {
     for (const name of await readdir(jobsDir)) {
       if (isOwnedTempName(name)) continue
       if (!name.endsWith('.json')) refuse()
-      let job: { status?: unknown; pendingIntegration?: unknown; worktreePath?: unknown }
+      let job
       try {
-        job = JSON.parse(await readRequired(join(jobsDir, name)))
+        job = await loadJob(stateRoot, name.slice(0, -5))
       } catch {
         refuse()
       }
-      if (typeof job.status !== 'string' || !terminal.has(job.status)) refuse()
-      if (job.pendingIntegration != null) refuse()
+      if (!terminal.has(job.status)) refuse()
+      if (job.pendingIntegration !== null || job.expectedParent !== null) refuse()
       if (typeof job.worktreePath === 'string' && (await exists(job.worktreePath))) refuse()
     }
   }
+  for (const path of ['repair.index', 'repair.index.lock']) if (await exists(join(stateRoot, path))) refuse()
   if (await residue(join(stateRoot, 'ownership'))) refuse()
   if (await residue(join(stateRoot, 'progress'))) refuse()
   if (await residue(join(stateRoot, 'worktrees'))) refuse()

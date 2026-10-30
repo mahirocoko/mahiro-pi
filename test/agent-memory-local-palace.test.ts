@@ -1078,7 +1078,7 @@ test('repair-needed reports relative paths and blocks retry without a diff', asy
     assert.equal(body.includes(fx.stateRoot), false)
     const html = renderPalacePage({ state: 'snapshot', snapshot, reloadPath: '/cap' })
     assert.match(html, /Resume and retry cannot advance this state/)
-    assert.match(html, /separately supported coordinator repair operation is required/)
+    assert.match(html, /synthetic coordinator requires explicit repair resolutions or abandonment/)
     assert.doesNotMatch(html, /Resolve the listed relative paths/)
     assert.doesNotMatch(html, /SENTINEL_WORKER_BODY|SENTINEL_PARENT_BODY|SENTINEL_REPAIR_SUMMARY/)
   } finally {
