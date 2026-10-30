@@ -18,9 +18,10 @@ schema compatibility. Live ABI1/ABI2 and disconnected synthetic capabilities mus
 not be credited as one installed product.
 
 Mahiro accepted the roadmap direction on 2026-10-30 and authorized continued
-repository write/test/checkpoint execution. R0 is active: complete the behavioral
-specification and source-test work, not more Palace polish or installed integration.
-Phase H continuation and Phase I remain paused until their own gates pass. This
+repository write/test/checkpoint execution. R0 specification, inventory and fresh
+source review are complete; R1–R3 and R5 source semantics are next, not more
+Palace polish or installed integration. Phase H continuation and Phase I remain
+paused until their own gates pass. This
 acceptance does not authorize push, tag, release, profile/install mutation, live
 cutover or Phase I, nor replace later human-only product/visual acceptance.
 The experimental Palace/context source and roadmap are checkpointed at

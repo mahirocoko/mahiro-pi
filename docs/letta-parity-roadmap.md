@@ -2,6 +2,9 @@
 
 [← Documentation](README.md) · [Memory contract](agent-memory.md) · [Development](development.md)
 
+[R0 contract appendix](letta-parity-r0.md) owns detailed pins, the 28-gap owner map,
+selected source directions and evidence worksheets; this roadmap owns status and scores.
+
 ## Scope and authority
 
 This is the canonical **current planning, parity status and scoring owner** for
@@ -39,7 +42,8 @@ Executable source wins over source-guide contradictions, including failed
 reflection integration cleanup.
 
 A means **match closely**, B means **adapt the outcome**, C means **do not copy
-exactly**. These are proposed dispositions until R0 records Mahiro's decisions.
+exactly**. R0's [selected source directions](letta-parity-r0.md#selected-source-directions--r0-03)
+record dispositions on 2026-10-30; implementation and later acceptance remain gated.
 Mahiro's exact-root authority, fallible-memory doctrine, private worker views,
 bounded tools, logical forgetting and preserved uncertainty are intentional
 constraints, not obstacles to remove for a score. No section authorizes Phase I,
@@ -162,23 +166,28 @@ credit for this specification. Audit gaps: 1–28, especially 11, 12 and 28.
   This does not retroactively identify B0's earlier audited dirty tree; its
   provenance limitation remains. Semantic changes require re-audit against the
   frozen source before material score movement.
-- [ ] **R0-01** Map the 28 audit gaps to executable Letta and Mahiro owners,
-  observable user outcomes, proposed A/B/C disposition and accountable decision.
-  Resolve guide/source conflicts using executable owners.
-- [ ] **R0-02** Compare the previous pin with v0.34.31. Separate pre-existing
-  architecture from config-root and Git-helper deltas; record reproducible
-  read-only diff commands and bounded excerpts, not an upstream test run.
-- [ ] **R0-03** Approve schema direction, integration seam, trigger policy,
-  trajectory privacy, recovery disposition, snapshot model and skill admission.
-  Record rejected alternatives and deliberate C exclusions without free points.
-- [ ] **R0-04** Define falsifiable acceptance cases and evidence worksheets for
-  each domain; label local regressions versus latest-source differential fixtures.
-- [ ] **R0-S** Fresh source review verifies the owner map, pins, gap coverage and
-  chosen semantics; preserve all unresolved decisions explicitly.
-- [ ] **R0-I** Separately authorized read-only installed inventory identifies
-  actual routing, grants and capabilities; no inference from installer source.
-- [ ] **R0-O** Reproduce bounded status observations on authorized surfaces and
-  label missing runtime evidence unavailable, not empty or passing.
+- [x] **R0-01** 2026-10-30: [28-gap owner map](letta-parity-r0.md#complete-audit-gap-map--r0-01)
+  records executable owners in both repositories, user outcomes, selected A/B/C
+  dispositions, dependencies and closure evidence; executable cleanup wins over guide prose.
+- [x] **R0-02** 2026-10-30: [latest-source differential](letta-parity-r0.md#latest-source-differential--r0-02)
+  separates pre-existing contracts from config-root/helper deltas and provides
+  reproducible read-only Git commands; no upstream execution claimed.
+- [x] **R0-03** 2026-10-30: [selected source directions](letta-parity-r0.md#selected-source-directions--r0-03)
+  record schema, ABI2-preserving seam, trajectory, assistant-step policy, recovery,
+  snapshot and zero-new-skill decisions with rejected alternatives and risks.
+  This is source selection, not installed or human product acceptance.
+- [x] **R0-04** 2026-10-30: [nine-domain worksheet](letta-parity-r0.md#evidence-classes-and-acceptance-worksheet--r0-04)
+  defines L/D/N/I/O/H, falsifiable cases, evidence identity and scoring boundaries.
+- [x] **R0-S** 2026-10-30: fresh read-only verification passed the owner map,
+  pins, differential, gap coverage, selected semantics, worksheets and sanitized
+  installed claims with no high/medium finding. One low assistant-step owner
+  reference was corrected; implementation and human gates remain open.
+- [x] **R0-I** 2026-10-30: [sanitized installed inventory](letta-parity-r0.md#sanitized-installedruntime-observations--r0-i--r0-o)
+  identifies package, completed receipt, selected ABI2 surface and grants;
+  disconnected local-service/HTML installation is not established.
+- [x] **R0-O** 2026-10-30: same record reports successful bounded Discovery v2
+  namespace/revision reads and manage/status unavailable, reason `unknown`.
+  Observation completeness is not status-health success or writer/publication proof.
 - [x] **R0-H** 2026-10-30: Mahiro accepted the roadmap direction and authorized
   continued repository write/test/checkpoint execution after reviewing the
   checkpoint plan. Specific A/B/C decisions remain tracked under R0-03. This does
@@ -528,29 +537,31 @@ delivery remains unestablished in this baseline.
 
 ## Decision log and open questions
 
-No proposal below is an accepted implementation decision merely because it appears
-in this roadmap. Record owner approval, date, rationale, IDs and evidence when
-closing it; preserve rejected alternatives in Git.
+Selected source directions were recorded on **2026-10-30** under the delegated
+repository scope. The [R0 decision appendix](letta-parity-r0.md#selected-source-directions--r0-03)
+owns dependency order, rejected alternatives and risks. Selection does not close
+implementation, installed/runtime or human-only gates.
 
-| Decision ID | Question / proposed direction | State and dependent gates |
+| Decision ID | Selected source direction | Remaining dependent gates |
 | --- | --- | --- |
-| D-SCHEMA | Retain tiered Mahiro schema or implement a reviewed root/index mapping? Preserve private corpus until decided. | Open; R0-03, R1-01–04. |
-| D-SEAM | Which installed seam connects session, trajectory, writer, integration and next-prompt projection without competing with ABI2? | Open; R4-01–04, R5 safety exits. |
-| D-TRAJECTORY | Which tool/error/conversation evidence is necessary, how is it redacted, and what remains private or omitted? | Open; R3-03–05, R8-01. |
-| D-CONTEXT | Which public Pi owner supplies usage and active-memory attribution, with what estimate and unavailable labels? | Open; R7-02–03. |
-| D-RECOVERY | Repair/abandon transitions versus Letta cleanup/retry: how do progress and unknown publication remain truthful? | Open; R5-01–03. |
-| D-PALACE | Immutable committed invocation snapshot or working-tree view; how are active prompt and later reads bound/labeled? | Open; R1-02, R7-01–05. |
-| D-SKILLS | Which core/deferred/context-doctor jobs need minimal-adaptation skills versus stronger existing guidance delivery? | Open; R2 and G-SKILL; zero new skills valid. |
-| D-TRIGGER | Adopt assistant-step 25, another explicit policy, or renamed entry-count; how do compaction and replay interact? | Open; R3-01–05. |
-| D-EXCLUSIONS | Approve C boundaries and any denominator changes explicitly; never award excluded behavior implementation credit. | Open; R0-03, R8-02. |
+| D-SCHEMA | B: retain Mahiro schema with explicit automatic/deferred mapping, no bulk private-corpus rename. | R1-01–04 and R1-H. |
+| D-SEAM | B: one ABI2-preserving installed slice, sole publication owner and rollback proof; not a permanent third ABI. | R4-01–04 and R5 safety exits; no activation authorized here. |
+| D-TRAJECTORY | B/C: bounded redacted trajectory, captured ranges and explicit privacy exclusions. | R3-03–05, R8-01; installed producer and quality remain unproven. |
+| D-CONTEXT | B: command-time public Pi session capture, estimated/unavailable labels; separate Git knowledge history from maintenance. | R7-02–03 and history gates; exact attribution owner still needs implementation proof. |
+| D-RECOVERY | B: repair/abandon transitions preserving unknown publication and ownership evidence. | R5-01–03; no automatic semantic conflict resolution. |
+| D-PALACE | B: committed default snapshot; distinguish drafts, integrated state and current active prompt. | R1-02, R7-01–05 and human visual/product acceptance. |
+| D-SKILLS | B/C: zero new package skills now; preserve core/deferred/context-doctor quality, admit only through G-SKILL. | R2 and G-SKILL; no bulk/cloud adoption or silent skill mutation. |
+| D-TRIGGER | A/B: finalized assistant steps, future threshold 25 independent of batch cap; captured-range watermark and separate replay. | R3-01–05; no live default change established. |
+| D-EXCLUSIONS | C: no hosted/shared authority, bulk skill adoption, raw private payload copying or conflicting companion doctrine. | R8-02; no free implementation credit or denominator change. |
 
 ## Immediate next milestone
 
-**R0 is active: specification and source-test work**, with continued repository
-write/test/checkpoint execution authorized on 2026-10-30. Complete R0 decisions,
-specify R1–R3 and R5 semantics, then implement only approved synthetic/differential
-source fixtures and narrowly approved corrections. Define R4's smallest integration
-slice on paper; do not install or activate it in that milestone.
+**R0 specification, inventory and source review are complete.** Continued
+repository write/test/checkpoint execution was authorized on 2026-10-30. Next,
+specify R1–R3 and R5 semantics, then implement only approved
+synthetic/differential source fixtures and narrowly approved corrections. Define
+R4's smallest integration slice on paper; do not install or activate it in that
+milestone.
 
 Phase H continuation and Phase I remain paused until their own gates pass. This
 roadmap-direction acceptance does not authorize push, tag, release, profile/install

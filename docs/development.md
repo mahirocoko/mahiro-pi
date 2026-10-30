@@ -251,6 +251,9 @@ activation, performance or human acceptance. Keep the baseline date, Mahiro comm
 and any audited dirty-diff identity, Letta version/pins, checklist IDs and evidence
 references together. Retain old baselines in Git and explain old/new domain values
 and weighted totals in the roadmap revision table; never silently edit a score.
+The [R0 contract appendix](letta-parity-r0.md) owns the detailed gap/owner map,
+selected directions, read-only differential commands and L/D/N/I/O/H worksheets;
+the roadmap remains the status/scoring owner.
 
 Scores move only with cited evidence layers: source 50%, installed integration
 20%, observed runtime 20%, human acceptance 10%. Missing evidence earns no credit
