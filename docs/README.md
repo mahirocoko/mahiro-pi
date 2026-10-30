@@ -38,7 +38,10 @@
   active migration and authority cutover. The
   [R7 invocation-view contract](letta-parity-r7.md) specifies disconnected committed
   captures, projection receipts and bounded knowledge history, not installed capture
-  or HTML diff navigation.
+  or HTML diff navigation. The
+  [R8 source/security/context-contract closeout](letta-parity-r8.md) records the
+  current 75% source / 40% evidence assessment, threat/coverage ledger and
+  **NOT ALIGNED / NOT READY** decision; no target-controlled gates ran in R8.
   None establishes installed parity or activation.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),

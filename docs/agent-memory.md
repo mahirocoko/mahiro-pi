@@ -11,8 +11,13 @@ instructions or authenticated current preferences.
 
 The [Letta maintained-memory parity roadmap](letta-parity-roadmap.md) owns current
 parity status, scoring, scope decisions and phased evidence gates. The verdict is
-**NOT ALIGNED**: rounded editorial assessments are 60% source capability and 30%
-evidence-backed end-to-end parity, not objective equivalence or performance.
+**NOT ALIGNED**: for assessed product source
+`85d2f0a82088103eb67d4bd29876e0f4e4b471a8`, rounded editorial assessments are **75% source capability / 40% evidence-backed
+end-to-end parity** (75.75/37.875 unrounded), not objective equivalence or
+performance. The [R8 source/security/context-contract closeout](letta-parity-r8.md)
+is complete only at the source layer; R8-I/O/H remain open and release/cutover is
+**NOT READY**. Installed/observed/human current score contributions are zero
+because unestablished, not because failure was demonstrated.
 This guide owns the implemented memory contract, not a claim of Letta MemFS v2
 schema compatibility. Live ABI1/ABI2 and disconnected synthetic capabilities must
 not be credited as one installed product.
@@ -22,14 +27,20 @@ repository write/test/checkpoint execution. R0 specification, inventory and fres
 source review are complete. The [R4 source/SDK checkpoint](letta-parity-r4.md)
 proves one disposable automatic ABI2 route through genuine native completion and
 next-request projection. It does not activate the disconnected local service or
-close installed/provider/human gates; scores remain 60%/30%. Phase H continuation and Phase I remain
-paused until their own gates pass. This
-acceptance does not authorize push, tag, release, profile/install mutation, live
-cutover or Phase I, nor replace later human-only product/visual acceptance.
-The experimental Palace/context source and roadmap are checkpointed at
-`f46cade7e3c984981b5eeb55eb68a4a610b45ba2`. R0-00 candidate evidence does not
-retroactively identify B0's earlier audited dirty tree. Semantic changes and score
-movement require re-audit.
+close installed/provider/human gates. R1–R7 dated 60%/30% unchanged-score
+statements and the B1 `f46cade7e3c984981b5eeb55eb68a4a610b45ba2` checkpoint
+remain history; R8 above is the current assessment. R0-00 candidate evidence does
+not retroactively identify B0's earlier audited dirty tree. No target-controlled
+gates ran for R8 because no qualifying OS sandbox is established; earlier test
+records are references, not rerun proof.
+
+Next gates are a disposable installed R4/R5 journey only after authorization,
+R6 operator rehearsal only after the product exists, R7 installed collector and
+rendered review, then longitudinal evaluation and a separate release decision.
+Phase H continuation and Phase I remain paused until their own gates pass.
+Direction acceptance does not authorize push, tag, release, profile/install
+mutation, private migration, live cutover or Phase I, nor replace later human-only
+product/visual/RAM acceptance.
 
 ## Maintained knowledge
 
@@ -239,8 +250,9 @@ mutation journal. `/mh-memory` does not call it, and loading this source does no
 apply, reload or migrate a live root. This is metadata-only export, not content
 capture or backup. The [R6 operator contract](letta-parity-r6.md) inventories current
 user jobs and explicitly unavailable backup/restore, active migration, authority
-cutover, knowledge diff/history and conversation replay workflows. No parity CLI
-or new operator API is added.
+cutover and conversation replay workflows. R7 now has a disconnected synthetic
+knowledge-history/diff service API, but user/operator/HTML history remains
+unavailable. No parity CLI or new operator API is added.
 
 ## Compaction provenance and compatibility
 
@@ -986,7 +998,9 @@ in a private shadow; that label does not read private state or change live
 authority. Live publication remains ABI2. Any wiring to the live coordinator
 requires the roadmap's separately approved integration and evidence gates; an
 accepted preview alone does not authorize it. Roadmap direction was accepted on
-2026-10-30 for continued repository write/test/checkpoint execution; R0 is active.
+2026-10-30 for continued repository write/test/checkpoint execution. R0–R7 bounded
+source milestones and the [R8 source audit](letta-parity-r8.md) are recorded;
+installed/observed/human gates remain open, not an active R0 implementation plan.
 Phase H continuation and Phase I remain paused until their own gates pass. Push,
 tag, release, profile/install mutation, live cutover, Phase I and later human-only
 product/visual acceptance are not authorized by that direction acceptance.

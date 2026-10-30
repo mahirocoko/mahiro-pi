@@ -94,6 +94,12 @@ When a security-audit execution constraint applies, do not run target-controlled
 checks, builds or formatters without the required sandbox. Limit verification to
 source/diff inspection and report the unrun checks explicitly.
 
+The [R8 source/security/context-contract closeout](letta-parity-r8.md), assessing
+product source at `85d2f0a82088103eb67d4bd29876e0f4e4b471a8`, ran no target-controlled gates:
+no qualifying OS sandbox was established. Its prior R0–R7 test/SDK records are
+evidence references, not R8 rerun proof. Native Git diff/whitespace inspection
+does not replace the normal checks above or establish release readiness.
+
 Focused session-work checks (serialize with other SDK/heavy jobs):
 
 ```sh

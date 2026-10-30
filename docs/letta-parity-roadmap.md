@@ -15,11 +15,13 @@ to reproduce the whole Letta app, hosted backend or every command and skill.
 [agents](agents.md) owns roles and skill boundaries. Source and observed runtime
 outrank prose, phase names, green test counts and percentages.
 
-Current checkpoint baseline: **2026-10-30**, Mahiro commit
-`f46cade7e3c984981b5eeb55eb68a4a610b45ba2`. It freezes the experimental
-Palace/context source and this roadmap without claiming installed integration,
-rendered acceptance or parity. Scores remain unchanged pending a differential
-re-audit and completed evidence gates.
+Current assessment of product source: **2026-10-30**, Mahiro commit
+`85d2f0a82088103eb67d4bd29876e0f4e4b471a8`, compared with the Letta pin below.
+The later docs-only checkpoint containing this roadmap and the
+[R8 source/security/context-contract closeout](letta-parity-r8.md) records
+**75% source / 40% evidence-backed end-to-end**, **NOT ALIGNED** and **NOT READY**
+for release/cutover. R8 source audit is complete; installed/observed/human (I/O/H)
+gates remain open. No target-controlled execution was performed for R8.
 
 The original B0 baseline was **2026-10-29**, Mahiro commit
 `7c4169477fcacc472018678848f74342173de2b2` plus the audited dirty working tree.
@@ -51,8 +53,8 @@ a live cutover, profile changes, a commit, release or new skill installation.
 
 ## Current verdict
 
-**NOT ALIGNED.** Current editorial assessments are **60% source-capability
-coverage** and **30% evidence-backed end-to-end parity**. Both are rounded,
+**NOT ALIGNED.** Current editorial assessments are **75% source-capability
+coverage** and **40% evidence-backed end-to-end parity**. Both are rounded,
 weighted planning summaries, not objective equivalence, benchmark results,
 performance, learning quality or human acceptance.
 
@@ -63,8 +65,11 @@ routing. Synthetic completion is not an installed end-to-end product. The checkp
 Palace context DTO is a partial repair with fixture/unavailable context, not
 command-time capture from the invoking session. `/mh-memory palace` remains a
 bounded JSON diagnostic. Mahiro accepted the roadmap direction on 2026-10-30
-and authorized continued repository write/test/checkpoint execution. R0 is active;
-Phase H continuation and Phase I remain paused until their own gates pass.
+and authorized continued repository write/test/checkpoint execution. R0–R7 source
+milestones and R8 source audit now have bounded records, not complete-product
+acceptance. R8-I/O/H remain open; Phase H continuation and Phase I remain paused
+until their own gates pass. R8's security execution boundary supersedes ordinary
+check instructions for this pass: no tests, builds, formatters or target checks ran.
 
 ## Scoring method
 
@@ -83,8 +88,11 @@ There are two views of the same nine weighted domains:
   claimed installed seam itself is independently established.
 - Aggregate with the domain weights below, then round to the nearest **5
   percentage points**. Do not round intermediate calculations when recalculating.
-  Baseline source values total 61.5%; half-source evidence totals 30.75%; these
-  display as 60% and 30%. The per-domain displayed baseline is source × 50%.
+  Current weighted source total is 75.75%; its source-layer contribution is
+  75.75 × 0.50 = 37.875 percentage points. Installed, observed and human current
+  claim contributions are each zero: 37.875 + 0 + 0 + 0 = 37.875%. These display
+  as 75% and 40%. Per-domain evidence below is source × 50%. B0/B1's historical
+  61.5% / 30.75% totals displayed as 60% / 30%; they are not rewritten.
 - Planned work earns zero. A deliberate C exclusion earns no implementation
   points and needs explicit approval. Do not silently drop its denominator;
   record any approved scope/denominator change as a new baseline.
@@ -94,20 +102,28 @@ There are two views of the same nine weighted domains:
 Confidence labels are qualitative evidence confidence, not statistical intervals:
 **moderate/low** means credible audited source with unestablished end-to-end
 proof; **limited/low** also signals unresolved semantic or integration choices.
-No high-confidence installed or human claim is made by this baseline.
+No high-confidence installed or human claim is made by this assessment.
+Installed/observed/human zeros mean unestablished at this checkpoint, not failure
+and not a denial of R0's narrower historical inventory/read observations.
 
 | Domain | Weight | Source | Displayed/evidence | Confidence (source/end-to-end) | Rationale | Next-band condition |
 | --- | --- | --- | --- | --- | --- | --- |
-| Storage/schema/forgetting | 10 | 70% | 35% | Moderate/low | Revisioned Markdown/Git and tombstones exist; tiered schema is not Letta root/index semantics. | R1 mapping and R6 non-resurrection fixtures establish another source band; installed seed/rollback proof needed above source-only credit. |
-| Projection/retrieval | 15 | 80% | 40% | Moderate/low | Committed projection and bounded reads exist; selection and deferred navigation differ. | R1 differential fixtures prove core selection and future-request discovery; R4 proves next-request visibility. |
-| Reflection/trajectory/progress | 20 | 40% | 20% | Limited/low | Filtered episodes differ from trajectory; R3 adds synthetic assistant-step/captured-prefix semantics, not an installed route. | R3 proves assistant-step, captured-range, no-op/failure/replay semantics; R4 observes the installed route. |
-| Writer/publication | 15 | 80% | 40% | Moderate/low | Identity-bound native writer and guarded publication exist; local coordinator is disconnected. | R4 proves one authorized session-to-writer-to-publication slice, including conflict and no-learning outcomes. |
-| Recovery/concurrency/lifecycle | 10 | 60% | 30% | Moderate/low | Generation/drain and uncertainty preservation exist; repair-needed has no terminal recovery. | R5 proves repair/abandon, crash outcomes, root isolation and helper settlement without weakening uncertainty. |
-| Commands/migration/operator workflows | 5 | 50% | 25% | Limited/low | Shadow export/seed is not active migration, backup/restore or cutover. | R6 demonstrates distinct operator jobs, truthful state labels and tested rollback; installed proof separately cited. |
-| Palace/context/history | 10 | 40% | 20% | Limited/low | Synthetic preview and context DTO are not live invocation context or Git knowledge history. | R7 binds a read-only invocation snapshot, active-memory attribution and separate knowledge/lifecycle history. |
-| Memory skills/guidance | 10 | 60% | 30% | Moderate/low | R2 selects existing guidance owners and zero new skills; installed job delivery remains unproven. | R2 G-SKILL job evaluations improve guidance and access without authority expansion; human longitudinal quality remains separate. |
-| Authority/privacy/isolation | 5 | 80% | 40% | Moderate/low | Exact-root private views and narrow tools are strong; threat models differ and live integration is absent. | R8 matrix plus R4/R5 negative installed evidence prove effective boundaries, not optional sandbox assumptions. |
-| **Overall** | **100** | **60%** | **30%** | **Limited end-to-end evidence** | **Rounded editorial weighted assessment.** | **Only cited layer evidence and fresh verification can move the baseline.** |
+| Storage/schema/forgetting | 10 | 80% | 40% | Moderate/low | R1 mapping and R6 logical non-resurrection cover committed owners; not secure erasure or MemFS v2 compatibility. | Authorized installed seed/rollback and independent non-resurrection evidence. |
+| Projection/retrieval | 15 | 85% | 42.5% | Moderate/low | R1 single-revision projection/discovery and R4 next-request SDK route exist; local projection remains disconnected. | Installed next-request visibility and novel-request discovery. |
+| Reflection/trajectory/progress | 20 | 70% | 35% | Moderate/low | R3 assistant-step/captured-prefix/replay semantics and R4 automatic SDK route exist; no installed trajectory delivery or longitudinal quality proof. | Installed success/no-op/failure/replay and longitudinal utility. |
+| Writer/publication | 15 | 90% | 45% | Moderate/low | R4 genuine deterministic child completion drives ABI2 publication; the synthetic local coordinator is not this publisher. | Authorized installed routing, permissions, conflict and no-learning journeys. |
+| Recovery/concurrency/lifecycle | 10 | 80% | 40% | Moderate/low | R5 synthetic repair/abandon, CAS/restart, cooperative claims and retained Git uncertainty exist; installed/live recovery is absent. | Installed faults, alternate-root isolation and bounded helper observations; no universal helper-tree certainty. |
+| Commands/migration/operator workflows | 5 | 50% | 25% | Limited/low | R6 export/bundle/shadow/quarantine are distinct; active migration, backup/restore and cutover remain unavailable. | Build an authorized operator product before installed rehearsal. |
+| Palace/context/history | 10 | 60% | 30% | Limited/low | R7 disconnected capture/projection receipts and first-parent history/diff API exist; no installed collector, HTML history/diff or live active-prompt attribution. | Installed invocation collector, safe rendered history and Mahiro's review. |
+| Memory skills/guidance | 10 | 70% | 35% | Moderate/low | R2 preserves synthesis/reasons/examples and bounded diagnosis through existing owners, zero new skills; delivery/quality remain unproven. | Installed job delivery and longitudinal human synthesis/discovery review. |
+| Authority/privacy/isolation | 5 | 80% | 40% | Moderate/low | Exact-root private views, public PSS and confined tools have source owners; R8 maps limits, not universal sandbox or provider privacy. | R4/R5 installed negative boundaries and R8-I/O/H. |
+| **Overall** | **100** | **75%** | **40%** | **Limited end-to-end evidence** | **75.75% source; 37.875% source-only evidence, rounded to nearest 5 points.** | **Only cited layer evidence and fresh verification can move the assessment.** |
+
+Explicit source arithmetic: `(80×10 + 85×15 + 70×20 + 90×15 + 80×10 +
+50×5 + 60×10 + 70×10 + 80×5) / 100 = 75.75`. Evidence arithmetic:
+`75.75×0.50 + 0×0.20 + 0×0.20 + 0×0.10 = 37.875`.
+The increase reflects the bounded R1–R7 source/SDK capabilities now assessed,
+not new R8 execution, installed credit or security superiority.
 
 ### Maintained update protocol
 
@@ -138,6 +154,11 @@ No high-confidence installed or human claim is made by this baseline.
 | --- | --- | --- | --- | --- |
 | B0 | 2026-10-29 | Mahiro `7c4169477fcacc472018678848f74342173de2b2` + audited dirty tree; Letta `a8900b882446d7aa99fedf2845d400743affd1b6` / v0.34.31 | 60% → 30% | 28-gap read-only audit; source-only credit. B0 dirty-source identity unfrozen/unavailable: no immutable whole-dirty-tree manifest was captured; the commit alone is insufficient. Roadmap direction and phase exits were not accepted at B0. |
 | B1 | 2026-10-30 | Mahiro `f46cade7e3c984981b5eeb55eb68a4a610b45ba2`; same Letta pins | 60% → 30% | Immutable experimental Palace/context and roadmap checkpoint. R0-00 candidate evidence and R0-H direction acceptance recorded. No score movement: latest-source re-audit, installed/runtime evidence and later phase exits remain open. |
+| R8 | 2026-10-30 | Assessed product source Mahiro `85d2f0a82088103eb67d4bd29876e0f4e4b471a8`; same Letta pins; ledger authored in the later docs-only checkpoint containing this row | 75% → 40% | Current editorial source assessment: 75.75 / 37.875 unrounded. R1–R7 source/SDK records and R8 threat/context ledger; no target execution in R8, no new I/O/H credit. NOT ALIGNED; NOT READY for release/cutover. |
+
+Dated R1–R7 appendices retain their unchanged-score statements (60%/30%) as
+checkpoint history. They do not override this current R8 assessment. Historical
+R0 inventory/reads do not establish the later complete installed journey.
 
 ## Roadmap and evidence gates
 
@@ -285,7 +306,8 @@ writer/publication. Audit gaps: 4–8, 26–28.
 - [x] **R3-05** 2026-10-30: [source state-machine fixtures](letta-parity-r3.md#source-regression-evidence--r3-05)
   cover captured-prefix draining, late append, no-op, failure/retry, conflict,
   restart, compaction and replay. Installed cancellation/provider lifecycle remains unproven.
-  Source implementation is not independent acceptance; scores remain unchanged.
+  Source implementation is not independent acceptance; no score change was
+  recorded at that R3 checkpoint. Current R8 scoring is above.
 - [x] **R3-S** 2026-10-30: fresh source review passed assistant-only threshold
   25, bounded captured-prefix continuation, late-tail isolation, monotonic
   settlement, explicit retry/non-executing replay, secret replacement and existing
@@ -305,7 +327,8 @@ reflection or treating replay as current authenticated instruction.
 
 [R4 source/SDK checkpoint](letta-parity-r4.md): R4-01–04/R4-S are complete
 at the disposable deterministic layer. ABI2 remains sole authority; the local
-service stays disconnected. R4-I/O/H remain open; scores stay 60%/30%.
+service stays disconnected. R4-I/O/H remain open; its dated 60%/30% statement is
+history, superseded for current scoring by R8 above.
 
 Dependencies: R0–R3 source contracts; R5 safety design/source gates before live
 activation; explicit installed scope and rollback approval. Moves:
@@ -395,9 +418,10 @@ PID-based certainty, silent conflict deletion or blanket process killing.
 [R6 source/synthetic checkpoint](letta-parity-r6.md): R6-01–04 source specification
 and R6-S are complete only with explicit unavailable states. Metadata export,
 caller-supplied bundles, shadow verification and target quarantine stay separate;
-backup/restore, active migration, authority cutover, knowledge diff/history and
-conversation replay remain unavailable/prospective. No new CLI/API or live wiring.
-R6-I/O/H remain open; scores stay 60%/30%.
+backup/restore, active migration, authority cutover and conversation replay remain
+unavailable/prospective. R7 now supplies synthetic service knowledge history/diff,
+not a user/operator/HTML workflow. No new operator CLI/API or live wiring.
+R6-I/O/H remain open; its dated 60%/30% statement remains history.
 
 Dependencies: R1 mapping, R4 proven seam and R5 recovery. Moves:
 commands/migration/operator workflows, storage/schema/forgetting,
@@ -435,7 +459,8 @@ where directly evidenced. Audit gaps: 14–18, 24.
 
 The [R7 source contract](letta-parity-r7.md) owns the bounded disconnected slice.
 The checks below mean source specification/synthetic service only, not installed
-or HTML history/diff completion. Scores remain 60%/30%; Phase H stays paused/unaccepted.
+or HTML history/diff completion. Its dated 60%/30% score is history; current R8
+scoring is above. Phase H stays paused/unaccepted.
 
 - [x] **R7-01 source specification** Separate committed invocation-view envelope;
   no ambient private lookup or publication-authority change. Future installed
@@ -473,23 +498,24 @@ complete-product readiness. Moves: authority/privacy/isolation and any domain
 with newly established layers, never by blanket suite credit. Audit gaps: 22,
 23, 26–28 and all unresolved evidence gaps.
 
-- [ ] **R8-01** Publish a threat/outcome matrix for private views, tool/path
-  confinement, native enforcement, subprocesses, optional OS sandbox, loopback
-  access, untrusted trajectory and same-user limits. Identify tested enforcement
-  and unsupported threats; a data subprocess is not an OS sandbox.
-- [ ] **R8-02** Map every accepted A/B outcome to local regression, latest-source
-  differential, SDK, installed, observed and human evidence. Track exclusions,
-  untested surfaces, failures and residual risks explicitly.
-- [ ] **R8-03** Obtain fresh verification against final source and receipts,
-  recalculate scores by layer, challenge contradictions and retain old baselines.
-- [ ] **R8-04** Define longitudinal synthesis/contradiction/discovery evaluations
-  plus performance/RAM/I/O and context-estimate measurements with named workloads;
-  do not invent efficacy from structural retention tests.
-- [ ] **R8-05** Prepare a separate release-readiness decision with unresolved
-  risks, rollback, installation and human gates. Release checks and any commit,
-  push, tag, publish, profile activation or Phase I require new explicit scope.
-- [ ] **R8-S** Fresh source/security review and explicitly authorized scoped
-  checks verify the agreed matrix; report unrun heavy gates truthfully.
+- [x] **R8-01** 2026-10-30: [source threat/outcome matrix](letta-parity-r8.md#threatoutcome-matrix--r8-01)
+  identifies principals, resources, enforcement, regression owners and unsupported
+  threats. Source inspection only; a data subprocess is not an OS sandbox.
+- [x] **R8-02** 2026-10-30: [evidence ledger](letta-parity-r8.md#evidence-and-coverage-ledger--r8-02)
+  maps R0–R7 A/B outcomes, exclusions and direct/indirect/missing/human-only
+  coverage without promoting source/SDK records to installed proof.
+- [x] **R8-03** 2026-10-30: source/context reconciliation at `85d2f0a` and
+  current layer arithmetic above retain B0/B1 and dated R1–R7 scores as history.
+  This is a source-only assessment, not independently rerun receipt validation
+  or complete-product verification; independent QA remains a separate review.
+- [x] **R8-04** 2026-10-30: [named longitudinal workloads and metrics](letta-parity-r8.md#longitudinal-evaluation-plan--r8-04)
+  define future evaluation, not measured efficacy, performance or RAM acceptance.
+- [x] **R8-05** 2026-10-30: [release/cutover decision](letta-parity-r8.md#release-and-cutover-decision--r8-05)
+  is **NOT READY**, with rollback, install, authorization and human gates explicit.
+- [x] **R8-S** 2026-10-30: source/security/context-contract audit closeout only.
+  No confirmed vulnerability or severity assigned by this source pass. No
+  target-controlled test, build, formatter or check ran: no qualifying OS sandbox
+  is established. Prior test records are references, not R8 rerun proof.
 - [ ] **R8-I** Verify actual grants, routing and confinement for the claimed
   installed package/profile rather than source defaults alone.
 - [ ] **R8-O** Collect bounded longitudinal and failure observations on the
@@ -571,8 +597,8 @@ byte-match constraints prohibit silently editing the installed writer role.
 
 Source percentages are editorial job coverage, **not file counts**. The six-job
 mean is 63.33%; it is diagnostic input, not the mathematical basis of the
-separately adjudicated 60% skills source domain, another weighted domain or an
-extra evidence layer. Quality includes preserved
+separately adjudicated current 70% skills source domain (60% at B0/B1), another
+weighted domain or an extra evidence layer. Quality includes preserved
 reasoning/examples and useful synthesis; delivery includes correct triggers,
 available tools, discoverability and refusal behavior. Installed/runtime/human
 delivery remains unestablished in this baseline.
@@ -622,18 +648,23 @@ implementation, installed/runtime or human-only gates.
 | D-TRIGGER | A/B: finalized assistant steps, future threshold 25 independent of batch cap; captured-range watermark and separate replay. | R3-01–05; no live default change established. |
 | D-EXCLUSIONS | C: no hosted/shared authority, bulk skill adoption, raw private payload copying or conflicting companion doctrine. | R8-02; no free implementation credit or denominator change. |
 
-## Immediate next milestone
+## Next authorized-scope gates
 
-**R0 specification, inventory and source review are complete.** Continued
-repository write/test/checkpoint execution was authorized on 2026-10-30. Next,
-specify R1–R3 and R5 semantics, then implement only approved
-synthetic/differential source fixtures and narrowly approved corrections. Define
-R4's smallest integration slice on paper; do not install or activate it in that
-milestone.
+R0–R7 bounded source milestones and R8 source audit are recorded. The next
+integration gate is a **disposable installed R4/R5 journey only after explicit
+authorization**, with exact grants/routes, owned synthetic fixtures, fault cases
+and rollback reviewed first. No installation or execution is authorized by this
+closeout. Under the security boundary, any target execution also requires the
+qualifying OS sandbox; ordinary earlier test scope does not waive that condition.
 
-Phase H continuation and Phase I remain paused until their own gates pass. This
-roadmap-direction acceptance does not authorize push, tag, release, profile/install
-mutation, live cutover or Phase I, nor replace later human-only product/visual
-acceptance. Later source, installed, observed-runtime and human exits each require
-their own evidence and scope. The useful next result is a falsifiable behavioral
-contract, not a larger preview or a higher unsupported percentage.
+R6 operator rehearsal follows only after an authorized operator product exists;
+shadow APIs alone are insufficient. R7 needs an installed invoking-session
+collector and separately authorized rendered review, including history/diff
+availability and safe stale/revoked behavior. Then collect named longitudinal
+quality, context, performance/RAM/I/O and failure evidence, and obtain Mahiro's
+human-only acceptance before a separate release decision. R8-I/O/H stay open.
+
+Phase H continuation and Phase I remain paused until their own gates pass. Push,
+tag, release/publish, profile/install mutation, private migration, live cutover
+and Phase I remain unauthorized. Current direction acceptance, source scores and
+this NOT READY decision grant none of those permissions.
