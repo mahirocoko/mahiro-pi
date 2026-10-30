@@ -32,7 +32,10 @@
   [R4 ABI2 route checkpoint](letta-parity-r4.md) proves one disposable automatic
   SDK route, not installed/provider/human acceptance. The
   [R5 recovery contract](letta-parity-r5.md) defines explicit synthetic repair/abandon,
-  unchanged recovery watermarks, retained evidence and open concurrency/helper limits.
+  unchanged recovery watermarks, retained evidence and open concurrency/helper limits. The
+  [R6 operator contract](letta-parity-r6.md) separates metadata export, caller bundles,
+  disconnected shadow verification and quarantine from unavailable backup/restore,
+  active migration and authority cutover.
   None establishes installed parity or activation.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),

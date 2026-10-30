@@ -236,7 +236,11 @@ active file's committed SHA-256 content hash (the same whole-file hash as
 not carry file text, credentials, root paths, draft or conflict bodies, or any other
 private corpus. Hashing reads that commit only and does not require a healthy
 mutation journal. `/mh-memory` does not call it, and loading this source does not
-apply, reload or migrate a live root.
+apply, reload or migrate a live root. This is metadata-only export, not content
+capture or backup. The [R6 operator contract](letta-parity-r6.md) inventories current
+user jobs and explicitly unavailable backup/restore, active migration, authority
+cutover, knowledge diff/history and conversation replay workflows. No parity CLI
+or new operator API is added.
 
 ## Compaction provenance and compatibility
 
@@ -874,7 +878,13 @@ exact content hashes, and file-count and byte totals that fit the current corpus
 Every file also carries a committed-read envelope: `revision`, `currentRevision`,
 `basis: "view-snapshot"` and `freshness: "current"`. The supplied text must hash
 to that committed hash and to the export row. A private draft, stale read, mixed
-revision, or altered text is refused.
+revision, or altered text is refused. These envelopes and pages are caller-supplied
+assertions, not authenticated source capture. The adapter validates self-consistency
+only; it cannot observe a later source change. The caller must perform a final
+canonical revision/currentRevision check immediately before shadow open through
+the authorized source owner, refusing/recollecting on mismatch. This is not an
+atomic cross-owner lock, provenance attestation or consent grant. Complete section
+paging rejects gaps, overlaps, duplicates and extra empty terminal pages.
 Forgotten paths and sources are removed before seed, including when the export
 also listed them as active. Ambiguous, stale, or incomplete bundles fail closed.
 
@@ -889,6 +899,10 @@ the same complete bundle verifies that receipt, including the manifest, and retu
 it unchanged. A different bundle, a replaced repository, an equal-length content
 change, or a partial root that is not the recorded owner fails closed. An
 interrupted create can be resumed when the owner identity and manifest still match.
+Changing the root inode at the same path refuses open and rollback. Later forgetting
+policy evolution makes the old bundle's receipt verification refuse rather than
+resetting the policy or reseeding excluded bytes; version-1 receipts remain unchanged.
+Do not retrieve forgotten content merely to infer historical blob tombstones.
 Rollback waits on the migration turn and then holds the same sibling root claim
 used by service operations. It renames only a quiescent owned root after two
 checks: no queued, running, committed or repair-needed job, no pending publication,
@@ -899,7 +913,10 @@ cannot reconcile the root mid-rollback. Integrated, noop, failed, repaired and
 abandoned jobs may remain only after residue is gone. Public abandonment retains
 evidence and publishes nothing; exact cleanup is separate. Existing service
 handles then fail. A dead or poisoned claim blocks rollback rather than being
-stolen. This does not switch live authority.
+stolen. This is target quarantine only: not managed revision rollback, backup/restore,
+prior-route restoration or authority cutover. Those active migration workflows remain
+unavailable. The [R6 specification](letta-parity-r6.md) records prospective preview/apply
+identity, consent and receipt requirements, not an executable live procedure.
 
 Extension, kernel, installer, and profile code do not import this adapter. It
 does not call a provider, publish, or select installation.

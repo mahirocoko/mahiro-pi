@@ -392,23 +392,30 @@ PID-based certainty, silent conflict deletion or blanket process killing.
 
 ### R6 — Migration, operator workflows and rollback
 
+[R6 source/synthetic checkpoint](letta-parity-r6.md): R6-01–04 source specification
+and R6-S are complete only with explicit unavailable states. Metadata export,
+caller-supplied bundles, shadow verification and target quarantine stay separate;
+backup/restore, active migration, authority cutover, knowledge diff/history and
+conversation replay remain unavailable/prospective. No new CLI/API or live wiring.
+R6-I/O/H remain open; scores stay 60%/30%.
+
 Dependencies: R1 mapping, R4 proven seam and R5 recovery. Moves:
 commands/migration/operator workflows, storage/schema/forgetting,
 recovery/concurrency/lifecycle. Audit gaps: 19, 20, 25.
 
-- [ ] **R6-01** Inventory user jobs: inspect/configure reflection, select/replay,
+- [x] **R6-01** Inventory user jobs: inspect/configure reflection, select/replay,
   diff knowledge, export, backup, restore, migrate and rollback. Choose native
   command ownership by outcome, not Letta command spelling.
-- [ ] **R6-02** Separate metadata export, content bundle, shadow verification,
+- [x] **R6-02** Separate metadata export, content bundle, shadow verification,
   active migration, backup/restore and authority cutover. Define revision/hash
   consistency, paging completeness and refusal of stale or mixed bundles.
-- [ ] **R6-03** Preserve forgetting policy across import, later seed, rollback
+- [x] **R6-03** Preserve forgetting policy across import, later seed, rollback
   and conflict recovery; tombstones are logical non-resurrection, not secure
   history erasure. Required compact files remain valid without exposing excluded blobs.
-- [ ] **R6-04** Specify preview/apply consent, exact source/target identities,
+- [x] **R6-04** Specify preview/apply consent, exact source/target identities,
   resumability, quiescent rollback and failure receipts. Preserve original memory
   and unrelated profile choices; never claim shadow completion as live migration.
-- [ ] **R6-S** Synthetic fixtures cover partial seed, changed hashes, missing
+- [x] **R6-S** Synthetic fixtures cover partial seed, changed hashes, missing
   pages, root replacement, interrupted operations and forgotten material.
 - [ ] **R6-I** An explicitly approved disposable installed rehearsal proves
   operator commands use the intended authority and can restore the prior route.

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -20,7 +23,11 @@ import {
   type ShadowMigrationBundle,
   type ShadowMigrationFile,
 } from '../lib/agent-memory/local/migration.ts'
-import type { TombstoneSource } from '../lib/agent-memory/local/forgetting.ts'
+import {
+  emptyForgettingMetadata,
+  tombstoneSnapshotDigest,
+  type TombstoneSource,
+} from '../lib/agent-memory/local/forgetting.ts'
 import {
   canonicalLedgerDigest,
   migrationExportSections,
@@ -174,6 +181,249 @@ function includeForgotten(bundle: ShadowMigrationBundle) {
   assert.ok(binding)
   ;(binding.entries[0] as { activeFiles: number }).activeFiles = rows.length
 }
+
+test('duplicate empty terminal export page is refused before creating an owner', async () => {
+  const fx = fixture()
+  try {
+    const bundle = bundleFor({ files: [file('Core.md', 'base\n'), file('index.md', 'index\n')] })
+    const terminal = bundle.pages.find((page) => page.section === 'reviewed')!
+    assert.equal(terminal.entries.length, 0)
+    bundle.pages.push(structuredClone(terminal))
+    await assert.rejects(
+      () => openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} }),
+      /Local memory migration refused/,
+    )
+    assert.equal(existsSync(join(fx.stateRoot, 'migration-owner.json')), false)
+  } finally {
+    fx.close()
+  }
+})
+
+test('complete export paging and active bytes must agree before any shadow write', async () => {
+  const files = [file('Core.md', 'base\n'), file('index.md', 'index\n')]
+  for (let index = 0; index < 68; index += 1)
+    files.push(file(`global/f${String(index).padStart(3, '0')}.md`, `note ${index}\n`))
+  const cases: [string, (bundle: ShadowMigrationBundle) => void][] = [
+    [
+      'missing section',
+      (b) => {
+        b.pages = b.pages.filter((p) => p.section !== 'reviewed')
+      },
+    ],
+    [
+      'missing first',
+      (b) => {
+        b.pages = b.pages.filter((p) => p.section !== 'sources' || p.offset !== 0)
+      },
+    ],
+    [
+      'missing middle',
+      (b) => {
+        b.pages = b.pages.filter((p) => p.section !== 'sources' || p.offset !== 32)
+      },
+    ],
+    [
+      'missing final',
+      (b) => {
+        b.pages = b.pages.filter((p) => p.section !== 'sources' || p.offset !== 64)
+      },
+    ],
+    [
+      'duplicate page',
+      (b) => {
+        b.pages.push(structuredClone(b.pages.find((p) => p.section === 'sources')!))
+      },
+    ],
+    [
+      'overlap',
+      (b) => {
+        const p = b.pages.find((p) => p.section === 'sources' && p.offset === 32)!
+        p.offset = 31
+        p.nextOffset = 63
+      },
+    ],
+    [
+      'mixed revision',
+      (b) => {
+        b.pages[1].revision = 'c'.repeat(40)
+      },
+    ],
+    [
+      'mixed config',
+      (b) => {
+        b.pages[1].configHash = 'c'.repeat(64)
+      },
+    ],
+    [
+      'mixed ledger',
+      (b) => {
+        b.pages[1].ledgerDigest = 'c'.repeat(64)
+      },
+    ],
+    [
+      'mixed totals',
+      (b) => {
+        b.pages[1].total += 1
+      },
+    ],
+    [
+      'missing active bytes',
+      (b) => {
+        b.files.pop()
+      },
+    ],
+    [
+      'extra empty terminal',
+      (b) => {
+        const p = structuredClone(b.pages.find((p) => p.section === 'sources' && p.offset === 64)!)
+        p.offset = p.total
+        p.entries = []
+        b.pages.push(p)
+      },
+    ],
+    [
+      'empty nonterminal',
+      (b) => {
+        const p = b.pages.find((p) => p.section === 'sources')!
+        p.entries = []
+        p.nextOffset = 0
+      },
+    ],
+  ]
+  for (const [name, mutate] of cases) {
+    const fx = fixture()
+    try {
+      const bundle = bundleFor({ files })
+      mutate(bundle)
+      await assert.rejects(
+        () => openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} }),
+        /Local memory migration (refused|stale)|Invalid memory migration export/,
+        name,
+      )
+      assert.deepEqual(readdirSync(fx.stateRoot), [], name)
+    } finally {
+      fx.close()
+    }
+  }
+})
+
+test('replacement directory at the same path cannot open or quarantine the recorded owner', async () => {
+  for (const stopAfter of ['owner', 'seeded', undefined] as const) {
+    const fx = fixture()
+    try {
+      const bundle = bundleFor({ files: [file('Core.md', 'base\n'), file('index.md', 'index\n')] })
+      const open = () =>
+        openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {}, injection: { stopAfter } })
+      if (stopAfter) await assert.rejects(open, /Local memory migration interrupted/)
+      else await open()
+      const original = join(fx.dir, 'original')
+      renameSync(fx.stateRoot, original)
+      cpSync(original, fx.stateRoot, { recursive: true })
+      const owner = readFileSync(join(fx.stateRoot, 'migration-owner.json'), 'utf8')
+      await assert.rejects(
+        () => openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} }),
+        /Local memory migration (refused|stale)/,
+      )
+      await assert.rejects(() => rollbackShadowMigration(fx.stateRoot), /Local memory migration refused/)
+      assert.equal(readFileSync(join(fx.stateRoot, 'migration-owner.json'), 'utf8'), owner)
+      assert.equal(existsSync(original), true)
+    } finally {
+      fx.close()
+    }
+  }
+})
+
+test('protected owners cannot be excluded by imported path or source', async () => {
+  for (const path of ['Core.md', 'index.md']) {
+    for (const bySource of [false, true]) {
+      const fx = fixture()
+      try {
+        const bundle = bundleFor({
+          files: [file('Core.md', 'base\n', ['owner-source']), file('index.md', 'index\n', ['owner-source'])],
+          forgottenPaths: bySource ? [] : [path],
+          forgottenSources: bySource ? [{ project: null, source: 'owner-source' }] : [],
+        })
+        await assert.rejects(
+          () => openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} }),
+          /Local memory migration refused/,
+        )
+        assert.deepEqual(readdirSync(fx.stateRoot), [])
+      } finally {
+        fx.close()
+      }
+    }
+  }
+})
+
+test('old migration bundle cannot reset later forgetting policy', async () => {
+  const fx = fixture()
+  try {
+    const bundle = bundleFor({
+      files: [file('Core.md', 'base\n'), file('index.md', 'index\n'), file('global/later.md', 'later\n')],
+    })
+    const opened = await openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} })
+    const body = {
+      version: 1 as const,
+      revision: 'd'.repeat(40),
+      paths: ['global/later.md'],
+      blobs: [],
+      sources: [],
+    }
+    const empty = emptyForgettingMetadata()
+    await opened.service.importTombstones({
+      expectedPolicyRevision: empty.policyRevision,
+      expectedDigest: empty.digest,
+      snapshot: { ...body, digest: tombstoneSnapshotDigest(body) },
+    })
+    const policy = readFileSync(join(fx.stateRoot, 'forgetting.json'), 'utf8')
+    const receipt = readFileSync(join(fx.stateRoot, 'migration.json'), 'utf8')
+    const head = await opened.service.head()
+    await assert.rejects(
+      () => openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} }),
+      /Local memory migration refused/,
+    )
+    assert.equal(readFileSync(join(fx.stateRoot, 'forgetting.json'), 'utf8'), policy)
+    assert.equal(readFileSync(join(fx.stateRoot, 'migration.json'), 'utf8'), receipt)
+    assert.equal(await opened.service.head(), head)
+    await assert.rejects(() => opened.service.readCommitted('global/later.md'), /Local memory path refused/)
+  } finally {
+    fx.close()
+  }
+})
+
+test('owner and seed interruptions resume only the exact bundle', async () => {
+  for (const stopAfter of ['owner', 'seeded'] as const) {
+    const fx = fixture()
+    try {
+      const bundle = bundleFor({ files: [file('Core.md', 'base\n'), file('index.md', 'index\n')] })
+      await assert.rejects(
+        () =>
+          openShadowMigration({
+            stateRoot: fx.stateRoot,
+            bundle,
+            worker: () => {},
+            injection: { stopAfter },
+          }),
+        /Local memory migration interrupted/,
+      )
+      const owner = readFileSync(join(fx.stateRoot, 'migration-owner.json'), 'utf8')
+      const changed = bundleFor({ files: [file('Core.md', 'changed\n'), file('index.md', 'index\n')] })
+      await assert.rejects(
+        () => openShadowMigration({ stateRoot: fx.stateRoot, bundle: changed, worker: () => {} }),
+        /Local memory migration refused/,
+      )
+      const resumed = await openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} })
+      const again = await openShadowMigration({ stateRoot: fx.stateRoot, bundle, worker: () => {} })
+      assert.deepEqual(again.receipt, resumed.receipt)
+      assert.equal(resumed.receipt.version, 1)
+      assert.equal(readFileSync(join(fx.stateRoot, 'migration-owner.json'), 'utf8'), owner)
+      assert.equal(await resumed.service.readCommitted('Core.md'), 'base\n')
+      assert.equal(await resumed.service.readCommitted('index.md'), 'index\n')
+    } finally {
+      fx.close()
+    }
+  }
+})
 
 test('shadow migration filters forgotten entries and reconciles a corpus-scale bundle', async () => {
   const fx = fixture()

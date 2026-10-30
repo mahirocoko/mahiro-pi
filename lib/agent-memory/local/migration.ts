@@ -429,10 +429,18 @@ function groupPages(pages: MigrationExportPage[], bundle: ShadowMigrationBundle)
     const total = list[0]?.total
     let offset = 0
     const rows: unknown[] = []
+    let terminal = false
     for (const page of list) {
-      if (page.total !== total || page.offset !== offset) refuse()
+      if (
+        terminal ||
+        page.total !== total ||
+        page.offset !== offset ||
+        page.entries.length !== Math.min(page.limit, page.total - page.offset)
+      )
+        refuse()
       rows.push(...page.entries)
       offset += page.entries.length
+      terminal = page.nextOffset === undefined
     }
     if (offset !== total) refuse()
     return rows
