@@ -102,6 +102,61 @@ test('immutable Palace server revokes after a failed authority revalidation', as
   }
 })
 
+test('immutable Palace server rejects invalid validation deadlines', async () => {
+  for (const validationTimeoutMs of [0, 15_001, 1.5, Number.NaN])
+    await assert.rejects(
+      startImmutablePalaceServer({
+        html,
+        style: abi2PalaceStyle,
+        capability: 'c'.repeat(43),
+        validationTimeoutMs,
+        validate: async () => true,
+      }),
+      /Palace HTML server refused/,
+    )
+})
+
+test('immutable Palace server allows bounded slow validation and revokes at its configured deadline', async () => {
+  const slow = await startImmutablePalaceServer({
+    html,
+    style: abi2PalaceStyle,
+    capability: 'c'.repeat(43),
+    validationTimeoutMs: 100,
+    validate: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      return true
+    },
+  })
+  try {
+    assert.equal((await fetch(slow.url)).status, 200)
+  } finally {
+    await slow.close()
+  }
+
+  let completedLate = false
+  const timedOut = await startImmutablePalaceServer({
+    html,
+    style: abi2PalaceStyle,
+    capability: 'd'.repeat(43),
+    validationTimeoutMs: 25,
+    validate: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      completedLate = true
+      return true
+    },
+  })
+  const response = await fetch(timedOut.url)
+  assert.equal(response.status, 409)
+  assert.equal(response.body.toString(), 'Snapshot unavailable')
+  await Promise.race([
+    timedOut.closed,
+    new Promise((_, reject) => setTimeout(() => reject(Error('timed-out server did not close')), 1_000)),
+  ])
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(completedLate, true)
+  await assert.rejects(fetch(timedOut.url))
+})
+
 test('immutable Palace server closes after a disconnected request fails validation', async () => {
   let started!: () => void
   const validationStarted = new Promise<void>((resolve) => {

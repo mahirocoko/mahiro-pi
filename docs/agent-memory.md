@@ -1179,15 +1179,20 @@ branch, idle state and authority. It never rerenders from newer data. Drift or
 denial returns a generic unavailable response and revokes the viewer; new agent
 work, compaction, memory mutation/writer admission, navigation, shutdown,
 replacement, explicit `/mh-memory palace close` (or the hidden legacy close alias) and expiry also revoke it and
-close its transport. Timeout/close aborts current validation and generation-fences
-late results; arbitrary third-party Promise work is not claimed to be synchronously
-cancellable. A URL already delivered to a browser cannot be retroactively erased, and another
+close its transport. Each retrieval allows at most 15 seconds for the full current
+snapshot revalidation; timeout/close aborts current validation, returns only the
+generic unavailable response and generation-fences late results. The longer bound
+accommodates installed committed-structure/history checks without weakening any
+identity, digest or authority predicate. Arbitrary third-party Promise work is not
+claimed to be synchronously cancellable. A URL already delivered to a browser cannot be retroactively erased, and another
 same-user process holding that URL is outside the loopback bearer contract.
 
-This is source implementation and focused fixture evidence only. No current-profile
-installation/reload, browser opening, rendered review, provider-backed inference,
-longitudinal observation, Phase I wiring or Mahiro visual/product/RAM acceptance is
-claimed; R7-I/O/H remain open.
+Source fixtures plus a narrow current-profile command/transport observation exist.
+The installed command produced a frozen loopback URL, and candidate source with the
+15-second validation bound served the exact HTML successfully in about seven seconds,
+returned the documented privacy headers and revoked after explicit close. This is not
+a browser/rendered review, provider-backed inference, longitudinal observation, Phase I
+wiring or Mahiro visual/product/RAM acceptance; broader R7-I/O/H gates remain open.
 
 ## R7-10 consolidated Palace command surface
 

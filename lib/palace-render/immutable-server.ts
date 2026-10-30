@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 const capabilityPattern = /^[A-Za-z0-9_-]{43}$/
 const maxHtmlBytes = 256 * 1024
 const maxRequests = 32
+const maxValidationTimeoutMs = 15_000
 
 export interface ImmutablePalaceServer {
   url: string
@@ -18,6 +19,7 @@ export async function startImmutablePalaceServer(options: {
   style: string
   validate(signal: AbortSignal): Promise<boolean>
   capability?: string
+  validationTimeoutMs?: number
 }): Promise<ImmutablePalaceServer> {
   const html = Buffer.from(options.html)
   if (
@@ -27,7 +29,14 @@ export async function startImmutablePalaceServer(options: {
   )
     throw Error('Palace HTML server refused')
   const capability = options.capability ?? randomBytes(32).toString('base64url')
-  if (!capabilityPattern.test(capability)) throw Error('Palace HTML server refused')
+  const validationTimeoutMs = options.validationTimeoutMs ?? maxValidationTimeoutMs
+  if (
+    !capabilityPattern.test(capability) ||
+    !Number.isSafeInteger(validationTimeoutMs) ||
+    validationTimeoutMs < 1 ||
+    validationTimeoutMs > maxValidationTimeoutMs
+  )
+    throw Error('Palace HTML server refused')
   const route = `/${capability}`
   const styleHash = createHash('sha256').update(options.style).digest('base64')
   const policy = [
@@ -161,7 +170,7 @@ export async function startImmutablePalaceServer(options: {
     const controller = new AbortController()
     aborts.add(controller)
     const epoch = ++validationEpoch
-    const timer = setTimeout(() => controller.abort(), 3_000)
+    const timer = setTimeout(() => controller.abort(), validationTimeoutMs)
     timer.unref()
     let valid = false
     try {

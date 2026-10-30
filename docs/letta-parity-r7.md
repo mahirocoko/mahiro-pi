@@ -222,9 +222,11 @@ rechecks captured revision/config, structure/snapshot digests, offset-zero histo
 branch, idle state and authority. New data is never substituted into the frozen
 page. Denial/drift, new work, compaction, writes/writer admission, navigation,
 shutdown, replacement, explicit close and expiry revoke the viewer and close its
-transport. The server aborts a current validation on timeout/close and fences any
-late result by generation; it does not claim that arbitrary third-party Promise
-work is synchronously cancellable.
+transport. One request gets at most 15 seconds to complete the full status,
+structure, history, config, branch and authority revalidation. Timeout/close returns
+the generic unavailable response, aborts the current validation and fences any late
+result by generation; it does not claim that arbitrary third-party Promise work is
+synchronously cancellable.
 
 Focused source fixtures cover DTO identity/freezing/bounds and malformed/extra-field
 refusal, escaping/semantic markup, exact Host/path/method/body/origin rules, security
@@ -232,7 +234,12 @@ headers, byte-identical GET/HEAD delivery, concurrent-validation refusal, bounde
 transport close when validation ignores abort, authority revocation, new-work
 closure and ABI1 refusal. This does not prove installed current-profile behavior,
 browser rendering, provider-backed consumption, longitudinal reliability, same-user
-bearer resistance or Mahiro visual/product/RAM acceptance. R7-I/O/H remain open.
+bearer resistance or Mahiro visual/product/RAM acceptance. A narrow current-profile
+probe found the earlier three-second request bound insufficient for real structure
+and history validation; candidate source with the 15-second bound served the frozen
+page in about seven seconds with the expected privacy headers, then explicit close
+revoked the capability. This is installed command/transport evidence only; broader
+R7-I/O/H remain open.
 
 ## R7-10 product command consolidation
 

@@ -544,8 +544,9 @@ scoring is above. Phase H stays paused/unaccepted.
   history page. A runtime-owned 10-minute `127.0.0.1:0` capability server serves
   frozen bytes only after per-request authority/revision/config/digest/history/branch
   revalidation; denial, drift, new work, writes, navigation, shutdown, replacement,
-  explicit close or expiry revoke it and close the transport. Current validation is
-  aborted and late results are generation-fenced. GET/HEAD, Host/path/body/origin
+  explicit close or expiry revoke it and close the transport. Current validation has
+  a 15-second maximum, is aborted on timeout/close and generation-fences late results.
+  GET/HEAD, Host/path/body/origin
   and CSP/privacy headers are bounded; no browser opener, files, bodies/diffs, replay,
   `local/**`, profile/installer/kernel or Phase I change is included. Focused source
   fixtures are not R7-I/O/H, provider, rendered or human evidence.
@@ -554,6 +555,16 @@ scoring is above. Phase H stays paused/unaccepted.
   the structural diagnostic. Earlier checkpoint routes remain hidden compatibility
   aliases, not advertised product surfaces. Internal owners
   and non-atomic labels remain unchanged; no installed/rendered/human credit moves.
+- [x] **R7-11 narrow installed command/transport observation** 2026-10-30: a
+  separate owned fresh Pi pane invoked the current-profile Palace façade without
+  replacing the original owner session or opening a browser. The original
+  three-second retrieval validation returned generic 409 at its exact deadline;
+  candidate source raised the bounded maximum to 15 seconds and served the frozen
+  31,560-byte HTML in about 7.1 seconds with the expected CSP/no-store/referrer/frame/
+  MIME/resource-policy headers. Explicit `palace close` then revoked the capability,
+  the temporary Pi exited and only its owned pane was removed. This is one installed
+  command/transport slice, not rendered, provider, longitudinal, stale-data/shutdown
+  coverage or score movement; R7-I/O/H remain open.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data
