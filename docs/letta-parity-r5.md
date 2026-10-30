@@ -4,21 +4,24 @@
 
 ## Scope and evidence boundary
 
-2026-10-30 source milestone, based on Mahiro `606ee196b2924ee434d651920eed7bf230946532`.
-This appendix describes the disconnected service in `lib/agent-memory/local/`.
-It does not add installed commands, connect the service to ABI1/ABI2, migrate
-private memory, change reflection defaults, or establish installed, observed or
-human acceptance. Scores remain **60% source / 30% evidence** under the roadmap.
-R5-S remains open for fresh verification and the unresolved concurrency/helper
-outcomes below. R5-I/O/H are not claimed.
+2026-10-30 source milestone, extended from Mahiro
+`72cf270094929c26a9485205f950334bced89a93`. This appendix describes the
+disconnected service in `lib/agent-memory/local/`. It does not add installed
+commands, connect the service to ABI1/ABI2, migrate private memory, change
+reflection defaults, or establish installed, observed or human acceptance.
+Scores remain **60% source / 30% evidence** under the roadmap. R5-S is complete
+only for the bounded synthetic source contract below; R5-I/O/H remain open.
 
-Executable owners: `contracts.ts` defines records and public request types;
-`jobs.ts` parses compatible version-1 records and preserves recovery evidence;
-`service.ts` owns serialized coordinator turns and the public methods;
-`repair.ts` constructs/verifies the exact reviewed candidate and publishes by CAS;
-`trajectory.ts` alone settles progress. `migration.ts` owns quiescent shadow
-rollback. `palace.ts` and `palace-page.ts` expose read-only recovery metadata,
-never recovery controls or publication authority.
+Executable owners: `contracts.ts` defines compatible version-1 records and public
+request types; `jobs.ts` parses those records and preserves recovery evidence;
+`coordination.ts` owns the cooperative root claim and capability identity;
+`git-process.ts` owns drained-versus-uncertain direct-child disposition; `git.ts`
+owns fixed local commands and repository configuration refusal; `service.ts` owns
+coordinator turns and public methods; `repair.ts` constructs/verifies the exact
+reviewed candidate and publishes by CAS; `trajectory.ts` alone settles progress.
+`migration.ts` composes open/import/rollback under the same root claim. `palace.ts`
+and `palace-page.ts` expose read-only recovery metadata, never recovery controls
+or publication authority.
 
 ## Explicit recovery contract — R5-01
 
@@ -110,8 +113,11 @@ pair, owned worktree, ownership/progress/worktrees residue, or repair index/lock
 Abandon does not clean anything. Call the existing exact ownership-bound cleanup
 separately; changed/foreign/dirty residue may still refuse. Migration now parses
 full job records rather than trusting a status string. Pending/ambiguous repair
-continues to block rollback. This is same-process synthetic quiescence, not a
-cross-process exclusion guarantee.
+continues to block rollback. Quiescence and rollback now use the same cooperative
+sibling claim as ordinary service operations. A competing current-version process
+cannot enter or reconcile
+the root during the check or rename. This is not hostile same-user resistance,
+mixed-version safety or automatic stale-claim recovery.
 
 Palace reports repaired/abandoned, refused retry, unchanged resume, retained
 conflict paths, original conflict head and reviewed/candidate commit IDs. Terminal
@@ -142,8 +148,8 @@ no Letta tests, builds, installers or provider workflows were executed:
 
 | Boundary | Current source disposition after interruption / restart | Evidence / remaining limit |
 | --- | --- | --- |
-| Lease/generation retirement | Installed owner retires admissions and waits for actual holds; local service has no installed generation lease. | `profile.ts`, kernel registry/memory lease and engine lifetime owners; not exercised as installed R5. |
-| Worktree adding / added / ownership / path save | Recorded progress and exact registration/inode ownership are reconciled; unknown paths are not adopted as owned. | Existing lifecycle interruption fixtures; no cross-process safety claim. |
+| Lease/generation retirement | Installed owner retires admissions and waits for actual holds; the disconnected local service now uses one exclusive sibling claim bound to root identity, v1 service nonce and a random operation token. | No PID/age takeover, mixed-version protocol or installed generation lease. A dead/partial/uncertain claim stays blocking. |
+| Worktree adding / added / ownership / path save | Recorded progress and exact registration/inode ownership are reconciled; unknown paths are not adopted as owned. | Current-version competing processes are excluded by the root claim; hostile external metadata mutation remains unsupported. |
 | Worker write, before commit | Partial/dirty owned work is retained; worker is not automatically rerun. | Lifecycle and failed-reflection tests. |
 | Worker commit before job save | Exact single-parent worker commit can be recovered from the owned worktree. | Lifecycle commit interruption fixture. |
 | Conflict recognition | repair-needed keeps original worker and conflict evidence; watermark stays put. | Recovery/trajectory tests; legacy original conflict head can be unavailable. |
@@ -153,23 +159,45 @@ no Letta tests, builds, installers or provider workflows were executed:
 | Terminal save before response | Identical request returns same repaired record; abandon repeats unchanged. | `repair-terminal` and abandonment restart tests. |
 | Ordinary publication before watermark save | Existing integrated/no-op settlement is job/digest-bound and idempotent. | R3 trajectory fixtures; recovery terminal states are never eligible. |
 | Worktree cleanup/remove | Owned removal progress reconciles; foreign identity is not deleted. | Existing lifecycle cleanup interruption fixtures. |
-| Shadow rollback rename | Migration turn then service turn, quiescence check, quarantine rename, process-local retirement. | Migration fixtures including public abandon; rename is not live authority cutover. |
-| Drain/helper timeout | Installed executor seals only after joined operations; local Git currently rejects timeout before descendant settlement proof. | Source audit only for hung helpers; R5-05 stays open. |
+| Shadow rollback rename | Migration turn plus the same root claim, two quiescence checks, quarantine rename, moved-inode verification and process-local retirement. | Competing current-version open/recovery is refused until the original sibling claim is released; rename is not live authority cutover. |
+| Drain/helper timeout | Fixed local Git commands return normally only after child `close`. Timeout or stdout/stderr overflow first poisons the claim, requests direct-child termination and returns `LocalGitUncertainty`; cleanup/reopen stays blocked. | This retained-uncertainty disposition does not claim universal descendant settlement or arbitrary HTTP/SSH support. |
 
-## Concurrency and generation matrix — R5-03 remains open
+## Cooperative concurrency and generation — R5-03 source-supported
 
-| Actor/binding | Established limit | Unresolved / refusal boundary |
+Every synthetic operation, including startup, reconciliation performed by reads,
+worker execution, repair/publication, cleanup, tombstone import, migration open
+and rollback, acquires one sibling `<stateRoot>.operation-claim`. Acquisition uses
+direct exclusive/no-follow creation. The bounded record names a random token,
+root device/inode, operation, diagnostic PID and the existing v1 service nonce
+when present. The existing process-local turn remains only an ordering
+optimization. Version-1 meta, job, trajectory and watermark records remain
+compatible.
+
+An existing, empty, partial, malformed or dead-owner claim is never removed or
+stolen by PID, parent death, age or timeout. Only the exact holder verifies the
+claim file identity/token and removes it. Each existing service handle also pins
+the original root device/inode and service nonce; replacement or nonce changes
+poison the operation and leave the sibling claim blocking. Startup holds one
+claim through repository seed and forgetting-policy readiness. Migration composes
+startup and tombstone import under that same non-reentrant claim; rollback keeps
+it through both quiescence checks, rename and moved-inode verification, then
+releases the original sibling path.
+
+| Actor/binding | Established source contract | Deliberate limit |
 | --- | --- | --- |
-| Two service handles, same canonical root and process | Shared module turn serializes operations; prepared repair blocks new worker starts, Git CAS binds exact main. | A second process does not share this queue. No filesystem transaction/claim has been added. |
-| Different local roots | Turn keys and job/index paths are root-scoped. | Not hostile same-user metadata resistance; do not reuse roots across concurrent processes. |
-| Cross-process initialization, enqueue, repair, cleanup or rollback | **Unsupported** as mutually exclusive operations. CAS only protects a ref update, not all side effects. | Metadata sequence/job overwrite and premature recovery/cleanup can race. R4 activation remains blocked. |
-| Local worker callback | Callback is awaited inside its coordinator turn. | No independent cancellation/generation token for escaped or malicious callbacks; ordinary worker has a trusted test harness filesystem handle. |
-| Installed ABI1/ABI2 generation | Native-MJS registry, actual manager/primary identity, revision/root binding, exact lease object and conditional retirement remain separate owners. | Not reused to imply an installed local-service lease. No PID/dead-parent lock stealing. |
-| Publication executor | `engine/publication-executors.mjs` uses operation ID/digest plus process-local nonce and explicit drain seal. | No disk reconstruction of executor authority. This is not cross-process local-service ownership. |
-| Revocation/stale callback | Kernel/engine revalidate their own live bindings; unknown results retain uncertainty. | Synthetic recovery does not grant a worker publication or profile authority. Installed R5 overlap/revocation tests remain pending. |
+| Same root, current-version cooperative processes | Exactly one holder can initialize, reconcile, enqueue, write job/meta state, repair, clean or roll back. Losers refuse before mutation. | No waiting/takeover protocol; a crash can strand the root indefinitely. |
+| Different roots | Claim, process-local turn, job state and Git repository are root-scoped and can progress independently. | Network filesystems and hostile same-user replacement are unsupported. |
+| Worker callback | Ordinary workers receive only `jobId` and a fenced `write`; maintenance workers receive the confined workspace. Every adapter method checks an active capability before I/O. | Arbitrary JavaScript with independently acquired filesystem authority is not sandboxed. |
+| Revocation/stale callback | Capability revokes in an inner `finally` before staging, failure save or claim release. Retained methods refuse. Claim/root/meta identity is rechecked before durable transitions and publication. | No forced cancellation of a callback that never settles; it continues to hold the claim. |
+| Publication | Worker has no Git/ref/claim authority. Coordinator retains exact candidate/parent checks and expected-old-ref CAS. | CAS is publication evidence, not permission to steal or clear a claim. |
+| Installed ABI1/ABI2 generation | Remains owned by the native registry, primary identity, revision/root binding and lease lifecycle. | The sibling claim is disconnected synthetic coordination, not an installed ABI3 or profile lease. |
 
-No new cross-process claim/lock protocol is introduced in this bounded milestone.
-The limitation is explicit rather than papered over by process-death heuristics.
+The guarantee applies only when every actor uses this current protocol. Older
+binaries that ignore the sibling claim, hostile same-user mutation, power-loss
+atomicity and automatic recovery of retained claims remain unsupported. The
+availability trade-off is intentional: uncertainty may strand a synthetic root,
+but it cannot silently become mutation, publication, cleanup or rollback
+authority.
 
 ## Config-root audit — R5-04
 
@@ -189,36 +217,66 @@ rendered viewer use must be established at the installed R4/R5 gates. The defaul
 legacy location is only a default input, never an authority fallback after a
 selected root fails. No profile, auth, permission or private root was changed.
 
-## Git/helper lifecycle audit — R5-05 remains open
+## Local Git settlement and unsupported helper trees — R5-05 source-supported
 
-| Owner / OS | Bounded behavior | Settlement limit |
+The disconnected service supports only its own fixed local Git commands against
+a service-created repository. The environment disables protocols, lazy fetch,
+replace objects, prompts and ambient system/global configuration. Every command
+also disables hooks, attributes, alternates commands, credentials, askpass, SSH,
+external diff, fsmonitor and signing. Before use, the repository config is parsed
+through a narrow `core`/`extensions` allowlist; include, remote, filter, alias,
+merge-driver and other helper-bearing sections refuse before the command.
+
+| Outcome | Coordinator disposition | Authority consequence |
 | --- | --- | --- |
-| `local/git.ts`, all current Node platforms | shell false; sanitized environment, no credential helper/hooks/fsmonitor; 1 MiB ordinary stdout, 64 KiB diagnostics, 10 s timeout; bounded blob prefix capture. | Timeout/output failure sends direct-child SIGTERM and rejects immediately. No detached group, escalation or descendant join. Successful child close is not universal helper-tree proof. |
-| `agent-memory/store.ts` | Synchronous Git, shell false, deadline-clamped ≤10 s, 2 MiB maxBuffer; authority fences before Git operations. | `execFileSync` timeout is not an audited HTTP/SSH descendant drain contract. |
-| Engine executor locks | Exact executor ID/digest/nonce and explicit drain seal protect lock removal. | Executor bookkeeping is not evidence every Git helper has settled. |
-| POSIX HTTP/SSH helpers | Local service exposes no remote fetch/push API and disables credential helpers. | Git can still create internal children; no group settlement fixture or production change here. |
-| Windows helper trees | No new implementation claimed. | No taskkill/process-tree fixture; timeout cannot be labeled drained. |
+| Child closes with an allowed code | Drained fixed-command result. | Claim may continue and later release after all coordinator work completes. |
+| Child closes with an ordinary disallowed code | Drained command failure. | Error may be recorded while the exact claim remains valid. |
+| Child closes by signal or without a code | `LocalGitUncertainty`. | Claim is poisoned and retained; no cleanup/reopen authority. |
+| 10 s timeout, >1 MiB stdout or >64 KiB stderr | Poison claim, request direct-child TERM then KILL, observe for a bounded second, return `LocalGitUncertainty` whether or not the direct child closes. | Evidence/index/worktree and sibling claim remain; catch/finally cleanup and failed-job rewriting are suppressed. |
+| Blob prefix read | Size is checked first, blobs above 8 MiB refuse, and the process drains/discards the suffix while retaining only the requested prefix. | Reaching the prefix is no longer a termination event. |
 
-Do not authorize cleanup or lock release solely because a timeout promise
-returned. Proving a portable process-tree owner needs its own bounded helper
-fixtures, cancellation and close/escalation design; it is deliberately not
-attempted here. R5-05 and R5-S remain open, blocking a full R5 safety exit.
+Public Node APIs cannot prove settlement of arbitrary descendants that escape a
+process group, close inherited pipes, or use Windows helper trees. This source
+exit therefore does **not** claim portable HTTP/SSH/helper-tree drainage. Instead,
+those protocols/configurations are outside the supported local-service surface,
+and every forced interruption is classified unknown rather than drained. No
+process-group kill, `taskkill`, PID death or child `close` after forced termination
+is promoted to cleanup authority. Installed ABI1/ABI2 Git owners retain their
+separate contracts.
+
+R5-05 is complete only as this narrower support/refusal decision: normal fixed
+local commands settle; interruption retains ownership. Linux/Windows observation,
+universal descendants, automatic retained-claim recovery and installed helper
+behavior remain open at R5-I/O/H rather than being inferred from Darwin fixtures.
 
 ## Focused source evidence
 
-Primary new suite: `test/agent-memory-local-repair.test.ts` covers exact explicit
-repair, stale/malformed/missing/extra/protected/content refusals, retained original
-and reviewed heads, candidate parents, three restart seams, pending abandonment
+`test/agent-memory-local-repair.test.ts` covers exact explicit repair,
+stale/malformed/missing/extra/protected/content refusals, retained original and
+reviewed heads, candidate parents, three restart seams, pending abandonment
 refusal, terminal idempotency, unchanged progress, fresh covered reflection,
-forgotten bytes and policy/head changes after preparation. Migration fixtures now
-use **public abandon**, not synthetic job-file status rewriting, to unblock
-rollback after exact cleanup; repair index/lock residue still blocks. Palace
-fixtures check current guidance; new service tests check repaired/abandoned
-metadata and retained conflicts.
+forgotten bytes and policy/head changes after preparation. Migration fixtures use
+**public abandon**, not job-file status rewriting, to unblock rollback after exact
+cleanup; repair index/lock residue still blocks.
+
+`test/agent-memory-local-coordination.test.ts` uses child-process barriers to
+exercise a held root versus a competing opener/rollback, independent roots,
+partial and dead-owner claims, recursive refusal, retained ordinary and maintenance
+capabilities, root/meta replacement, rollback exclusion and release of the
+original sibling after rename. `test/agent-memory-local-git-process.test.ts`
+exercises normal and nonzero child close, bounded prefix drainage, stdout/stderr
+overflow, timeout retention, callback-reported uncertainty and helper-bearing
+config/protocol refusal. The fixtures own and clean only their disposable roots;
+they never contact a remote or read private state.
 
 Companion gates: local lifecycle, trajectory and R3, model-worker, forgetting,
 migration, Palace, projection and setup source tests; `pnpm format`,
 `pnpm check:format`, `pnpm check:docs`, `pnpm check:fast`, `git diff --check`.
-The milestone handoff records actual results. Tests and source review do not
-establish Letta runtime equivalence, helper-tree settlement, installed generation
-safety, semantic learning quality, R5-S independent acceptance or R5-I/O/H.
+The milestone handoff records actual results. Fresh source QA passed the bounded
+claim/settlement contract with no material finding; low unexercised event-order
+branches include spawn failure, stdin EPIPE, unexpected signal and descendants
+holding inherited pipes through the one-second observation deadline. These are not
+known defects, but the test set is not exhaustive process-tree certification.
+Tests and source review do not establish Letta runtime equivalence, universal
+helper-tree settlement, installed generation safety, semantic learning quality,
+cross-platform observation or R5-I/O/H.

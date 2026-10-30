@@ -179,14 +179,17 @@ export function createMaintenanceWorkspace(
   root: string,
   track: { reserve(paths: readonly string[]): void; remember(paths: readonly string[]): void },
   guard: ForgettingGuard = inactiveForgettingGuard(),
+  assertActive: () => void = () => {},
 ): MaintenanceWorkspace {
   const read = (relativePath: string): string => {
+    assertActive()
     if (guard.pathForbidden(relativePath)) refuse()
     const text = readAt(walk(root, relativePath, false))
     if (suppressForgotten(relativePath, undefined, guard) || forgotten(guard, relativePath, text)) refuse()
     return text
   }
   const write = (relativePath: string, text: string): void => {
+    assertActive()
     partsOf(relativePath)
     assertText(text)
     rejectForgotten(guard, relativePath, text)
@@ -197,6 +200,7 @@ export function createMaintenanceWorkspace(
   return {
     read,
     list(relativePath?: string): string[] {
+      assertActive()
       if (relativePath && guard.pathForbidden(relativePath)) refuse()
       const target = directoryAt(root, relativePath)
       const names = readdirSync(target, { withFileTypes: true })
@@ -218,6 +222,7 @@ export function createMaintenanceWorkspace(
       return visible
     },
     search(query: string): MaintenanceSearchHit[] {
+      assertActive()
       if (typeof query !== 'string' || query.length < 1 || query.length > 128 || query.includes('\0'))
         refuse()
       const hits: MaintenanceSearchHit[] = []
@@ -256,6 +261,7 @@ export function createMaintenanceWorkspace(
     },
     write,
     edit(relativePath: string, oldText: string, newText: string): void {
+      assertActive()
       if (typeof oldText !== 'string' || oldText.length < 1) refuse()
       rejectForgotten(guard, relativePath)
       const current = read(relativePath)
@@ -267,6 +273,7 @@ export function createMaintenanceWorkspace(
       )
     },
     delete(relativePath: string): void {
+      assertActive()
       if (guard.active && isProtectedMemoryPath(relativePath)) throw Error('Local memory forgetting refused')
       if (guard.pathForbidden(relativePath)) {
         track.reserve([relativePath])
@@ -287,6 +294,7 @@ export function createMaintenanceWorkspace(
       track.remember([relativePath])
     },
     rename(from: string, to: string): void {
+      assertActive()
       if (guard.active && (isProtectedMemoryPath(from) || isProtectedMemoryPath(to)))
         throw Error('Local memory forgetting refused')
       rejectForgotten(guard, from)

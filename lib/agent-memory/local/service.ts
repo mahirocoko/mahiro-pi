@@ -129,6 +129,15 @@ import {
 } from './projection.ts'
 
 import { abandonLocalJob, repairLocalJob } from './repair.ts'
+import { LocalGitUncertainty } from './git-process.ts'
+import {
+  type LocalMemoryClaim,
+  hasLocalMemoryClaim,
+  localMemoryCleanupAllowed,
+  requireLocalMemoryClaim,
+  verifyLocalMemoryClaim,
+  withLocalMemoryClaim,
+} from './coordination.ts'
 
 // Synthetic bare-repository service. Not ABI3 and not an installed memory selector.
 export interface SyntheticLocalMemoryService {
@@ -310,11 +319,13 @@ async function seed(
       await gitCommitTree(git, await gitWriteTree(git, index), [], 'Seed synthetic memory'),
     )
   } finally {
-    const stat = await lstat(index).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return undefined
-      throw error
-    })
-    if (stat?.isFile() && !stat.isSymbolicLink()) await unlink(index)
+    if (localMemoryCleanupAllowed()) {
+      const stat = await lstat(index).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined
+        throw error
+      })
+      if (stat?.isFile() && !stat.isSymbolicLink()) await unlink(index)
+    }
   }
 }
 
@@ -343,26 +354,61 @@ function turn<T>(stateRoot: string, body: () => Promise<T>): Promise<T> {
   return run
 }
 
-export function localMemoryTurn<T>(stateRoot: string, body: () => Promise<T>): Promise<T> {
-  return turn(stateRoot, body)
+export function localMemoryTurn<T>(
+  stateRoot: string,
+  body: (claim: LocalMemoryClaim) => Promise<T>,
+  operation = 'service',
+): Promise<T> {
+  // Refuse before joining the queue: a callback awaiting its own turn would deadlock.
+  if (hasLocalMemoryClaim()) return Promise.reject(Error('Local memory recursive claim refused'))
+  return turn(stateRoot, () => withLocalMemoryClaim(stateRoot, operation, body))
 }
 
 export function retireLocalMemoryRoot(stateRoot: string): void {
   retiredRoots.add(stateRoot)
 }
 
-export async function createSyntheticLocalMemoryService(options: {
+interface LocalServiceOptions {
   stateRoot: string
   worker: LocalWorker
   initialFiles?: Record<string, string>
   injection?: SyntheticLocalInjection
   trajectory?: SyntheticTrajectoryConfig
-}): Promise<SyntheticLocalMemoryService> {
+}
+
+export async function createSyntheticLocalMemoryService(
+  options: LocalServiceOptions,
+): Promise<SyntheticLocalMemoryService> {
+  const root = await assertExactDirectory(options.stateRoot)
+  return localMemoryTurn(root, (claim) => createLocalMemoryServiceUnderClaim(options, claim), 'startup')
+}
+
+const underClaimImports = new WeakMap<
+  SyntheticLocalMemoryService,
+  (input: TombstoneImport) => Promise<ForgettingMetadata>
+>()
+
+// Internal migration composition. The caller must already hold this root's non-reentrant claim.
+export async function importLocalTombstonesUnderClaim(
+  service: SyntheticLocalMemoryService,
+  claim: LocalMemoryClaim,
+  input: TombstoneImport,
+): Promise<ForgettingMetadata> {
+  if (requireLocalMemoryClaim(claim.stateRoot) !== claim) throw Error('Local memory claim required')
+  const body = underClaimImports.get(service)
+  if (!body) throw Error('Local memory claim required')
+  return body(input)
+}
+
+export async function createLocalMemoryServiceUnderClaim(
+  options: LocalServiceOptions,
+  claim: LocalMemoryClaim,
+): Promise<SyntheticLocalMemoryService> {
   const trajectoryRuntime = normalizeTrajectoryConfig(options.trajectory)
   const stateRoot = await assertExactDirectory(options.stateRoot)
-  const opened = await turn(stateRoot, () =>
-    openState(stateRoot, options.initialFiles, options.injection?.stopAfter),
-  )
+  if (requireLocalMemoryClaim(stateRoot) !== claim) throw Error('Local memory claim required')
+  const opened = await openState(stateRoot, options.initialFiles, options.injection?.stopAfter)
+  const assertPinned = claim.pin()
   let meta = opened.meta
   const { git, bare, created } = opened
   const metaPath = join(stateRoot, 'meta.json')
@@ -373,6 +419,7 @@ export async function createSyntheticLocalMemoryService(options: {
   const missingFile = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
   const clearIndex = async (index: string) => {
+    if (!localMemoryCleanupAllowed()) return
     const stat = await lstat(index).catch((error: unknown) => {
       if (missingFile(error)) return undefined
       throw error
@@ -567,12 +614,14 @@ export async function createSyntheticLocalMemoryService(options: {
           !!stat && !stat.isSymbolicLink() && String(stat.dev) === item.dev && String(stat.ino) === item.ino
         if (same) continue
         if (stat) {
+          verifyLocalMemoryClaim()
           await unlink(ownershipFile(stateRoot, item.jobId)).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== 'ENOENT') throw error
           })
           await deleteProgress(stateRoot, item.jobId)
           continue
         }
+        verifyLocalMemoryClaim()
         await unlink(ownershipFile(stateRoot, item.jobId)).catch((error: NodeJS.ErrnoException) => {
           if (error.code !== 'ENOENT') throw error
         })
@@ -631,7 +680,8 @@ export async function createSyntheticLocalMemoryService(options: {
   }
 
   const turnOnce = <T>(body: () => Promise<T>): Promise<T> =>
-    turn(stateRoot, async () => {
+    localMemoryTurn(stateRoot, async () => {
+      assertPinned()
       recoveryNotes = []
       await reconcile()
       await readyPolicy()
@@ -828,46 +878,57 @@ export async function createSyntheticLocalMemoryService(options: {
         }
       }
       const written: string[] = []
-      if (job.kind === 'reflection') {
-        const maintenance = trajectoryRuntime?.maintenance
-        if (!job.reflection || !maintenance) throw Error('Local memory trajectory refused')
-        const reserve = (paths: readonly string[]) => {
-          const next = new Set(written)
-          for (const path of paths) {
-            assertRelativePath(path)
-            next.add(path)
-          }
-          if (next.size > localMemoryLimits.maxPaths) throw Error('Local memory path bound refused')
-        }
-        const remember = (paths: readonly string[]) => {
-          for (const path of paths) if (!written.includes(path)) written.push(path)
-        }
-        await maintenance({
-          jobId: id,
-          trajectory: trajectoryView(job.reflection),
-          workspace: createMaintenanceWorkspace(owned.path, { reserve, remember }, guard),
-        })
-      } else {
-        await options.worker({
-          jobId: id,
-          worktreeRoot: owned.path,
-          write(relativePath, text) {
-            assertRelativePath(relativePath)
-            if (
-              typeof text !== 'string' ||
-              text.includes('\0') ||
-              Buffer.byteLength(text) > localMemoryLimits.maxFileBytes
-            )
-              throw Error('Local memory content refused')
-            if (written.length >= localMemoryLimits.maxPaths && !written.includes(relativePath))
-              throw Error('Local memory path bound refused')
-            if (guard.pathForbidden(relativePath) || guard.textForbidden(text))
-              throw Error('Local memory forgetting refused')
-            writeNoFollow(owned.path, relativePath, text)
-            if (!written.includes(relativePath)) written.push(relativePath)
-          },
-        })
+      if (options.injection?.beforeWorker) await options.injection.beforeWorker(owned.path)
+      let active = true
+      const assertActive = () => {
+        if (!active) throw Error('Local memory worker capability revoked')
+        assertPinned()
       }
+      try {
+        if (job.kind === 'reflection') {
+          const maintenance = trajectoryRuntime?.maintenance
+          if (!job.reflection || !maintenance) throw Error('Local memory trajectory refused')
+          const reserve = (paths: readonly string[]) => {
+            const next = new Set(written)
+            for (const path of paths) {
+              assertRelativePath(path)
+              next.add(path)
+            }
+            if (next.size > localMemoryLimits.maxPaths) throw Error('Local memory path bound refused')
+          }
+          const remember = (paths: readonly string[]) => {
+            for (const path of paths) if (!written.includes(path)) written.push(path)
+          }
+          await maintenance({
+            jobId: id,
+            trajectory: trajectoryView(job.reflection),
+            workspace: createMaintenanceWorkspace(owned.path, { reserve, remember }, guard, assertActive),
+          })
+        } else {
+          await options.worker({
+            jobId: id,
+            write(relativePath, text) {
+              assertActive()
+              assertRelativePath(relativePath)
+              if (
+                typeof text !== 'string' ||
+                text.includes('\0') ||
+                Buffer.byteLength(text) > localMemoryLimits.maxFileBytes
+              )
+                throw Error('Local memory content refused')
+              if (written.length >= localMemoryLimits.maxPaths && !written.includes(relativePath))
+                throw Error('Local memory path bound refused')
+              if (guard.pathForbidden(relativePath) || guard.textForbidden(text))
+                throw Error('Local memory forgetting refused')
+              writeNoFollow(owned.path, relativePath, text)
+              if (!written.includes(relativePath)) written.push(relativePath)
+            },
+          })
+        }
+      } finally {
+        active = false
+      }
+      assertPinned()
       const finishNoop = async () => {
         const saved = await saveJob(stateRoot, { ...job, status: 'noop' })
         await settleReflection(stateRoot, saved)
@@ -902,6 +963,8 @@ export async function createSyntheticLocalMemoryService(options: {
         workerCommit: await gitWorktreeHead(git, owned.gitDir, owned.path),
       })
     } catch (error) {
+      if (error instanceof LocalGitUncertainty) throw error
+      assertPinned()
       await saveJob(stateRoot, { ...job, status: 'failed' })
       throw error
     }
@@ -1306,9 +1369,9 @@ export async function createSyntheticLocalMemoryService(options: {
     return document
   }
 
-  await turn(stateRoot, () => readyPolicy())
+  await readyPolicy()
 
-  return {
+  const service: SyntheticLocalMemoryService = {
     enqueue: (input) => turnOnce(() => enqueue(input)),
     start: (id) => turnOnce(() => start(id)),
     integrate: (id) => turnOnce(() => integrate(id)),
@@ -1395,4 +1458,9 @@ export async function createSyntheticLocalMemoryService(options: {
     palaceCorpusPage: (request) => turnOnce(() => palaceCorpusPage(request)),
     palaceDocument: (request) => turnOnce(() => palaceDocument(request)),
   }
+  underClaimImports.set(service, async (input) => {
+    assertPinned()
+    return importTombstones(input)
+  })
+  return service
 }

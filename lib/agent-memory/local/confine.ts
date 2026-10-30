@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { verifyLocalMemoryClaim } from './coordination.ts'
 
 export async function assertRealDirectory(path: string): Promise<void> {
   const stat = await lstat(path)
@@ -19,6 +20,7 @@ export async function assertRealDirectory(path: string): Promise<void> {
 }
 
 export async function ensureRealDirectory(path: string): Promise<void> {
+  verifyLocalMemoryClaim()
   try {
     await assertRealDirectory(path)
   } catch (error) {
@@ -60,6 +62,7 @@ export function isOwnedTempName(name: string): boolean {
 }
 
 export async function writeExclusive(path: string, text: string): Promise<void> {
+  verifyLocalMemoryClaim()
   await assertRealDirectory(dirname(path))
   const temporary = join(
     dirname(path),
@@ -89,6 +92,7 @@ export async function writeExclusive(path: string, text: string): Promise<void> 
     await unlink(temporary).catch(() => {})
     throw Error('Local memory temp refused')
   }
+  verifyLocalMemoryClaim()
   await rename(temporary, path)
   const finalStat = await lstat(path)
   if (!finalStat.isFile() || finalStat.isSymbolicLink() || finalStat.nlink !== 1)
@@ -96,6 +100,7 @@ export async function writeExclusive(path: string, text: string): Promise<void> 
 }
 
 export function writeNoFollow(root: string, relativePath: string, text: string): void {
+  verifyLocalMemoryClaim()
   const parts = relativePath.split('/')
   if (!parts.length) throw Error('Local memory path refused')
   const rootStat = lstatSync(root)

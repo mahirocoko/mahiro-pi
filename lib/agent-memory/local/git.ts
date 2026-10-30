@@ -1,6 +1,8 @@
-import { spawn } from 'node:child_process'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { readRegularFile } from './confine.ts'
 import { assertOid, assertRelativePath, oidPattern, relativePathPattern } from './contracts.ts'
+import { verifyLocalMemoryClaim } from './coordination.ts'
+import { runLocalGitProcess } from './git-process.ts'
 
 export interface LocalGitContext {
   bare: string
@@ -10,8 +12,6 @@ export interface LocalGitContext {
 }
 
 const outputLimit = 1024 * 1024
-const diagnosticLimit = 65536
-const timeoutMs = 10000
 
 export function localGitEnvironment(identityPath: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -19,6 +19,10 @@ export function localGitEnvironment(identityPath: string): NodeJS.ProcessEnv {
     GIT_OPTIONAL_LOCKS: '0',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: identityPath,
+    GIT_ALLOW_PROTOCOL: '',
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_ATTR_NOSYSTEM: '1',
   }
   for (const key of ['PATH', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SYSTEMROOT']) {
     const value = process.env[key]
@@ -27,7 +31,7 @@ export function localGitEnvironment(identityPath: string): NodeJS.ProcessEnv {
   return env
 }
 
-function runGit(
+async function runGit(
   context: LocalGitContext,
   prefix: readonly string[],
   args: readonly string[],
@@ -35,13 +39,53 @@ function runGit(
   input?: string,
   indexFile?: string,
   cwd?: string,
-  capture?: { maxBytes: number },
+  capture?: { maxBytes: number; totalBytes: number },
 ): Promise<{ code: number; stdout: Buffer; truncated: boolean }> {
+  verifyLocalMemoryClaim()
+  // This service owns a newly initialized local repository, not arbitrary Git config.
+  // Refuse includes, remotes, filters, merge drivers and all other helper-bearing keys.
+  const config = await readRegularFile(join(context.bare, 'config')).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT' && args[0] === 'init') return undefined
+    throw error
+  })
+  if (config) {
+    let section = ''
+    for (const raw of config.text.split('\n')) {
+      const line = raw.trim()
+      if (!line || line.startsWith('#') || line.startsWith(';')) continue
+      if (/^\[(core|extensions)\]$/i.test(line)) {
+        section = line.toLowerCase()
+        continue
+      }
+      const key = /^([a-z]+)\s*=/i.exec(line)?.[1]?.toLowerCase()
+      const allowed =
+        section === '[core]'
+          ? [
+              'repositoryformatversion',
+              'filemode',
+              'bare',
+              'logallrefupdates',
+              'ignorecase',
+              'precomposeunicode',
+            ]
+          : section === '[extensions]'
+            ? ['objectformat']
+            : []
+      if (!key || !allowed.includes(key)) throw Error('Local Git configuration refused')
+    }
+  }
+  verifyLocalMemoryClaim()
   const argv = [
     ...prefix,
     '--no-pager',
     '-c',
     `core.hooksPath=${context.hooksPath}`,
+    '-c',
+    'protocol.allow=never',
+    '-c',
+    'core.attributesFile=',
+    '-c',
+    'core.alternateRefsCommand=',
     '-c',
     'credential.helper=',
     '-c',
@@ -65,84 +109,7 @@ function runGit(
     ...args,
   ]
   const env = indexFile ? { ...context.env, GIT_INDEX_FILE: indexFile } : context.env
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn('git', argv, {
-      cwd: cwd ?? dirname(context.bare),
-      env,
-      shell: false,
-      stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-    })
-    const stdout: Buffer[] = []
-    let length = 0
-    let diagnostics = 0
-    let settled = false
-    let truncated = false
-    const fail = (error: Error) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      reject(error)
-    }
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM')
-      fail(Error('Local Git timed out'))
-    }, timeoutMs)
-    if (input !== undefined) {
-      if (!child.stdin) throw Error('Local Git failed (stdio)')
-      child.stdin.end(input)
-    }
-    if (!child.stdout || !child.stderr) throw Error('Local Git failed (stdio)')
-    child.stdout.on('data', (chunk: Buffer) => {
-      if (capture) {
-        if (length >= capture.maxBytes) {
-          truncated = true
-          child.kill('SIGTERM')
-          return
-        }
-        const room = capture.maxBytes - length
-        if (chunk.length > room) {
-          stdout.push(chunk.subarray(0, room))
-          length = capture.maxBytes
-          truncated = true
-          child.kill('SIGTERM')
-          return
-        }
-        length += chunk.length
-        stdout.push(chunk)
-        return
-      }
-      length += chunk.length
-      if (length > outputLimit) {
-        child.kill('SIGTERM')
-        fail(Error('Local Git output exceeded'))
-        return
-      }
-      stdout.push(chunk)
-    })
-    child.stderr.on('data', (chunk: Buffer) => {
-      diagnostics += chunk.length
-      if (diagnostics > diagnosticLimit) {
-        child.kill('SIGTERM')
-        fail(Error('Local Git diagnostics exceeded'))
-      }
-    })
-    child.once('error', (error) => fail(error))
-    child.once('close', (code, signal) => {
-      if (settled) return
-      clearTimeout(timer)
-      if (truncated) {
-        settled = true
-        resolvePromise({ code: code ?? 0, stdout: Buffer.concat(stdout), truncated: true })
-        return
-      }
-      if (signal || code === null || !allowedCodes.includes(code))
-        fail(Error(`Local Git failed (${code ?? signal})`))
-      else {
-        settled = true
-        resolvePromise({ code, stdout: Buffer.concat(stdout), truncated: false })
-      }
-    })
-  })
+  return runLocalGitProcess({ argv, cwd: cwd ?? dirname(context.bare), env, allowedCodes, input, capture })
 }
 
 function text(result: { stdout: Buffer }): string {
@@ -161,7 +128,7 @@ async function bareGit(
   codes: readonly number[] = [0],
   input?: string,
   indexFile?: string,
-  capture?: { maxBytes: number },
+  capture?: { maxBytes: number; totalBytes: number },
 ): Promise<{ code: number; stdout: Buffer; truncated: boolean }> {
   return runGit(context, ['--git-dir', context.bare], args, codes, input, indexFile, undefined, capture)
 }
@@ -468,6 +435,7 @@ export async function gitBlobPrefix(
   if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > outputLimit)
     throw Error('Local Git object refused')
   const total = await gitBlobSize(context, objectId)
+  if (total > 8 * 1024 * 1024) throw Error('Local Git object refused')
   if (total === 0) return { bytes: Buffer.alloc(0), total }
   if (total <= maxBytes) {
     const exact = await bareGit(context, ['cat-file', 'blob', objectId])
@@ -476,6 +444,7 @@ export async function gitBlobPrefix(
   }
   const partial = await bareGit(context, ['cat-file', 'blob', objectId], [0], undefined, undefined, {
     maxBytes,
+    totalBytes: total,
   })
   if (partial.stdout.length !== maxBytes) throw Error('Local Git object refused')
   return { bytes: partial.stdout, total }

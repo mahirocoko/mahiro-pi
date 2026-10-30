@@ -26,6 +26,7 @@ import {
   oidPattern,
 } from './contracts.ts'
 import { parseJobReflection } from './trajectory.ts'
+import { verifyLocalMemoryClaim } from './coordination.ts'
 
 const jobStatuses = new Set<string>(localJobStatuses)
 
@@ -295,6 +296,7 @@ export async function saveProgress(stateRoot: string, record: LocalProgressRecor
 }
 
 export async function deleteProgress(stateRoot: string, id: string): Promise<void> {
+  verifyLocalMemoryClaim()
   await unlink(progressFile(stateRoot, id)).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'ENOENT') throw error
   })

@@ -351,23 +351,31 @@ Audit gaps: 9–12.
   worktree, write, publication, rename, watermark and drain boundaries. New
   prepared/CAS/terminal restart fixtures are source evidence; untested power-loss,
   installed generation and helper outcomes remain explicitly open.
-- [ ] **R5-03** Define same-process and cross-process concurrency limits,
-  generation identity, revocation, tokenized claims and stale callbacks. PID or
-  dead-parent evidence alone must not erase unknown publication outcomes.
+- [x] **R5-03** 2026-10-30: [cooperative concurrency](letta-parity-r5.md#cooperative-concurrency-and-generation--r5-03-source-supported)
+  adds one exclusive sibling claim for every disconnected service/migration turn,
+  pins root identity plus the existing v1 service nonce, revokes worker adapters
+  before coordinator continuation and refuses stale/dead/partial claims without
+  PID/age takeover. This preserves v1 records and coordinator-only publication;
+  mixed versions, hostile same-user mutation and automatic retained-claim recovery
+  remain unsupported.
 - [x] **R5-04** 2026-10-30: [config-root source audit](letta-parity-r5.md#config-root-audit--r5-04)
   maps installer, kernel, memory, agent, viewer, guard and test inputs. Kernel
   now uses shared `resolveAgentDir` while retaining canonical realpath validation;
   setup fixtures cover override/tilde/relative/default behavior. Installed
   alternate-root policy isolation remains a separate R4/R5-I gate.
-- [ ] **R5-05** Audit bounded Git output/deadlines and HTTP/SSH child/helper
-  teardown per supported OS; prove settlement before cleanup or lock release.
-  A timeout return alone is not proof all descendants terminated.
-R5-03 cross-process ownership and R5-05 helper-tree settlement remain unresolved
-in the [source limitation matrices](letta-parity-r5.md). No completion is inferred
-from a ref CAS, PID/process death or direct-child timeout return.
+- [x] **R5-05** 2026-10-30: [local Git settlement](letta-parity-r5.md#local-git-settlement-and-unsupported-helper-trees--r5-05-source-supported)
+  supports fixed local commands only. Normal/nonzero child close is drained;
+  timeout, output overflow or signal termination poisons and retains the root claim
+  and suppresses cleanup. Remote/helper-bearing config and protocols refuse. This
+  is an explicit support boundary, not universal HTTP/SSH descendant settlement or
+  cross-platform observation.
 
-- [ ] **R5-S** Fault/state-machine fixtures establish recovery disposition,
-  root-isolation negatives and helper-tree outcomes without weakened invariants.
+- [x] **R5-S** 2026-10-30: bounded child-process/state-machine fixtures cover
+  competing and independent roots, partial/dead claims, adapter revocation,
+  root/meta replacement, rollback exclusion, normal Git close, prefix drainage,
+  forced-interruption retention and helper/config refusal. Fresh source QA found no
+  material issue. R5-I/O/H, mixed-version actors and universal process-tree claims
+  remain open.
 - [ ] **R5-I** Authorized disposable installed fault actors exercise actual
   execution, permissions, generation overlap and recovery commands.
 - [ ] **R5-O** Observe crash/restart/conflict/abandon and hung-helper outcomes;

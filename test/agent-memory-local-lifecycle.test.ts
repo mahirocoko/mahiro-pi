@@ -63,10 +63,7 @@ function fixture() {
 
 function remembering(body: string): LocalWorker {
   return (ctx) => {
-    const job = JSON.parse(
-      readFileSync(join(ctx.worktreeRoot, '..', '..', 'jobs', `${ctx.jobId}.json`), 'utf8'),
-    )
-    assert.equal(job.status, 'running')
+    assert.equal('worktreeRoot' in ctx, false)
     ctx.write('notes.md', body)
   }
 }
@@ -165,8 +162,12 @@ test('worker writes do not follow symlinks or hard links', async () => {
     const service = await createSyntheticLocalMemoryService({
       stateRoot: fx.stateRoot,
       initialFiles,
+      injection: {
+        beforeWorker: (path) => {
+          symlinkSync(join(outside, 'leaf.md'), join(path, 'notes.md'))
+        },
+      },
       worker: (ctx) => {
-        symlinkSync(join(outside, 'leaf.md'), join(ctx.worktreeRoot, 'notes.md'))
         ctx.write('notes.md', 'pwned\n')
       },
     })
@@ -178,8 +179,12 @@ test('worker writes do not follow symlinks or hard links', async () => {
     const hard = await createSyntheticLocalMemoryService({
       stateRoot: fx.stateRoot,
       initialFiles,
+      injection: {
+        beforeWorker: (path) => {
+          linkSync(linked, join(path, 'notes.md'))
+        },
+      },
       worker: (ctx) => {
-        linkSync(linked, join(ctx.worktreeRoot, 'notes.md'))
         ctx.write('notes.md', 'pwned\n')
       },
     })
@@ -189,8 +194,12 @@ test('worker writes do not follow symlinks or hard links', async () => {
     const ancestor = await createSyntheticLocalMemoryService({
       stateRoot: fx.stateRoot,
       initialFiles,
+      injection: {
+        beforeWorker: (path) => {
+          symlinkSync(outside, join(path, 'linked'))
+        },
+      },
       worker: (ctx) => {
-        symlinkSync(outside, join(ctx.worktreeRoot, 'linked'))
         ctx.write('linked/nested.md', 'pwned\n')
       },
     })

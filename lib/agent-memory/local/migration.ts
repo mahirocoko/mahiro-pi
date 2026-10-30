@@ -35,8 +35,10 @@ import {
   type LocalGitContext,
 } from './git.ts'
 import { loadJob, parseMeta } from './jobs.ts'
+import { hasLocalMemoryClaim } from './coordination.ts'
 import {
-  createSyntheticLocalMemoryService,
+  createLocalMemoryServiceUnderClaim,
+  importLocalTombstonesUnderClaim,
   localMemoryTurn,
   retireLocalMemoryRoot,
   type SyntheticLocalMemoryService,
@@ -120,107 +122,120 @@ export async function openShadowMigration(options: {
   injection?: ShadowMigrationInjection
   beforeReceipt?: () => Promise<void> | void
 }): Promise<ShadowMigration> {
+  if (hasLocalMemoryClaim()) throw Error('Local memory recursive claim refused')
   if (typeof options.worker !== 'function') refuse()
   const prepared = prepareBundle(options.bundle)
   const stateRoot = await assertDirectory(options.stateRoot)
-  return turn(stateRoot, async () => {
-    const identity = await directoryIdentity(stateRoot)
-    const stored = await readOptional(join(stateRoot, 'migration.json'))
-    if (stored) {
-      const receipt = parseReceipt(stored)
-      if (!sameReceipt(receipt, prepared, identity)) throw Error('Local memory migration stale')
-      const expected = seedManifest(prepared.seed)
-      if (
-        expected.manifestHash !== receipt.manifestHash ||
-        expected.fileCount !== receipt.fileCount ||
-        expected.bytes !== receipt.bytes
-      )
-        refuse()
-      const service = await createSyntheticLocalMemoryService({
-        stateRoot,
-        worker: options.worker,
-        injection: forwardInjection(options.injection),
-      })
-      await verifyReceipt(stateRoot, receipt)
-      return { receipt, service }
-    }
-    const ownerPath = join(stateRoot, 'migration-owner.json')
-    const existingOwner = await readOptional(ownerPath)
-    if (existingOwner) {
-      const owner = parseOwner(existingOwner)
-      if (
-        owner.dev !== identity.dev ||
-        owner.ino !== identity.ino ||
-        owner.exportDigest !== prepared.exportDigest
-      )
-        refuse()
-    } else {
-      if ((await readdir(stateRoot)).length !== 0) refuse()
-      const owner = {
-        version: 1 as const,
-        nonce: randomBytes(16).toString('hex'),
-        exportDigest: prepared.exportDigest,
-        dev: identity.dev,
-        ino: identity.ino,
-      }
-      await writeExclusive(ownerPath, `${JSON.stringify(owner)}\n`)
-      if (options.injection?.stopAfter === 'owner') throw Error('Local memory migration interrupted')
-    }
-    const service = await createSyntheticLocalMemoryService({
+  return turn(stateRoot, () =>
+    localMemoryTurn(
       stateRoot,
-      worker: options.worker,
-      initialFiles: Object.fromEntries(prepared.seed.map((file) => [file.path, file.text])),
-      injection: forwardInjection(options.injection),
-    })
-    if (options.injection?.stopAfter === 'seeded') throw Error('Local memory migration interrupted')
-    if (prepared.tombstone) {
-      const current = await loadForgetting(stateRoot)
-      await service.importTombstones({
-        expectedPolicyRevision: current.policyRevision,
-        expectedDigest: current.digest,
-        snapshot: prepared.tombstone,
-      })
-    }
-    const owner = parseOwner(await readRequired(ownerPath))
-    const meta = await readMeta(stateRoot)
-    const head = await gitMain(shadowGit(stateRoot))
-    const expected = seedManifest(prepared.seed)
-    const manifest = await treeManifest(stateRoot, head)
-    if (
-      manifest.manifestHash !== expected.manifestHash ||
-      manifest.fileCount !== expected.fileCount ||
-      manifest.bytes !== expected.bytes
-    )
-      refuse()
-    const forgetting = await loadForgetting(stateRoot)
-    const receipt: ShadowMigrationReceipt = {
-      version: 1,
-      sourceRevision: prepared.revision,
-      ledgerDigest: prepared.ledgerDigest,
-      configHash: prepared.configHash,
-      exportDigest: prepared.exportDigest,
-      fileCount: manifest.fileCount,
-      bytes: manifest.bytes,
-      manifestHash: manifest.manifestHash,
-      initialHead: head,
-      forgettingDigest: forgetting.digest,
-      reviewed: prepared.reviewed,
-      rollback: {
-        migrationNonce: owner.nonce,
-        serviceNonce: meta.nonce,
-        repository: meta.repository,
-        dev: identity.dev,
-        ino: identity.ino,
+      async (claim) => {
+        const identity = await directoryIdentity(stateRoot)
+        const stored = await readOptional(join(stateRoot, 'migration.json'))
+        if (stored) {
+          const receipt = parseReceipt(stored)
+          if (!sameReceipt(receipt, prepared, identity)) throw Error('Local memory migration stale')
+          const expected = seedManifest(prepared.seed)
+          if (
+            expected.manifestHash !== receipt.manifestHash ||
+            expected.fileCount !== receipt.fileCount ||
+            expected.bytes !== receipt.bytes
+          )
+            refuse()
+          const service = await createLocalMemoryServiceUnderClaim(
+            {
+              stateRoot,
+              worker: options.worker,
+              injection: forwardInjection(options.injection),
+            },
+            claim,
+          )
+          await verifyReceipt(stateRoot, receipt)
+          return { receipt, service }
+        }
+        const ownerPath = join(stateRoot, 'migration-owner.json')
+        const existingOwner = await readOptional(ownerPath)
+        if (existingOwner) {
+          const owner = parseOwner(existingOwner)
+          if (
+            owner.dev !== identity.dev ||
+            owner.ino !== identity.ino ||
+            owner.exportDigest !== prepared.exportDigest
+          )
+            refuse()
+        } else {
+          if ((await readdir(stateRoot)).length !== 0) refuse()
+          const owner = {
+            version: 1 as const,
+            nonce: randomBytes(16).toString('hex'),
+            exportDigest: prepared.exportDigest,
+            dev: identity.dev,
+            ino: identity.ino,
+          }
+          await writeExclusive(ownerPath, `${JSON.stringify(owner)}\n`)
+          if (options.injection?.stopAfter === 'owner') throw Error('Local memory migration interrupted')
+        }
+        const service = await createLocalMemoryServiceUnderClaim(
+          {
+            stateRoot,
+            worker: options.worker,
+            initialFiles: Object.fromEntries(prepared.seed.map((file) => [file.path, file.text])),
+            injection: forwardInjection(options.injection),
+          },
+          claim,
+        )
+        if (options.injection?.stopAfter === 'seeded') throw Error('Local memory migration interrupted')
+        if (prepared.tombstone) {
+          const current = await loadForgetting(stateRoot)
+          await importLocalTombstonesUnderClaim(service, claim, {
+            expectedPolicyRevision: current.policyRevision,
+            expectedDigest: current.digest,
+            snapshot: prepared.tombstone,
+          })
+        }
+        const owner = parseOwner(await readRequired(ownerPath))
+        const meta = await readMeta(stateRoot)
+        const head = await gitMain(shadowGit(stateRoot))
+        const expected = seedManifest(prepared.seed)
+        const manifest = await treeManifest(stateRoot, head)
+        if (
+          manifest.manifestHash !== expected.manifestHash ||
+          manifest.fileCount !== expected.fileCount ||
+          manifest.bytes !== expected.bytes
+        )
+          refuse()
+        const forgetting = await loadForgetting(stateRoot)
+        const receipt: ShadowMigrationReceipt = {
+          version: 1,
+          sourceRevision: prepared.revision,
+          ledgerDigest: prepared.ledgerDigest,
+          configHash: prepared.configHash,
+          exportDigest: prepared.exportDigest,
+          fileCount: manifest.fileCount,
+          bytes: manifest.bytes,
+          manifestHash: manifest.manifestHash,
+          initialHead: head,
+          forgettingDigest: forgetting.digest,
+          reviewed: prepared.reviewed,
+          rollback: {
+            migrationNonce: owner.nonce,
+            serviceNonce: meta.nonce,
+            repository: meta.repository,
+            dev: identity.dev,
+            ino: identity.ino,
+          },
+        }
+        const text = `${JSON.stringify(receipt)}\n`
+        if (bytes(text) > shadowMigrationLimits.maxReceiptBytes) refuse()
+        parseReceipt(text)
+        if (options.beforeReceipt) await options.beforeReceipt()
+        await writeExclusive(join(stateRoot, 'migration.json'), text)
+        await verifyReceipt(stateRoot, receipt)
+        return { receipt, service }
       },
-    }
-    const text = `${JSON.stringify(receipt)}\n`
-    if (bytes(text) > shadowMigrationLimits.maxReceiptBytes) refuse()
-    parseReceipt(text)
-    if (options.beforeReceipt) await options.beforeReceipt()
-    await writeExclusive(join(stateRoot, 'migration.json'), text)
-    await verifyReceipt(stateRoot, receipt)
-    return { receipt, service }
-  })
+      'migration-open',
+    ),
+  )
 }
 
 export async function rollbackShadowMigration(
@@ -230,9 +245,10 @@ export async function rollbackShadowMigration(
     afterQuiescence?: () => Promise<void> | void
   },
 ): Promise<{ quarantined: string }> {
+  if (hasLocalMemoryClaim()) throw Error('Local memory recursive claim refused')
   const root = await assertDirectory(stateRoot)
   return turn(root, () =>
-    localMemoryTurn(root, async () => {
+    localMemoryTurn(root, async (claim) => {
       if (options?.beforeQuiescence) await options.beforeQuiescence()
       const identity = await directoryIdentity(root)
       let ownerText: string
@@ -267,7 +283,9 @@ export async function rollbackShadowMigration(
       const hadService = await exists(join(root, 'meta.json'))
       const quarantined = `${root}.quarantine-${owner.nonce.slice(0, 12)}`
       if (await exists(quarantined)) refuse()
+      claim.verify()
       await rename(root, quarantined)
+      claim.movedTo(quarantined)
       const moved = await lstat(quarantined)
       if (!moved.isDirectory() || String(moved.dev) !== identity.dev || String(moved.ino) !== identity.ino)
         refuse()

@@ -94,7 +94,6 @@ export interface LocalProgressRecord {
 
 export interface LocalWorkerContext {
   jobId: string
-  worktreeRoot: string
   write(relativePath: string, text: string): void
 }
 
@@ -138,6 +137,8 @@ export interface SyntheticLocalInjection {
     | 'repair-prepared'
     | 'repair-published'
     | 'repair-terminal'
+  /** Test-only adversarial filesystem fixture seam; never passed to a worker. */
+  beforeWorker?: (path: string) => Promise<void> | void
   failCleanupRemoves?: number
   /** Test seam. Runs after an operation captures refs/heads/main and before it reads objects. */
   afterCommitResolved?: (commit: string) => Promise<void> | void

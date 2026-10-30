@@ -512,14 +512,14 @@ test('seeded resume, read envelope, quiescence, and rollback exclusion fail clos
     const quiet = join(fx.dir, 'quiet')
     mkdirSync(quiet, { mode: 0o700 })
     const quietService = await openAt(quiet)
-    let pending: Promise<unknown> | undefined
     const rolled = await rollbackShadowMigration(quiet, {
-      afterQuiescence: () => {
-        pending = quietService.service.enqueue({ id: 'race', summary: 'during rollback' })
+      afterQuiescence: async () => {
+        await assert.rejects(
+          quietService.service.enqueue({ id: 'race', summary: 'during rollback' }),
+          /Local memory recursive claim refused/,
+        )
       },
     })
-    assert.ok(pending)
-    await assert.rejects(pending, /Local memory repository refused/)
     await assert.rejects(() => quietService.service.head(), /Local memory repository refused/)
     assert.equal(existsSync(join(rolled.quarantined, 'jobs', 'race.json')), false)
     assert.equal(existsSync(quiet), false)

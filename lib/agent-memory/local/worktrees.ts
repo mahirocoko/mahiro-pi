@@ -1,6 +1,7 @@
 import { lstat, realpath, unlink } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { readRegularFile } from './confine.ts'
+import { verifyLocalMemoryClaim } from './coordination.ts'
 import { type LocalOwnershipRecord, type LocalProgressRecord } from './contracts.ts'
 import { type LocalGitContext, gitWorktreeAdd, gitWorktreeDirty, gitWorktreeRemove } from './git.ts'
 import {
@@ -105,6 +106,7 @@ export async function cleanupOwnedWorktree(
   if (failBeforeRemove) throw Error('Local memory cleanup interrupted')
   await gitWorktreeRemove(context, canonical, discardDirty)
   if (stopAfterRemove) return true
+  verifyLocalMemoryClaim()
   await unlink(ownershipFile(stateRoot, record.jobId))
   await deleteProgress(stateRoot, record.jobId)
   return false

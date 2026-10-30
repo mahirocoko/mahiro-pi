@@ -26,6 +26,7 @@ import {
   gitWriteTree,
 } from './git.ts'
 import { saveJob } from './jobs.ts'
+import { localMemoryCleanupAllowed } from './coordination.ts'
 
 function refuse(): never {
   throw Error('Local memory repair refused')
@@ -111,6 +112,7 @@ export async function repairLocalJob(input: {
   const replacements = new Map(resolutions.entries)
   const index = join(stateRoot, 'repair.index')
   const clearIndex = async () => {
+    if (!localMemoryCleanupAllowed()) return
     const stat = await lstat(index).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined
       throw error

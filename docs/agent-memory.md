@@ -641,18 +641,30 @@ reseed it. Restoring that repository is an explicit repair by its owner. A
 private-root import is a separate authorized step
 and is not implemented here.
 
-The trust boundary is the service process. Another same-user process that edits
-`canonical.git`, service state, or worktree metadata is outside the product
-contract. The service does not claim to resist those races. Transcript text and
+The trust boundary is a cooperative current-version service process. Every
+startup, recovery-bearing read, mutation, callback, publication, cleanup and
+migration operation first creates one exclusive sibling
+`<stateRoot>.operation-claim`. It binds a random operation token to the root's
+device/inode and existing version-1 service nonce. Another current-version
+process refuses before reconciliation or mutation. Existing, partial, malformed
+or dead-owner claims are never stolen by PID, age or parent death. Only the exact
+holder removes the claim; root/meta replacement, forced Git interruption or a
+failed release leaves it blocking. Different roots remain independent. A crash
+can therefore make a synthetic root unavailable until a separately reviewed
+recovery mechanism exists.
+
+Another same-user process that ignores the protocol or edits `canonical.git`,
+service state, claim or worktree metadata remains outside the product contract.
+This is not mixed-version or hostile same-user protection. Transcript text and
 worker file writes stay untrusted: paths are checked with `lstat` and
 `O_NOFOLLOW`, Git commands use a fixed argument list and bounded output, and
 publication is the bare `refs/heads/main` ref. Refusing a symlink or hard link
 that is already present is not protection against an ancestor directory being
 swapped during the write. Public Node has no `openat`, so that race is outside
 this contract. A pending commit is published only when its parent count and tree
-match the worker commit and the expected parent. A coordinator crash is recovered
-by reading durable job records in the next single service process. There is no
-cross-process lock.
+match the worker commit and expected parent. Durable job records still support
+restart only after the root has no retained claim; no automatic stale-claim
+recovery is provided.
 
 Synthetic Phase C adds a trajectory owner and a deterministic maintenance
 worker on that coordinator. The harness passes an explicit public-session entry
@@ -683,12 +695,18 @@ and digest; it does not duplicate a still-held attempt.
 
 The deterministic worker receives the bounded range as untrusted data and a
 worktree adapter for read, list, search, write, edit, delete, and rename. It
-has no shell, Git handle, network, credentials, or absolute path. The adapter
-refuses `.git`, symlink traversal, and paths outside the worktree. The
-coordinator remains the only Git publisher. There is no installed role
-descriptor. Ordinary non-reflection jobs still use the existing worker.
-Reopening this service for reflection requires the same synthetic policy and
-maintenance callback. This path is not live and is not selected by installation.
+has no shell, Git handle, network, credentials, absolute path or claim token.
+Ordinary workers receive only the job id and the same fenced write operation;
+the production callback no longer receives a raw worktree path. Every adapter
+method checks a per-callback capability before filesystem I/O. The capability
+is revoked in an inner `finally` before staging, failure recording, publication
+or claim release, so a retained method cannot mutate after its callback settles.
+This confines the supplied API; arbitrary JavaScript that independently obtains
+filesystem authority is not an operating-system sandbox. The adapter refuses
+`.git`, symlink traversal and paths outside the worktree. The coordinator remains
+the only Git publisher. There is no installed role descriptor. Reopening this
+service for reflection requires the same synthetic policy and maintenance
+callback. This path is not live and is not selected by installation.
 
 The [R3 trajectory contract](letta-parity-r3.md) refines this synthetic path:
 `step-count` counts only caller-finalized assistant rows after the settled
@@ -835,10 +853,10 @@ fails the projection or read closed instead of returning that text. Forgotten
 paths are not listed as deferred, blocked, or absent. Results include policy
 revision, digest, phase, and counts, not the forgotten paths or text.
 
-Turns on one service stay serialized, so an import and a later integration do
-not publish a mix of old and new policy. Extension, kernel, installer, and
-profile code do not import this record. It does not call a provider or select
-installation.
+Turns on one service stay serialized, and cooperative current-version processes
+also share the root claim, so an import and a later integration do not publish a
+mix of old and new policy. Extension, kernel, installer, and profile code do not
+import this record. It does not call a provider or select installation.
 
 This owner is not ABI3. Source loading does not construct it. Profiles, kernel
 bindings, role descriptors, private memory roots, and `/mh-memory` commands do
@@ -869,13 +887,17 @@ the same complete bundle verifies that receipt, including the manifest, and retu
 it unchanged. A different bundle, a replaced repository, an equal-length content
 change, or a partial root that is not the recorded owner fails closed. An
 interrupted create can be resumed when the owner identity and manifest still match.
-Rollback waits on the migration turn and then the service turn, in that order,
-and renames only a quiescent owned root: no queued, running, committed, or
-repair-needed job, no pending publication, and no ownership, progress, or worktree
-residue, including a repair index/lock. Integrated, noop, failed, repaired and
-abandoned jobs may remain only after that residue is gone. Public abandonment
-retains evidence and publishes nothing; exact cleanup is separate. Existing
-service handles then fail. It does not switch live authority.
+Rollback waits on the migration turn and then holds the same sibling root claim
+used by service operations. It renames only a quiescent owned root after two
+checks: no queued, running, committed or repair-needed job, no pending publication,
+and no ownership, progress or worktree residue, including a repair index/lock.
+The claim remains held through quarantine rename and moved-inode verification,
+then releases its original sibling path. A competing current-version opener
+cannot reconcile the root mid-rollback. Integrated, noop, failed, repaired and
+abandoned jobs may remain only after residue is gone. Public abandonment retains
+evidence and publishes nothing; exact cleanup is separate. Existing service
+handles then fail. A dead or poisoned claim blocks rollback rather than being
+stolen. This does not switch live authority.
 
 Extension, kernel, installer, and profile code do not import this adapter. It
 does not call a provider, publish, or select installation.
