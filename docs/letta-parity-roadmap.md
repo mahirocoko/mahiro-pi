@@ -12,12 +12,18 @@ to reproduce the whole Letta app, hosted backend or every command and skill.
 [agents](agents.md) owns roles and skill boundaries. Source and observed runtime
 outrank prose, phase names, green test counts and percentages.
 
-Baseline: **2026-10-29**, Mahiro commit
-`7c4169477fcacc472018678848f74342173de2b2` **plus the audited dirty working tree**.
-B0's dirty-source identity is currently **unfrozen/unavailable**: the original
-audit did not capture an immutable whole-dirty-tree manifest. That commit alone
-is insufficient to reproduce the audited dirty Palace/context/identity work.
-A current manifest cannot retroactively identify the earlier audited tree.
+Current checkpoint baseline: **2026-10-30**, Mahiro commit
+`f46cade7e3c984981b5eeb55eb68a4a610b45ba2`. It freezes the experimental
+Palace/context source and this roadmap without claiming installed integration,
+rendered acceptance or parity. Scores remain unchanged pending a differential
+re-audit and completed evidence gates.
+
+The original B0 baseline was **2026-10-29**, Mahiro commit
+`7c4169477fcacc472018678848f74342173de2b2` plus the audited dirty working tree.
+B0's dirty-source identity remains **unfrozen/unavailable**: the original audit
+did not capture an immutable whole-dirty-tree manifest. That commit alone is
+insufficient to reproduce the audited dirty Palace/context/identity work. A
+later manifest or checkpoint cannot retroactively identify that earlier tree.
 The read-only 28-gap audit is supporting local evidence at
 `.agent-state/runtime/memory-v012/letta-v03431-full-parity-audit.md`; it is ignored
 operator evidence, not a public prerequisite or a new authority. The durable gap
@@ -49,7 +55,7 @@ performance, learning quality or human acceptance.
 The live ABI1/ABI2 product has substantial authority, projection and writer
 infrastructure. The local Git/worktree, trajectory, model-worker, projection,
 forgetting, migration and Palace experiments remain disconnected from installed
-routing. Synthetic completion is not an installed end-to-end product. The dirty
+routing. Synthetic completion is not an installed end-to-end product. The checkpointed
 Palace context DTO is a partial repair with fixture/unavailable context, not
 command-time capture from the invoking session. `/mh-memory palace` remains a
 bounded JSON diagnostic. Mahiro accepted the roadmap direction on 2026-10-30
@@ -126,7 +132,8 @@ No high-confidence installed or human claim is made by this baseline.
 
 | Revision | Date | Baseline and reference | Score/source → evidence | Evidence and disposition |
 | --- | --- | --- | --- | --- |
-| B0 | 2026-10-29 | Mahiro `7c4169477fcacc472018678848f74342173de2b2` + audited dirty tree; Letta `a8900b882446d7aa99fedf2845d400743affd1b6` / v0.34.31 | 60% → 30% | 28-gap read-only audit; source-only credit. B0 dirty-source identity unfrozen/unavailable: no immutable whole-dirty-tree manifest was captured; the commit alone is insufficient. Roadmap direction and phase exits were not accepted at B0; direction was subsequently accepted on 2026-10-30, not later phase exits. |
+| B0 | 2026-10-29 | Mahiro `7c4169477fcacc472018678848f74342173de2b2` + audited dirty tree; Letta `a8900b882446d7aa99fedf2845d400743affd1b6` / v0.34.31 | 60% → 30% | 28-gap read-only audit; source-only credit. B0 dirty-source identity unfrozen/unavailable: no immutable whole-dirty-tree manifest was captured; the commit alone is insufficient. Roadmap direction and phase exits were not accepted at B0. |
+| B1 | 2026-10-30 | Mahiro `f46cade7e3c984981b5eeb55eb68a4a610b45ba2`; same Letta pins | 60% → 30% | Immutable experimental Palace/context and roadmap checkpoint. R0-00 candidate evidence and R0-H direction acceptance recorded. No score movement: latest-source re-audit, installed/runtime evidence and later phase exits remain open. |
 
 ## Roadmap and evidence gates
 

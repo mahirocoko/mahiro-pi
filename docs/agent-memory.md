@@ -23,9 +23,10 @@ specification and source-test work, not more Palace polish or installed integrat
 Phase H continuation and Phase I remain paused until their own gates pass. This
 acceptance does not authorize push, tag, release, profile/install mutation, live
 cutover or Phase I, nor replace later human-only product/visual acceptance.
-Current-candidate evidence is recorded under R0-00 in the roadmap; it does not
-retroactively identify B0's earlier audited dirty tree. Semantic changes require
-re-audit.
+The experimental Palace/context source and roadmap are checkpointed at
+`f46cade7e3c984981b5eeb55eb68a4a610b45ba2`. R0-00 candidate evidence does not
+retroactively identify B0's earlier audited dirty tree. Semantic changes and score
+movement require re-audit.
 
 ## Maintained knowledge
 
