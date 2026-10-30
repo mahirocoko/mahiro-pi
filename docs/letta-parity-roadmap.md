@@ -21,7 +21,10 @@ The later docs-only checkpoint containing this roadmap and the
 [R8 source/security/context-contract closeout](letta-parity-r8.md) records
 **75% source / 40% evidence-backed end-to-end**, **NOT ALIGNED** and **NOT READY**
 for release/cutover. R8 source audit is complete; installed/observed/human (I/O/H)
-gates remain open. No target-controlled execution was performed for R8.
+gates remain open. No target-controlled execution was performed for R8. A later
+narrow installed read-only capacity observation at source commit `68def01` is
+recorded under R5-07. It establishes only current-profile diagnostic activation
+and healthy fresh-session status; no domain-level I/O/H gate or score changes.
 
 The original B0 baseline was **2026-10-29**, Mahiro commit
 `7c4169477fcacc472018678848f74342173de2b2` plus the audited dirty working tree.
@@ -410,6 +413,17 @@ Audit gaps: 9–12.
   leaf/binding/idle/authority fences remain mandatory; it never returns names, bodies,
   paths or a remediation handle. This does not change the generic failure, clean retained state, activate
   a profile or establish installed/observed/human recovery evidence.
+- [x] **R5-07 narrow installed capacity observation** 2026-10-30: the current
+  profile already referenced source commit `68def01`, with an all-noop installer
+  preview. In the retained long session, the diagnostic reported no status namespace
+  blockers and classified the failure as `non-namespace-status-capacity`; combined
+  retained views were 69 and doctor-blocked separately. A temporary fresh Pi session
+  in a separate owned Herdr pane then reported `Ready`, authorized storage,
+  automatic policy, committed-head publication, idle worker/policy and no pending
+  operations. The temporary process was quit and its pane removed while the original
+  owner session remained selected. This establishes installed diagnostic activation
+  and identifies branch-local capacity as the supported cause; it does not exercise
+  fault recovery, authorize retained-view cleanup, close R5-I/O/H or move scores.
 
 - [x] **R5-S** 2026-10-30: bounded child-process/state-machine fixtures cover
   competing and independent roots, partial/dead claims, adapter revocation,

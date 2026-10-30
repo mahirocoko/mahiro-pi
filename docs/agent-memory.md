@@ -227,6 +227,13 @@ throughout the attempt. It returns no names, paths, record bodies, corpus text o
 cleanup handle. Missing diagnostics remain unknown. A reported
 blocker does not authorize deletion, discard, adoption, restart, policy change or
 profile activation; remediation requires a separately reviewed owner workflow.
+A 2026-10-30 current-profile read-only observation at source commit `68def01`
+exercised this fallback in a retained long session: no status namespace blocker
+was present, while combined retained views were a separate doctor-only blocker.
+A temporary fresh Pi session, kept separate from the original owner session,
+reported `Ready` with authorized committed-head storage and no pending operation.
+This establishes branch-local capacity for that incident, not a general storage
+failure, recovery result, cleanup authorization or domain-level parity gate.
 
 Discovery is path/index-driven: committed `Core.md` and `index.md` remain loaded alongside
 `system/persona.md` and only the current project's `system/overview.md` and
