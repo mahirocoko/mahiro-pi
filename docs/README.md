@@ -29,6 +29,8 @@
   freezes native path/projection/discovery mapping against Letta v0.34.31. The
   [R3 trajectory contract](letta-parity-r3.md) records synthetic assistant-step triggers,
   captured-prefix draining, bounded redaction, progress and non-executing replay. The
+  [R4 ABI2 route checkpoint](letta-parity-r4.md) proves one disposable automatic
+  SDK route, not installed/provider/human acceptance. The
   [R5 recovery contract](letta-parity-r5.md) defines explicit synthetic repair/abandon,
   unchanged recovery watermarks, retained evidence and open concurrency/helper limits.
   None establishes installed parity or activation.

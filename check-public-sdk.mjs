@@ -105,6 +105,7 @@ try {
     'managed-memory-engine-test.mjs',
     'managed-memory-engine-operations-test.mjs',
     'managed-memory-tree-sdk-test.mjs',
+    'managed-memory-route-sdk-test.mjs',
     'managed-memory-install-test.mjs',
     'offline-maintenance-sdk-test.mjs',
     'permission-patch-test.mjs',

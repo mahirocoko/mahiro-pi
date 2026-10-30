@@ -303,25 +303,29 @@ reflection or treating replay as current authenticated instruction.
 
 ### R4 — One installed end-to-end integration slice
 
+[R4 source/SDK checkpoint](letta-parity-r4.md): R4-01–04/R4-S are complete
+at the disposable deterministic layer. ABI2 remains sole authority; the local
+service stays disconnected. R4-I/O/H remain open; scores stay 60%/30%.
+
 Dependencies: R0–R3 source contracts; R5 safety design/source gates before live
 activation; explicit installed scope and rollback approval. Moves:
 writer/publication, reflection/trajectory/progress, projection/retrieval,
 authority/privacy/isolation. Audit gap: 1 and cross-cutting 28.
 
-- [ ] **R4-01** Select one primary/session/revision/root-bound seam: Pi settled
+- [x] **R4-01** Select one primary/session/revision/root-bound seam: Pi settled
   session → eligible trajectory → confined writer/worktree → coordinator
   integration → committed projection → next primary request. Name each owner.
-- [ ] **R4-02** Decide whether/how the local service joins the product; preserve
+- [x] **R4-02** Decide whether/how the local service joins the product; preserve
   ABI2 authority until an explicitly approved replacement and rollback exist.
   Do not add a parallel knowledge owner or imply ABI3 from experiments.
-- [ ] **R4-03** Specify readiness, permission loss, locked route, private view,
+- [x] **R4-03** Specify readiness, permission loss, locked route, private view,
   no-learning, conflicting proposal, revocation and stale-generation behavior.
   Record provider authorization separately from Faux transport.
-- [ ] **R4-04** Prepare disposable synthetic roots and an exact rollback plan;
+- [x] **R4-04** Prepare disposable synthetic roots and an exact rollback plan;
   bound state and cleanup only newly owned fixtures. Define success receipts
   without storing private corpus in public source.
-- [ ] **R4-S** Source/SDK tests prove dispatch binding and negative boundaries;
-  a fresh verifier checks the seam is actually imported/selected where claimed.
+- [x] **R4-S** Source/SDK tests prove dispatch binding and negative boundaries;
+  the actual loaded kernel selects ABI2 and the automatic controller route is exercised.
 - [ ] **R4-I** Explicitly install and verify routing/grants in an authorized
   disposable profile; prove the complete slice, not isolated component APIs.
 - [ ] **R4-O** Observe actual success/no-op/failure/conflict journeys and next

@@ -19,8 +19,10 @@ not be credited as one installed product.
 
 Mahiro accepted the roadmap direction on 2026-10-30 and authorized continued
 repository write/test/checkpoint execution. R0 specification, inventory and fresh
-source review are complete; R1–R3 and R5 source semantics are next, not more
-Palace polish or installed integration. Phase H continuation and Phase I remain
+source review are complete. The [R4 source/SDK checkpoint](letta-parity-r4.md)
+proves one disposable automatic ABI2 route through genuine native completion and
+next-request projection. It does not activate the disconnected local service or
+close installed/provider/human gates; scores remain 60%/30%. Phase H continuation and Phase I remain
 paused until their own gates pass. This
 acceptance does not authorize push, tag, release, profile/install mutation, live
 cutover or Phase I, nor replace later human-only product/visual acceptance.
