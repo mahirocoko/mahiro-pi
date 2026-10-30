@@ -35,7 +35,8 @@ gates ran for R8 because no qualifying OS sandbox is established; earlier test
 records are references, not rerun proof.
 
 Next gates are a disposable installed R4/R5 journey only after authorization,
-R6 operator rehearsal only after the product exists, R7 installed collector and
+installed R6 operator rehearsal after its own authorization (the fixed-synthetic
+source operator is disconnected), R7 installed collector and
 rendered review, then longitudinal evaluation and a separate release decision.
 Phase H continuation and Phase I remain paused until their own gates pass.
 Direction acceptance does not authorize push, tag, release, profile/install
@@ -252,7 +253,8 @@ capture or backup. The [R6 operator contract](letta-parity-r6.md) inventories cu
 user jobs and explicitly unavailable backup/restore, active migration, authority
 cutover and conversation replay workflows. R7 now has a disconnected synthetic
 knowledge-history/diff service API, but user/operator/HTML history remains
-unavailable. No parity CLI or new operator API is added.
+unavailable. The standalone fixed-synthetic rehearsal described below is not a
+live parity CLI or active migration API.
 
 ## Compaction provenance and compatibility
 
@@ -927,8 +929,29 @@ evidence and publishes nothing; exact cleanup is separate. Existing service
 handles then fail. A dead or poisoned claim blocks rollback rather than being
 stolen. This is target quarantine only: not managed revision rollback, backup/restore,
 prior-route restoration or authority cutover. Those active migration workflows remain
-unavailable. The [R6 specification](letta-parity-r6.md) records prospective preview/apply
-identity, consent and receipt requirements, not an executable live procedure.
+unavailable. The [R6 contract](letta-parity-r6.md) records prospective active
+preview/apply identity, consent and receipt requirements, not an executable live
+procedure.
+
+A separate `memory-rehearsal.mjs` source operator now provides only a fixed-synthetic
+`preview → apply shadow → status → rollback/quarantine` journey using these owners.
+See the [exact command/target/receipt contract](letta-parity-r6.md#fixed-synthetic-rehearsal-operator).
+It requires a canonical explicit empty `shadow` child of a new dedicated disposable
+parent and `--fixture r6-basic-v1`; no source/content/private-root/provider inputs or
+profile fallback exist. Preview writes bounded sibling review metadata but leaves
+target contents empty. Apply and rollback require exact reviewed operation/expect
+identities inside the existing migration turn and root claim. A separate strict
+64-KiB/16-event digest-chained record persists intent and terminal evidence without
+changing migration.json v1. Terminal quarantine success and exact status/rollback
+replay require the canonical non-symlink moved directory, its recorded device/inode
+and matching migration owner/receipt identities and digests. Missing, replaced or
+linked quarantines return unknown/refused without adoption or mutation. Public
+results expose only an opaque `quarantineId`, not absolute paths. Exact retries
+are idempotent when identity still agrees; interrupted intent and
+post-rename-without-terminal evidence remain unknown. Retained claims block
+automatic takeover. This promises only process-restart durability at verified
+record boundaries, not whole-service power-loss atomicity, backup/restore or live
+cutover. It is not installed R6-I/O/H or human acceptance.
 
 Extension, kernel, installer, and profile code do not import this adapter. It
 does not call a provider, publish, or select installation.

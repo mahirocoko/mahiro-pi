@@ -35,7 +35,7 @@ import {
   type LocalGitContext,
 } from './git.ts'
 import { loadJob, parseMeta } from './jobs.ts'
-import { hasLocalMemoryClaim } from './coordination.ts'
+import { hasLocalMemoryClaim, requireLocalMemoryClaim, type LocalMemoryClaim } from './coordination.ts'
 import {
   createLocalMemoryServiceUnderClaim,
   importLocalTombstonesUnderClaim,
@@ -115,127 +115,166 @@ export interface ShadowMigrationInjection extends Omit<SyntheticLocalInjection, 
 
 const turns = new Map<string, Promise<void>>()
 const hashPattern = /^[a-f0-9]{64}$/
-export async function openShadowMigration(options: {
+interface ShadowMigrationOptions {
   stateRoot: string
   bundle: ShadowMigrationBundle
   worker: LocalWorker
   injection?: ShadowMigrationInjection
   beforeReceipt?: () => Promise<void> | void
-}): Promise<ShadowMigration> {
+}
+
+export async function openShadowMigration(options: ShadowMigrationOptions): Promise<ShadowMigration> {
+  // Preserve validation before owner creation and the existing public API.
+  prepareBundle(options.bundle)
+  return shadowMigrationTurn(options.stateRoot, (claim) => openShadowMigrationUnderClaim(options, claim))
+}
+
+const migrationClaims = new WeakSet<LocalMemoryClaim>()
+
+// Internal composition only: one migration turn, one service turn, one cooperative claim.
+export async function shadowMigrationTurn<T>(
+  stateRoot: string,
+  body: (claim: LocalMemoryClaim) => Promise<T>,
+): Promise<T> {
   if (hasLocalMemoryClaim()) throw Error('Local memory recursive claim refused')
-  if (typeof options.worker !== 'function') refuse()
-  const prepared = prepareBundle(options.bundle)
-  const stateRoot = await assertDirectory(options.stateRoot)
-  return turn(stateRoot, () =>
+  const root = await assertDirectory(stateRoot)
+  return turn(root, () =>
     localMemoryTurn(
-      stateRoot,
+      root,
       async (claim) => {
-        const identity = await directoryIdentity(stateRoot)
-        const stored = await readOptional(join(stateRoot, 'migration.json'))
-        if (stored) {
-          const receipt = parseReceipt(stored)
-          if (!sameReceipt(receipt, prepared, identity)) throw Error('Local memory migration stale')
-          const expected = seedManifest(prepared.seed)
-          if (
-            expected.manifestHash !== receipt.manifestHash ||
-            expected.fileCount !== receipt.fileCount ||
-            expected.bytes !== receipt.bytes
-          )
-            refuse()
-          const service = await createLocalMemoryServiceUnderClaim(
-            {
-              stateRoot,
-              worker: options.worker,
-              injection: forwardInjection(options.injection),
-            },
-            claim,
-          )
-          await verifyReceipt(stateRoot, receipt)
-          return { receipt, service }
+        migrationClaims.add(claim)
+        try {
+          return await body(claim)
+        } finally {
+          migrationClaims.delete(claim)
         }
-        const ownerPath = join(stateRoot, 'migration-owner.json')
-        const existingOwner = await readOptional(ownerPath)
-        if (existingOwner) {
-          const owner = parseOwner(existingOwner)
-          if (
-            owner.dev !== identity.dev ||
-            owner.ino !== identity.ino ||
-            owner.exportDigest !== prepared.exportDigest
-          )
-            refuse()
-        } else {
-          if ((await readdir(stateRoot)).length !== 0) refuse()
-          const owner = {
-            version: 1 as const,
-            nonce: randomBytes(16).toString('hex'),
-            exportDigest: prepared.exportDigest,
-            dev: identity.dev,
-            ino: identity.ino,
-          }
-          await writeExclusive(ownerPath, `${JSON.stringify(owner)}\n`)
-          if (options.injection?.stopAfter === 'owner') throw Error('Local memory migration interrupted')
-        }
-        const service = await createLocalMemoryServiceUnderClaim(
-          {
-            stateRoot,
-            worker: options.worker,
-            initialFiles: Object.fromEntries(prepared.seed.map((file) => [file.path, file.text])),
-            injection: forwardInjection(options.injection),
-          },
-          claim,
-        )
-        if (options.injection?.stopAfter === 'seeded') throw Error('Local memory migration interrupted')
-        if (prepared.tombstone) {
-          const current = await loadForgetting(stateRoot)
-          await importLocalTombstonesUnderClaim(service, claim, {
-            expectedPolicyRevision: current.policyRevision,
-            expectedDigest: current.digest,
-            snapshot: prepared.tombstone,
-          })
-        }
-        const owner = parseOwner(await readRequired(ownerPath))
-        const meta = await readMeta(stateRoot)
-        const head = await gitMain(shadowGit(stateRoot))
-        const expected = seedManifest(prepared.seed)
-        const manifest = await treeManifest(stateRoot, head)
-        if (
-          manifest.manifestHash !== expected.manifestHash ||
-          manifest.fileCount !== expected.fileCount ||
-          manifest.bytes !== expected.bytes
-        )
-          refuse()
-        const forgetting = await loadForgetting(stateRoot)
-        const receipt: ShadowMigrationReceipt = {
-          version: 1,
-          sourceRevision: prepared.revision,
-          ledgerDigest: prepared.ledgerDigest,
-          configHash: prepared.configHash,
-          exportDigest: prepared.exportDigest,
-          fileCount: manifest.fileCount,
-          bytes: manifest.bytes,
-          manifestHash: manifest.manifestHash,
-          initialHead: head,
-          forgettingDigest: forgetting.digest,
-          reviewed: prepared.reviewed,
-          rollback: {
-            migrationNonce: owner.nonce,
-            serviceNonce: meta.nonce,
-            repository: meta.repository,
-            dev: identity.dev,
-            ino: identity.ino,
-          },
-        }
-        const text = `${JSON.stringify(receipt)}\n`
-        if (bytes(text) > shadowMigrationLimits.maxReceiptBytes) refuse()
-        parseReceipt(text)
-        if (options.beforeReceipt) await options.beforeReceipt()
-        await writeExclusive(join(stateRoot, 'migration.json'), text)
-        await verifyReceipt(stateRoot, receipt)
-        return { receipt, service }
       },
       'migration-open',
     ),
   )
+}
+
+function requireMigrationClaim(root: string, claim: LocalMemoryClaim) {
+  if (!migrationClaims.has(claim) || requireLocalMemoryClaim(root) !== claim)
+    throw Error('Local memory migration claim required')
+}
+
+// Reuses the exact bundle validator for a review identity; contains no corpus text.
+export function shadowMigrationReview(bundle: ShadowMigrationBundle) {
+  const prepared = prepareBundle(bundle)
+  return { exportDigest: prepared.exportDigest, ...seedManifest(prepared.seed) }
+}
+
+export async function openShadowMigrationUnderClaim(
+  options: ShadowMigrationOptions,
+  claim: LocalMemoryClaim,
+): Promise<ShadowMigration> {
+  const stateRoot = options.stateRoot
+  requireMigrationClaim(stateRoot, claim)
+  if (typeof options.worker !== 'function') refuse()
+  const prepared = prepareBundle(options.bundle)
+  const identity = await directoryIdentity(stateRoot)
+  const stored = await readOptional(join(stateRoot, 'migration.json'))
+  if (stored) {
+    const receipt = parseReceipt(stored)
+    if (!sameReceipt(receipt, prepared, identity)) throw Error('Local memory migration stale')
+    const expected = seedManifest(prepared.seed)
+    if (
+      expected.manifestHash !== receipt.manifestHash ||
+      expected.fileCount !== receipt.fileCount ||
+      expected.bytes !== receipt.bytes
+    )
+      refuse()
+    const service = await createLocalMemoryServiceUnderClaim(
+      {
+        stateRoot,
+        worker: options.worker,
+        injection: forwardInjection(options.injection),
+      },
+      claim,
+    )
+    await verifyReceipt(stateRoot, receipt)
+    return { receipt, service }
+  }
+  const ownerPath = join(stateRoot, 'migration-owner.json')
+  const existingOwner = await readOptional(ownerPath)
+  if (existingOwner) {
+    const owner = parseOwner(existingOwner)
+    if (
+      owner.dev !== identity.dev ||
+      owner.ino !== identity.ino ||
+      owner.exportDigest !== prepared.exportDigest
+    )
+      refuse()
+  } else {
+    if ((await readdir(stateRoot)).length !== 0) refuse()
+    const owner = {
+      version: 1 as const,
+      nonce: randomBytes(16).toString('hex'),
+      exportDigest: prepared.exportDigest,
+      dev: identity.dev,
+      ino: identity.ino,
+    }
+    await writeExclusive(ownerPath, `${JSON.stringify(owner)}\n`)
+    if (options.injection?.stopAfter === 'owner') throw Error('Local memory migration interrupted')
+  }
+  const service = await createLocalMemoryServiceUnderClaim(
+    {
+      stateRoot,
+      worker: options.worker,
+      initialFiles: Object.fromEntries(prepared.seed.map((file) => [file.path, file.text])),
+      injection: forwardInjection(options.injection),
+    },
+    claim,
+  )
+  if (options.injection?.stopAfter === 'seeded') throw Error('Local memory migration interrupted')
+  if (prepared.tombstone) {
+    const current = await loadForgetting(stateRoot)
+    await importLocalTombstonesUnderClaim(service, claim, {
+      expectedPolicyRevision: current.policyRevision,
+      expectedDigest: current.digest,
+      snapshot: prepared.tombstone,
+    })
+  }
+  const owner = parseOwner(await readRequired(ownerPath))
+  const meta = await readMeta(stateRoot)
+  const head = await gitMain(shadowGit(stateRoot))
+  const expected = seedManifest(prepared.seed)
+  const manifest = await treeManifest(stateRoot, head)
+  if (
+    manifest.manifestHash !== expected.manifestHash ||
+    manifest.fileCount !== expected.fileCount ||
+    manifest.bytes !== expected.bytes
+  )
+    refuse()
+  const forgetting = await loadForgetting(stateRoot)
+  const receipt: ShadowMigrationReceipt = {
+    version: 1,
+    sourceRevision: prepared.revision,
+    ledgerDigest: prepared.ledgerDigest,
+    configHash: prepared.configHash,
+    exportDigest: prepared.exportDigest,
+    fileCount: manifest.fileCount,
+    bytes: manifest.bytes,
+    manifestHash: manifest.manifestHash,
+    initialHead: head,
+    forgettingDigest: forgetting.digest,
+    reviewed: prepared.reviewed,
+    rollback: {
+      migrationNonce: owner.nonce,
+      serviceNonce: meta.nonce,
+      repository: meta.repository,
+      dev: identity.dev,
+      ino: identity.ino,
+    },
+  }
+  const text = `${JSON.stringify(receipt)}\n`
+  if (bytes(text) > shadowMigrationLimits.maxReceiptBytes) refuse()
+  parseReceipt(text)
+  if (options.beforeReceipt) await options.beforeReceipt()
+  await writeExclusive(join(stateRoot, 'migration.json'), text)
+  await verifyReceipt(stateRoot, receipt)
+  return { receipt, service }
 }
 
 export async function rollbackShadowMigration(
@@ -245,54 +284,85 @@ export async function rollbackShadowMigration(
     afterQuiescence?: () => Promise<void> | void
   },
 ): Promise<{ quarantined: string }> {
-  if (hasLocalMemoryClaim()) throw Error('Local memory recursive claim refused')
-  const root = await assertDirectory(stateRoot)
-  return turn(root, () =>
-    localMemoryTurn(root, async (claim) => {
-      if (options?.beforeQuiescence) await options.beforeQuiescence()
-      const identity = await directoryIdentity(root)
-      let ownerText: string
-      try {
-        ownerText = await readRequired(join(root, 'migration-owner.json'))
-      } catch {
-        refuse()
-      }
-      const owner = parseOwner(ownerText)
-      if (owner.dev !== identity.dev || owner.ino !== identity.ino) refuse()
-      const receiptText = await readOptional(join(root, 'migration.json'))
-      if (receiptText) {
-        const receipt = parseReceipt(receiptText)
-        if (
-          receipt.rollback.migrationNonce !== owner.nonce ||
-          receipt.rollback.dev !== identity.dev ||
-          receipt.rollback.ino !== identity.ino ||
-          receipt.exportDigest !== owner.exportDigest
-        )
-          refuse()
-        const meta = await readMeta(root)
-        if (meta.nonce !== receipt.rollback.serviceNonce || meta.repository !== receipt.rollback.repository)
-          refuse()
-        if (meta.repository !== join(root, canonicalGitDirectoryName)) refuse()
-      } else if (await exists(join(root, 'meta.json'))) {
-        const meta = await readMeta(root)
-        if (meta.repository !== join(root, canonicalGitDirectoryName)) refuse()
-      }
-      await assertQuiescent(root)
-      if (options?.afterQuiescence) await options.afterQuiescence()
-      await assertQuiescent(root)
-      const hadService = await exists(join(root, 'meta.json'))
-      const quarantined = `${root}.quarantine-${owner.nonce.slice(0, 12)}`
-      if (await exists(quarantined)) refuse()
-      claim.verify()
-      await rename(root, quarantined)
-      claim.movedTo(quarantined)
-      const moved = await lstat(quarantined)
-      if (!moved.isDirectory() || String(moved.dev) !== identity.dev || String(moved.ino) !== identity.ino)
-        refuse()
-      if (hadService) retireLocalMemoryRoot(root)
-      return { quarantined }
-    }),
+  return shadowMigrationTurn(stateRoot, (claim) =>
+    rollbackShadowMigrationUnderClaim(stateRoot, claim, options),
   )
+}
+
+export async function rollbackShadowMigrationUnderClaim(
+  root: string,
+  claim: LocalMemoryClaim,
+  options?: {
+    beforeQuiescence?: () => Promise<void> | void
+    afterQuiescence?: () => Promise<void> | void
+  },
+): Promise<{ quarantined: string }> {
+  requireMigrationClaim(root, claim)
+  if (options?.beforeQuiescence) await options.beforeQuiescence()
+  const { identity, owner } = await readMigrationIdentity(root)
+  await assertQuiescent(root)
+  if (options?.afterQuiescence) await options.afterQuiescence()
+  await assertQuiescent(root)
+  const hadService = await exists(join(root, 'meta.json'))
+  const quarantined = `${root}.quarantine-${owner.nonce.slice(0, 12)}`
+  if (await exists(quarantined)) refuse()
+  claim.verify()
+  await rename(root, quarantined)
+  claim.movedTo(quarantined)
+  const moved = await lstat(quarantined)
+  if (!moved.isDirectory() || String(moved.dev) !== identity.dev || String(moved.ino) !== identity.ino)
+    refuse()
+  if (hadService) retireLocalMemoryRoot(root)
+  return { quarantined }
+}
+
+// Read-only terminal inspection: never opens/adopts/reconciles a service or acquires another claim.
+// The original repository path remains metadata after an exact quarantine rename.
+export async function inspectShadowQuarantine(root: string, originalRoot: string) {
+  await assertDirectory(root)
+  const { identity, owner, receipt } = await readMigrationIdentity(root, originalRoot)
+  const suffix = owner.nonce.slice(0, 12)
+  if (!receipt || root !== `${originalRoot}.quarantine-${suffix}`) refuse()
+  await assertDirectory(root)
+  if (!isDeepStrictEqual(await directoryIdentity(root), identity)) refuse()
+  return {
+    suffix,
+    ...identity,
+    ownerDigest: digest(JSON.stringify(owner)),
+    receiptDigest: digest(JSON.stringify(receipt)),
+  }
+}
+
+// Shared by mutation and read-only moved-identity verification; v1 formats stay unchanged.
+async function readMigrationIdentity(root: string, originalRoot = root) {
+  const identity = await directoryIdentity(root)
+  let ownerText: string
+  try {
+    ownerText = await readRequired(join(root, 'migration-owner.json'))
+  } catch {
+    refuse()
+  }
+  const owner = parseOwner(ownerText)
+  if (owner.dev !== identity.dev || owner.ino !== identity.ino) refuse()
+  const receiptText = await readOptional(join(root, 'migration.json'))
+  const receipt = receiptText ? parseReceipt(receiptText) : undefined
+  if (receipt) {
+    if (
+      receipt.rollback.migrationNonce !== owner.nonce ||
+      receipt.rollback.dev !== identity.dev ||
+      receipt.rollback.ino !== identity.ino ||
+      receipt.exportDigest !== owner.exportDigest
+    )
+      refuse()
+    const meta = await readMeta(root, originalRoot)
+    if (meta.nonce !== receipt.rollback.serviceNonce || meta.repository !== receipt.rollback.repository)
+      refuse()
+    if (meta.repository !== join(originalRoot, canonicalGitDirectoryName)) refuse()
+  } else if (await exists(join(root, 'meta.json'))) {
+    const meta = await readMeta(root, originalRoot)
+    if (meta.repository !== join(originalRoot, canonicalGitDirectoryName)) refuse()
+  }
+  return { identity, owner, receipt }
 }
 
 interface PreparedBundle {
@@ -644,8 +714,8 @@ function shadowGit(stateRoot: string): LocalGitContext {
   }
 }
 
-async function readMeta(stateRoot: string) {
-  const bare = join(stateRoot, canonicalGitDirectoryName)
+async function readMeta(stateRoot: string, originalRoot = stateRoot) {
+  const bare = join(originalRoot, canonicalGitDirectoryName)
   const text = await readRequired(join(stateRoot, 'meta.json'))
   return parseMeta(JSON.parse(text), bare)
 }

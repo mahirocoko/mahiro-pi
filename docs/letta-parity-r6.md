@@ -10,8 +10,12 @@ R6-S are complete only within the explicit unavailable states below.** This is
 not completion of migration, backup/restore or cutover. R6-I/O/H remain open;
 roadmap scores remain **60% source / 30% evidence**. No Phase I is added.
 
-No new CLI, operator API or parity alias is introduced. `docs/agent-memory.md`
-owns current memory use; this appendix owns the bounded R6 outcome specification.
+That specification checkpoint introduced no operator executor. The subsequent
+bounded source slice, task `4135aadb-95bf-4bd4-986d-5651cef2ec5a`, adds only the
+[fixed-synthetic rehearsal](#fixed-synthetic-rehearsal-operator) below, implemented
+from Mahiro base `d0a55716347179ef127812ddb6fe12492a9b4eae`.
+`docs/agent-memory.md` owns current memory use; this appendix owns the bounded
+R6 outcome specification and disconnected rehearsal contract.
 `migration-export.ts`, ABI1 `store.ts` and ABI2 engine management own committed
 metadata export. `local/migration.ts` owns disconnected bundle validation,
 shadow receipt and target quarantine; `local/forgetting.ts` and `local/service.ts`
@@ -119,8 +123,9 @@ later legitimate commits may descend from that initial head. It is not a reset.
 
 ## Future preview/apply contract — R6-04 (specification only)
 
-No preview/apply executor or failure-receipt API is added. A future active migration
-proposal must separately obtain scope approval and specify at least:
+No **active migration** preview/apply executor is provided. The fixed-synthetic
+rehearsal below implements only disconnected target review and receipts. A future
+active migration proposal must separately obtain scope approval and specify at least:
 
 - A non-mutating preview identifying the exact canonical source owner, revision,
   config/ledger hashes and forgetting-policy identity, and exact target identity,
@@ -147,6 +152,89 @@ by performing no live operation. Installed rehearsal, actual-command observation
 post-rollback next-request projection and Mahiro's clarity/safety acceptance remain
 R6-I/O/H, not inferred from these fixtures.
 
+## Fixed-synthetic rehearsal operator
+
+`node memory-rehearsal.mjs` is a standalone source operator, not an installed Pi
+command, migration product or live authority selector. It accepts exactly
+`preview|apply|status|rollback`, `--target` and `--fixture r6-basic-v1`.
+`apply` and `rollback` additionally require the exact `--operation` and `--expect`
+returned by preview. Unknown, duplicate, missing and alternate-authority flags
+refuse. There is no source root, agent directory, content/bundle file, URL,
+provider, shell, private shadow or profile fallback. One repository-authored
+synthetic bundle supplies Core, index and a logically excluded synthetic file.
+
+Create a **new disposable parent**, named `mahiro-memory-rehearsal-` followed by
+16 lowercase hexadecimal characters, and its empty `shadow` child. Pass that
+child's canonical absolute path explicitly; no cwd, home or default target exists.
+All components must be unlinked canonical directories. Initial preview requires
+that dedicated parent to contain only `shadow` (plus the held sibling claim).
+It does not create a directory for you or adopt a populated shadow.
+
+```text
+node memory-rehearsal.mjs preview --target <canonical-disposable-parent>/shadow --fixture r6-basic-v1
+node memory-rehearsal.mjs apply --target <same-target> --fixture r6-basic-v1 --operation <preview-operation> --expect <preview-expect>
+node memory-rehearsal.mjs status --target <same-target> --fixture r6-basic-v1
+node memory-rehearsal.mjs rollback --target <same-target> --fixture r6-basic-v1 --operation <preview-operation> --expect <preview-expect>
+```
+
+Preview is **non-mutating for target contents**, not globally read-only: it
+creates/uses the existing sibling cooperative claim and writes bounded review
+metadata at `<parent>/rehearsal.json`. Status normally uses that same claim but
+does not open/reconcile the service or edit the receipt. Terminal quarantine
+status/exact retry is read-only, but success requires revalidating the exact
+canonical non-symlink moved directory, recorded device/inode and migration
+owner/receipt identities and digests. Deleted, replaced or linked quarantines
+return unknown/refused without adoption, mutation or rewriting terminal evidence.
+The public result/stdout exposes only a bounded opaque `quarantineId`, never the
+absolute target, parent or quarantine path. Exit 0 reports a verified
+preview/shadow/quarantine result; exit 1 reports refused/unknown, and exit 2 is a
+strict CLI usage refusal.
+
+The version-1 rehearsal record is separate from unchanged `migration.json` v1.
+It binds operation identity, target-path digest, reviewed parent/root device and
+inode, and the existing migration validator's fixed-fixture review digest.
+Apply compares these **inside the existing migration turn and cooperative root
+claim**, before creating a migration owner. Replacing reviewed empty target A
+with empty target B at the same pathname refuses without rewriting the plan.
+Narrow internal migration helpers validate their exact turn/claim capability;
+there is no second lock or nested claim. Seeding, forgetting import, receipt
+verification, quiescence and quarantine remain their existing owners.
+
+The record is strictly shaped, checksummed and digest-chained, at most 64 KiB
+and 16 events. Its progression is `previewed → applying → shadow-verified →
+quarantining → quarantined`. Intent is saved and read back before mutation;
+terminal evidence is saved and read back before success. Refused/unknown attempt
+events do not replace earlier terminal truth. Exact successful retries are
+idempotent; attempts deduplicate, and exhausted event capacity refuses new
+mutation. The verified shadow event binds the existing migration receipt digest;
+rollback rechecks it and the migration owner's exact identities/quiescence.
+Terminal quarantine evidence strictly encodes the relative suffix, moved device
+and inode, and migration owner/receipt digests, with that receipt digest bound to
+the verified shadow event. It is captured and verified after rename before
+terminal success, then revalidated on status and exact rollback retry. These
+checks do not claim resistance to concurrent hostile same-user metadata edits.
+Records contain only bounded opaque metadata, never absolute paths,
+corpus/prompt text, credentials, transcripts or raw exceptions.
+
+Durability is **process-restart durability at verified record boundaries**, not
+whole-service power-loss atomicity. Interrupted `applying` or `quarantining`
+stays unknown; this smallest operator has no resume/reconcile/takeover command.
+Even if a migration receipt was written, an absent rehearsal terminal event is
+not success. A crash after rename without a terminal quarantine receipt remains
+unknown; missing original target is not evidence of success. Dead, partial,
+retained or poisoned claims block automatic takeover and are never age/PID-cleared.
+If the claim or receipt cannot be safely accessed, the result is unknown without
+a claim of durable failure recording. Retain the disposable evidence for separate
+review rather than deleting claims, guessing identity or retrying another target.
+
+Rollback means **exact disconnected target quarantine only**. It neither rolls
+back a managed revision, restores an earlier route, activates memory, provides
+backup/restore nor securely deletes anything. There is no extension, router,
+kernel, installer, profile, bootstrap, maintenance CLI, manifest, role or live
+ABI1/ABI2 wiring. R6-I/O/H, Phase I, installed/provider/browser/network operation
+and Mahiro's acceptance remain outside this source slice. Scores are unchanged
+pending independent assessment, not increased by adding the operator's name.
+
 ## Source evidence — R6-S
 
 `test/agent-memory-local-migration.test.ts` directly covers missing sections and
@@ -163,3 +251,13 @@ page lengths, without changing export schemas, version-1 receipts/records or
 claiming source freshness. Adjacent migration-export, local-forgetting, store,
 engine and runtime tests retain the live metadata-only and logical-forgetting
 contracts. Source/synthetic checks are not independent installed or human acceptance.
+
+`test/agent-memory-local-rehearsal.test.ts` and
+`test/memory-rehearsal-cli.test.ts` add fixed-fixture process-restart journeys,
+exact idempotence, strict flags, the A/B target replacement falsifier, reviewed
+receipt checks, bounded/tampered records, retained claims, under-claim capability
+refusal and intent/post-rename unknown cases. Terminal replay regressions also
+cover deleted/replaced/symlink quarantine paths, changed owner/receipt/service
+identities, strict malformed moved evidence and fresh/replay path-free output.
+These remain source/synthetic
+rehearsals, not R6-I/O/H completion.

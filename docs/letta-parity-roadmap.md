@@ -420,8 +420,16 @@ and R6-S are complete only with explicit unavailable states. Metadata export,
 caller-supplied bundles, shadow verification and target quarantine stay separate;
 backup/restore, active migration, authority cutover and conversation replay remain
 unavailable/prospective. R7 now supplies synthetic service knowledge history/diff,
-not a user/operator/HTML workflow. No new operator CLI/API or live wiring.
-R6-I/O/H remain open; its dated 60%/30% statement remains history.
+not a user/operator/HTML history workflow. A subsequent bounded source slice,
+task `4135aadb-95bf-4bd4-986d-5651cef2ec5a`, adds the standalone
+[fixed-synthetic rehearsal operator](letta-parity-r6.md#fixed-synthetic-rehearsal-operator),
+implemented from base `d0a55716347179ef127812ddb6fe12492a9b4eae`.
+It reviews an explicit disposable target, applies only its authored synthetic
+fixture, reports status and quarantines that exact shadow, with bounded chained
+intent/terminal receipts under the existing migration claim. No active migration,
+backup/restore, route restoration or live wiring is added. R6-I/O/H remain open;
+its dated 60%/30% statement remains history. Current roadmap scores are unchanged
+pending fresh independent assessment of this source-only slice.
 
 Dependencies: R1 mapping, R4 proven seam and R5 recovery. Moves:
 commands/migration/operator workflows, storage/schema/forgetting,
@@ -663,8 +671,10 @@ and rollback reviewed first. No installation or execution is authorized by this
 closeout. Under the security boundary, any target execution also requires the
 qualifying OS sandbox; ordinary earlier test scope does not waive that condition.
 
-R6 operator rehearsal follows only after an authorized operator product exists;
-shadow APIs alone are insufficient. R7 needs an installed invoking-session
+Installed R6 operator rehearsal still needs separate authorization and an
+installed authority contract. The new standalone fixed-synthetic source operator
+is disconnected; it does not supply live migration, prior-route restoration or
+R6-I/O/H evidence. Shadow APIs and local CLI fixtures alone are insufficient. R7 needs an installed invoking-session
 collector and separately authorized rendered review, including history/diff
 availability and safe stale/revoked behavior. Then collect named longitudinal
 quality, context, performance/RAM/I/O and failure evidence, and obtain Mahiro's
