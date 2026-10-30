@@ -28,6 +28,7 @@ import {
   type EditModeOptions,
   allowedPath,
   applySurgicalEdit,
+  assertLegacyArchiveCompatible,
   assertLosslessRetention,
   isAlwaysLoadedTieredPath,
   isCriticalLinkSource,
@@ -1355,7 +1356,17 @@ export function createMemoryStore(
         for (const [p, file] of Object.entries(now.files)) {
           if (!p.startsWith('global/') && !p.startsWith('deferred/')) continue
           const migration = legacyV1Migration(now.revision, p)
-          if (!next.files[migration.archivePath]) {
+          const archive = next.files[migration.archivePath]
+          assertLegacyArchiveCompatible(
+            migration.archivePath,
+            archive && {
+              hash: digest(archive.text),
+              size: bytes(archive.text),
+              sources: archive.sources,
+            },
+            { hash: digest(file.text), size: bytes(file.text), sources: file.sources },
+          )
+          if (!archive) {
             next.files[migration.archivePath] = copy(file)
             changed++
           }

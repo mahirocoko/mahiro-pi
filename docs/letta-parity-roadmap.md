@@ -202,21 +202,26 @@ release or acceptance by percentage.
 Dependencies: R0 schema/authority decisions. Moves: storage/schema/forgetting,
 projection/retrieval. Audit gaps: 2, 3, 13, 14, 20, 27.
 
-- [ ] **R1-01** Choose retained Mahiro Core/index/persona/project schema or a
-  reviewed Letta root `MEMORY.md`/root-Markdown/nested-index mapping. Specify
-  bidirectional mapping, unsupported paths and collisions; never call tiered v2
-  Letta-compatible merely because both use the name v2.
-- [ ] **R1-02** Define automatically projected versus deferred versus excluded
-  content, project identity, ancestor discovery cues, ordering and byte budgets.
-  Keep skills separate; distinguish committed, draft, integrated and active prompt.
-- [ ] **R1-03** Specify directory/read/search outcomes with bounded paging,
-  descriptions, stale handling and exhaustion. Build future-request discovery
-  examples where relevant detail is found without injecting the whole corpus.
-- [ ] **R1-04** Design synthetic differential trees for root/nested files, absent
-  indexes, mixed legacy layouts, forgotten path/blob/source, stale revisions,
-  Unicode/paging and contradictions. Mechanical retention is not semantic proof.
-- [ ] **R1-S** Source fixtures compare the chosen outcomes against both pinned
-  owners, including deliberate deviations and non-resurrection.
+- [x] **R1-01** 2026-10-30: [R1 schema mapping](letta-parity-r1.md#selected-schema)
+  retains Mahiro Core/index/persona/project owners as a documented native
+  adaptation, names unsupported Letta paths/shared mounts and fails archive
+  identity collisions closed; it does not claim MemFS v2 compatibility.
+- [x] **R1-02** 2026-10-30: [projection identity](letta-parity-r1.md#projection-and-state-identity)
+  freezes the five possible automatic owners, ordering, project identity and
+  committed/draft/integrated/projected/active-prompt distinctions. All other
+  memory stays deferred or excluded and skills remain separate.
+- [x] **R1-03** 2026-10-30: [deferred outcomes](letta-parity-r1.md#deferred-discovery-outcomes)
+  specify exact reads, bounded path/topic/query paging, descriptions, freshness,
+  exhaustion and a future rollback request discovered without a known path.
+- [x] **R1-04** 2026-10-30: [differential matrix](letta-parity-r1.md#differential-fixture-matrix)
+  covers required/optional owners, root/nested mapping, mixed legacy collision,
+  forgetting, stale views, Unicode/paging, contradictions and future-request
+  discovery. Mechanical retention remains non-semantic.
+- [x] **R1-S** 2026-10-30: fresh source review passed the pinned mapping,
+  projection membership/state boundaries, deferred outcomes, non-resurrection
+  matrix and shared archive-collision guard with no high/medium finding. Helper
+  regressions plus source tracing cover both migration owners; installed and
+  behavioral gates remain separate.
 - [ ] **R1-I** An authorized installed synthetic root projects exactly the agreed
   subset and refuses unauthorized/stale reads with unchanged private memory.
 - [ ] **R1-O** Observe discovery and next-request refresh on approved surfaces;

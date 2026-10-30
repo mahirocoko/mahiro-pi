@@ -1,0 +1,56 @@
+{
+  "baseline": {
+    "commit": "a8900b882446d7aa99fedf2845d400743affd1b6",
+    "version": "0.34.31",
+    "sources": [
+      "src/agent/prompts/letta_root_memfs.md",
+      "src/agent/memory-filesystem.ts",
+      "src/tools/impl/memory.ts"
+    ]
+  },
+  "contracts": [
+    {
+      "letta": "root MEMORY.md is the frontmatter-free overview/index compiled into the prompt",
+      "mahiro": ["index.md"],
+      "placement": "baseline",
+      "classification": "adapted"
+    },
+    {
+      "letta": "root persona.md and other root Markdown core files are compiled into the prompt",
+      "mahiro": ["Core.md", "system/persona.md"],
+      "placement": "baseline",
+      "classification": "adapted"
+    },
+    {
+      "letta": "indexed child MEMORY.md files and their descendants are deferred until Memory(path) reads",
+      "mahiro": [
+        "system/human/communication.md",
+        "reference/context/diagnosis.md",
+        "projects/project/reference/decisions.md"
+      ],
+      "placement": "deferred",
+      "classification": "adapted"
+    },
+    {
+      "letta": "project-relevant context is selected by indexed discovery rather than an automatic project tier",
+      "mahiro": ["projects/project/system/overview.md", "projects/project/system/conventions.md"],
+      "placement": "baseline",
+      "classification": "adapted"
+    },
+    {
+      "letta": "attached shared-memory repositories are separate mounts and authority domains",
+      "mahiro": [],
+      "placement": "unsupported",
+      "classification": "intentional-non-parity"
+    }
+  ],
+  "unsupportedMahiroPaths": [
+    "MEMORY.md",
+    "Persona.md",
+    "system/human/too/deep.md",
+    "reference/too/deep/note.md",
+    "projects/Project/system/overview.md",
+    "projects/project/system/nested/overview.md",
+    "shared/team/MEMORY.md"
+  ]
+}

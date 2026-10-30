@@ -47,6 +47,7 @@ import type { Change, Counters, Input, Method, Operations, Plan, Receipt, Stage 
 import {
   allowedPath,
   applySurgicalEdit,
+  assertLegacyArchiveCompatible,
   assertLosslessRetention,
   fileLimit,
   idPattern,
@@ -614,8 +615,13 @@ export class MemoryDataEngine {
           if (p === 'Core.md') continue
           const migration = legacyV1Migration(now.revision, p)
           const text = migrationTexts[p]
-          if (!now.refs[migration.archivePath])
-            await writeNewOverlay(v, migration.archivePath, text, [...ref.sources])
+          const archive = now.refs[migration.archivePath]
+          assertLegacyArchiveCompatible(
+            migration.archivePath,
+            archive && { hash: archive.hash, size: archive.size, sources: archive.sources },
+            { hash: digest(text), size: bytes(text), sources: ref.sources },
+          )
+          if (!archive) await writeNewOverlay(v, migration.archivePath, text, [...ref.sources])
           if (!now.refs[migration.targetPath]) {
             await writeNewOverlay(v, migration.targetPath, withMigrationFrontmatter(text, migration), [
               ...ref.sources,

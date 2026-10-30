@@ -56,7 +56,27 @@ is a synthetic scaffold and is not the installed writer, live prompt, or Palace 
 | `deferred/<project-id>/<name>.md` | Project-owned detail (legacy compatible) |
 | `procedures/<name>.md` | Reusable workflows (legacy compatible) |
 
-Core/index and active tiered `system/**` + `projects/<project-id>/system/**` files project into eligible primary requests via a single batched Git object read. Detailed reference/deferred/global files are read selectively. Authenticated primary views share relevant deferred knowledge across canonical projects; native workers and retained legacy views remain scoped. Unmapped projects derive collision-checked path identities without rewriting the project map. Source registration alone never migrates knowledge.
+The exact automatic set is committed `Core.md`, `index.md`, optional
+`system/persona.md`, and optional current-project `system/overview.md` plus
+`system/conventions.md`, read from one revision in a single batched Git object
+read. Every other maintained-memory path is deferred or excluded; archives are
+never automatic prompt content and skills remain separate. Authenticated primary
+views can discover authorized deferred knowledge across canonical projects; native
+workers and retained legacy views remain scoped. Unmapped projects derive
+collision-checked path identities without rewriting the project map. Source
+registration alone never migrates knowledge.
+
+The [R1 schema contract](letta-parity-r1.md) records the bidirectional Letta
+v0.34.31 job mapping, unsupported paths, precise committed/draft/integrated/
+projected/active-prompt terms, discovery outcomes and differential fixture matrix.
+It deliberately retains the Mahiro schema rather than claiming MemFS v2 path or
+wire compatibility.
+
+Legacy migration archives each `global/**` or `deferred/**` source before removing
+it. An already-present archive path is reusable only when body hash, UTF-8 byte
+size and ordered source IDs match exactly; otherwise migration fails with a legacy
+archive collision. An existing tiered target remains authoritative while the
+verified archive preserves the legacy body. No collision is merged silently.
 
 ## Customize the starter
 

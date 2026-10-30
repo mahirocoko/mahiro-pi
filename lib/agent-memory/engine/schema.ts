@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { memoryFailure } from '../reasons.ts'
 import { bytes, hasSecret, objectShape, validId } from '../../continuity/records.ts'
 import type { MemoryConfig, MemoryFile } from '../store.ts'
@@ -38,6 +39,21 @@ export interface LegacyV1Migration {
   targetPath: string
   metadataName: string
   description: string
+}
+
+interface LegacyArchiveIdentity {
+  hash: string
+  size: number
+  sources: string[]
+}
+
+export function assertLegacyArchiveCompatible(
+  archivePath: string,
+  existing: LegacyArchiveIdentity | undefined,
+  incoming: LegacyArchiveIdentity,
+) {
+  if (existing && !isDeepStrictEqual(existing, incoming))
+    throw Error(`Legacy migration archive collision: ${archivePath}`)
 }
 
 export function legacyV1Migration(revision: string, path: string): LegacyV1Migration {
