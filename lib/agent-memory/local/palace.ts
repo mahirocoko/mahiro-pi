@@ -9,6 +9,7 @@ import {
   oidPattern,
   relativePathPattern,
 } from './contracts.ts'
+import { assertPalacePath } from './palace-path.ts'
 
 // Metadata snapshot and HTML for a disconnected synthetic Palace preview.
 // It does not read Git, job files, or a private state root.
@@ -231,7 +232,7 @@ function nullableOid(value: string | null): string | null {
   return value
 }
 
-function entryKind(mode: string, type: PalaceCorpusFact['type']): PalaceEntryKind {
+export function palaceEntryKind(mode: string, type: PalaceCorpusFact['type']): PalaceEntryKind {
   if (mode === '100644' && type === 'blob') return 'file'
   if (mode === '040000' && type === 'tree') return 'directory'
   if (mode === '120000' && type === 'blob') return 'symlink'
@@ -440,7 +441,7 @@ export function buildPalaceSnapshot(input: PalaceSnapshotFacts): PalaceSnapshot 
   const corpus: PalaceCorpusEntry[] = []
   for (const entry of input.corpus) {
     if (typeof entry?.path !== 'string') refused()
-    assertRelativePath(entry.path)
+    assertPalacePath(entry.path)
     if (seenPaths.has(entry.path)) refused()
     seenPaths.add(entry.path)
     if (entry.type !== 'blob' && entry.type !== 'tree' && entry.type !== 'commit') refused()
@@ -450,7 +451,7 @@ export function buildPalaceSnapshot(input: PalaceSnapshotFacts): PalaceSnapshot 
       (!Number.isInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > 1_048_576)
     )
       refused()
-    const kind = entryKind(entry.mode, entry.type)
+    const kind = palaceEntryKind(entry.mode, entry.type)
     corpus.push({
       path: entry.path,
       kind,
@@ -557,6 +558,12 @@ function readInt(value: unknown): number {
 
 function readText(value: unknown, pattern: RegExp): string {
   if (typeof value !== 'string' || !pattern.test(value)) refused()
+  return value
+}
+
+function readPalacePath(value: unknown): string {
+  if (typeof value !== 'string') refused()
+  assertPalacePath(value)
   return value
 }
 
@@ -683,7 +690,7 @@ export function parsePalaceSnapshot(value: unknown): PalaceSnapshot {
       if (!entryKinds.includes(entry.kind as PalaceEntryKind)) refused()
       const bytesValue = entry.bytes === null ? null : readInt(entry.bytes)
       return {
-        path: readText(entry.path, relativePathPattern),
+        path: readPalacePath(entry.path),
         kind: entry.kind as PalaceEntryKind,
         bytes: bytesValue,
       }
@@ -873,287 +880,4 @@ export function escapePalaceText(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
-}
-
-const guidanceCopy: Record<PalaceGuidance, string> = {
-  'resume-starts': 'Resume would start this queued job. This preview does not start it.',
-  'resume-integrates': 'Resume would integrate this committed job. This preview does not publish it.',
-  'resume-unchanged': 'Resume would leave this job unchanged.',
-  'retry-requeues': 'Retry would queue this failed reflection again. This preview does not retry it.',
-  'retry-blocked':
-    'Retry cannot advance a repair-needed job. A separately supported coordinator repair operation is required.',
-  'running-recovers-next-turn':
-    'The next coordinator turn recovers a running job. This preview does not resume it.',
-}
-
-const statusMarks: Record<LocalJobStatus, string> = {
-  queued: 'o',
-  running: '*',
-  committed: '#',
-  integrated: '+',
-  noop: '-',
-  failed: '!',
-  'repair-needed': 'x',
-}
-
-export function palacePreviewStyle(): string {
-  return `
-    :root { color-scheme: light dark; }
-    html { box-sizing: border-box; }
-    *, *::before, *::after { box-sizing: inherit; }
-    body {
-      margin: 0;
-      padding-block: 1rem;
-      padding-inline: 0.75rem;
-      background: Canvas;
-      color: CanvasText;
-      font: 1rem/1.5 system-ui, sans-serif;
-    }
-    h1, h2, p, ul, dl { overflow-wrap: anywhere; }
-    h1 { font-size: 1.5rem; line-height: 1.3; margin-block: 0 0.75rem; }
-    h2 { font-size: 1.15rem; line-height: 1.4; margin-block: 0 0.5rem; }
-    header, section, footer { margin-block-end: 1.25rem; }
-    a:any-link { color: LinkText; display: inline-block; min-block-size: 1.5rem; min-inline-size: 1.5rem; padding-block: 0.25rem; padding-inline: 0.5rem; }
-    a:any-link:focus-visible { outline: 3px solid Highlight; outline-offset: 3px; }
-    .skip-link:where(:not(:focus-visible)) {
-      position: absolute; clip-path: inset(50%); overflow: hidden; inline-size: 1px; block-size: 1px;
-      margin: -1px; padding: 0; border: 0; white-space: nowrap;
-    }
-    .skip-link:focus-visible { position: fixed; inset-block-start: 0.5rem; inset-inline-start: 0.5rem; z-index: 3; background: Canvas; color: CanvasText; }
-    nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; padding-inline-start: 1.25rem; }
-    .status { display: inline-flex; align-items: center; gap: 0.35rem; }
-    .mark { display: inline-block; min-inline-size: 1.25rem; text-align: center; border: 1px solid currentColor; }
-    .mark[data-status="queued"] { border-style: dashed; border-radius: 999px; }
-    .mark[data-status="running"] { border-style: dotted; border-radius: 999px; }
-    .mark[data-status="committed"] { border-style: solid; border-radius: 999px; }
-    .mark[data-status="integrated"] { border-style: double; border-radius: 999px; }
-    .mark[data-status="noop"] { border-style: solid; }
-    .mark[data-status="failed"], .mark[data-status="repair-needed"] { border-radius: 0; }
-    .table-wrapper { overflow: auto; max-inline-size: 100%; max-block-size: min(24rem, 70vh); margin-block-end: 0.75rem; }
-    table { inline-size: max-content; min-inline-size: 100%; border-collapse: separate; border-spacing: 0; }
-    caption { text-align: start; font-weight: 600; padding-block-end: 0.35rem; }
-    th, td { padding: 0.35rem 0.5rem; text-align: start; vertical-align: top; border-block-end: 1px solid GrayText; overflow-wrap: anywhere; }
-    thead { position: sticky; inset-block-start: 0; z-index: 1; background: Canvas; }
-    tbody th { position: sticky; inset-inline-start: 0; background: Canvas; }
-  `.trim()
-}
-
-function statusHtml(status: LocalJobStatus): string {
-  return `<span class="status"><span class="mark" aria-hidden="true" data-status="${escapePalaceText(status)}">${statusMarks[status]}</span> ${escapePalaceText(status)}</span>`
-}
-
-function countText(returned: number, total: number, truncated: boolean): string {
-  return `Showing ${returned} of ${total}${truncated ? ', truncated' : ''}.`
-}
-
-function table(input: {
-  className: string
-  captionId: string
-  caption: string
-  headers: readonly string[]
-  rows: readonly (readonly string[])[]
-}): string {
-  const head = input.headers.map((header) => `<th scope="col">${escapePalaceText(header)}</th>`).join('')
-  const body =
-    input.rows.length === 0
-      ? `<tr><th scope="row">None</th>${input.headers
-          .slice(1)
-          .map(() => '<td>None</td>')
-          .join('')}</tr>`
-      : input.rows
-          .map((row) => {
-            const [first, ...rest] = row
-            return `<tr><th scope="row">${first}</th>${rest.map((cell) => `<td>${cell}</td>`).join('')}</tr>`
-          })
-          .join('')
-  return `<div class="table-wrapper" tabindex="0" role="region" aria-labelledby="${input.captionId}"><table class="${input.className}"><caption id="${input.captionId}">${escapePalaceText(input.caption)}</caption><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
-}
-
-function snapshotMain(snapshot: PalaceSnapshot): string {
-  const empty = snapshot.corpus.total === 0 && snapshot.jobs.total === 0
-  const recoveryCopy =
-    snapshot.recovery.phase === 'interrupted'
-      ? 'Coordinator recovery stopped before detached work was finished. A job can remain running. This preview does not resume it.'
-      : snapshot.recovery.phase === 'settled'
-        ? 'Coordinator recovery settled detached work before this snapshot. Job rows show the settled states. This preview did not publish.'
-        : 'No coordinator recovery ran before this snapshot.'
-  const corpusRows = snapshot.corpus.entries.map((entry) => [
-    escapePalaceText(entry.path),
-    escapePalaceText(entry.kind),
-    entry.bytes === null ? 'None' : String(entry.bytes),
-  ])
-  const historyRows = [
-    [
-      escapePalaceText('refs/heads/main'),
-      'Canonical main',
-      escapePalaceText(snapshot.history.canonicalCommit),
-    ],
-    ...snapshot.history.detached.map((entry) => [
-      escapePalaceText(entry.jobId),
-      entry.role === 'detached-commit' ? 'Detached job commit' : 'Detached worktree',
-      entry.oid === null ? 'None' : escapePalaceText(entry.oid),
-    ]),
-  ]
-  const jobRows = snapshot.jobs.entries.map((job) => [
-    escapePalaceText(job.id),
-    escapePalaceText(job.kind),
-    statusHtml(job.status),
-    escapePalaceText(job.resume),
-    escapePalaceText(job.retry),
-    job.detached ? 'yes' : 'no',
-  ])
-  const conflictRows = snapshot.conflicts.entries.map((entry) => [
-    escapePalaceText(entry.jobId),
-    escapePalaceText(entry.path),
-    'repair-needed',
-  ])
-  const pendingRows = snapshot.publication.pending.map((entry) => [
-    escapePalaceText(entry.jobId),
-    escapePalaceText(entry.commit),
-    escapePalaceText(entry.expectedParent),
-  ])
-  const guidanceItems = guidanceCodes
-    .map((code) => `<li><code>${escapePalaceText(code)}</code> ${escapePalaceText(guidanceCopy[code])}</li>`)
-    .join('')
-  const legend = localJobStatuses.map((status) => `<li>${statusHtml(status)}</li>`).join('')
-  return `
-    ${empty ? '<p>No visible corpus entries and no jobs are in this snapshot.</p>' : ''}
-    <section id="authority">
-      <h2>Authority</h2>
-      <p><strong>Not live authority.</strong> Live authority remains ABI2. This synthetic publication is not the installed memory writer.</p>
-    </section>
-    <section id="recovery">
-      <h2>Recovery</h2>
-      <p>${recoveryCopy}</p>
-      <p>${countText(snapshot.recovery.returned, snapshot.recovery.total, snapshot.recovery.truncated)} Settled to committed: ${snapshot.recovery.settledCommitted}. Settled to failed: ${snapshot.recovery.settledFailed}. Interrupted: ${snapshot.recovery.interrupted}.</p>
-    </section>
-    <section id="corpus">
-      <h2>Corpus</h2>
-      <p>Relative paths and metadata only. Forgotten entries are counted and omitted. Core present: ${snapshot.corpus.corePresent ? 'yes' : 'no'}. Index present: ${snapshot.corpus.indexPresent ? 'yes' : 'no'}. Forgotten on this commit: ${snapshot.corpus.forgotten}.</p>
-      ${table({
-        className: 'corpus-table',
-        captionId: 'corpus-caption',
-        caption: `Corpus coverage. ${countText(snapshot.corpus.returned, snapshot.corpus.total, snapshot.corpus.truncated)}`,
-        headers: ['Path', 'Kind', 'Bytes'],
-        rows: corpusRows,
-      })}
-    </section>
-    <section id="history">
-      <h2>History</h2>
-      <p>Canonical main is refs/heads/main. Detached job work is not a Git branch.</p>
-      ${table({
-        className: 'history-table',
-        captionId: 'history-caption',
-        caption: `Canonical main and detached job work. ${countText(snapshot.history.detachedReturned, snapshot.history.detachedTotal, snapshot.history.detachedTruncated)} detached rows, plus canonical main.`,
-        headers: ['Name', 'Role', 'Commit'],
-        rows: historyRows,
-      })}
-    </section>
-    <section id="jobs">
-      <h2>Jobs</h2>
-      <ul>${legend}</ul>
-      ${table({
-        className: 'jobs-table',
-        captionId: 'jobs-caption',
-        caption: `Job lifecycle. ${countText(snapshot.jobs.returned, snapshot.jobs.total, snapshot.jobs.truncated)}`,
-        headers: ['Job', 'Kind', 'Status', 'Resume', 'Retry', 'Detached'],
-        rows: jobRows,
-      })}
-    </section>
-    <section id="conflicts">
-      <h2>Conflicts</h2>
-      <p>repair-needed has no supported repair or abandon transition. Resume and retry cannot advance this state. A separately supported coordinator repair operation is required. Hidden conflicts: ${snapshot.conflicts.hidden}. This preview does not show a diff or a file body and does not change Git.</p>
-      ${table({
-        className: 'conflicts-table',
-        captionId: 'conflicts-caption',
-        caption: `Conflicts. ${countText(snapshot.conflicts.returned, snapshot.conflicts.total, snapshot.conflicts.truncated)}`,
-        headers: ['Job', 'Path', 'Recovery'],
-        rows: conflictRows,
-      })}
-    </section>
-    <section id="publication">
-      <h2>Publication</h2>
-      <p>Synthetic publication is not live authority.</p>
-      <dl>
-        <dt>Live authority</dt><dd>ABI2</dd>
-        <dt>Integrated jobs</dt><dd>${snapshot.publication.integrated}</dd>
-        <dt>Forgetting phase</dt><dd>${escapePalaceText(snapshot.publication.forgettingPhase)}</dd>
-        <dt>Forgetting revision</dt><dd>${snapshot.publication.forgettingRevision}</dd>
-        <dt>Forgotten paths</dt><dd>${snapshot.publication.forgottenPaths}</dd>
-        <dt>Forgotten blobs</dt><dd>${snapshot.publication.forgottenBlobs}</dd>
-        <dt>Forgotten sources</dt><dd>${snapshot.publication.forgottenSources}</dd>
-      </dl>
-      ${table({
-        className: 'pending-table',
-        captionId: 'pending-caption',
-        caption: `Pending synthetic publication. ${countText(snapshot.publication.pendingReturned, snapshot.publication.pendingTotal, snapshot.publication.pendingTruncated)}`,
-        headers: ['Job', 'Commit', 'Expected parent'],
-        rows: pendingRows,
-      })}
-    </section>
-    <section id="retry">
-      <h2>Retry and resume</h2>
-      <p>Retry and resume are read-only here. This preview has no control that changes a job.</p>
-      <ul>${guidanceItems}</ul>
-    </section>
-  `
-}
-
-function shortMain(copy: string): string {
-  return `<p>${copy}</p>`
-}
-
-export function renderPalacePage(page: PalaceRenderPage): string {
-  const navigation = page.state === 'snapshot'
-  const title =
-    page.state === 'error'
-      ? 'Palace preview unavailable'
-      : page.state === 'stale'
-        ? 'Palace snapshot is stale'
-        : page.state === 'loading'
-          ? 'Loading synthetic Palace preview'
-          : 'Synthetic Palace preview'
-  const main =
-    page.state === 'loading'
-      ? shortMain(
-          'Loading the coordinator snapshot. Reload to read it. This page does not refresh automatically.',
-        )
-      : page.state === 'error'
-        ? shortMain('Palace preview is unavailable. Reload to try again.')
-        : page.state === 'stale'
-          ? shortMain('This snapshot is stale. Reload to read the coordinator again.')
-          : snapshotMain(page.snapshot)
-  const state =
-    page.state === 'snapshot' && page.snapshot.corpus.total === 0 && page.snapshot.jobs.total === 0
-      ? 'empty'
-      : page.state
-  const reload = escapePalaceText(page.reloadPath)
-  const links = navigation
-    ? `<li><a href="#authority">Authority</a></li><li><a href="#recovery">Recovery</a></li><li><a href="#corpus">Corpus</a></li><li><a href="#history">History</a></li><li><a href="#jobs">Jobs</a></li><li><a href="#conflicts">Conflicts</a></li><li><a href="#publication">Publication</a></li><li><a href="#retry">Retry and resume</a></li><li><a href="${reload}">Reload</a></li>`
-    : `<li><a href="${reload}">Reload</a></li>`
-  const skip = navigation ? '<a class="skip-link" href="#content">Skip to content</a>' : ''
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<title>${escapePalaceText(title)} | not live authority</title>
-<style>${palacePreviewStyle()}</style>
-</head>
-<body data-preview-state="${state}">
-${skip}
-<header>
-<p>Synthetic local Palace preview</p>
-<p><strong>Not live authority.</strong> Live authority remains ABI2.</p>
-<nav aria-label="Preview"><ul>${links}</ul></nav>
-</header>
-<main>
-<h1 id="content" tabindex="-1">${escapePalaceText(title)}</h1>
-<p><a href="${reload}">Reload</a></p>
-${main}
-</main>
-<footer><p>Phase H disconnected preview. Old ABI2 remains the live authority. This page does not mutate the service.</p></footer>
-</body>
-</html>`
 }

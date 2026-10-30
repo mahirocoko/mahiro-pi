@@ -63,6 +63,28 @@ Prompt replacement is an isolation mechanism, not proof of semantic correctness.
 Reflection and foreground memory assignments share the same writer and store.
 Historical quotation and maintained-knowledge authority remain separate.
 
+## Memory guidance and selective skill admission
+
+The repository currently ships only the `git-commit` skill. The managed writer
+already contains substantial guidance for curation, synthesis, discovery and
+scoped publication; dedicated memory skills are candidates, not installed package
+capabilities. User-local skills do not establish what this package ships.
+
+Do not bulk-import every Letta skill or over-customize useful upstream guidance
+until it becomes weaker. Prefer close adoption or minimal adaptation when a
+recurring job is genuinely underserved; existing role/runtime/docs ownership and
+zero new skills are valid outcomes. Preserve reasons, contradictions, examples,
+synthesis-not-logs and future-request discoverability rather than counting files.
+
+The [roadmap G-SKILL gate](letta-parity-roadmap.md#g-skill-admission-gate) owns
+candidate admission: user job, existing owner, disposition, preserved upstream
+contract, named deltas, trigger/refusal tests, truthful tools/authority and explicit
+scope approval. Core/deferred maintenance and bounded context diagnosis are
+candidates only. Initialization and filesystem synchronization retain existing
+owners for now; cloud/shared guidance is excluded unless separately requested.
+Skill creation remains a separate owner and grants no automatic memory-writer
+skill-mutation authority.
+
 ## Commit skill
 
 The [native commit skill](../skills/git-commit/SKILL.md) dispatches the approved

@@ -1,3 +1,4 @@
 # Source archives must never include local agent state, even older tracked notes.
 .agent-state export-ignore
 .pi export-ignore
+lib/agent-memory/local/palace-assets/*-OFL.txt -whitespace

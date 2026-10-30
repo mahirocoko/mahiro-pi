@@ -10,6 +10,7 @@ import {
   type SyntheticLocalInjection,
   assertExactDirectory,
   assertJobId,
+  assertOid,
   assertRelativePath,
   assertSummary,
   canonicalGitDirectoryName,
@@ -100,8 +101,23 @@ import {
   type PalaceRecoveryFact,
   type PalaceSnapshot,
   buildPalaceSnapshot,
+  palaceEntryKind,
   palacePreviewLimits,
 } from './palace.ts'
+import {
+  type PalaceCorpusPage,
+  type PalaceCorpusRequest,
+  buildPalaceCorpusPage,
+  palaceCorpusLimits,
+} from './palace-corpus.ts'
+import {
+  type PalaceDocument,
+  type PalaceDocumentRequest,
+  buildPalaceDocument,
+  clipPalaceUtf8,
+  palaceDocumentLimits,
+} from './palace-document.ts'
+import { assertPalacePath } from './palace-path.ts'
 import {
   type LocalMemoryList,
   type LocalMemoryPrompt,
@@ -139,6 +155,8 @@ export interface SyntheticLocalMemoryService {
   }): Promise<LocalMemoryList>
   importTombstones(input: TombstoneImport): Promise<ForgettingMetadata>
   palacePreview(): Promise<PalaceSnapshot>
+  palaceCorpusPage(request: PalaceCorpusRequest): Promise<PalaceCorpusPage>
+  palaceDocument(request: PalaceDocumentRequest): Promise<PalaceDocument>
 }
 
 export type { LocalJobRecord, LocalWorker }
@@ -1056,6 +1074,34 @@ export async function createSyntheticLocalMemoryService(options: {
   const publicSnapshot = <T>(body: () => Promise<T>): Promise<T> =>
     turnOnce(body).catch((error: unknown) => refuseRead(error))
 
+  const sourceForbidden = (policy: ForgettingRecord, path: string) =>
+    policy.snapshot?.sources.some((source) => source.source === path || source.project === path) ?? false
+
+  const listVisibleCorpus = async (head: string) => {
+    const policy = await loadForgetting(stateRoot)
+    const guard = forgettingGuard(policy)
+    const listed = await gitEntriesRecursive(git, head)
+    const visible: { fact: PalaceCorpusFact; bytesOf: string | null }[] = []
+    let forgotten = 0
+    const seen = new Set<string>()
+    for (const entry of listed) {
+      if (seen.has(entry.path)) throw Error('Local memory palace refused')
+      seen.add(entry.path)
+      if (suppressForgotten(entry.path, entry.oid, guard) || sourceForbidden(policy, entry.path)) {
+        forgotten += 1
+        continue
+      }
+      visible.push({
+        fact: { path: entry.path, mode: entry.mode, type: entry.type, bytes: null },
+        bytesOf: entry.mode === '100644' && entry.type === 'blob' ? entry.oid : null,
+      })
+    }
+    visible.sort((left, right) =>
+      left.fact.path < right.fact.path ? -1 : left.fact.path > right.fact.path ? 1 : 0,
+    )
+    return { policy, guard, visible, forgotten }
+  }
+
   const palacePreview = async (): Promise<PalaceSnapshot> => {
     try {
       await certifyIdentity()
@@ -1064,36 +1110,15 @@ export async function createSyntheticLocalMemoryService(options: {
     }
     let snapshot: PalaceSnapshot
     try {
-      const policy = await loadForgetting(stateRoot)
-      const guard = forgettingGuard(policy)
       const head = await gitMain(git)
       await gitRequireCommit(git, head)
-      const listed = await gitEntriesRecursive(git, head)
-      const visible: { fact: PalaceCorpusFact; bytesOf: string | null }[] = []
-      let forgotten = 0
-      const seen = new Set<string>()
-      for (const entry of listed) {
-        if (seen.has(entry.path)) throw Error('Local memory palace refused')
-        seen.add(entry.path)
-        if (suppressForgotten(entry.path, entry.oid, guard)) {
-          forgotten += 1
-          continue
-        }
-        visible.push({
-          fact: { path: entry.path, mode: entry.mode, type: entry.type, bytes: null },
-          bytesOf: entry.mode === '100644' && entry.type === 'blob' ? entry.oid : null,
-        })
-      }
-      visible.sort((left, right) =>
-        left.fact.path < right.fact.path ? -1 : left.fact.path > right.fact.path ? 1 : 0,
-      )
-      for (const item of visible.slice(0, palacePreviewLimits.pageSize)) {
+      const listed = await listVisibleCorpus(head)
+      for (const item of listed.visible.slice(0, palacePreviewLimits.pageSize)) {
         if (item.bytesOf) item.fact.bytes = await gitBlobSize(git, item.bytesOf)
       }
-      const sourceForbidden = (path: string) =>
-        policy.snapshot?.sources.some((source) => source.source === path || source.project === path) ?? false
+      const { policy, guard, forgotten } = listed
       const conflictVisible = async (path: string, commits: readonly string[]) => {
-        if (guard.pathForbidden(path) || sourceForbidden(path)) return false
+        if (guard.pathForbidden(path) || sourceForbidden(policy, path)) return false
         if (guard.metadata.blobCount === 0) return true
         let proved = false
         for (const commit of commits) {
@@ -1151,7 +1176,7 @@ export async function createSyntheticLocalMemoryService(options: {
           blobCount: guard.metadata.blobCount,
           sourceCount: guard.metadata.sourceCount,
         },
-        corpus: visible.map((item) => item.fact),
+        corpus: listed.visible.map((item) => item.fact),
         jobs,
         recovery: recoveryNotes,
         hiddenConflicts,
@@ -1166,6 +1191,105 @@ export async function createSyntheticLocalMemoryService(options: {
       throw Error('Local memory palace stale')
     }
     return snapshot
+  }
+
+  const palaceCorpusPage = async (request: PalaceCorpusRequest): Promise<PalaceCorpusPage> => {
+    assertOid(request.commit)
+    if (
+      !Number.isInteger(request.offset) ||
+      request.offset < 0 ||
+      request.offset > palaceCorpusLimits.maxOffset
+    )
+      throw Error('Local memory palace refused')
+    try {
+      await certifyIdentity()
+    } catch {
+      throw Error('Local memory palace stale')
+    }
+    let page: PalaceCorpusPage
+    try {
+      const head = await gitMain(git)
+      await gitRequireCommit(git, head)
+      if (head !== request.commit) throw Error('Local memory palace stale')
+      const listed = await listVisibleCorpus(head)
+      if (request.offset > 0 && request.offset >= listed.visible.length)
+        throw Error('Local memory palace refused')
+      const slice = listed.visible.slice(request.offset, request.offset + palaceCorpusLimits.pageSize)
+      for (const item of slice) {
+        if (item.bytesOf) item.fact.bytes = await gitBlobSize(git, item.bytesOf)
+      }
+      page = buildPalaceCorpusPage({
+        commit: head,
+        offset: request.offset,
+        total: listed.visible.length,
+        entries: slice.map((item) => ({
+          path: item.fact.path,
+          kind: palaceEntryKind(item.fact.mode, item.fact.type),
+          bytes: item.fact.bytes,
+        })),
+      })
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === 'Local memory palace refused' || error.message === 'Local memory palace stale')
+      )
+        throw error
+      throw Error('Local memory palace refused')
+    }
+    try {
+      await certifyIdentity()
+    } catch {
+      throw Error('Local memory palace stale')
+    }
+    return page
+  }
+
+  const palaceDocument = async (request: PalaceDocumentRequest): Promise<PalaceDocument> => {
+    assertOid(request.commit)
+    assertPalacePath(request.path)
+    try {
+      await certifyIdentity()
+    } catch {
+      throw Error('Local memory palace stale')
+    }
+    let document: PalaceDocument
+    try {
+      const resolved = await gitMain(git)
+      await gitRequireCommit(git, resolved)
+      if (resolved !== request.commit) throw Error('Local memory palace stale')
+      const listed = await listVisibleCorpus(resolved)
+      const entry = listed.visible.find((item) => item.fact.path === request.path)
+      if (!entry || entry.fact.mode !== '100644' || entry.fact.type !== 'blob' || entry.bytesOf === null)
+        throw Error('Local memory palace refused')
+      const loaded = await gitBlobPrefix(git, entry.bytesOf, palaceDocumentLimits.maxTextBytes)
+      let text: string
+      try {
+        text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+          clipPalaceUtf8(loaded.bytes, palaceDocumentLimits.maxTextBytes),
+        )
+      } catch {
+        throw Error('Local memory palace refused')
+      }
+      document = buildPalaceDocument({
+        commit: resolved,
+        path: request.path,
+        totalBytes: loaded.total,
+        text,
+      })
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === 'Local memory palace refused' || error.message === 'Local memory palace stale')
+      )
+        throw error
+      throw Error('Local memory palace refused')
+    }
+    try {
+      await certifyIdentity()
+    } catch {
+      throw Error('Local memory palace stale')
+    }
+    return document
   }
 
   await turn(stateRoot, () => readyPolicy())
@@ -1235,5 +1359,7 @@ export async function createSyntheticLocalMemoryService(options: {
       ),
     importTombstones: (input) => turnOnce(() => importTombstones(input)),
     palacePreview: () => turnOnce(() => palacePreview()),
+    palaceCorpusPage: (request) => turnOnce(() => palaceCorpusPage(request)),
+    palaceDocument: (request) => turnOnce(() => palaceDocument(request)),
   }
 }

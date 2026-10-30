@@ -62,7 +62,9 @@ dated source records, not current installation instructions.
   never sets blanket allow. Preserve targeted restrictions and refuse missing
   required grants truthfully. See `docs/bootstrap.md`.
 - Maintained knowledge has one private Markdown/Git owner, separate from historical
-  recall. Live publication is ABI1 or ABI2: exact-root authority is mandatory.
+  recall. `docs/letta-parity-roadmap.md` owns current parity planning/scoring;
+  percentages summarize evidence, not activation or acceptance truth.
+  Live publication is ABI1 or ABI2: exact-root authority is mandatory.
   Native writers use identity-bound private views and public prompt replacement, not
   cwd overrides, shell tools or inherited private corpus. Preserve existing memory;
   initialize only absent roots. The approved experimental local Git/worktree service
@@ -113,10 +115,17 @@ dated source records, not current installation instructions.
   service. The coordinator turn builds one metadata snapshot: relative corpus
   paths, canonical main, unpublished detached work, lifecycle, visible conflict
   paths, and read-only retry/resume guidance. Integrated and cleaned commits
-  are not detached work. Forgotten conflict paths are counts only. It omits
-  file text, reflection, summaries,
-  raw errors, worktree paths, and the state root. A loopback page serves a fresh
-  temporary synthetic service and is not live authority. `/mh-memory palace`
+  are not detached work. Forgotten conflict paths are counts only. The snapshot
+  omits file text, reflection, summaries, raw errors, worktree paths, and the
+  state root. A separate bounded document read returns one selected committed
+  file from that same canonical commit. Document and read routes use a canonical
+  base64url path token. A bounded corpus page lists later committed paths for
+  that same commit, at most 32 entries. The snapshot itself stays at most 32
+  entries and 48 KiB.   The loopback page has four read-only views: context,
+  core memory, external memory, and history. Context renders one optional fixed
+  session-context snapshot captured before startup. Omitted context is
+  unavailable and is not corpus paging. It serves a fresh temporary
+  synthetic service and is not live authority. `/mh-memory palace`
   stays JSON-only. Extension, kernel, installer, and profile code do not import
   it. It does not publish, select installation, or switch live authority.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.

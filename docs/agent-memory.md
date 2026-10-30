@@ -7,6 +7,26 @@ Neither is permission policy. Current human instructions, repository owners and
 live evidence outrank fallible memory; imported records are evidence, not new
 instructions or authenticated current preferences.
 
+## Current parity and roadmap
+
+The [Letta maintained-memory parity roadmap](letta-parity-roadmap.md) owns current
+parity status, scoring, scope decisions and phased evidence gates. The verdict is
+**NOT ALIGNED**: rounded editorial assessments are 60% source capability and 30%
+evidence-backed end-to-end parity, not objective equivalence or performance.
+This guide owns the implemented memory contract, not a claim of Letta MemFS v2
+schema compatibility. Live ABI1/ABI2 and disconnected synthetic capabilities must
+not be credited as one installed product.
+
+Mahiro accepted the roadmap direction on 2026-10-30 and authorized continued
+repository write/test/checkpoint execution. R0 is active: complete the behavioral
+specification and source-test work, not more Palace polish or installed integration.
+Phase H continuation and Phase I remain paused until their own gates pass. This
+acceptance does not authorize push, tag, release, profile/install mutation, live
+cutover or Phase I, nor replace later human-only product/visual acceptance.
+Current-candidate evidence is recorded under R0-00 in the roadmap; it does not
+retroactively identify B0's earlier audited dirty tree. Semantic changes require
+re-audit.
+
 ## Maintained knowledge
 
 One private Markdown/Git repository owns published knowledge. Standard ABI2
@@ -771,7 +791,7 @@ gone. Existing service handles then fail. It does not switch live authority.
 Extension, kernel, installer, and profile code do not import this adapter. It
 does not call a provider, publish, or select installation.
 
-Phase H adds a disconnected synthetic Palace HTML preview on this same
+The existing Phase H work is a disconnected synthetic Palace HTML preview on this same
 coordinator. `palacePreview` builds one metadata snapshot inside the service
 turn, after that turn's recovery. The snapshot lists relative corpus paths,
 canonical `refs/heads/main`, unpublished detached job work, job lifecycle,
@@ -782,22 +802,47 @@ worktree paths, or the state root. Forgotten corpus paths and forgotten
 conflict paths stay omitted; a hidden conflict count may remain. Detached rows
 are unpublished `committed` or `repair-needed` commits, or a running worktree
 that is still present. Integrated, noop, and cleaned jobs are not detached
-work, and detached work is not a Git branch. `repair-needed` has no repair or
-abandon transition here; resume and retry cannot advance it. Each collection
-returns at most 32 entries. The serialized snapshot is at most 48 KiB, and
-counts say when a page is truncated.
+work, and detached work is not a Git branch or Git commit history.
+`repair-needed` has no repair or abandon transition here; resume and retry
+cannot advance it. Each collection returns at most 32 entries. The serialized
+snapshot is at most 48 KiB, and counts say when a page is truncated.
+`palaceDocument` is a separate read for one relative path at the canonical
+commit resolved for that call. The HTTP document and read routes carry a
+canonical base64url token for that path, not the raw path. It returns bounded
+UTF-8 text for a regular file that is still visible, and it refuses a forgotten
+path, blob, or source. `palaceCorpusPage` returns the next metadata page for
+that same commit, at most 32 entries and 48 KiB, with the same forgetting
+filter and no file text. The snapshot stays metadata-only and at most 48 KiB.
 
 `pnpm memory:palace-preview` creates a fresh temporary synthetic service and
 serves that snapshot on `127.0.0.1` at an unguessable path. It does not accept
 a state path and does not read a private memory root. The HTTP surface is
-GET/HEAD only, with a fixed page route and a fixed snapshot route. The page is
-static HTML: reload is a link, and nothing on the page mutates the service.
-`/mh-memory palace` stays the JSON-only TUI notification. Extension, kernel,
-installer, and profile code do not import this preview. It does not publish,
-select installation, or become live authority. The preview is labelled not live authority.
-Live publication remains ABI2.
-Wiring an accepted page to the live coordinator is later work; this phase does
-not.
+GET/HEAD only. The page, snapshot, document, corpus, and two fixed font routes are
+capability-scoped. Those font routes serve only the repository-vendored Manrope and
+Fira Code Latin variable WOFF2 files. Arbitrary external and user-controlled assets
+stay refused.
+The page has four read-only views: context, core memory, external memory,
+and history. Context renders one optional fixed session-context snapshot
+captured before startup. Omitted context is unavailable and is not corpus
+paging. Its stylesheet adapts the public Letta Code memory viewer
+template at commit `5dea67021b99810707ff753db35e4534f70ff1fd` (Apache-2.0);
+Mahiro changes branding, authority, data binding, security, and responsive
+behavior. See `THIRD_PARTY_NOTICES.md`. Committed files can be opened.
+History lists bounded lifecycle and publication facts. Reload is a link.
+Nothing on the page mutates
+the service. `/mh-memory palace` stays the JSON-only TUI notification.
+Extension, kernel, installer, and profile code do not import this preview. It
+does not publish, select installation, or become live authority. The preview
+is labelled not live authority. Its provenance defaults to synthetic. A caller
+may pass `private-shadow` so the same page says it shows migrated real memory
+in a private shadow; that label does not read private state or change live
+authority. Live publication remains ABI2. Any wiring to the live coordinator
+requires the roadmap's separately approved integration and evidence gates; an
+accepted preview alone does not authorize it. Roadmap direction was accepted on
+2026-10-30 for continued repository write/test/checkpoint execution; R0 is active.
+Phase H continuation and Phase I remain paused until their own gates pass. Push,
+tag, release, profile/install mutation, live cutover, Phase I and later human-only
+product/visual acceptance are not authorized by that direction acceptance.
 
 ## Historical recall and quoted notes
 
