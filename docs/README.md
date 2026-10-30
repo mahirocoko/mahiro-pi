@@ -35,7 +35,10 @@
   unchanged recovery watermarks, retained evidence and open concurrency/helper limits. The
   [R6 operator contract](letta-parity-r6.md) separates metadata export, caller bundles,
   disconnected shadow verification and quarantine from unavailable backup/restore,
-  active migration and authority cutover.
+  active migration and authority cutover. The
+  [R7 invocation-view contract](letta-parity-r7.md) specifies disconnected committed
+  captures, projection receipts and bounded knowledge history, not installed capture
+  or HTML diff navigation.
   None establishes installed parity or activation.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),

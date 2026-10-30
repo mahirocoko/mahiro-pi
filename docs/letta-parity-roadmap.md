@@ -433,23 +433,28 @@ Dependencies: R1 snapshot semantics, R4 seam, R5 lifecycle and R6 operator label
 Moves: Palace/context/history, projection/retrieval and operator workflows only
 where directly evidenced. Audit gaps: 14–18, 24.
 
-- [ ] **R7-01** Specify read-only installed invocation from the primary command
-  context with session/revision/root binding, no ambient private-corpus lookup
-  and no change to publication authority.
-- [ ] **R7-02** Capture one immutable invocation context snapshot with model,
-  session identity and public Pi context usage. Preserve unavailable states;
-  never derive context usage from corpus bytes or preview fixtures.
-- [ ] **R7-03** Attribute active memory from the actual projection owner;
-  distinguish estimates from exact counts, deferred corpus from active prompt,
-  committed/integrated state from working tree, and freshness from liveness.
-- [ ] **R7-04** Add bounded Git **knowledge-change history** with commit identity,
-  author/date/message, stats and safe diffs; separately retain job/publication/
-  recovery lifecycle diagnostics. Do not rename job rows into Git history.
-- [ ] **R7-05** Decide committed versus working-tree snapshot semantics and
-  freshness at invocation. Preserve capability-loopback security, bounded paging,
-  forgetting filters, CSP, drain and no arbitrary asset/file routes.
-- [ ] **R7-S** Synthetic/differential fixtures prove DTO provenance, estimates,
-  unavailable states, bounded history/diffs, lifecycle separation and stale refusal.
+The [R7 source contract](letta-parity-r7.md) owns the bounded disconnected slice.
+The checks below mean source specification/synthetic service only, not installed
+or HTML history/diff completion. Scores remain 60%/30%; Phase H stays paused/unaccepted.
+
+- [x] **R7-01 source specification** Separate committed invocation-view envelope;
+  no ambient private lookup or publication-authority change. Future installed
+  primary session/revision/root binding remains an R7-I prerequisite.
+- [x] **R7-02 synthetic** One capture identity/time with fixture, caller-supplied
+  or unavailable context. No installed public Pi session collector exists;
+  corpus bytes are not context usage.
+- [x] **R7-03 synthetic** Receipt from the real committed projection owner,
+  including project selection, bytes/clipping/deferred/absent/blocked. Explicit
+  synthetic-local-projection provenance, not installed active memory.
+- [x] **R7-04 synthetic service** Bounded first-parent knowledge history and safe
+  replacement diffs with filtered stats, separate from unchanged lifecycle DTOs.
+  HTML names both sections but knowledge history is explicitly unavailable there.
+- [x] **R7-05 source specification/synthetic** Committed-at-capture head/policy
+  staleness fences; working tree unavailable. Existing server security/drain and
+  route bounds unchanged; no new history/diff HTTP routes.
+- [x] **R7-S focused synthetic** DTO provenance, estimates/unavailable labels,
+  projection receipts, bounded history/diffs, lifecycle separation, forgetting and
+  stale refusal. Full differential/installed/observed/rendered evidence is not claimed.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data

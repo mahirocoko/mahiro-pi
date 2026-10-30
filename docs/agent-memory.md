@@ -962,9 +962,22 @@ paging. Its stylesheet adapts the public Letta Code memory viewer
 template at commit `5dea67021b99810707ff753db35e4534f70ff1fd` (Apache-2.0);
 Mahiro changes branding, authority, data binding, security, and responsive
 behavior. See `THIRD_PARTY_NOTICES.md`. Committed files can be opened.
-History lists bounded lifecycle and publication facts. Reload is a link.
-Nothing on the page mutates
-the service. `/mh-memory palace` stays the JSON-only TUI notification.
+History separates an explicitly unavailable Knowledge history section from bounded
+Lifecycle history and publication facts. Reload is a link. There are no mutation
+controls, but reads may reconcile/recover under the service owner.
+`/mh-memory palace` stays the JSON-only TUI notification.
+
+The [R7 disconnected invocation-view contract](letta-parity-r7.md) adds a separate
+strict envelope and service-only captured snapshot/first-parent knowledge-history/
+safe replacement-diff APIs. Real committed projection receipts carry explicit
+synthetic-local-projection provenance; context is fixture/caller-supplied/unavailable,
+not corpus-derived. Captured APIs refuse changed main or forgetting policy. Source
+exclusion uncertainty is unavailable, not guessed; active path/blob exclusions also
+withhold historical author/subject metadata because it lacks safe knowledge attribution.
+Working-tree state is unavailable.
+The HTML preview remains fixture/synthetic and per-request: it does not use this
+new envelope or expose history/diff routes. This is source/synthetic evidence only,
+not installed active-prompt capture or acceptance.
 Extension, kernel, installer, and profile code do not import this preview. It
 does not publish, select installation, or become live authority. The preview
 is labelled not live authority. Its provenance defaults to synthetic. A caller

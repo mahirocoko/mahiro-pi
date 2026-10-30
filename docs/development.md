@@ -28,6 +28,17 @@ For behavior changes, select exact relevant test files, for example:
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/candidate-isolation.test.ts
 ```
 
+For the disconnected [R7 invocation-view/history slice](letta-parity-r7.md), run the
+focused source fixtures (not an installed/provider/browser acceptance probe):
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-invocation.test.ts test/agent-memory-local-palace.test.ts test/agent-memory-local-projection.test.ts test/agent-memory-local-forgetting.test.ts
+```
+
+The current HTML remains per-request fixture/synthetic; service captures alone are
+head/policy-pinned. Knowledge history has no new HTTP route; lifecycle DTOs remain
+separate. Source checks do not complete R7-I/O/H or unpause Phase H.
+
 Heavy tiers require explicit scope and run serially:
 
 - `check:source`: the full serial source-test suite followed by whole-state accounting.

@@ -163,6 +163,21 @@ export async function gitCommitParents(context: LocalGitContext, commit: string)
   return parents
 }
 
+// Fixed object-only metadata read. No caller-provided format, ref, path or helper options.
+export async function gitKnowledgeMetadata(
+  context: LocalGitContext,
+  commit: string,
+): Promise<{ author: string; date: string; message: string }> {
+  assertOid(commit)
+  const result = await bareGit(context, ['show', '-s', '--format=%an%x00%aI%x00%s', commit])
+  if (result.truncated) throw Error('Local Git object refused')
+  const fields = new TextDecoder('utf-8', { fatal: true }).decode(result.stdout).trimEnd().split('\0')
+  if (fields.length !== 3) throw Error('Local Git object refused')
+  const safe = (value: string, cap: number) =>
+    value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ').slice(0, cap)
+  return { author: safe(fields[0], 80), date: safe(fields[1], 40), message: safe(fields[2], 160) }
+}
+
 export async function gitTree(context: LocalGitContext, commit: string): Promise<string> {
   assertOid(commit)
   return oid(await bareGit(context, ['rev-parse', '--verify', `${commit}^{tree}`]))

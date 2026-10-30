@@ -119,6 +119,17 @@ import {
   palaceDocumentLimits,
 } from './palace-document.ts'
 import { assertPalacePath } from './palace-path.ts'
+import { type PalaceContextSnapshot } from './palace-context.ts'
+import {
+  type PalaceInvocationView,
+  type PalaceKnowledgeHistory,
+  type PalaceKnowledgeDiff,
+  capturePalaceInvocation,
+  parsePalaceInvocation,
+  palaceInvocationLimits,
+  readKnowledgeHistory,
+  readKnowledgeDiff,
+} from './palace-invocation.ts'
 import {
   type LocalMemoryList,
   type LocalMemoryPrompt,
@@ -169,6 +180,10 @@ export interface SyntheticLocalMemoryService {
   }): Promise<LocalMemoryList>
   importTombstones(input: TombstoneImport): Promise<ForgettingMetadata>
   palacePreview(): Promise<PalaceSnapshot>
+  palaceCapture(input?: { context?: PalaceContextSnapshot; project?: string }): Promise<PalaceInvocationView>
+  palaceCapturedSnapshot(captureId: string): Promise<PalaceSnapshot>
+  palaceKnowledgeHistory(captureId: string, offset?: number): Promise<PalaceKnowledgeHistory>
+  palaceKnowledgeDiff(captureId: string, commit: string): Promise<PalaceKnowledgeDiff>
   palaceCorpusPage(request: PalaceCorpusRequest): Promise<PalaceCorpusPage>
   palaceDocument(request: PalaceDocumentRequest): Promise<PalaceDocument>
 }
@@ -1371,6 +1386,28 @@ export async function createLocalMemoryServiceUnderClaim(
 
   await readyPolicy()
 
+  const captures = new Map<string, PalaceInvocationView>()
+  const capturePolicy = async (view: PalaceInvocationView) => {
+    await certifyIdentity()
+    const policy = await loadForgetting(stateRoot)
+    if (
+      (await gitMain(git)) !== view.head ||
+      policy.digest !== view.forgetting.digest ||
+      policy.policyRevision !== view.forgetting.policyRevision
+    )
+      throw Error('Local memory palace stale')
+    return policy
+  }
+  const capturedRead = async <T>(
+    id: string,
+    read: (view: PalaceInvocationView, policy: ForgettingRecord) => Promise<T>,
+  ) => {
+    const view = captures.get(id)
+    if (!view) throw Error('Local memory palace stale')
+    const value = await read(view, await capturePolicy(view))
+    await capturePolicy(view)
+    return value
+  }
   const service: SyntheticLocalMemoryService = {
     enqueue: (input) => turnOnce(() => enqueue(input)),
     start: (id) => turnOnce(() => start(id)),
@@ -1455,6 +1492,22 @@ export async function createLocalMemoryServiceUnderClaim(
       ),
     importTombstones: (input) => turnOnce(() => importTombstones(input)),
     palacePreview: () => turnOnce(() => palacePreview()),
+    palaceCapture: (input) =>
+      turnOnce(async () => {
+        await certifyIdentity()
+        const head = await gitMain(git)
+        const policy = await loadForgetting(stateRoot)
+        const view = await capturePalaceInvocation(git, head, policy, input)
+        await capturePolicy(view)
+        if (captures.size >= palaceInvocationLimits.captures) captures.delete(captures.keys().next().value!)
+        captures.set(view.captureId, parsePalaceInvocation(view))
+        return view
+      }),
+    palaceCapturedSnapshot: (id) => turnOnce(() => capturedRead(id, async () => palacePreview())),
+    palaceKnowledgeHistory: (id, offset) =>
+      turnOnce(() => capturedRead(id, (view, policy) => readKnowledgeHistory(git, view, policy, offset))),
+    palaceKnowledgeDiff: (id, commit) =>
+      turnOnce(() => capturedRead(id, (view, policy) => readKnowledgeDiff(git, view, policy, commit))),
     palaceCorpusPage: (request) => turnOnce(() => palaceCorpusPage(request)),
     palaceDocument: (request) => turnOnce(() => palaceDocument(request)),
   }

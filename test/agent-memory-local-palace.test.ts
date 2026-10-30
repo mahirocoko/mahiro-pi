@@ -500,7 +500,8 @@ test('lifecycle guidance and publication stay explicit and not live', () => {
   }
   assert.match(html, /Detached job work is not a Git branch/)
   assert.match(html, /not Git commit history/)
-  assert.match(html, /<h2[^>]*>\s*History/)
+  assert.match(html, /<h2[^>]*>\s*Knowledge history/)
+  assert.match(html, /<h2[^>]*>\s*Lifecycle history/)
   assert.match(html, /Synthetic preview · Not live authority/)
   assert.match(html, /does not show a conflict diff or a job body/)
   assert.match(html, /Retry and resume are read-only/)
@@ -576,7 +577,7 @@ test('preview provenance stays synthetic unless a caller asks for a private shad
   })
   assert.match(synthetic, /aaaaaaa · Synthetic preview · Not live authority/)
   assert.match(synthetic, /Read-only synthetic workspace · ABI2 remains live authority/)
-  assert.match(synthetic, /This page does not mutate the service/)
+  assert.match(synthetic, /No mutation controls; reads may reconcile or recover under the service owner/)
   assert.match(synthetic, /Committed in this synthetic snapshot/)
   assert.equal(synthetic.includes('Migrated real memory'), false)
   assert.equal(synthetic.includes('private-shadow workspace'), false)
