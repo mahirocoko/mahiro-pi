@@ -113,6 +113,7 @@ for (const pattern of [
   'extensions/**',
   'test/**',
   'themes/**',
+  'assets/**/*.json',
   '!!.agent-state',
   '!!**/node_modules',
   '!!test/oracles',
@@ -158,7 +159,7 @@ assert.ok(
   'Expected --compare-source <old-pi-root>',
 )
 const original = args.length ? resolve(args[1]) : undefined
-const roots = new Set(['extensions', 'lib', 'test', 'docs', 'agents', 'skills', 'themes'])
+const roots = new Set(['extensions', 'lib', 'test', 'docs', 'agents', 'skills', 'themes', 'assets'])
 const files = new Set([
   'package.json',
   'AGENTS.md',
@@ -227,6 +228,62 @@ async function inspect(directory = '') {
   }
 }
 await inspect()
+
+const identityDirectory = resolve(root, 'assets/identity/mahiro-black-cat')
+const identityManifest = JSON.parse(await readFile(resolve(identityDirectory, 'manifest.json'), 'utf8'))
+assert.equal(identityManifest.schemaVersion, 'mahiro-identity-pack.v1')
+assert.equal(
+  identityManifest.humanLockedSource.sha256,
+  'bb6a0cfc9fef76fc668038ea210486d5e99e3ec0bc3f54d5882eb30eba486c81',
+)
+assert.deepEqual(identityManifest.palette, {
+  nearBlack: '#0A0606',
+  violet: '#A552FC',
+  warmCream: '#FDF5D9',
+  lavenderSurface: '#DED0FD',
+})
+const identityEntries = await readdir(identityDirectory, { withFileTypes: true })
+const expectedIdentityNames = [...identityManifest.files.map((entry) => entry.file), 'manifest.json'].sort()
+assert.deepEqual(
+  identityEntries.map((entry) => entry.name).sort(),
+  expectedIdentityNames,
+  'Identity assets and manifest inventory must remain exact',
+)
+for (const entry of identityEntries)
+  assert.ok(entry.isFile() && !entry.isSymbolicLink(), `${entry.name}: identity entries must be files`)
+for (const entry of identityManifest.files) {
+  assert.match(entry.file, /^[a-z0-9][a-z0-9.-]+$/, `Unsafe identity filename: ${entry.file}`)
+  const bytes = await readFile(resolve(identityDirectory, entry.file))
+  assert.equal(bytes.length, entry.bytes, `${entry.file}: byte count drift`)
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256, `${entry.file}: hash drift`)
+  if (entry.file.endsWith('.png')) {
+    assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
+    assert.equal(bytes.readUInt32BE(16), entry.width, `${entry.file}: PNG width drift`)
+    assert.equal(bytes.readUInt32BE(20), entry.height, `${entry.file}: PNG height drift`)
+    assert.equal(bytes[24], 8, `${entry.file}: PNG assets must remain 8-bit`)
+    assert.equal(bytes[25] === 6 ? 'RGBA' : bytes[25] === 2 ? 'RGB' : 'unsupported', entry.mode)
+  }
+  if (entry.file.endsWith('.ico')) {
+    assert.deepEqual([...bytes.subarray(0, 4)], [0, 0, 1, 0])
+    const imageCount = bytes.readUInt16LE(4)
+    assert.equal(imageCount, 3, `${entry.file}: ICO must retain 16/32/48 px frames`)
+    const sizes = Array.from({ length: imageCount }, (_, index) => {
+      const offset = 6 + index * 16
+      return [bytes[offset] || 256, bytes[offset + 1] || 256]
+    })
+    assert.deepEqual(sizes, [
+      [16, 16],
+      [32, 32],
+      [48, 48],
+    ])
+    assert.equal(Math.max(...sizes.map(([width]) => width)), entry.width)
+    assert.equal(Math.max(...sizes.map(([, height]) => height)), entry.height)
+  }
+}
+const identitySvg = await readFile(resolve(identityDirectory, 'mahiro-black-cat-mark.svg'), 'utf8')
+assert.doesNotMatch(identitySvg, /<!DOCTYPE|<(?:script|foreignObject)|\b(?:href|xlink:href)\s*=|url\s*\(/i)
+assert.match(identitySvg, /<title id="title">Mahiro black cat<\/title>/)
+
 console.log(
   `Package/import/whitespace checks passed${original ? `; ${compared} copied files byte-identical` : ''}.`,
 )

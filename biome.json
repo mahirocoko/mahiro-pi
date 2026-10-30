@@ -9,6 +9,7 @@
       "extensions/**",
       "test/**",
       "themes/**",
+      "assets/**/*.json",
       "!!.agent-state",
       "!!**/node_modules",
       "!!test/oracles"

@@ -22,6 +22,8 @@
   conflict recovery and separate quotation controls. The
   [experimental local Git/worktree service](agent-memory.md#experimental-local-gitworktree-service)
   is synthetic-only and is not the installed engine.
+- [Letta parity roadmap](letta-parity-roadmap.md) — current maintained-memory parity/status,
+  planning and scoring owner; evidence gates and selective guidance admission, not activation truth.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),
   readable tool cards, [Goals](workflows.md#goals),
@@ -30,6 +32,8 @@
 - [Utilities and Code Map](utilities.md) — natural multi-step tracking and [session steps](utilities.md#session-steps),
   [editable staging](utilities.md#editable-staging-queue), guidance, copy, clock and navigation.
 - [Herdr integrations](integrations.md) — optional worker counts and private Web observation.
+- [Identity assets](identity-assets.md) — selected black-cat character mark, production poses,
+  export manifest, usage constraints and legal boundary.
 
 ## Develop and release
 

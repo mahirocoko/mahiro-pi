@@ -1,0 +1,181 @@
+{
+  "schemaVersion": "mahiro-identity-pack.v1",
+  "identity": "Mahiro black cat",
+  "humanLockedSource": {
+    "label": "H2",
+    "sha256": "bb6a0cfc9fef76fc668038ea210486d5e99e3ec0bc3f54d5882eb30eba486c81"
+  },
+  "poseReference": {
+    "label": "J2",
+    "sha256": "7cf177fad7766ddb9bf4bd97095fbbbcdb10d270e8533a677e060b46d2183656"
+  },
+  "adaptationSources": {
+    "mark": {
+      "label": "Q1",
+      "rgbaSha256": "57f4c27b0a7ab8781535d6df13895e5e4af964f424ef6667658fd6b44d620060"
+    },
+    "sit": {
+      "label": "R1",
+      "rgbaSha256": "80af22d6ad6f8d73b1d6613ab25b6fc3c8c093c713f4c0b9a57e025d20268355"
+    },
+    "crouch": {
+      "label": "R2",
+      "rgbaSha256": "7f824e54c523a7c92a753f6e2cc4f08c1bd2916b609c7f9ef1d615a2af2d2ae5"
+    },
+    "leap": {
+      "label": "R3",
+      "rgbaSha256": "0cc5e81cd3993d88b21b617d293cec1e97a55c4c9587422dd285d094f4981c8a"
+    }
+  },
+  "palette": {
+    "nearBlack": "#0A0606",
+    "violet": "#A552FC",
+    "warmCream": "#FDF5D9",
+    "lavenderSurface": "#DED0FD"
+  },
+  "vectorization": {
+    "method": "deterministic contour trace of Q1 RGBA color regions",
+    "rasterAuthority": "Q1 RGBA",
+    "comparisonChangedPixels": 2917,
+    "comparisonFraction": 0.00185518
+  },
+  "legal": {
+    "status": "not trademark clearance",
+    "note": "Generated character provenance and bounded similarity review do not establish registrability or non-infringement."
+  },
+  "files": [
+    {
+      "file": "mahiro-black-cat-favicon.ico",
+      "bytes": 15086,
+      "sha256": "e5ac885fec75236f1cf736428ca09636514d069917b1cbb3ee3d1c308f0b759b",
+      "width": 48,
+      "height": 48,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-1024.png",
+      "bytes": 52491,
+      "sha256": "d590cc1615742563609eb6c042c0f61dcc50ce4ba0db39ab7035333dd035d6a6",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-128.png",
+      "bytes": 5341,
+      "sha256": "006fe48d81868970b8947bc351f5910c479458d842b041220981c130606b3b13",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-16.png",
+      "bytes": 605,
+      "sha256": "ed80ef7519508f765d3c9fd42ce9bf92204348ed01ddea1e674ad799a09387da",
+      "width": 16,
+      "height": 16,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-256.png",
+      "bytes": 11128,
+      "sha256": "6a8612ac27b7f817dcc1c5cf40c995b164b5be5cf3a4e5639f270304fe6ff644",
+      "width": 256,
+      "height": 256,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-32.png",
+      "bytes": 1211,
+      "sha256": "325a89330148d4fbc9017adb8a05dc7d8164e81aec45130ac8ae9886310bf062",
+      "width": 32,
+      "height": 32,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-48.png",
+      "bytes": 1879,
+      "sha256": "2ef31209b4e7c941e2ac0acfe109bbdb29622a6f1d93c0be122d26eeba23221d",
+      "width": 48,
+      "height": 48,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-512.png",
+      "bytes": 23681,
+      "sha256": "86b50709caebe9cc1d3ca7c6258db8ab249d4e575fd9dc9efacb0acefdf18c34",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark-64.png",
+      "bytes": 2523,
+      "sha256": "36d1ffbd7e1077f3e9401c14c4327affc4f8ffec121fd0ff12033f47f6a8ade3",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mark.svg",
+      "bytes": 7221,
+      "sha256": "778f6a8c0b3779a48db684a4951ae1c812cbb573929a7f61b679941aa836bc4a"
+    },
+    {
+      "file": "mahiro-black-cat-mascot-crouch-1024.png",
+      "bytes": 368998,
+      "sha256": "c18f2502aed25275fc695c1fd9a42b4a015925ad54681d74000ef073860c84ef",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mascot-crouch-512.png",
+      "bytes": 111837,
+      "sha256": "9ae5e2608ae16849718127d6a43ebd759825bf6a8e64846d98bfe9e1f11fdfac",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mascot-leap-1024.png",
+      "bytes": 378175,
+      "sha256": "f98d4fd571d191f4750bd91862978f64e245e90b3d969e827d3cae02809cf033",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mascot-leap-512.png",
+      "bytes": 115203,
+      "sha256": "89ecf80d5619347578ee7f859be9a0b9f5e7123d25c53ec9f247bbe79cf153a2",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mascot-sit-1024.png",
+      "bytes": 363962,
+      "sha256": "15075b592699b5c218cc9196b1db1a3feb78ca48cbf112fdf99e84f8db300c20",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-mascot-sit-512.png",
+      "bytes": 109009,
+      "sha256": "79d7f22682de8562c02bafa98b7c192862428bc35ec9a426cc7b6cb8fb8b3fd7",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mahiro-black-cat-surface-lavender-1024.png",
+      "bytes": 48766,
+      "sha256": "09aaa3bb25a133e1b881c866b99dab62a7ac63d64574eb7bfde18819c5cb8086",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGB"
+    }
+  ]
+}
