@@ -23,6 +23,7 @@ import type { TurnEpisode } from './store.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
 import { buildMemoryInvocationContext, type MemoryProjectionReceipt } from './invocation-context.ts'
+import { buildPalaceDiagnostic } from './palace-diagnostic.ts'
 
 interface RuntimeBinding {
   manager: ExtensionContext['sessionManager']
@@ -355,7 +356,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       throw memoryFailure('branch', 'Native memory branch changed')
     return ids
   }
-  const captureInvocation = async (ctx: ExtensionContext) => {
+  const captureInvocation = async (ctx: ExtensionContext, combined = false) => {
     if (!ctx.isIdle() || starting || job || draft)
       throw Error('Idle ABI2 primary invocation context required')
     const exactBranch = await branch(ctx)
@@ -365,6 +366,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || !ownBinding || ownBinding !== binding)
       throw Error('Primary invocation context required')
     const status = await f.request('status', {})
+    const palaceReply = combined
+      ? await f.request('manage', { action: 'palace', project: f.project })
+      : undefined
+    const receipt = projectionReceipt
     let usage: unknown
     let systemPrompt: unknown
     try {
@@ -377,7 +382,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     } catch {
       systemPrompt = undefined
     }
+    const finalStatus = combined ? await f.request('status', {}) : undefined
     const finalConfig = await f.barrier()
+    if (finalStatus && finalStatus.revision !== status.revision)
+      throw memoryFailure('CAS', 'Palace revision mismatch during capture')
     const finalEntries = ctx.sessionManager.getBranch()
     if (finalEntries.length > 8192) throw memoryFailure('capacity', 'Branch barrier capacity exceeded')
     const finalBranch = finalEntries.map((entry) => {
@@ -399,7 +407,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     )
       throw memoryFailure('branch', 'Invocation context changed during capture')
     assertCurrent(f.context)
-    const receipt = projectionReceipt
     const projection =
       receipt &&
       receipt.binding === ownBinding &&
@@ -413,7 +420,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             emittedBlockUtf8Bytes: receipt.emittedBlockUtf8Bytes,
           }
         : undefined
-    return buildMemoryInvocationContext({
+    const context = buildMemoryInvocationContext({
       revision: status.revision,
       configHash: f.configHash,
       model: ctx.model,
@@ -421,6 +428,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       systemPrompt,
       projection,
     })
+    if (combined) {
+      if (!palaceReply || !('palace' in palaceReply)) throw Error('Palace diagnostic unavailable')
+      return buildPalaceDiagnostic(context, palaceReply.palace)
+    }
+    return context
   }
   const startWriter = async (ctx: ExtensionContext, assignment?: string) => {
     if (starting || job) throw Error('Managed memory writer already active')
@@ -1330,7 +1342,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }),
     cancel: retire,
     startWriter: (...args: Parameters<typeof startWriter>) => admit(args[0], () => startWriter(...args)),
-    captureInvocation: (ctx: ExtensionContext) => admit(ctx, () => captureInvocation(ctx)),
+    captureInvocation: (ctx: ExtensionContext) =>
+      admit(
+        ctx,
+        async () =>
+          (await captureInvocation(ctx)) as import('./invocation-context.ts').MemoryInvocationContext,
+      ),
+    capturePalaceContext: (ctx: ExtensionContext) => admit(ctx, () => captureInvocation(ctx, true)),
     status: () => ({
       active,
       worker: starting || !!job,

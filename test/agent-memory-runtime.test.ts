@@ -258,6 +258,8 @@ test('memory help identifies Palace as JSON-only diagnostics and distinguishes A
     assert.match(help, /no HTML page, dashboard or file export/)
     assert.match(help, /context returns a bounded ABI2-only invocation diagnostic/)
     assert.match(help, /provider consumption and category token accounting remain unavailable/)
+    assert.match(help, /palace-context \(no arguments\)/)
+    assert.match(help, /not an atomic snapshot or viewer/)
     assert.doesNotMatch(help, /doctor runs health, budget and link checks/)
   } finally {
     f.close()
@@ -273,6 +275,10 @@ test('memory context command refuses ABI1 without fallback or storage mutation',
     f.ctx.ui = { notify: (text: string) => notifications.push(text) }
     await f.commands.get('mh-memory').handler('context', f.ctx)
     assert.match(notifications.at(-1)!, /reason: unknown/)
+    await f.commands.get('mh-memory').handler('palace-context', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    await f.commands.get('mh-memory').handler('palace-context extra', f.ctx)
+    assert.match(notifications.at(-1)!, /Usage: .*no arguments/)
     assert.equal(f.store.snapshot().revision, revision)
   } finally {
     f.close()

@@ -1062,3 +1062,27 @@ Implementation: [managed memory](../extensions/mahiro-agent-memory.ts),
 and [continuity](../extensions/mahiro-continuity.ts).
 Source/SDK fixtures do not establish installed activation, semantic learning,
 memory-use performance or human acceptance.
+
+## R7-07 command-only combined diagnostic prerequisite
+
+`/mh-memory palace-context` accepts no trailing arguments and requires the existing
+exact `agent_memory_manage` read authority on an idle ABI2 primary. ABI1 refuses
+without fallback. One runtime capture resolves the owner once, reads initial
+status/config, invokes real authorized Palace manage, samples public context and
+the projection-owner receipt, then checks final status/config, branch, activity,
+authority and binding. Revision/config mismatches refuse without silent retry.
+These are observed checks, not a linearizable or atomic Palace snapshot or viewer.
+Lifecycle is omitted; captureId is correlation only and replay is unsupported.
+
+The closed JSON DTO retains context's 4 KiB bound, at most 128 structural files,
+upstream inspection/output coverage and separate returned/omitted/truncated output
+accounting. The final compact object and compact command notification are bounded
+to 32 KiB including UTF-8 and JSON escaping. It omits bodies, frontmatter names and
+descriptions, links, views, episodes, operations, budget ceilings, overall healthy,
+source IDs, history/diffs and private root/profile/session paths. A prior projection
+receipt remains separately labelled from current committed revision until the next
+request (when its binding/config remains applicable). Public Pi estimates are not
+provider consumption or category accounting. No model-callable action, persistent
+registry, file export, HTML/HTTP, activation or Phase I is added. Existing `context`
+and `palace` commands remain separate. R7-I/O/H remain open; this prerequisite does
+not establish installed/rendered longitudinal or human acceptance.

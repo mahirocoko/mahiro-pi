@@ -316,6 +316,51 @@ test('ABI2 invocation context refuses config or writer admission races', async (
   }
 })
 
+test('ABI2 Palace context observes real Palace and rejects sampling races without retry', async () => {
+  for (const race of ['none', 'revision', 'config', 'branch', 'revocation', 'writer']) {
+    const f = fixture()
+    const release = deferred()
+    let writer: Promise<unknown> | undefined
+    try {
+      await f.emit('session_start')
+      await f.emit('before_agent_start', { systemPrompt: 'Base' })
+      f.setUsage(() => {
+        if (race === 'revision') {
+          const view = f.store.createView('synthetic')
+          f.store.edit(view, 'projects/synthetic/reference/race.md', null, '# Race\n')
+          f.store.integrate(view)
+        }
+        if (race === 'config')
+          writeFileSync(join(f.root, 'config.json'), JSON.stringify({ ...f.store.config(), automatic: true }))
+        if (race === 'branch') f.branch.push({ id: 'new' })
+        if (race === 'revocation') f.setGranted(false)
+        if (race === 'writer') {
+          f.authorize(() => release.promise)
+          writer = f.runtime.startWriter(f.ctx, 'Concurrent writer').catch(() => undefined)
+        }
+        return { tokens: 320, contextWindow: 4096, percent: 7.8125 }
+      })
+      if (race !== 'none') await assert.rejects(f.runtime.capturePalaceContext(f.ctx))
+      else {
+        const result = await f.runtime.capturePalaceContext(f.ctx)
+        assert.equal(result.kind, 'abi2-palace-context-diagnostic')
+        if (result.kind !== 'abi2-palace-context-diagnostic') throw Error('Wrong result')
+        assert.equal(result.consistency.atomic, false)
+        assert.equal(result.structure.revision, result.context.memoryProjection?.revision)
+        assert.ok(result.structure.files.some((file) => file.path === 'Core.md'))
+        assert.doesNotMatch(
+          JSON.stringify(result),
+          /SYNTHETIC_TREE_CORE|memory-tree-|Synthetic effective prompt/,
+        )
+      }
+    } finally {
+      release.resolve()
+      await writer
+      await f.close()
+    }
+  }
+})
+
 test('cancelled tree: busy custom-trigger boundary does not speculate; later idle read recovers', async () => {
   const f = fixture()
   try {
