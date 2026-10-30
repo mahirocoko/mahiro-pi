@@ -345,7 +345,12 @@ test('ABI2 Palace context observes real Palace and rejects sampling races withou
         const result = await f.runtime.capturePalaceContext(f.ctx)
         assert.equal(result.kind, 'abi2-palace-context-diagnostic')
         if (result.kind !== 'abi2-palace-context-diagnostic') throw Error('Wrong result')
+        assert.equal(result.version, 2)
         assert.equal(result.consistency.atomic, false)
+        assert.equal(result.consistency.committedSnapshot, 'owner-certified')
+        assert.equal(result.consistency.invocationAssociation, 'observed-non-atomic')
+        assert.equal(result.structure.bodyInspection, 'not-requested')
+        assert.equal(result.structure.configHash, result.context.binding.configHash)
         assert.equal(result.structure.revision, result.context.memoryProjection?.revision)
         assert.ok(result.structure.files.some((file) => file.path === 'Core.md'))
         assert.doesNotMatch(

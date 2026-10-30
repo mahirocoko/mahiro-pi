@@ -49,6 +49,7 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
   if (
     method === 'offlineCertify' ||
     method === 'projection' ||
+    method === 'palaceStructure' ||
     method === 'config' ||
     method === 'status' ||
     method === 'episodes' ||

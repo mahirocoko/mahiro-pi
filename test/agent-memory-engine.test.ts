@@ -2463,3 +2463,127 @@ test('aborted first chunk retains private staging evidence without untracked can
     await f.close()
   }
 })
+
+test('Palace structure certifies committed metadata, bounds output and reauthorizes every warm active path', async () => {
+  const f = fixture(140, true)
+  try {
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const args = { project: 'project', expectedConfigHash: configHash }
+    const first = await f.engine.request('palaceStructure', args, f.context)
+    assert.equal(first.revision, f.store.snapshot().revision)
+    assert.equal(first.configHash, configHash)
+    assert.equal(first.bodyInspection, 'not-requested')
+    assert.equal(first.output.total, 142)
+    assert.equal(first.output.returned, 128)
+    assert.equal(first.output.omitted, 14)
+    assert.equal(first.output.truncated, true)
+    assert.deepEqual(
+      first.files.map((x) => x.path),
+      first.files.map((x) => x.path).sort(),
+    )
+    assert.ok(Buffer.byteLength(JSON.stringify(first)) <= 65536)
+    assert.doesNotMatch(
+      JSON.stringify(first),
+      /Synthetic body|source-one|mahiro-engine-|sources"|links|views|episodes/,
+    )
+    const before = await f.engine.request('stats', {}, f.context)
+    const seen = new Set<string>()
+    const warm = await f.engine.request('palaceStructure', args, {
+      current: (targets) => {
+        for (const p of targets.logical) seen.add(p)
+        return true
+      },
+    })
+    assert.deepEqual(warm, first)
+    assert.equal([...seen].filter((p) => newPath(p)).length, 142)
+    assert.ok(seen.has('Core.md'))
+    assert.deepEqual((await f.engine.request('stats', {}, f.context)).blobReads, before.blobReads)
+    const omitted = [...seen].find((p) => newPath(p) && !first.files.some((x) => x.path === p))!
+    await assert.rejects(
+      f.engine.request('palaceStructure', args, { current: (targets) => !targets.logical.includes(omitted) }),
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+test('Palace structure refuses expected-config mismatch, unmapped project and final config or HEAD drift', async () => {
+  for (const race of ['mismatch', 'project', 'config', 'head']) {
+    const f = fixture(1)
+    try {
+      const { configHash } = await f.engine.request('config', {}, f.context)
+      // Warm certificates make the path-wide checkpoint a deterministic final-reread seam.
+      await f.engine.request(
+        'palaceStructure',
+        { project: 'project', expectedConfigHash: configHash },
+        f.context,
+      )
+      let changed = false
+      const context: OperationContext = {
+        current: (targets) => {
+          if (!changed && targets.kind === 'data' && targets.logical.includes('Core.md')) {
+            changed = true
+            if (race === 'config')
+              writeFileSync(join(f.root, 'config.json'), JSON.stringify({ ...f.config, automatic: true }))
+            if (race === 'head')
+              f.git(
+                '-c',
+                'user.name=Synthetic',
+                '-c',
+                'user.email=fixture@example.invalid',
+                'commit',
+                '--allow-empty',
+                '-m',
+                'Synthetic drift',
+              )
+          }
+          return true
+        },
+      }
+      await assert.rejects(
+        f.engine.request(
+          'palaceStructure',
+          {
+            project: race === 'project' ? 'unmapped' : 'project',
+            expectedConfigHash: race === 'mismatch' ? '0'.repeat(64) : configHash,
+          },
+          context,
+        ),
+      )
+      if (race === 'config' || race === 'head') assert.equal(changed, true)
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('Palace structure ignores worktree text and filters committed suppression without body inspection', async () => {
+  const f = fixture(2)
+  try {
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const args = { project: 'project', expectedConfigHash: configHash }
+    const first = await f.engine.request('palaceStructure', args, f.context)
+    writeFileSync(join(f.root, 'global/file-0.md'), 'PRIVATE_WORKTREE_SENTINEL')
+    assert.deepEqual(await f.engine.request('palaceStructure', args, f.context), first)
+    const ledger = JSON.parse(readFileSync(join(f.root, '.memory.json'), 'utf8'))
+    ledger.forgottenPaths.push('global/file-1.md')
+    writeFileSync(join(f.root, '.memory.json'), JSON.stringify(ledger))
+    f.git('add', '.memory.json')
+    f.git(
+      '-c',
+      'user.name=Synthetic',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '-m',
+      'Synthetic suppression',
+    )
+    const next = await f.engine.request('palaceStructure', args, f.context)
+    assert.equal(next.output.total, first.output.total - 1)
+    assert.ok(!next.files.some((x) => x.path === 'global/file-1.md'))
+    assert.notEqual(next.snapshotDigest, first.snapshotDigest)
+    assert.notEqual(next.structureDigest, first.structureDigest)
+  } finally {
+    await f.close()
+  }
+})

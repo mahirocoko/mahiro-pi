@@ -1068,15 +1068,25 @@ memory-use performance or human acceptance.
 `/mh-memory palace-context` accepts no trailing arguments and requires the existing
 exact `agent_memory_manage` read authority on an idle ABI2 primary. ABI1 refuses
 without fallback. One runtime capture resolves the owner once, reads initial
-status/config, invokes real authorized Palace manage, samples public context and
+status/config, invokes the dedicated internal `palaceStructure` engine RPC, samples public context and
 the projection-owner receipt, then checks final status/config, branch, activity,
 authority and binding. Revision/config mismatches refuse without silent retry.
-These are observed checks, not a linearizable or atomic Palace snapshot or viewer.
+The engine certifies one committed HEAD against the expected config hash and mapped
+project, derives active suppression-aware metadata, explicitly reauthorizes every
+active path even on warm certificates, then rereads config and HEAD sequentially.
+Drift fails closed without retry. These are final observations, not simultaneous
+sampling or proof that config/HEAD stayed unchanged throughout. The committed
+snapshot is owner-certified; its association with invocation context remains
+observed-non-atomic (`atomic: false`), not a linearizable combined capture or viewer.
 Lifecycle is omitted; captureId is correlation only and replay is unsupported.
 
 The closed JSON DTO retains context's 4 KiB bound, at most 128 structural files,
-upstream inspection/output coverage and separate returned/omitted/truncated output
-accounting. The final compact object and compact command notification are bounded
+a versioned committed-head basis, config/revision/project binding, deterministic
+full-structure and snapshot digests, body inspection explicitly not requested,
+and separate upstream and returned/omitted/truncated output
+accounting. The engine result is bounded to 64 KiB; diagnostic version 2 preserves
+the command-only surface. Cold certification may validate bodies internally; no
+body inspection/report is requested or returned. The final compact object and compact command notification are bounded
 to 32 KiB including UTF-8 and JSON escaping. It omits bodies, frontmatter names and
 descriptions, links, views, episodes, operations, budget ceilings, overall healthy,
 source IDs, history/diffs and private root/profile/session paths. A prior projection

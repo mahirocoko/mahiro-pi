@@ -1,4 +1,5 @@
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
+import { assertPalaceStructure } from '../palace-structure.ts'
 import { assertMigrationExportPage } from '../migration-export.ts'
 import { palaceLayerFor, palaceReplyBytes, parseMemoryRead, retrievalLimits } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
@@ -74,6 +75,9 @@ function page(value: Record<string, unknown>, snippet = false) {
 export function validateReply(method: Method, inputValue: unknown, value: unknown) {
   const input = inputValue as Record<string, unknown> // controller already validated the exact request
   switch (method) {
+    case 'palaceStructure':
+      assertPalaceStructure(value, { project: input.project, expectedConfigHash: input.expectedConfigHash })
+      return
     case 'config': {
       const v = shape(value, ['config', 'configHash'])
       const config = parseConfig(JSON.stringify(v.config))

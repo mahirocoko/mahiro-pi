@@ -69,6 +69,10 @@ export interface Page {
   missing?: boolean
 }
 export interface Operations {
+  palaceStructure: {
+    input: { project: string; expectedConfigHash: string }
+    output: import('../palace-structure.ts').PalaceStructure
+  }
   projection: {
     input: { project: string; shared: boolean }
     output: {
@@ -187,6 +191,7 @@ export type Reply =
   | { v: 2; epoch: string; id: string; error: Readonly<MemoryFailureCode> }
   | CheckMessage
 export const methods: Method[] = [
+  'palaceStructure',
   'projection',
   'config',
   'status',
@@ -214,6 +219,7 @@ export const methods: Method[] = [
 // Reject extra selectors; no root/role/lease/argv endpoint exists on this channel.
 export function validateInput(method: Method, input: unknown) {
   const keys: Record<Method, string[]> = {
+    palaceStructure: ['project', 'expectedConfigHash'],
     projection: ['project', 'shared'],
     config: [],
     status: [],
@@ -239,6 +245,15 @@ export function validateInput(method: Method, input: unknown) {
     stats: [],
   }
   if (!objectShape(input, keys[method])) throw Error('Invalid engine input')
+  if (
+    method === 'palaceStructure' &&
+    (Object.keys(input).length !== 2 ||
+      typeof input.project !== 'string' ||
+      !idPattern.test(input.project) ||
+      typeof input.expectedConfigHash !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(input.expectedConfigHash))
+  )
+    throw Error('Invalid Palace structure input')
   if (
     ['projection', 'headRead'].includes(method) &&
     (typeof input.project !== 'string' || !idPattern.test(input.project) || typeof input.shared !== 'boolean')

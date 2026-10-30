@@ -1,102 +1,67 @@
 import type { MemoryInvocationContext } from './invocation-context.ts'
-import { palaceLayerFor } from './retrieval.ts'
+import { assertPalaceStructure, type PalaceStructure } from './palace-structure.ts'
 
 export interface PalaceDiagnostic {
-  version: 1
+  version: 2
   kind: 'abi2-palace-context-diagnostic'
   captureId: string
   replay: 'unsupported'
   consistency: {
     atomic: false
+    committedSnapshot: 'owner-certified'
+    invocationAssociation: 'observed-non-atomic'
     revision: 'matched-at-checks'
-    config: 'matched-at-checks-not-certified-by-palace'
+    config: 'matched-at-checks'
     lifecycle: 'omitted'
   }
   context: MemoryInvocationContext
-  structure: {
-    revision: string
-    inspection: { complete: boolean; inspectedFiles: number; nonArchiveFiles: number; totalFiles: number }
-    upstreamOutput: { returned: number; omitted: number; truncated: boolean }
-    output: { returned: number; omitted: number; truncated: boolean }
-    files: {
-      path: string
-      layer: string
-      bytes: number
-      protectedRetention: boolean
-      alwaysLoaded: boolean
-      sourcesCount: number
-    }[]
+  structure: Omit<PalaceStructure, 'files' | 'output'> & {
+    upstreamOutput: PalaceStructure['output']
+    output: PalaceStructure['output']
+    files: PalaceStructure['files']
   }
 }
 
-// Reconstruct every field; the real manage reply is validated upstream, but no
-// nested Palace object or caller-owned reference crosses this output boundary.
 export function buildPalaceDiagnostic(
   context: MemoryInvocationContext,
-  palace: Record<string, unknown>,
+  palace: PalaceStructure,
 ): PalaceDiagnostic {
-  const count = (value: unknown): number => {
-    if (!Number.isSafeInteger(value) || (value as number) < 0) throw Error('Invalid Palace count')
-    return value as number
-  }
+  assertPalaceStructure(palace, { project: palace.project, expectedConfigHash: context.binding.configHash })
   if (palace.revision !== context.binding.revision) throw Error('Palace revision mismatch during capture')
-  const coverage = palace.coverage as Record<string, unknown>
-  if (!coverage || typeof coverage.complete !== 'boolean' || !Array.isArray(palace.files))
-    throw Error('Invalid Palace coverage')
-  const total = count(coverage.totalFiles)
-  const returned = count(coverage.filesReturned)
-  if (returned !== palace.files.length || returned > total) throw Error('Invalid Palace output count')
   const result: PalaceDiagnostic = {
-    version: 1,
+    version: 2,
     kind: 'abi2-palace-context-diagnostic',
     captureId: context.captureId,
     replay: 'unsupported',
     consistency: {
       atomic: false,
+      committedSnapshot: 'owner-certified',
+      invocationAssociation: 'observed-non-atomic',
       revision: 'matched-at-checks',
-      config: 'matched-at-checks-not-certified-by-palace',
+      config: 'matched-at-checks',
       lifecycle: 'omitted',
     },
     context: copyContext(context),
     structure: {
-      revision: context.binding.revision,
-      inspection: {
-        complete: coverage.complete,
-        inspectedFiles: count(coverage.inspectedFiles),
-        nonArchiveFiles: count(coverage.nonArchiveFiles),
-        totalFiles: total,
-      },
-      upstreamOutput: { returned, omitted: total - returned, truncated: returned < total },
-      output: { returned: 0, omitted: total, truncated: total > 0 },
-      files: [],
+      version: 1,
+      revision: palace.revision,
+      configHash: palace.configHash,
+      project: palace.project,
+      basis: palace.basis,
+      currentness: palace.currentness,
+      bodyInspection: palace.bodyInspection,
+      structureDigest: palace.structureDigest,
+      snapshotDigest: palace.snapshotDigest,
+      upstreamOutput: { ...palace.output },
+      output: { ...palace.output },
+      files: palace.files.map((f) => ({ ...f })),
     },
   }
   if (Buffer.byteLength(JSON.stringify(context)) > 4096) throw Error('Invocation context reply exceeds bound')
-  for (const raw of palace.files.slice(0, 128)) {
-    const f = raw as Record<string, unknown>
-    if (
-      typeof f.path !== 'string' ||
-      !f.path.endsWith('.md') ||
-      /[\\\u0000-\u001f\u007f]/.test(f.path) ||
-      f.path.startsWith('/') ||
-      f.path.split('/').some((part) => !part || part === '.' || part === '..') ||
-      f.layer !== palaceLayerFor(f.path) ||
-      typeof f.protectedRetention !== 'boolean' ||
-      typeof f.alwaysLoaded !== 'boolean'
-    )
-      throw Error('Invalid Palace structural entry')
-    result.structure.files.push({
-      path: f.path,
-      layer: f.layer as string,
-      bytes: count(f.bytes),
-      protectedRetention: f.protectedRetention,
-      alwaysLoaded: f.alwaysLoaded,
-      sourcesCount: count(f.sourcesCount),
-    })
-  }
   const account = () => {
-    const n = result.structure.files.length
-    result.structure.output = { returned: n, omitted: total - n, truncated: n < total }
+    const returned = result.structure.files.length
+    const total = palace.output.total
+    result.structure.output = { total, returned, omitted: total - returned, truncated: returned < total }
   }
   account()
   while (Buffer.byteLength(JSON.stringify(result)) > 32768) {

@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { memoryFailure } from '../reasons.ts'
+import { snapshotDigest, structureDigest, type PalaceStructure } from '../palace-structure.ts'
+import { palaceLayerFor } from '../retrieval.ts'
 import { lstat, mkdir, readdir, rmdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -52,6 +54,7 @@ import {
   fileLimit,
   idPattern,
   isAlwaysLoadedTieredPath,
+  isProtectedRetentionPath,
   legacyV1Migration,
   limits,
   parseConfig,
@@ -1250,6 +1253,62 @@ export class MemoryDataEngine {
     drained = false,
   ): Promise<unknown> {
     switch (method) {
+      case 'palaceStructure': {
+        const args = input as Input<'palaceStructure'>
+        const { config, configHash } = await this.config()
+        if (configHash !== args.expectedConfigHash || !config.projects.some((p) => p.id === args.project))
+          throw memoryFailure('CAS', 'Palace configuration mismatch')
+        const base = await this.certify(config, configHash)
+        const paths = Object.keys(base.refs)
+          .filter((p) => !suppressed(base.ledger, p, base.refs[p].sources))
+          .sort()
+        // Mandatory even for warm certificates and paths omitted by the presentation cap.
+        await this.gate(
+          paths.map((p) => join(this.root, p)),
+          paths,
+        )
+        const files = paths.map((path) => ({
+          path,
+          layer: palaceLayerFor(path),
+          bytes: base.refs[path].size,
+          protectedRetention: isProtectedRetentionPath(path),
+          alwaysLoaded:
+            path === 'Core.md' || path === 'index.md' || isAlwaysLoadedTieredPath(path, args.project),
+          sourcesCount: base.refs[path].sources.length,
+        }))
+        const result: PalaceStructure = {
+          version: 1,
+          revision: base.revision,
+          configHash,
+          project: args.project,
+          basis: 'committed-head',
+          currentness: 'config-and-head-matched-at-final-checks',
+          bodyInspection: 'not-requested',
+          structureDigest: structureDigest(files),
+          snapshotDigest: '',
+          output: { total: files.length, returned: 0, omitted: files.length, truncated: files.length > 0 },
+          files: files.slice(0, 128),
+        }
+        const account = () => {
+          result.output = {
+            total: files.length,
+            returned: result.files.length,
+            omitted: files.length - result.files.length,
+            truncated: result.files.length < files.length,
+          }
+          result.snapshotDigest = snapshotDigest(result)
+        }
+        account()
+        while (bytes(JSON.stringify(result)) > 65536) {
+          if (!result.files.pop()) throw Error('Palace structure exceeds bound')
+          account()
+        }
+        // Sequential observations, not simultaneous sampling or an interval guarantee.
+        if ((await this.config()).configHash !== configHash)
+          throw memoryFailure('CAS', 'Palace configuration changed')
+        if ((await this.head()) !== base.revision) throw memoryFailure('CAS', 'Palace revision changed')
+        return result
+      }
       case 'projection': {
         const args = input as Input<'projection'>
         const { config, configHash } = await this.config()

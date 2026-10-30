@@ -495,9 +495,12 @@ scoring is above. Phase H stays paused/unaccepted.
   before/after a genuine Faux request. Provider consumption/category accounting stay
   unavailable; no Palace snapshot, history persistence, HTML route or activation.
 - [x] **R7-07 source/public-SDK prerequisite** Command-only ABI2
-  `/mh-memory palace-context` combines real authorized Palace structure and invocation
-  diagnostics with observed revision/config/authority barriers, not an atomic snapshot.
-  Closed 32 KiB JSON, 128 files, separate upstream/output coverage; no lifecycle,
+  `/mh-memory palace-context` uses a dedicated internal config-certified, commit-bound
+  structural RPC (including warm-cache active-path authorization and final config/HEAD
+  drift refusal). Diagnostic v2 labels the committed snapshot owner-certified but
+  invocation association observed-non-atomic, with final runtime authority barriers.
+  Engine 64 KiB / command 32 KiB JSON, 128 files, honest separate upstream/output
+  counts and digests, body inspection not requested; no lifecycle,
   replay, viewer or new model action. R7-I/O/H remain open.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.

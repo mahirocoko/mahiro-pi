@@ -367,7 +367,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       throw Error('Primary invocation context required')
     const status = await f.request('status', {})
     const palaceReply = combined
-      ? await f.request('manage', { action: 'palace', project: f.project })
+      ? await f.request('palaceStructure', { project: f.project, expectedConfigHash: f.configHash })
       : undefined
     const receipt = projectionReceipt
     let usage: unknown
@@ -429,8 +429,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       projection,
     })
     if (combined) {
-      if (!palaceReply || !('palace' in palaceReply)) throw Error('Palace diagnostic unavailable')
-      return buildPalaceDiagnostic(context, palaceReply.palace)
+      if (!palaceReply) throw Error('Palace diagnostic unavailable')
+      return buildPalaceDiagnostic(context, palaceReply)
     }
     return context
   }
