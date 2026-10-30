@@ -686,6 +686,19 @@ descriptor. Ordinary non-reflection jobs still use the existing worker.
 Reopening this service for reflection requires the same synthetic policy and
 maintenance callback. This path is not live and is not selected by installation.
 
+The [R3 trajectory contract](letta-parity-r3.md) refines this synthetic path:
+`step-count` counts only caller-finalized assistant rows after the settled
+watermark. Threshold 25 is supported independently of eight-entry/1024-byte
+worker chunks, within a 128-entry input bound. Settled chunks drain only their
+captured omitted-ID prefix without retriggering; late tails wait for a fresh
+trigger. Held snapshots ignore later tails but reject captured-prefix identity
+changes. Native secret detection replaces a whole matching row before UTF-8
+truncation; the existing `truncated` metadata means redacted **or** truncated.
+Omitted bodies are not persisted or integrity-bound, only their IDs. Receipts
+add bounded, non-persisted progress counts. Replay is immutable, branch/job/digest
+bound and non-executing; it never settles or launches work. None of this changes
+live settings, installed reflection or the roadmap's parity scores.
+
 Phase D adds an optional model maintenance adapter in
 `lib/agent-memory/local/model-worker.ts`. A caller may pass it as the synthetic
 maintenance callback. Each job launches one isolated public SDK session with an

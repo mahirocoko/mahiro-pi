@@ -100,7 +100,7 @@ No high-confidence installed or human claim is made by this baseline.
 | --- | --- | --- | --- | --- | --- | --- |
 | Storage/schema/forgetting | 10 | 70% | 35% | Moderate/low | Revisioned Markdown/Git and tombstones exist; tiered schema is not Letta root/index semantics. | R1 mapping and R6 non-resurrection fixtures establish another source band; installed seed/rollback proof needed above source-only credit. |
 | Projection/retrieval | 15 | 80% | 40% | Moderate/low | Committed projection and bounded reads exist; selection and deferred navigation differ. | R1 differential fixtures prove core selection and future-request discovery; R4 proves next-request visibility. |
-| Reflection/trajectory/progress | 20 | 40% | 20% | Limited/low | Filtered episodes differ from trajectory; synthetic step-count counts entries; replay/watermarks diverge. | R3 proves assistant-step, captured-range, no-op/failure/replay semantics; R4 observes the installed route. |
+| Reflection/trajectory/progress | 20 | 40% | 20% | Limited/low | Filtered episodes differ from trajectory; R3 adds synthetic assistant-step/captured-prefix semantics, not an installed route. | R3 proves assistant-step, captured-range, no-op/failure/replay semantics; R4 observes the installed route. |
 | Writer/publication | 15 | 80% | 40% | Moderate/low | Identity-bound native writer and guarded publication exist; local coordinator is disconnected. | R4 proves one authorized session-to-writer-to-publication slice, including conflict and no-learning outcomes. |
 | Recovery/concurrency/lifecycle | 10 | 60% | 30% | Moderate/low | Generation/drain and uncertainty preservation exist; repair-needed has no terminal recovery. | R5 proves repair/abandon, crash outcomes, root isolation and helper settlement without weakening uncertainty. |
 | Commands/migration/operator workflows | 5 | 50% | 25% | Limited/low | Shadow export/seed is not active migration, backup/restore or cutover. | R6 demonstrates distinct operator jobs, truthful state labels and tested rollback; installed proof separately cited. |
@@ -271,24 +271,26 @@ Dependencies: R0 trigger/privacy decisions; R1 projection expectations; R2 quali
 criteria inform worker output. Moves: reflection/trajectory/progress,
 writer/publication. Audit gaps: 4–8, 26–28.
 
-- [ ] **R3-01** Specify observation, eligibility, launch, settlement and progress
-  as separate states. Letta's effective fresh default is step-count **25** from
-  settings-manager, not the compaction-event helper fallback; explicitly choose
-  Mahiro's policy, off behavior and per-session/conversation settings.
-- [ ] **R3-02** Count completed assistant steps, not every trajectory entry, or
-  explicitly rename the policy entry-count and record the parity departure.
-  Cover user/assistant/tool-heavy sequences and repeated callbacks.
-- [ ] **R3-03** Define canonical IDs/ranges, captured end snapshot, bounded
-  user/assistant/tool/error evidence, redaction, reasoning privacy and retention.
-  Do not equate filtered eligible episodes with a full Letta trajectory.
-- [ ] **R3-04** Specify recent/automatic/manual/cross-conversation selection,
-  deliberate replay and retry separately. Historical text remains untrusted;
-  replay must not advance ordinary progress or grant preferences/permissions.
-- [ ] **R3-05** Build state-machine cases for late append, compaction overlap,
-  no-learning/no-op, cancellation, provider failure, conflict, restart, duplicate
-  settlement and replay; advance only through the captured accepted range.
-- [ ] **R3-S** Differential fixtures expose the all-entry counting defect and
-  prove selection/watermark semantics, privacy filtering and bounded payloads.
+- [x] **R3-01** 2026-10-30: [synthetic policy/state contract](letta-parity-r3.md#comparator-and-policy-choice--r3-0102)
+  separates observation, eligibility, queue, launch, settlement and progress.
+  Threshold 25 is supported explicitly; no live default or conversation setting changes.
+- [x] **R3-02** 2026-10-30: synthetic step-count counts only caller-finalized
+  assistant rows after the watermark; mixed-role threshold-25 fixtures cover repeated callbacks.
+- [x] **R3-03** 2026-10-30: [captured range/privacy contract](letta-parity-r3.md#captured-ranges-privacy-and-retention--r3-03)
+  specifies bounded chunks, secret redaction before truncation, reasoning exclusion,
+  exact prefix IDs and the persisted omitted-body integrity limitation.
+- [x] **R3-04** 2026-10-30: [progress/replay contract](letta-parity-r3.md#progress-settlement-replay-and-retry--r3-04)
+  separates explicit retry from branch/job/digest-bound non-executing replay;
+  cross-conversation and hosted transcript selection remain unsupported.
+- [x] **R3-05** 2026-10-30: [source state-machine fixtures](letta-parity-r3.md#source-regression-evidence--r3-05)
+  cover captured-prefix draining, late append, no-op, failure/retry, conflict,
+  restart, compaction and replay. Installed cancellation/provider lifecycle remains unproven.
+  Source implementation is not independent acceptance; scores remain unchanged.
+- [x] **R3-S** 2026-10-30: fresh source review passed assistant-only threshold
+  25, bounded captured-prefix continuation, late-tail isolation, monotonic
+  settlement, explicit retry/non-executing replay, secret replacement and existing
+  snapshot compatibility with no blocking finding. Omitted-body integrity and
+  installed/live behavior remain explicit limits.
 - [ ] **R3-I** An approved installed synthetic journey proves actual hooks select
   and launch the intended writer exactly once under the chosen settings.
 - [ ] **R3-O** Observe progress before/after success, no-op, failure and replay,

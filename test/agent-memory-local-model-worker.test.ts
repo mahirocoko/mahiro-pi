@@ -176,7 +176,7 @@ test('public SDK/Faux adapter keeps a bounded prompt, memory tools, and coordina
     const sessionId = 'session-a'
     const branchId = 'line-a'
     const tail = 'TAILMARKER-UNIQUE'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', `${'A'.repeat(256)}${tail}`, 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', `${'A'.repeat(256)}${tail}`, 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     assert.ok(queued.job)
     assert.ok(queued.range)
@@ -267,7 +267,7 @@ test('provider, cancellation, overflow, and malformed model results stay failed 
     const service = await createSyntheticLocalMemoryService(serviceOptions(provider.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     assert.ok(queued.range)
@@ -313,7 +313,7 @@ test('provider, cancellation, overflow, and malformed model results stay failed 
     const service = await createSyntheticLocalMemoryService(serviceOptions(refused.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     const secret = 'hidden-chain-secret'
@@ -340,7 +340,7 @@ test('provider, cancellation, overflow, and malformed model results stay failed 
     const service = await createSyntheticLocalMemoryService(serviceOptions(overflow.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     opened.faux.setResponses([
@@ -361,7 +361,7 @@ test('provider, cancellation, overflow, and malformed model results stay failed 
     )
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'tool', 'result', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'result', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     opened.faux.setResponses([
@@ -427,7 +427,7 @@ test('aggregate assistant text, tool results, and arguments fail closed', async 
     )
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     const chunk = 'A'.repeat(Math.floor(modelMaintenanceLimits.maxAggregateAssistantTextBytes / 2) + 1)
@@ -457,7 +457,7 @@ test('aggregate assistant text, tool results, and arguments fail closed', async 
     })
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Read the notes', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Read the notes', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     opened.faux.setResponses([
@@ -512,7 +512,7 @@ test('invalid tool calls consume the call budget and a later write does not muta
     const service = await createSyntheticLocalMemoryService(serviceOptions(unknown.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'tool', 'result', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'result', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     opened.faux.setResponses([
@@ -537,7 +537,7 @@ test('invalid tool calls consume the call budget and a later write does not muta
     const service = await createSyntheticLocalMemoryService(serviceOptions(invalid.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'tool', 'result', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'result', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     opened.faux.setResponses([
@@ -589,7 +589,7 @@ test('thinking is malformed, timeout is cooperative, and cleanup stays sanitized
     const service = await createSyntheticLocalMemoryService(serviceOptions(thinking.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     const secret = 'hidden-chain-secret'
@@ -612,7 +612,7 @@ test('thinking is malformed, timeout is cooperative, and cleanup stays sanitized
     const service = await createSyntheticLocalMemoryService(serviceOptions(timed.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     let honored = false
@@ -655,7 +655,7 @@ test('thinking is malformed, timeout is cooperative, and cleanup stays sanitized
     const service = await createSyntheticLocalMemoryService(serviceOptions(broken.stateRoot, worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     await expectFailure(() => service.start(job.id), 'provider')
@@ -672,7 +672,7 @@ test('a huge unknown tool name stays out of later requests and length stays over
     const service = await createSyntheticLocalMemoryService(serviceOptions(named.stateRoot, opened.worker))
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'tool', 'result', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'result', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     const job = requiredJob(queued.job)
     const rawName = `unknown-${'U'.repeat(modelMaintenanceLimits.maxAggregateToolCallBytes)}`
@@ -771,7 +771,7 @@ test('an oversized trajectory fails before a model session starts', async () => 
         sessionId: 'session-a',
         branchId: 'line-a',
         entryId: 'entry-1',
-        role: 'user',
+        role: 'assistant',
         text: 'x'.repeat(modelMaintenanceLimits.maxPromptBytes),
         order: 1,
         timestamp: '2026-10-29T00:00:01Z',

@@ -1159,7 +1159,7 @@ test('failed reflection can be retried later and its text stays out of the snaps
       sessionId: 'session-a',
       branchId: 'line-a',
       entryId: 'entry-1',
-      role: 'user',
+      role: 'assistant',
       text: 'SENTINEL_REFLECTION_TEXT',
       order: 1,
       timestamp: '2026-10-29T00:00:01Z',

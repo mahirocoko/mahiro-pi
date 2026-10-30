@@ -301,7 +301,7 @@ test('projection, read, and list hide forgotten data after a deliberate ref roll
     const reflected = await worker.reflect({
       sessionId: 'session-a',
       branchId: 'line-a',
-      entries: [entry('session-a', 'line-a', 'entry-1', 'user', 'look', 1)],
+      entries: [entry('session-a', 'line-a', 'entry-1', 'assistant', 'look', 1)],
     })
     assert.ok(reflected.job)
     await worker.start(reflected.job.id)
@@ -369,7 +369,7 @@ test('workers cannot republish a tombstoned path or exact blob', async () => {
     const renamed = await renaming.reflect({
       sessionId: 'session-b',
       branchId: 'line-b',
-      entries: [entry('session-b', 'line-b', 'entry-1', 'user', 'move', 1)],
+      entries: [entry('session-b', 'line-b', 'entry-1', 'assistant', 'move', 1)],
     })
     assert.ok(renamed.job)
     await rejects(renaming.start(renamed.job.id), 'Local memory forgetting refused')
@@ -395,7 +395,7 @@ test('workers cannot republish a tombstoned path or exact blob', async () => {
     const dropped = await deleting.reflect({
       sessionId: 'session-c',
       branchId: 'line-c',
-      entries: [entry('session-c', 'line-c', 'entry-1', 'user', 'drop', 1)],
+      entries: [entry('session-c', 'line-c', 'entry-1', 'assistant', 'drop', 1)],
     })
     assert.ok(dropped.job)
     await deleting.start(dropped.job.id)
@@ -641,7 +641,7 @@ test('filtered integration keeps the worker commit in the published lineage', as
     const reflected = await service.reflect({
       sessionId: 'session-f',
       branchId: 'line-f',
-      entries: [entry('session-f', 'line-f', 'entry-1', 'user', 'edit secret', 1)],
+      entries: [entry('session-f', 'line-f', 'entry-1', 'assistant', 'edit secret', 1)],
     })
     assert.ok(reflected.job)
     const started = await service.start(reflected.job.id)
@@ -745,7 +745,7 @@ test('rolled-back Core and index blobs stay hidden and the paths stay present', 
     const reflected = await worker.reflect({
       sessionId: 'session-o',
       branchId: 'line-o',
-      entries: [entry('session-o', 'line-o', 'entry-1', 'user', 'read owners', 1)],
+      entries: [entry('session-o', 'line-o', 'entry-1', 'assistant', 'read owners', 1)],
     })
     assert.ok(reflected.job)
     const started = await worker.start(reflected.job.id)
@@ -816,7 +816,7 @@ test('required-owner fallback keeps a leading BOM and does not publish the forbi
     const reflected = await worker.reflect({
       sessionId: 'session-bom',
       branchId: 'line-bom',
-      entries: [entry('session-bom', 'line-bom', 'entry-1', 'user', 'read owners', 1)],
+      entries: [entry('session-bom', 'line-bom', 'entry-1', 'assistant', 'read owners', 1)],
     })
     assert.ok(reflected.job)
     const started = await worker.start(reflected.job.id)

@@ -118,7 +118,7 @@ test('bounded user assistant and tool range updates memory and advances the wate
       stateRoot: fx.stateRoot,
       initialFiles,
       worker: ordinary,
-      trajectory: { policy: 'step-count', stepCount: 3, maintenance: remembering },
+      trajectory: { policy: 'step-count', stepCount: 1, maintenance: remembering },
     })
     const sessionId = 'session-a'
     const branchId = 'line-a'
@@ -194,7 +194,7 @@ test('transcript text that asks for tools or policy stays inert data', async () 
     })
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', hostile, 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', hostile, 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     assert.equal(queued.policy, 'step-count')
     assert.equal(queued.range?.entries[0]?.text, hostile)
@@ -238,7 +238,7 @@ test('a no-op advances the watermark once and does not relaunch the same range',
     })
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Nothing to store', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Nothing to store', 1)]
     const before = Number(fx.git(undefined, ['rev-list', '--count', 'refs/heads/main']))
     const queued = await service.reflect({ sessionId, branchId, entries })
     assert.ok(queued.job)
@@ -279,7 +279,7 @@ test('worker failure and repair-needed keep the watermark and range', async () =
     })
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'tool', 'result', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'result', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     assert.ok(queued.job)
     assert.ok(queued.range)
@@ -620,7 +620,7 @@ test('oversize text and ranges truncate explicitly and stay deterministic', asyn
   }
 
   const many = Array.from({ length: trajectoryLimits.maxRangeEntries + 3 }, (_, index) =>
-    entry(sessionId, branchId, `entry-${index + 1}`, 'tool', 'x', index + 1),
+    entry(sessionId, branchId, `entry-${index + 1}`, 'assistant', 'x', index + 1),
   )
   const one = fixture()
   const two = fixture()
@@ -661,7 +661,7 @@ test('bad identities and worktree escapes fail', async () => {
     const sessionId = 'session-a'
     const branchId = 'line-a'
     const base = [
-      entry(sessionId, branchId, 'entry-1', 'user', 'one', 1),
+      entry(sessionId, branchId, 'entry-1', 'assistant', 'one', 1),
       entry(sessionId, branchId, 'entry-2', 'assistant', 'two', 2),
     ]
     await assert.rejects(
@@ -802,7 +802,7 @@ test('bad identities and worktree escapes fail', async () => {
     const queued = await service.reflect({
       sessionId: 'session-a',
       branchId: 'line-a',
-      entries: [entry('session-a', 'line-a', 'entry-1', 'user', 'escape', 1)],
+      entries: [entry('session-a', 'line-a', 'entry-1', 'assistant', 'escape', 1)],
     })
     assert.ok(queued.job)
     jobId = queued.job.id
@@ -906,7 +906,7 @@ test('interruption or a duplicate id cannot replace a reflection snapshot', asyn
     let maintenanceRuns = 0
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const stopped = await createSyntheticLocalMemoryService({
       stateRoot: fx.stateRoot,
       initialFiles,
@@ -985,7 +985,7 @@ test('the 17th branch is rejected before publication and other work continues', 
       const queued = await service.reflect({
         sessionId: 'session-a',
         branchId,
-        entries: [entry('session-a', branchId, 'entry-1', 'user', 'note', 1)],
+        entries: [entry('session-a', branchId, 'entry-1', 'assistant', 'note', 1)],
       })
       assert.ok(queued.job)
       assert.equal((await service.start(queued.job.id)).status, 'noop')
@@ -997,7 +997,7 @@ test('the 17th branch is rejected before publication and other work continues', 
         service.reflect({
           sessionId: 'session-a',
           branchId: 'branch-17',
-          entries: [entry('session-a', 'branch-17', 'entry-1', 'user', 'late', 1)],
+          entries: [entry('session-a', 'branch-17', 'entry-1', 'assistant', 'late', 1)],
         }),
       /trajectory refused/,
     )
@@ -1040,7 +1040,7 @@ test('create-delete is a noop and create-rename integrates the final path', asyn
     const deleted = await service.reflect({
       sessionId: 'session-a',
       branchId: 'delete-line',
-      entries: [entry('session-a', 'delete-line', 'entry-1', 'user', 'drop it', 1)],
+      entries: [entry('session-a', 'delete-line', 'entry-1', 'assistant', 'drop it', 1)],
     })
     assert.ok(deleted.job)
     assert.equal((await service.start(deleted.job.id)).status, 'noop')
@@ -1086,7 +1086,7 @@ test('edit replacements stay literal', async () => {
     const queued = await service.reflect({
       sessionId: 'session-a',
       branchId: 'line-a',
-      entries: [entry('session-a', 'line-a', 'entry-1', 'tool', 'edit', 1)],
+      entries: [entry('session-a', 'line-a', 'entry-1', 'assistant', 'edit', 1)],
     })
     assert.ok(queued.job)
     assert.equal((await service.integrate((await service.start(queued.job.id)).id)).status, 'integrated')
@@ -1118,7 +1118,7 @@ test('failed reflection retry reuses the snapshot and repair-needed stays blocke
     })
     const sessionId = 'session-a'
     const branchId = 'line-a'
-    const entries = [entry(sessionId, branchId, 'entry-1', 'user', 'Remember the port is 4312', 1)]
+    const entries = [entry(sessionId, branchId, 'entry-1', 'assistant', 'Remember the port is 4312', 1)]
     const queued = await service.reflect({ sessionId, branchId, entries })
     assert.ok(queued.job)
     assert.ok(queued.range)
@@ -1192,7 +1192,7 @@ test('non-string session, branch, and entry ids are refused before a job or wate
       },
       trajectory: { policy: 'step-count', stepCount: 1, maintenance: remembering },
     })
-    const valid = [entry('session-a', 'line-a', 'entry-1', 'user', 'typed', 1)]
+    const valid = [entry('session-a', 'line-a', 'entry-1', 'assistant', 'typed', 1)]
     for (const value of [null, true, false, 1]) {
       await assert.rejects(
         () => service.reflect({ sessionId: value as never, branchId: 'line-a', entries: valid }),
@@ -1241,7 +1241,7 @@ test('a persisted snapshot or watermark with a non-string id is refused', async 
     const queued = await service.reflect({
       sessionId: 'session-a',
       branchId: 'line-a',
-      entries: [entry('session-a', 'line-a', 'entry-1', 'user', 'typed', 1)],
+      entries: [entry('session-a', 'line-a', 'entry-1', 'assistant', 'typed', 1)],
     })
     assert.ok(queued.job)
     const original = JSON.parse(
@@ -1275,7 +1275,7 @@ test('a persisted snapshot or watermark with a non-string id is refused', async 
         service.reflect({
           sessionId: 'session-a',
           branchId: 'line-b',
-          entries: [entry('session-a', 'line-b', 'entry-1', 'user', 'next', 1)],
+          entries: [entry('session-a', 'line-b', 'entry-1', 'assistant', 'next', 1)],
         }),
       /trajectory refused/,
     )

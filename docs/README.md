@@ -26,8 +26,10 @@
   planning and scoring owner; evidence gates and selective guidance admission, not activation truth.
   The [R0 contract appendix](letta-parity-r0.md) maps all 28 gaps, selected source directions,
   latest-source differential and acceptance worksheets. The [R1 schema contract](letta-parity-r1.md)
-  freezes native path/projection/discovery mapping against Letta v0.34.31; neither establishes
-  installed parity or activation.
+  freezes native path/projection/discovery mapping against Letta v0.34.31. The
+  [R3 trajectory contract](letta-parity-r3.md) records synthetic assistant-step triggers,
+  captured-prefix draining, bounded redaction, progress and non-executing replay.
+  None establishes installed parity or activation.
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),
   readable tool cards, [Goals](workflows.md#goals),

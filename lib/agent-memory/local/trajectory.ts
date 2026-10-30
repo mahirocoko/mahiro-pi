@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { hasSecret } from '../../continuity/records.ts'
 import { assertRealDirectory, isOwnedTempName, readRegularFile, writeExclusive } from './confine.ts'
 import { type LocalJobKind, type LocalJobRecord, assertJobId, assertSummary } from './contracts.ts'
 import { type MaintenanceWorkspace } from './workspace.ts'
 
 // Synthetic trajectory owner. Harness entries only. Not a live session or model worker.
 export const trajectoryLimits = {
-  maxInputEntries: 32,
+  maxInputEntries: 128,
+  maxStepCount: 128,
   maxRangeEntries: 8,
   maxEntryBytes: 256,
   maxRangeBytes: 1024,
@@ -47,6 +49,7 @@ const snapshotKeys = [
 ]
 const watermarkKeys = ['branchId', 'entryId', 'jobId', 'order', 'rangeDigest', 'sessionId', 'version']
 
+// An assistant row is caller-finalized; this API does not ingest streaming or reasoning rows.
 export interface SyntheticPublicEntry {
   sessionId: string
   branchId: string
@@ -162,6 +165,13 @@ export interface ReflectionReceipt {
   policy: TrajectoryPolicy
   range: TrajectoryProjection | null
   job: LocalJobRecord | null
+  progress: {
+    observedEntryCount: number
+    pendingAssistantStepCount: number
+    settledOrder: number
+    configuredThreshold: number | null
+    capturedEntryCount: number
+  }
 }
 
 function refuse(): never {
@@ -215,7 +225,7 @@ export function normalizeTrajectoryConfig(
       !Number.isInteger(value.stepCount) ||
       value.stepCount === undefined ||
       value.stepCount < 1 ||
-      value.stepCount > trajectoryLimits.maxRangeEntries
+      value.stepCount > trajectoryLimits.maxStepCount
     )
       refuse()
     stepCount = value.stepCount
@@ -346,8 +356,7 @@ export function selectTrajectoryRange(
   let byteCount = 0
   let truncatedEntryCount = 0
   for (const entry of pending) {
-    const text = truncateUtf8(entry.text, trajectoryLimits.maxEntryBytes)
-    const truncated = text !== entry.text
+    const { text, truncated } = exposedEntry(entry.text)
     const size = Buffer.byteLength(text)
     const fits =
       selected.length < trajectoryLimits.maxRangeEntries && byteCount + size <= trajectoryLimits.maxRangeBytes
@@ -395,6 +404,14 @@ export function selectTrajectoryRange(
     omittedEntryIds,
   }
   return { ...projection, digest: projectionDigest(projection) }
+}
+
+const redactedEntryText = '[Secret-bearing entry withheld]'
+
+function exposedEntry(raw: string): { text: string; truncated: boolean } {
+  const safe = hasSecret(raw) ? redactedEntryText : raw
+  const text = truncateUtf8(safe, trajectoryLimits.maxEntryBytes)
+  return { text, truncated: text !== raw }
 }
 
 function parseStoredEntry(value: unknown, sessionId: string, branchId: string): TrajectoryViewEntry {
@@ -644,6 +661,9 @@ function compactionOf(range: TrajectoryProjection): { firstKeptEntryId: string }
 }
 
 function assertCovers(entries: readonly SyntheticPublicEntry[], range: TrajectoryProjection): void {
+  const ids = [...range.entries.map((entry) => entry.entryId), ...range.omittedEntryIds]
+  const pending = entries.filter((entry) => entry.order > range.afterOrder)
+  if (pending.length < ids.length || ids.some((id, index) => pending[index]?.entryId !== id)) refuse()
   for (const stored of range.entries) {
     const found = entries.find((entry) => entry.entryId === stored.entryId)
     if (
@@ -655,8 +675,8 @@ function assertCovers(entries: readonly SyntheticPublicEntry[], range: Trajector
       found.branchId !== stored.branchId
     )
       refuse()
-    const text = truncateUtf8(found.text, trajectoryLimits.maxEntryBytes)
-    if (text !== stored.text || (text !== found.text) !== stored.truncated) refuse()
+    const { text, truncated } = exposedEntry(found.text)
+    if (text !== stored.text || truncated !== stored.truncated) refuse()
   }
   for (const id of range.omittedEntryIds) {
     const found = entries.find((entry) => entry.entryId === id)
@@ -700,8 +720,9 @@ function receipt(
   policy: TrajectoryPolicy,
   range: TrajectoryProjection | null,
   job: LocalJobRecord | null,
+  progress: ReflectionReceipt['progress'],
 ): ReflectionReceipt {
-  return { action, reason, policy, range, job }
+  return { action, reason, policy, range, job, progress }
 }
 
 function branchJobs(jobs: readonly LocalJobRecord[], sessionId: string, branchId: string): LocalJobRecord[] {
@@ -731,25 +752,50 @@ export async function performReflection(input: {
   const compaction = normalizeCompaction(request.compaction, entries)
   const replay = normalizeReplay(request.replay)
   const jobs = await input.listJobs()
-  for (const job of branchJobs(jobs, request.sessionId, request.branchId))
-    await settleReflection(input.stateRoot, job)
+  if (!replay) {
+    for (const job of branchJobs(jobs, request.sessionId, request.branchId))
+      await settleReflection(input.stateRoot, job)
+  }
   const watermark = await loadWatermark(input.stateRoot, request.sessionId, request.branchId)
   const orderNow = watermark?.order ?? 0
+  const pending = entries.filter((entry) => entry.order > orderNow)
+  const progress = (range: TrajectoryProjection | null): ReflectionReceipt['progress'] => ({
+    observedEntryCount: entries.length,
+    pendingAssistantStepCount: pending.filter((entry) => entry.role === 'assistant').length,
+    settledOrder: orderNow,
+    configuredThreshold: input.runtime.stepCount,
+    capturedEntryCount: range ? range.entryCount + range.omittedEntryCount : 0,
+  })
+  const result = (
+    action: ReflectionReceipt['action'],
+    reason: ReflectionReceipt['reason'],
+    range: TrajectoryProjection | null,
+    job: LocalJobRecord | null,
+  ) => receipt(action, reason, input.runtime.policy, range, job, progress(range))
   const resume = (job: LocalJobRecord): ReflectionReceipt => {
     const snap = job.reflection
     if (!snap || snap.sessionId !== request.sessionId || snap.branchId !== request.branchId) refuse()
     assertCovers(entries, snap)
-    if (snapshotConsumed(watermark, job)) return receipt('idle', 'consumed', input.runtime.policy, snap, job)
+    if (snapshotConsumed(watermark, job)) return result('idle', 'consumed', snap, job)
     if (orderNow !== snap.afterOrder) refuse()
     if ((compaction?.firstKeptEntryId ?? null) !== snap.compactionFirstKeptEntryId) refuse()
-    const projected = selectTrajectoryRange(entries, snap.afterOrder, compactionOf(snap))
-    if (!projected || projected.digest !== snap.digest) refuse()
-    return receipt('pending', 'in-flight', input.runtime.policy, snap, job)
+    // The persisted selected+omitted IDs bind the captured prefix. Later tail entries
+    // must not change the digest or become part of this held attempt.
+    return result('pending', 'in-flight', snap, job)
   }
   if (replay) {
     const job = jobs.find((item) => item.id === replay.jobId)
     if (!job?.reflection || job.reflection.digest !== replay.digest) refuse()
-    return resume(job)
+    const snap = job.reflection
+    if (snap.sessionId !== request.sessionId || snap.branchId !== request.branchId) refuse()
+    assertCovers(entries, snap)
+    // Replay selects immutable evidence only. It never enqueues or settles work.
+    return result(
+      snapshotConsumed(watermark, job) ? 'idle' : 'pending',
+      snapshotConsumed(watermark, job) ? 'consumed' : 'in-flight',
+      snap,
+      job,
+    )
   }
   const holding = branchJobs(jobs, request.sessionId, request.branchId).filter(
     (job) => job.reflection?.afterOrder === orderNow && (job.reflection?.endOrder ?? 0) > orderNow,
@@ -757,8 +803,8 @@ export async function performReflection(input: {
   if (holding.length > 1) refuse()
   const current = holding[0]
   if (current) return resume(current)
-  if (input.runtime.policy === 'off') return receipt('idle', 'policy-off', input.runtime.policy, null, null)
-  const pendingCount = entries.filter((entry) => entry.order > orderNow).length
+  if (input.runtime.policy === 'off') return result('idle', 'policy-off', null, null)
+  const pendingCount = pending.length
   if (pendingCount === 0) {
     const reviewed = branchJobs(jobs, request.sessionId, request.branchId).find(
       (job) =>
@@ -769,26 +815,48 @@ export async function performReflection(input: {
     if (reviewed?.reflection) {
       try {
         assertCovers(entries, reviewed.reflection)
-        const projected = selectTrajectoryRange(entries, reviewed.reflection.afterOrder, compaction)
-        if (projected?.digest === reviewed.reflection.digest)
-          return receipt('idle', 'consumed', input.runtime.policy, reviewed.reflection, reviewed)
+        return result('idle', 'consumed', reviewed.reflection, reviewed)
       } catch (error) {
         if (!(error instanceof Error) || error.message !== 'Local memory trajectory refused') throw error
       }
     }
-    return receipt('idle', 'empty', input.runtime.policy, null, null)
+    return result('idle', 'empty', null, null)
   }
-  if (input.runtime.policy === 'step-count' && pendingCount < (input.runtime.stepCount ?? 0))
-    return receipt('idle', 'below-threshold', input.runtime.policy, null, null)
-  if (input.runtime.policy === 'compaction' && !compaction)
-    return receipt('idle', 'awaiting-compaction', input.runtime.policy, null, null)
-  const projected = selectTrajectoryRange(entries, orderNow, compaction)
-  if (!projected) return receipt('idle', 'empty', input.runtime.policy, null, null)
+  const settled = branchJobs(jobs, request.sessionId, request.branchId).find(
+    (job) =>
+      job.id === watermark?.jobId &&
+      job.reflection?.digest === watermark.rangeDigest &&
+      (job.status === 'integrated' || job.status === 'noop'),
+  )
+  let captured = entries
+  let rangeCompaction = compaction
+  const prior = settled?.reflection
+  const continuing = Boolean(prior?.omittedEntryIds.length)
+  if (continuing && prior) {
+    assertCovers(entries, prior)
+    const ids = prior.omittedEntryIds
+    captured = pending.slice(0, ids.length)
+    if (captured.length !== ids.length || ids.some((id, index) => captured[index]?.entryId !== id)) refuse()
+    // Retain earlier rows only to resolve the captured compaction marker;
+    // selection still starts strictly after the settled watermark.
+    captured = entries.filter((entry) => entry.order <= orderNow || ids.includes(entry.entryId))
+    rangeCompaction = compactionOf(prior)
+  }
+  if (
+    !continuing &&
+    input.runtime.policy === 'step-count' &&
+    progress(null).pendingAssistantStepCount < (input.runtime.stepCount ?? 0)
+  )
+    return result('idle', 'below-threshold', null, null)
+  if (!continuing && input.runtime.policy === 'compaction' && !compaction)
+    return result('idle', 'awaiting-compaction', null, null)
+  const projected = selectTrajectoryRange(captured, orderNow, rangeCompaction)
+  if (!projected) return result('idle', 'empty', null, null)
   await assertBranchRoom(input.stateRoot, request.sessionId, request.branchId, jobs)
   const jobId = await input.allocateId()
   const summary = `Reflect ${request.branchId}`
   assertSummary(summary)
   const job = await input.enqueue({ id: jobId, summary, reflection: projected })
   if (job.kind !== 'reflection' || job.reflection?.digest !== projected.digest) refuse()
-  return receipt('queued', 'queued', input.runtime.policy, job.reflection, job)
+  return result('queued', 'queued', job.reflection, job)
 }
