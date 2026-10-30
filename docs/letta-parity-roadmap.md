@@ -466,8 +466,8 @@ scoring is above. Phase H stays paused/unaccepted.
   no ambient private lookup or publication-authority change. Future installed
   primary session/revision/root binding remains an R7-I prerequisite.
 - [x] **R7-02 synthetic** One capture identity/time with fixture, caller-supplied
-  or unavailable context. No installed public Pi session collector exists;
-  corpus bytes are not context usage.
+  or unavailable context. This disconnected service capture is not the later ABI2
+  command diagnostic; corpus bytes are not context usage.
 - [x] **R7-03 synthetic** Receipt from the real committed projection owner,
   including project selection, bytes/clipping/deferred/absent/blocked. Explicit
   synthetic-local-projection provenance, not installed active memory.
@@ -480,6 +480,11 @@ scoring is above. Phase H stays paused/unaccepted.
 - [x] **R7-S focused synthetic** DTO provenance, estimates/unavailable labels,
   projection receipts, bounded history/diffs, lifecycle separation, forgetting and
   stale refusal. Full differential/installed/observed/rendered evidence is not claimed.
+- [x] **R7-06 source prerequisite** `/mh-memory context` adds a bounded ABI2-only,
+  idle-primary JSON diagnostic outside `local/**`: current revision/config identity,
+  public Pi usage estimates, effective-prompt bytes and last memory-owner projection
+  receipt. Provider consumption/category accounting stay unavailable; no Palace
+  snapshot, model-callable action, history persistence, HTML route or activation.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data

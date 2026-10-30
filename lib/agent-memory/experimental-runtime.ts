@@ -22,6 +22,7 @@ import { primaryDelegationDoctrine } from './prompt.ts'
 import type { TurnEpisode } from './store.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
+import { buildMemoryInvocationContext, type MemoryProjectionReceipt } from './invocation-context.ts'
 
 interface RuntimeBinding {
   manager: ExtensionContext['sessionManager']
@@ -105,6 +106,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   let compactionCheckpoint: string | undefined
   let compacting: ReturnType<typeof compactionBoundary> | undefined
   let compactionObserving = false
+  let projectionReceipt:
+    | (MemoryProjectionReceipt & {
+        binding: RuntimeBinding
+        token: number
+        project: string
+      })
+    | undefined
   // Local cancellation/policy intent fence, not cross-process publication atomicity.
   // Ordinary input admission must not revoke an otherwise valid compaction event.
   let compactionSerial = 0
@@ -132,6 +140,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     compactionCheckpoint = undefined
     compacting = undefined
     latestAttempt = undefined
+    projectionReceipt = undefined
     const own = job
     job = undefined
     own?.cancel()
@@ -345,6 +354,73 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (prefix?.some((id, index) => ids[index] !== id))
       throw memoryFailure('branch', 'Native memory branch changed')
     return ids
+  }
+  const captureInvocation = async (ctx: ExtensionContext) => {
+    if (!ctx.isIdle() || starting || job || draft)
+      throw Error('Idle ABI2 primary invocation context required')
+    const exactBranch = await branch(ctx)
+    const token = epoch
+    const ownBinding = binding
+    const f = await resolve(ctx, 'agent_memory_manage', 'read', ctx.signal)
+    if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || !ownBinding || ownBinding !== binding)
+      throw Error('Primary invocation context required')
+    const status = await f.request('status', {})
+    let usage: unknown
+    let systemPrompt: unknown
+    try {
+      usage = ctx.getContextUsage()
+    } catch {
+      usage = undefined
+    }
+    try {
+      systemPrompt = ctx.getSystemPrompt()
+    } catch {
+      systemPrompt = undefined
+    }
+    const finalConfig = await f.barrier()
+    const finalEntries = ctx.sessionManager.getBranch()
+    if (finalEntries.length > 8192) throw memoryFailure('capacity', 'Branch barrier capacity exceeded')
+    const finalBranch = finalEntries.map((entry) => {
+      if (typeof entry.id !== 'string' || Buffer.byteLength(entry.id) > 4096)
+        throw memoryFailure('branch', 'Invalid branch entry identity')
+      return entry.id
+    })
+    if (finalConfig.configHash !== f.configHash)
+      throw memoryFailure('CAS', 'Invocation configuration changed during capture')
+    if (
+      token !== epoch ||
+      ownBinding !== binding ||
+      !ctx.isIdle() ||
+      starting ||
+      job ||
+      draft ||
+      exactBranch.length !== finalBranch.length ||
+      exactBranch.some((id, index) => finalBranch[index] !== id)
+    )
+      throw memoryFailure('branch', 'Invocation context changed during capture')
+    assertCurrent(f.context)
+    const receipt = projectionReceipt
+    const projection =
+      receipt &&
+      receipt.binding === ownBinding &&
+      receipt.token === token &&
+      receipt.project === f.project &&
+      receipt.configHash === f.configHash
+        ? {
+            revision: receipt.revision,
+            configHash: receipt.configHash,
+            capturedAt: receipt.capturedAt,
+            emittedBlockUtf8Bytes: receipt.emittedBlockUtf8Bytes,
+          }
+        : undefined
+    return buildMemoryInvocationContext({
+      revision: status.revision,
+      configHash: f.configHash,
+      model: ctx.model,
+      usage,
+      systemPrompt,
+      projection,
+    })
   }
   const startWriter = async (ctx: ExtensionContext, assignment?: string) => {
     if (starting || job) throw Error('Managed memory writer already active')
@@ -1086,16 +1162,28 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             systemPrompt: `${source.replace(/^---\n[\s\S]*?\n---\n/, '')}\n${memoryCurationDoctrine}\nPrivate project scope: ${f.access.value.project}. Read only your leased memory view. No primary transcript, bootstrap or corpus is inherited.`,
           }
         }
+        projectionReceipt = undefined
         job?.cancel()
         const projection = await f.request('projection', { project: f.project, shared: true })
         const checkpointNote = compactionCheckpoint
           ? `\nCompaction continuity checkpoint (unverified summary context): ${compactionCheckpoint}`
           : ''
         compactionCheckpoint = undefined
-        return {
-          systemPrompt: `${base}\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.${checkpointNote}\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`,
+        const block = `\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.${checkpointNote}\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`
+        const ownBinding = binding
+        if (!ownBinding) throw Error('Projection owner unavailable')
+        projectionReceipt = {
+          binding: ownBinding,
+          token: epoch,
+          project: f.project,
+          revision: projection.revision,
+          configHash: f.configHash,
+          capturedAt: new Date().toISOString(),
+          emittedBlockUtf8Bytes: bytes(block),
         }
+        return { systemPrompt: `${base}${block}` }
       } catch {
+        projectionReceipt = undefined
         lastError = 'projection-unavailable'
         if (workerMarker)
           return {
@@ -1242,6 +1330,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }),
     cancel: retire,
     startWriter: (...args: Parameters<typeof startWriter>) => admit(args[0], () => startWriter(...args)),
+    captureInvocation: (ctx: ExtensionContext) => admit(ctx, () => captureInvocation(ctx)),
     status: () => ({
       active,
       worker: starting || !!job,

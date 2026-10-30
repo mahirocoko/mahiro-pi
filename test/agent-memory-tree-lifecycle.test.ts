@@ -66,7 +66,16 @@ function fixture() {
     getSessionFile: () => undefined,
   }
   let idle = true
-  const ctx = { cwd, sessionManager: manager, isIdle: () => idle } as unknown as ExtensionContext
+  let usage: unknown = { tokens: 320, contextWindow: 4096, percent: 7.8125 }
+  let systemPrompt: unknown = 'Synthetic effective prompt'
+  const ctx = {
+    cwd,
+    sessionManager: manager,
+    isIdle: () => idle,
+    model: { provider: 'openai', id: 'synthetic-model' },
+    getContextUsage: () => (typeof usage === 'function' ? (usage as () => unknown)() : usage),
+    getSystemPrompt: () => systemPrompt,
+  } as unknown as ExtensionContext
   let holds = 0
   let granted = true
   let authorize = async () => {}
@@ -118,10 +127,13 @@ function fixture() {
     ctx,
     branch,
     store,
+    root,
     emit,
     holds: () => holds,
     setIdle: (value: boolean) => (idle = value),
     setGranted: (value: boolean) => (granted = value),
+    setUsage: (value: unknown) => (usage = value),
+    setSystemPrompt: (value: unknown) => (systemPrompt = value),
     authorize: (fn: () => Promise<void>) => (authorize = fn),
     read: (context = ctx) => runtime.run('agent_memory_read', { path: 'Core.md' }, context),
     async close() {
@@ -167,6 +179,140 @@ test('tree retires old engine; completed tree and cancelled idle read/input each
     assert.match(projection.systemPrompt, /SYNTHETIC_TREE_CORE/)
   } finally {
     await f.close()
+  }
+})
+
+test('ABI2 invocation context separates current revision, public estimates and owner projection receipt', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const beforeProjection = await f.runtime.captureInvocation(f.ctx)
+    assert.equal(beforeProjection.memoryProjection, null)
+    assert.deepEqual(beforeProjection.usage, {
+      available: true,
+      source: 'pi-public-estimate',
+      tokens: 320,
+      contextWindow: 4096,
+      percent: 7.8125,
+    })
+    assert.deepEqual(beforeProjection.effectiveSystemPrompt, {
+      available: true,
+      source: 'pi-current-effective-system-prompt',
+      utf8Bytes: Buffer.byteLength('Synthetic effective prompt'),
+    })
+    const [prompt] = await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    assert.match(prompt.systemPrompt, /SYNTHETIC_TREE_CORE/)
+    const projected = await f.runtime.captureInvocation(f.ctx)
+    assert.equal(projected.binding.revision, projected.memoryProjection?.revision)
+    assert.equal(projected.binding.configHash, projected.memoryProjection?.configHash)
+    assert.ok((projected.memoryProjection?.emittedBlockUtf8Bytes ?? 0) > 0)
+    assert.equal(projected.providerPrompt, 'unavailable')
+    assert.equal(projected.categoryTokenAccounting, 'unavailable')
+    assert.doesNotMatch(JSON.stringify(projected), /SYNTHETIC_TREE_CORE|memory-tree-|\/memory/)
+
+    const changed = (await f.runtime.run(
+      'agent_memory_manage',
+      { action: 'remember', text: 'New committed diagnostic revision' },
+      f.ctx,
+    )) as { revision: string }
+    const staleProjection = await f.runtime.captureInvocation(f.ctx)
+    assert.equal(staleProjection.binding.revision, changed.revision)
+    assert.notEqual(staleProjection.binding.revision, staleProjection.memoryProjection?.revision)
+    f.setUsage({ tokens: null, contextWindow: 4096, percent: null })
+    const unknownUsage = await f.runtime.captureInvocation(f.ctx)
+    assert.deepEqual(unknownUsage.usage, {
+      available: true,
+      source: 'pi-public-estimate',
+      tokens: null,
+      contextWindow: 4096,
+      percent: null,
+    })
+    const [nextPrompt] = await f.emit('before_agent_start', { systemPrompt: prompt.systemPrompt })
+    assert.equal(nextPrompt.systemPrompt.match(/<mahiro-managed-memory>/g)?.length, 1)
+    const refreshed = await f.runtime.captureInvocation(f.ctx)
+    assert.equal(refreshed.binding.revision, refreshed.memoryProjection?.revision)
+  } finally {
+    await f.close()
+  }
+})
+
+test('ABI2 invocation context fails closed on malformed public data, revocation and failed projection', async () => {
+  const f = fixture()
+  const reached = deferred()
+  const release = deferred()
+  try {
+    await f.emit('session_start')
+    await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    f.setUsage({ tokens: -1, contextWindow: 0, percent: 999 })
+    f.setSystemPrompt(42)
+    const malformed = await f.runtime.captureInvocation(f.ctx)
+    assert.deepEqual(malformed.usage, {
+      available: false,
+      source: 'pi-public-estimate',
+      reason: 'invalid',
+    })
+    assert.deepEqual(malformed.effectiveSystemPrompt, {
+      available: false,
+      source: 'pi-current-effective-system-prompt',
+      reason: 'invalid',
+    })
+
+    f.setGranted(false)
+    const [failedPrompt] = await f.emit('before_agent_start', {
+      systemPrompt: 'Base\n<mahiro-managed-memory>old</mahiro-managed-memory>',
+    })
+    assert.equal(failedPrompt.systemPrompt, 'Base')
+    f.setGranted(true)
+    assert.equal((await f.runtime.captureInvocation(f.ctx)).memoryProjection, null)
+
+    f.authorize(async () => {
+      reached.resolve()
+      await release.promise
+    })
+    const pending = f.runtime.captureInvocation(f.ctx)
+    await reached.promise
+    f.setGranted(false)
+    release.resolve()
+    await assert.rejects(pending)
+  } finally {
+    release.resolve()
+    await f.close()
+  }
+})
+
+test('ABI2 invocation context refuses config or writer admission races', async () => {
+  {
+    const f = fixture()
+    try {
+      await f.emit('session_start')
+      f.setUsage(() => {
+        const config = f.store.config()
+        writeFileSync(join(f.root, 'config.json'), `${JSON.stringify({ ...config, automatic: true })}\n`)
+        return { tokens: 320, contextWindow: 4096, percent: 7.8125 }
+      })
+      await assert.rejects(f.runtime.captureInvocation(f.ctx), /configuration changed during capture/)
+    } finally {
+      await f.close()
+    }
+  }
+
+  {
+    const f = fixture()
+    const release = deferred()
+    let writer: Promise<unknown> | undefined
+    try {
+      await f.emit('session_start')
+      f.setUsage(() => {
+        f.authorize(() => release.promise)
+        writer = f.runtime.startWriter(f.ctx, 'Synthetic concurrent writer').catch(() => undefined)
+        return { tokens: 320, contextWindow: 4096, percent: 7.8125 }
+      })
+      await assert.rejects(f.runtime.captureInvocation(f.ctx), /context changed during capture/)
+    } finally {
+      release.resolve()
+      await writer
+      await f.close()
+    }
   }
 })
 

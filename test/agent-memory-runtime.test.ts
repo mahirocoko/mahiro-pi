@@ -256,7 +256,24 @@ test('memory help identifies Palace as JSON-only diagnostics and distinguishes A
     assert.match(help, /legacy ABI1 also reports Git-entry and broken-link findings/)
     assert.match(help, /palace returns a JSON-only structural\/link\/view\/episode report/)
     assert.match(help, /no HTML page, dashboard or file export/)
+    assert.match(help, /context returns a bounded ABI2-only invocation diagnostic/)
+    assert.match(help, /provider consumption and category token accounting remain unavailable/)
     assert.doesNotMatch(help, /doctor runs health, budget and link checks/)
+  } finally {
+    f.close()
+  }
+})
+
+test('memory context command refuses ABI1 without fallback or storage mutation', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const revision = f.store.snapshot().revision
+    const notifications: string[] = []
+    f.ctx.ui = { notify: (text: string) => notifications.push(text) }
+    await f.commands.get('mh-memory').handler('context', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    assert.equal(f.store.snapshot().revision, revision)
   } finally {
     f.close()
   }

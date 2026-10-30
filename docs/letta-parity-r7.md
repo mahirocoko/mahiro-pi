@@ -11,6 +11,28 @@ Phase H is paused/unaccepted; Phase I is not authorized. Scores stay **60% sourc
 and **30% evidence-backed end-to-end**. No installer, profile, private corpus,
 provider, browser, remote transport or live command is involved.
 
+## 2026-10-30 ABI2 invocation-diagnostic follow-up
+
+A later bounded source follow-up adds `/mh-memory context` as a JSON-only command
+owned by the installed ABI2 runtime, not by `lib/agent-memory/local/**`. The command
+requires the current idle primary binding and existing `agent_memory_manage` read
+authority. It returns only bounded metadata: current committed revision/config
+identity, public Pi context estimates with explicit unknown/invalid states, current
+effective-system-prompt byte size and the most recent receipt emitted by the real
+ABI2 `before_agent_start` projection owner. The receipt records revision, config,
+time and emitted block bytes; it contains no prompt/file text, root/session path or
+transcript payload.
+
+This diagnostic deliberately separates current committed revision from the last
+owner-produced projection revision. It labels provider prompt consumption and
+category token accounting unavailable. It is not a new management action or model
+callable tool, does not import the disconnected service, opens no HTML route and
+persists no invocation history. Source tests cover A→B revision drift, next-request
+refresh, null usage, malformed public data, failed projection, authority revocation,
+config identity changes and writer-admission races. This advances an installed-collector prerequisite only: R7-I/O/H remain
+open until a separately authorized installed command run, observed lifecycle/rendered
+behavior and Mahiro acceptance exist. No activation/reload is implied by source work.
+
 `palace-invocation.ts` owns the new strict version-1
 `synthetic-local-invocation-view` envelope; it is not an extension of either
 existing strict v1 context or metadata snapshot DTO. `palaceCapture` resolves
@@ -92,9 +114,10 @@ forgotten commit-metadata suppression, source uncertainty, normalized context,
 UTF-8 BOM/symlink/oversize/file/byte truncation. Existing Palace, projection and
 forgetting suites remain the compatibility/security regression owners.
 
-The 128-commit depth cap intentionally makes deeper history unavailable. A future
-installed collector still needs primary-session/revision/exact-root binding,
-public Pi usage collection and actual prompt-owner evidence. HTML history/diff
-navigation, asynchronous latest-intent tests for any future routes, installed
-integration, observed runtime and Mahiro's visual/product/RAM acceptance remain
-open. Synthetic tests do not establish those gates.
+The 128-commit depth cap intentionally makes deeper history unavailable. The later
+ABI2 diagnostic supplies bounded primary/revision/config binding, public Pi usage
+metadata and memory-owner output evidence, but it still does not open an authorized
+Palace snapshot or prove provider prompt consumption. HTML history/diff navigation,
+asynchronous latest-intent tests for any future routes, installed command execution,
+observed runtime and Mahiro's visual/product/RAM acceptance remain open. Synthetic
+and source tests do not establish those gates.

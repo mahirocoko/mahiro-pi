@@ -18,16 +18,18 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       const trimmed = args.trim()
       const [subcommand, ...rest] = trimmed ? trimmed.split(/\s+/) : ['status']
       const restText = rest.join(' ').trim()
-      if (!['status', 'help', 'remember', 'dream', 'doctor', 'palace', 'init'].includes(subcommand)) {
+      if (
+        !['status', 'help', 'remember', 'dream', 'doctor', 'palace', 'context', 'init'].includes(subcommand)
+      ) {
         ctx.ui.notify(
-          'Use /mh-memory [status|help|remember <text>|dream|doctor|palace|init]. This command never enables memory or changes permissions.',
+          'Use /mh-memory [status|help|remember <text>|dream|doctor|palace|context|init]. This command never enables memory or changes permissions.',
           'warning',
         )
         return
       }
       if (subcommand === 'help') {
         ctx.ui.notify(
-          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory doctor returns engine-specific JSON diagnostics: ABI2 reports budget, missing-description, unmigrated-path and conflict state; legacy ABI1 also reports Git-entry and broken-link findings. /mh-memory palace returns a JSON-only structural/link/view/episode report in the TUI notification; it has no HTML page, dashboard or file export. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Use action policy with current revision + configHash + automatic true/false for explicit automatic admission control; off is preserved on upgrade. Status policyOperation classifies retained policy locks; only a fresh primary policy-reconcile with target + revision=digest may remove verified owned files after actual process-local drain, never replay/revert config. Unknown/restarted operations require owner review, not lock stealing. Reflection uses eligible settled interactive/RPC episodes, never every turn; explicit agent_memory_reflect assignments remain separate. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion; context activates next request. Cancel/conflicts/forget/rollback use existing management tools. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory doctor returns engine-specific JSON diagnostics: ABI2 reports budget, missing-description, unmigrated-path and conflict state; legacy ABI1 also reports Git-entry and broken-link findings. /mh-memory palace returns a JSON-only structural/link/view/episode report in the TUI notification; it has no HTML page, dashboard or file export. /mh-memory context returns a bounded ABI2-only invocation diagnostic that separates Pi context estimates, current effective prompt size and the last memory-owner projection receipt; provider consumption and category token accounting remain unavailable. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Use action policy with current revision + configHash + automatic true/false for explicit automatic admission control; off is preserved on upgrade. Status policyOperation classifies retained policy locks; only a fresh primary policy-reconcile with target + revision=digest may remove verified owned files after actual process-local drain, never replay/revert config. Unknown/restarted operations require owner review, not lock stealing. Reflection uses eligible settled interactive/RPC episodes, never every turn; explicit agent_memory_reflect assignments remain separate. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion; context activates next request. Cancel/conflicts/forget/rollback use existing management tools. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
           'info',
         )
         return
@@ -48,6 +50,12 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         }
         if (subcommand === 'palace') {
           const result = await runtime.run('agent_memory_manage', { action: 'palace' }, ctx)
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'context') {
+          const result = await runtime.captureInvocation(ctx)
           observe('memory', result)
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
           return
