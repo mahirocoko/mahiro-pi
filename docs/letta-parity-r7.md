@@ -159,3 +159,32 @@ provider consumption or category accounting. No model-callable action, persisten
 registry, file export, HTML/HTTP, activation or Phase I is added. Existing `context`
 and `palace` commands remain separate. R7-I/O/H remain open; this prerequisite does
 not establish installed/rendered longitudinal or human acceptance.
+
+## R7-08 command-only first-parent history prerequisite
+
+`/mh-memory palace-history [offset]` is a second ABI2-only diagnostic prerequisite.
+It accepts no argument or one canonical decimal offset from 0 through 127 and uses
+the existing idle-primary `agent_memory_manage` read authority. The dedicated
+internal `knowledgeHistory` RPC binds the mapped project, expected current revision
+and config hash, then reads the committed current ledger and walks only that HEAD's
+first-parent chain. The retained window is at most 128 commits and pages are fixed
+at eight rows; there is no caller-selected ref, commit, path, limit, search or sort.
+
+Rows contain only commit OID, first parent or `null`, and canonical UTC commit time.
+Author, subject, email, changed paths/counts, diff/body text and historical ledgers
+are never collected for the reply. Any current forgotten source refuses the whole
+request because historical source attribution is unavailable. Current path
+forgetting cannot leak path-shaped metadata through this surface because no path or
+change metadata exists. Replacement refs, grafts and shallow history refuse rather
+than silently changing chain semantics.
+
+The engine final-checks repository semantics, config hash, HEAD and committed ledger
+digest; the runtime separately final-checks status, branch, idle/writer state,
+generation, binding and current authority. Endpoint checks are sequential and do
+not claim atomicity or ABA resistance. Output is compact JSON bounded to 32 KiB.
+The 128-entry flag reports only that the bounded window was reached, not that older
+history definitely exists. ABI1 refuses without fallback. There is no replay
+registry, arbitrary Git browser, model-callable action, HTML/history route,
+`local/**` authority, profile activation or Phase I wiring. This advances source
+and disposable installed-command evidence only; R7-I/O/H, provider, rendered,
+longitudinal and Mahiro acceptance remain open.

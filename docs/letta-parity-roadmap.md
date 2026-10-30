@@ -502,6 +502,14 @@ scoring is above. Phase H stays paused/unaccepted.
   Engine 64 KiB / command 32 KiB JSON, 128 files, honest separate upstream/output
   counts and digests, body inspection not requested; no lifecycle,
   replay, viewer or new model action. R7-I/O/H remain open.
+- [x] **R7-08 source/public-SDK prerequisite** Command-only ABI2
+  `/mh-memory palace-history [offset]` uses a dedicated internal first-parent RPC
+  bound to exact current revision/config/ledger identity. It returns at most eight
+  identity/time-only rows within a 128-commit window; author, subject, path/count,
+  diff/body and arbitrary Git selectors are absent. Any forgotten source, shallow
+  history, grafts, replacement refs or final binding drift refuses. Endpoint checks
+  are sequential, not atomic/ABA-proof. No replay registry, HTML route, `local/**`
+  authority or model action is added; R7-I/O/H remain open.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data

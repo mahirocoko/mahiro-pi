@@ -197,6 +197,141 @@ function legacyText(
   assert.ok('text' in result)
   return result.text
 }
+test('knowledge history follows only current first-parent identity/time, bounds pages and refuses unsupported Git', async () => {
+  const f = fixture(0)
+  try {
+    const request = async (offset = 0) => {
+      const { configHash } = await f.engine.request('config', {}, f.context)
+      return f.engine.request(
+        'knowledgeHistory',
+        {
+          project: 'project',
+          expectedRevision: f.git('rev-parse', 'HEAD'),
+          expectedConfigHash: configHash,
+          offset,
+        },
+        f.context,
+      )
+    }
+    const root = await request()
+    assert.equal(root.entries.length, 1)
+    assert.equal(root.entries[0].parent, null)
+    assert.equal((await request(127)).entries.length, 0)
+    f.git('branch', 'side')
+    f.git('commit', '--allow-empty', '-m', 'PRIVATE_MAIN')
+    const main = f.git('rev-parse', 'HEAD')
+    f.git('checkout', 'side')
+    f.git('commit', '--allow-empty', '-m', 'PRIVATE_SIDE')
+    const side = f.git('rev-parse', 'HEAD')
+    f.git('checkout', 'main')
+    f.git('merge', '--no-ff', 'side', '-m', 'PRIVATE_MERGE')
+    const merged = await request()
+    assert.equal(merged.entries[0].parent, main)
+    assert.equal(merged.entries.length, 3)
+    assert.ok(!merged.entries.some((e) => e.revision === side))
+    assert.doesNotMatch(JSON.stringify(merged), /PRIVATE|Synthetic|Core.md|fixture@example/)
+    f.git('replace', merged.revision, main)
+    await assert.rejects(request(), engineError())
+    f.git('replace', '-d', merged.revision)
+    writeFileSync(join(f.root, '.git', 'info', 'grafts'), `${merged.revision}\n`)
+    await assert.rejects(request(), engineError())
+    rmSync(join(f.root, '.git', 'info', 'grafts'))
+    writeFileSync(join(f.root, '.git', 'shallow'), `${root.revision}\n`)
+    await assert.rejects(request(), engineError())
+    rmSync(join(f.root, '.git', 'shallow'))
+    for (let i = 0; i < 126; i++) f.git('commit', '--allow-empty', '-m', 'PRIVATE_WINDOW')
+    const first = await request()
+    assert.equal(first.windowLimitReached, true)
+    assert.equal(first.nextOffset, 8)
+    const last = await request(127)
+    assert.equal(last.entries.length, 1)
+    assert.equal(last.nextOffset, null)
+    assert.equal(last.windowLimitReached, true)
+  } finally {
+    await f.close()
+  }
+})
+
+test('knowledge history refuses all source tombstones but path tombstones reveal no markers', async () => {
+  const f = fixture(0)
+  try {
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const request = () =>
+      f.engine.request(
+        'knowledgeHistory',
+        {
+          project: 'project',
+          expectedRevision: f.git('rev-parse', 'HEAD'),
+          expectedConfigHash: configHash,
+          offset: 0,
+        },
+        f.context,
+      )
+    const ledgerPath = join(f.root, '.memory.json')
+    const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+    ledger.forgottenPaths.push('global/private-marker.md')
+    writeFileSync(ledgerPath, JSON.stringify(ledger))
+    f.git('add', '.memory.json')
+    f.git('commit', '-m', 'PRIVATE_PATH')
+    assert.doesNotMatch(JSON.stringify(await request()), /private-marker|PRIVATE_PATH|forgottenPaths/)
+    for (const project of [null, 'project', 'another']) {
+      ledger.forgottenSources = [{ project, source: 'PRIVATE_SOURCE' }]
+      writeFileSync(ledgerPath, JSON.stringify(ledger))
+      f.git('add', '.memory.json')
+      f.git('commit', '-m', 'PRIVATE_SOURCE')
+      await assert.rejects(request(), engineError({ reason: 'unknown', readInvalidation: 'forgetting' }))
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+test('knowledge history rejects expected/final config, HEAD, cancellation and authority drift', async () => {
+  for (const race of [
+    'expected-head',
+    'expected-config',
+    'final-head',
+    'final-config',
+    'permission',
+    'cancel',
+  ]) {
+    const f = fixture(0)
+    try {
+      const { configHash } = await f.engine.request('config', {}, f.context)
+      const revision = f.git('rev-parse', 'HEAD')
+      let gitChecks = 0
+      const abort = new AbortController()
+      const context: OperationContext = {
+        signal: abort.signal,
+        current: (targets) => {
+          if (targets.kind === 'git' && ++gitChecks === 20) {
+            if (race === 'final-head') f.git('commit', '--allow-empty', '-m', 'PRIVATE_DRIFT')
+            if (race === 'final-config')
+              writeFileSync(join(f.root, 'config.json'), JSON.stringify({ ...f.config, automatic: true }))
+            if (race === 'cancel') abort.abort()
+            if (race === 'permission') return false
+          }
+          return true
+        },
+      }
+      await assert.rejects(
+        f.engine.request(
+          'knowledgeHistory',
+          {
+            project: 'project',
+            expectedRevision: race === 'expected-head' ? 'a'.repeat(40) : revision,
+            expectedConfigHash: race === 'expected-config' ? 'b'.repeat(64) : configHash,
+            offset: 0,
+          },
+          context,
+        ),
+      )
+    } finally {
+      await f.close()
+    }
+  }
+})
+
 async function ready(f: ReturnType<typeof fixture>, view: string) {
   await f.engine.request('ready', { view }, f.context)
   const result = await f.engine.request('prepare', { view, reviewed: [] }, f.context)

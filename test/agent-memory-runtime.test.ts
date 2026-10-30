@@ -260,6 +260,9 @@ test('memory help identifies Palace as JSON-only diagnostics and distinguishes A
     assert.match(help, /provider consumption and category token accounting remain unavailable/)
     assert.match(help, /palace-context \(no arguments\)/)
     assert.match(help, /not an atomic snapshot or viewer/)
+    assert.match(help, /palace-history \[offset\]/)
+    assert.match(help, /commit identity and UTC time only/)
+    assert.match(help, /not a Git browser/)
     assert.doesNotMatch(help, /doctor runs health, budget and link checks/)
   } finally {
     f.close()
@@ -279,6 +282,17 @@ test('memory context command refuses ABI1 without fallback or storage mutation',
     assert.match(notifications.at(-1)!, /reason: unknown/)
     await f.commands.get('mh-memory').handler('palace-context extra', f.ctx)
     assert.match(notifications.at(-1)!, /Usage: .*no arguments/)
+    await f.commands.get('mh-memory').handler('palace-history', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    for (const args of [
+      'palace-history -1',
+      'palace-history 01',
+      'palace-history 128',
+      'palace-history 1 2',
+    ]) {
+      await f.commands.get('mh-memory').handler(args, f.ctx)
+      assert.match(notifications.at(-1)!, /Usage: .*offset 0\.\.127/)
+    }
     assert.equal(f.store.snapshot().revision, revision)
   } finally {
     f.close()

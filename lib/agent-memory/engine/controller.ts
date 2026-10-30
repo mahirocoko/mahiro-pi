@@ -50,6 +50,7 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
     method === 'offlineCertify' ||
     method === 'projection' ||
     method === 'palaceStructure' ||
+    method === 'knowledgeHistory' ||
     method === 'config' ||
     method === 'status' ||
     method === 'episodes' ||

@@ -69,6 +69,10 @@ export interface Page {
   missing?: boolean
 }
 export interface Operations {
+  knowledgeHistory: {
+    input: { project: string; expectedRevision: string; expectedConfigHash: string; offset: number }
+    output: import('../knowledge-history.ts').KnowledgeHistory
+  }
   palaceStructure: {
     input: { project: string; expectedConfigHash: string }
     output: import('../palace-structure.ts').PalaceStructure
@@ -191,6 +195,7 @@ export type Reply =
   | { v: 2; epoch: string; id: string; error: Readonly<MemoryFailureCode> }
   | CheckMessage
 export const methods: Method[] = [
+  'knowledgeHistory',
   'palaceStructure',
   'projection',
   'config',
@@ -219,6 +224,7 @@ export const methods: Method[] = [
 // Reject extra selectors; no root/role/lease/argv endpoint exists on this channel.
 export function validateInput(method: Method, input: unknown) {
   const keys: Record<Method, string[]> = {
+    knowledgeHistory: ['project', 'expectedRevision', 'expectedConfigHash', 'offset'],
     palaceStructure: ['project', 'expectedConfigHash'],
     projection: ['project', 'shared'],
     config: [],
@@ -245,6 +251,20 @@ export function validateInput(method: Method, input: unknown) {
     stats: [],
   }
   if (!objectShape(input, keys[method])) throw Error('Invalid engine input')
+  if (
+    method === 'knowledgeHistory' &&
+    (Object.keys(input).length !== 4 ||
+      typeof input.project !== 'string' ||
+      !idPattern.test(input.project) ||
+      typeof input.expectedRevision !== 'string' ||
+      !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.expectedRevision) ||
+      typeof input.expectedConfigHash !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(input.expectedConfigHash) ||
+      !Number.isSafeInteger(input.offset) ||
+      (input.offset as number) < 0 ||
+      (input.offset as number) > 127)
+  )
+    throw Error('Invalid knowledge history input')
   if (
     method === 'palaceStructure' &&
     (Object.keys(input).length !== 2 ||

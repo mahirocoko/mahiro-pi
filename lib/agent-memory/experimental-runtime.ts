@@ -434,6 +434,43 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }
     return context
   }
+  const knowledgeHistory = async (ctx: ExtensionContext, offset: number) => {
+    if (!ctx.isIdle() || starting || job || draft) throw Error('Idle ABI2 primary history required')
+    const exactBranch = await branch(ctx)
+    const token = epoch
+    const ownBinding = binding
+    const serial = admissionSerial
+    const f = await resolve(ctx, 'agent_memory_manage', 'read', ctx.signal)
+    if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || !ownBinding || ownBinding !== binding)
+      throw Error('Primary history required')
+    const current = f.context.current
+    f.context.current = (targets) => serial === admissionSerial && current(targets)
+    const status = await f.request('status', {})
+    const result = await f.request('knowledgeHistory', {
+      project: f.project,
+      expectedRevision: status.revision,
+      expectedConfigHash: f.configHash,
+      offset,
+    })
+    const finalStatus = await f.request('status', {})
+    const finalConfig = await f.barrier()
+    const finalBranch = await branch(ctx)
+    if (finalStatus.revision !== status.revision || finalConfig.configHash !== f.configHash)
+      throw memoryFailure('CAS', 'History binding changed')
+    if (
+      token !== epoch ||
+      ownBinding !== binding ||
+      !ctx.isIdle() ||
+      starting ||
+      job ||
+      draft ||
+      exactBranch.length !== finalBranch.length ||
+      exactBranch.some((id, i) => id !== finalBranch[i])
+    )
+      throw memoryFailure('branch', 'History invocation changed')
+    assertCurrent(f.context)
+    return result
+  }
   const startWriter = async (ctx: ExtensionContext, assignment?: string) => {
     if (starting || job) throw Error('Managed memory writer already active')
     if (assignment !== undefined && !bounded(assignment, 4096))
@@ -1349,6 +1386,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           (await captureInvocation(ctx)) as import('./invocation-context.ts').MemoryInvocationContext,
       ),
     capturePalaceContext: (ctx: ExtensionContext) => admit(ctx, () => captureInvocation(ctx, true)),
+    knowledgeHistory: (ctx: ExtensionContext, offset: number) =>
+      admit(ctx, () => knowledgeHistory(ctx, offset)),
     status: () => ({
       active,
       worker: starting || !!job,

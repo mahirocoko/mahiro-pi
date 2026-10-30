@@ -1096,3 +1096,32 @@ provider consumption or category accounting. No model-callable action, persisten
 registry, file export, HTML/HTTP, activation or Phase I is added. Existing `context`
 and `palace` commands remain separate. R7-I/O/H remain open; this prerequisite does
 not establish installed/rendered longitudinal or human acceptance.
+
+## R7-08 command-only first-parent history prerequisite
+
+`/mh-memory palace-history [offset]` is ABI2-only and accepts either no argument
+(offset zero) or one canonical decimal offset from 0 through 127. It uses the
+existing idle-primary `agent_memory_manage` read authority and a dedicated internal
+`knowledgeHistory` engine RPC; ABI1 refuses without fallback. The RPC binds the
+mapped project, expected current revision and config hash, reads the committed
+current ledger, and walks at most 128 commits from that exact HEAD along Git's
+first-parent chain. Pages are fixed at eight rows.
+
+The result is intentionally identity/time-only. Each row contains only the commit
+OID, its first parent or `null`, and a canonical UTC commit timestamp. Author,
+subject, email, changed paths/counts, patch text, file bodies, historical ledgers,
+refs and arbitrary commit selectors are unavailable. Any current forgotten source
+makes history unavailable because historical source attribution is absent. Path
+forgetting does not reveal path-shaped metadata because that metadata is never
+collected or returned. Replacement refs, grafts and shallow history are refused.
+
+Before return the engine rechecks repository semantics, current config hash, HEAD
+and the exact committed ledger digest, then the runtime rechecks status, branch,
+idle/writer state, generation, binding and current authority. These are sequential
+endpoint observations, not atomic or ABA-proof history capture. The compact reply
+is bounded to 32 KiB, the 128-entry condition means only that the bounded window
+was reached, and no persistent replay or diff handle is created. The command adds
+no model-callable management action, HTML/HTTP route, `local/**` authority, profile
+activation or Phase I wiring. Source and disposable SDK evidence remain a
+prerequisite only; provider-backed, rendered, longitudinal and Mahiro-owned R7
+acceptance remain open.

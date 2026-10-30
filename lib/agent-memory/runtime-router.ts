@@ -132,6 +132,10 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
       if (mode !== 2) throw Error('ABI2 invocation context unavailable')
       return experimental.captureInvocation(ctx)
     },
+    knowledgeHistory: (ctx: ExtensionContext, offset: number) => {
+      if (mode !== 2) throw Error('ABI2 knowledge history unavailable')
+      return experimental.knowledgeHistory(ctx, offset)
+    },
     capturePalaceContext: (ctx: ExtensionContext) => {
       if (mode !== 2) throw Error('ABI2 Palace context unavailable')
       return experimental.capturePalaceContext(ctx)

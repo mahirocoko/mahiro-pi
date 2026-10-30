@@ -1,3 +1,4 @@
+import { parseHistoryRows, assertKnowledgeHistory, type KnowledgeHistory } from '../knowledge-history.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { memoryFailure } from '../reasons.ts'
 import { snapshotDigest, structureDigest, type PalaceStructure } from '../palace-structure.ts'
@@ -1253,6 +1254,84 @@ export class MemoryDataEngine {
     drained = false,
   ): Promise<unknown> {
     switch (method) {
+      case 'knowledgeHistory': {
+        const args = input as Input<'knowledgeHistory'>
+        const { config, configHash } = await this.config()
+        if (configHash !== args.expectedConfigHash || !config.projects.some((p) => p.id === args.project))
+          throw memoryFailure('CAS', 'History configuration mismatch')
+        const revision = await this.head()
+        if (revision !== args.expectedRevision) throw memoryFailure('CAS', 'History revision mismatch')
+        const readLedger = async () => {
+          const raw = await this.gitBytes(
+            ['--no-replace-objects', 'show', `${revision}:.memory.json`],
+            ['.memory.json'],
+          )
+          const ledger = parseLedger(raw.toString('utf8'))
+          if (ledger.forgottenSources.length)
+            throw memoryFailure('unknown', 'History unavailable', 'forgetting')
+          return createHash('sha256').update(raw).digest('hex')
+        }
+        const semantics = async () => {
+          const shallow = await this.gitBytes([
+            '--no-replace-objects',
+            'rev-parse',
+            '--is-shallow-repository',
+          ])
+          const replace = await this.gitBytes([
+            '--no-replace-objects',
+            'for-each-ref',
+            '--format=%(refname)',
+            'refs/replace/',
+          ])
+          if (!shallow.equals(Buffer.from('false\n')) || replace.length)
+            throw memoryFailure('unknown', 'History unavailable')
+          const grafts = join(this.root, '.git', 'info', 'grafts')
+          await this.gate([grafts])
+          try {
+            const stat = await lstat(grafts)
+            if (!stat.isFile() || stat.size !== 0) throw memoryFailure('unknown', 'History unavailable')
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          }
+        }
+        await semantics()
+        const ledgerDigest = await readLedger()
+        const raw = await this.gitBytes([
+          '--no-replace-objects',
+          'rev-list',
+          '--first-parent',
+          '--parents',
+          '--timestamp',
+          '--max-count=128',
+          revision,
+        ])
+        const entries = parseHistoryRows(raw, revision)
+        const end = Math.min(args.offset + 8, entries.length)
+        const result: KnowledgeHistory = {
+          version: 1,
+          project: args.project,
+          revision,
+          configHash,
+          ledgerDigest,
+          basis: 'committed-head-first-parent',
+          currentness: 'config-head-ledger-matched-at-final-checks',
+          offset: args.offset,
+          pageSize: 8,
+          windowSize: 128,
+          nextOffset: end < entries.length ? end : null,
+          windowLimitReached: entries.length === 128,
+          metadata: 'commit-identity-time-only',
+          entries: entries.slice(args.offset, args.offset + 8),
+        }
+        await semantics()
+        // Sequential endpoint observations, not an atomic snapshot or ABA protection.
+        if ((await this.config()).configHash !== configHash)
+          throw memoryFailure('CAS', 'History configuration changed')
+        if ((await this.head()) !== revision) throw memoryFailure('CAS', 'History revision changed')
+        if ((await readLedger()) !== ledgerDigest) throw memoryFailure('CAS', 'History ledger changed')
+        assertKnowledgeHistory(result, args)
+        return result
+      }
       case 'palaceStructure': {
         const args = input as Input<'palaceStructure'>
         const { config, configHash } = await this.config()
