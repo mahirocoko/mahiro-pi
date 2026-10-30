@@ -405,8 +405,10 @@ Audit gaps: 9–12.
   diagnostic for journal, legacy-view, engine-draft and episode namespaces. An
   8,192-entry exactness limit plus one overflow sentinel returns sequential
   non-atomic exact/unknown state, a derived combined retained-view doctor check
-  and separate status/doctor/admission blockers, never names, bodies, paths or a remediation
-  handle. This does not change the generic failure, clean retained state, activate
+  and separate status/doctor/admission blockers. The fallback avoids the ordinary
+  full-branch traversal so branch capacity itself remains diagnosable, while current
+  leaf/binding/idle/authority fences remain mandatory; it never returns names, bodies,
+  paths or a remediation handle. This does not change the generic failure, clean retained state, activate
   a profile or establish installed/observed/human recovery evidence.
 
 - [x] **R5-S** 2026-10-30: bounded child-process/state-machine fixtures cover

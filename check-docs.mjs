@@ -169,7 +169,7 @@ const contracts = [
   ],
   [
     'docs/agent-memory.md',
-    /storageCapacity[\s\S]*returns no names, paths, record bodies,\s+corpus text or cleanup handle/,
+    /storageCapacity[\s\S]*does not retraverse an already-overflowed session branch[\s\S]*returns no names, paths, record bodies, corpus text or\s+cleanup handle/,
     'count-only capacity diagnostic',
   ],
   ['docs/workflows.md', /never executed/, 'recorded commands are metadata'],

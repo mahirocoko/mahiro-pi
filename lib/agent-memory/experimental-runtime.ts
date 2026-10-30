@@ -422,10 +422,27 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   const capacityDiagnostic = async (ctx: ExtensionContext) => {
     if (!ctx.isIdle() || starting || job || draft)
       throw Error('Idle ABI2 primary capacity diagnostic required')
-    const f = await resolve(ctx, 'agent_memory_manage', 'read')
+    const leaf = ctx.sessionManager.getLeafId()
+    const f = owner(ctx, 'agent_memory_manage', 'read')
+    const current = f.context.current
+    f.context.current = (targets) =>
+      ctx.isIdle() &&
+      !starting &&
+      !job &&
+      !draft &&
+      ctx.sessionManager.getLeafId() === leaf &&
+      current(targets)
+    assertCurrent(f.context)
+    await f.abi.authorize(f.tool, ctx, f.root, 'read')
+    assertCurrent(f.context)
     if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx))
       throw Error('Primary capacity diagnostic required')
-    return await f.request('capacityDiagnostic', {})
+    // This fallback diagnoses ordinary status capacity, including a branch that is
+    // already too large for the normal project/config barrier. The child still
+    // rechecks config/HEAD and every private metadata target under current authority.
+    const result = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assertCurrent(f.context)
+    return result
   }
   const captureInvocation = async (ctx: ExtensionContext, combined = false) => {
     if (!ctx.isIdle() || starting || job || draft)

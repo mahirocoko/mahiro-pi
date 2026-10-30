@@ -221,8 +221,10 @@ namespaces—journal, legacy views, engine drafts and episodes—with an 8,192-e
 exactness limit; one additional entry becomes the bounded overflow sentinel. It
 returns sequential non-atomic clamped counts, exact/unknown markers, a derived
 combined retained-view doctor check and separate status/doctor/admission blocker
-lists; it returns no names, paths, record bodies,
-corpus text or cleanup handle. Missing diagnostics remain unknown. A reported
+lists. The fallback does not retraverse an already-overflowed session branch; it
+instead fences the current leaf, runtime binding, idle state and exact authority
+throughout the attempt. It returns no names, paths, record bodies, corpus text or
+cleanup handle. Missing diagnostics remain unknown. A reported
 blocker does not authorize deletion, discard, adoption, restart, policy change or
 profile activation; remediation requires a separately reviewed owner workflow.
 

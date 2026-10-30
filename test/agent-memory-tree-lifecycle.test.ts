@@ -71,6 +71,7 @@ function fixture(commandSurface = false) {
   const branch = [{ id: 'a' }, { id: 'b' }]
   const manager = {
     getSessionId: () => 'primary',
+    getLeafId: () => branch.at(-1)?.id ?? null,
     getBranch: () => branch,
     getHeader: () => ({ type: 'session', id: 'primary' }),
     getSessionFile: () => undefined,
@@ -420,6 +421,71 @@ test('public status adds a bounded capacity subtype when ABI2 storage status is 
     })
     assert.equal(status.storageCapacity.corpusReturned, false)
     assert.doesNotMatch(JSON.stringify(status), /private-invalid-record|memory-tree-|\.views/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('public status diagnoses branch capacity without traversing the oversized branch again', async () => {
+  const f = fixture(true)
+  try {
+    for (let index = f.branch.length; index < 8193; index++) f.branch.push({ id: `branch-${index}` })
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('status', f.ctx)
+    const status = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(status.storage, 'unavailable')
+    assert.equal(status.storageReason, 'capacity')
+    assert.equal(status.storageCapacity.kind, 'abi2-capacity-diagnostic')
+    assert.equal(status.storageCapacity.classification, 'non-namespace-status-capacity')
+    assert.deepEqual(status.storageCapacity.blockers, { status: [], doctor: [], admission: [] })
+    assert.equal(status.storageCapacity.corpusReturned, false)
+    assert.doesNotMatch(JSON.stringify(status), /branch-8192|memory-tree-|\.views/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('public capacity fallback fails closed when idle eligibility changes during authorization', async () => {
+  const f = fixture(true)
+  try {
+    for (let index = f.branch.length; index < 8193; index++) f.branch.push({ id: `branch-${index}` })
+    let authorizations = 0
+    f.authorize(async () => {
+      authorizations++
+      if (authorizations === 2) f.setIdle(false)
+    })
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('status', f.ctx)
+    const status = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(status.storage, 'unavailable')
+    assert.equal(status.storageReason, 'capacity')
+    assert.equal(Object.hasOwn(status, 'storageCapacity'), false)
+  } finally {
+    await f.close()
+  }
+})
+
+test('public capacity fallback fails closed when the current leaf changes during authorization', async () => {
+  const f = fixture(true)
+  try {
+    for (let index = f.branch.length; index < 8193; index++) f.branch.push({ id: `branch-${index}` })
+    let authorizations = 0
+    f.authorize(async () => {
+      authorizations++
+      if (authorizations === 2) f.branch[f.branch.length - 1] = { id: 'changed-leaf' }
+    })
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('status', f.ctx)
+    const status = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(status.storage, 'unavailable')
+    assert.equal(status.storageReason, 'capacity')
+    assert.equal(Object.hasOwn(status, 'storageCapacity'), false)
   } finally {
     await f.close()
   }
