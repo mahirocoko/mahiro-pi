@@ -480,11 +480,12 @@ scoring is above. Phase H stays paused/unaccepted.
 - [x] **R7-S focused synthetic** DTO provenance, estimates/unavailable labels,
   projection receipts, bounded history/diffs, lifecycle separation, forgetting and
   stale refusal. Full differential/installed/observed/rendered evidence is not claimed.
-- [x] **R7-06 source prerequisite** `/mh-memory context` adds a bounded ABI2-only,
-  idle-primary JSON diagnostic outside `local/**`: current revision/config identity,
-  public Pi usage estimates, effective-prompt bytes and last memory-owner projection
-  receipt. Provider consumption/category accounting stay unavailable; no Palace
-  snapshot, model-callable action, history persistence, HTML route or activation.
+- [x] **R7-06 source/public-SDK prerequisite** `/mh-memory context` adds a bounded
+  ABI2-only, idle-primary JSON diagnostic outside `local/**`: current revision/config
+  identity, public Pi usage estimates, effective-prompt bytes and last memory-owner
+  projection receipt. An ordinary disposable public-SDK install invokes the command
+  before/after a genuine Faux request. Provider consumption/category accounting stay
+  unavailable; no Palace snapshot, history persistence, HTML route or activation.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data

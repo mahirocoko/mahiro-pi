@@ -29,9 +29,13 @@ category token accounting unavailable. It is not a new management action or mode
 callable tool, does not import the disconnected service, opens no HTML route and
 persists no invocation history. Source tests cover A→B revision drift, next-request
 refresh, null usage, malformed public data, failed projection, authority revocation,
-config identity changes and writer-admission races. This advances an installed-collector prerequisite only: R7-I/O/H remain
-open until a separately authorized installed command run, observed lifecycle/rendered
-behavior and Mahiro acceptance exist. No activation/reload is implied by source work.
+config identity changes and writer-admission races. A disposable ordinary public-SDK
+installation now invokes the real registered command before and after a genuine Faux
+parent request, proving installed command wiring, null-before-projection behavior and
+the matching projection receipt without current-profile mutation. This advances an
+installed-collector prerequisite only: the harness does not open a Palace snapshot or
+establish provider-backed/longitudinal/rendered behavior, so R7-I/O/H and Mahiro
+acceptance remain open. No activation/reload is implied by this evidence.
 
 `palace-invocation.ts` owns the new strict version-1
 `synthetic-local-invocation-view` envelope; it is not an extension of either
