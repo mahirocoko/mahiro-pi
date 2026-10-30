@@ -15,8 +15,8 @@ provider, remote transport, profile activation or browser opening is authorized.
 
 ## 2026-10-30 ABI2 invocation-diagnostic follow-up
 
-A later bounded source follow-up adds `/mh-memory context` as a JSON-only command
-owned by the installed ABI2 runtime, not by `lib/agent-memory/local/**`. The command
+A later bounded source follow-up adds invocation-metadata diagnosis owned by the
+installed ABI2 runtime, not by `lib/agent-memory/local/**`. The compatibility route
 requires the current idle primary binding and existing `agent_memory_manage` read
 authority. It returns only bounded metadata: current committed revision/config
 identity, public Pi context estimates with explicit unknown/invalid states, current
@@ -138,11 +138,11 @@ asynchronous latest-intent tests for any future routes, installed command execut
 observed runtime and Mahiro's visual/product/RAM acceptance remain open. Synthetic
 and source tests do not establish those gates.
 
-## R7-07 command-only combined diagnostic prerequisite
+## R7-07 internal combined diagnostic prerequisite
 
-`/mh-memory palace-context` accepts no trailing arguments and requires the existing
-exact `agent_memory_manage` read authority on an idle ABI2 primary. ABI1 refuses
-without fallback. One runtime capture resolves the owner once, reads initial
+The combined diagnostic owner requires existing exact `agent_memory_manage` read
+authority on an idle ABI2 primary; ABI1 refuses without fallback. One runtime
+capture resolves the owner once, reads initial
 status/config, invokes the dedicated internal `palaceStructure` engine RPC, samples public context and
 the projection-owner receipt, then checks final status/config, branch, activity,
 authority and binding. Revision/config mismatches refuse without silent retry.
@@ -168,14 +168,15 @@ source IDs, history/diffs and private root/profile/session paths. A prior projec
 receipt remains separately labelled from current committed revision until the next
 request (when its binding/config remains applicable). Public Pi estimates are not
 provider consumption or category accounting. No model-callable action, persistent
-registry, file export, HTML/HTTP, activation or Phase I is added. Existing `context`
-and `palace` commands remain separate. R7-I/O/H remain open; this prerequisite does
+registry, file export, HTML/HTTP, activation or Phase I is added. The invocation
+and structure owners remain separate beneath the consolidated façade. R7-I/O/H
+remain open; this prerequisite does
 not establish installed/rendered longitudinal or human acceptance.
 
-## R7-08 command-only first-parent history prerequisite
+## R7-08 internal first-parent history prerequisite
 
-`/mh-memory palace-history [offset]` is a second ABI2-only diagnostic prerequisite.
-It accepts no argument or one canonical decimal offset from 0 through 127 and uses
+The bounded first-parent history owner is a second ABI2-only diagnostic prerequisite.
+Its internal route accepts only canonical offsets from 0 through 127 and uses
 the existing idle-primary `agent_memory_manage` read authority. The dedicated
 internal `knowledgeHistory` RPC binds the mapped project, expected current revision
 and config hash, then reads the committed current ledger and walks only that HEAD's
@@ -203,8 +204,9 @@ longitudinal and Mahiro acceptance remain open.
 
 ## R7-09 source-only immutable ABI2 metadata viewer
 
-`/mh-memory palace-html` and `/mh-memory palace-html close` form a separate
-source-only handoff outside the model-callable management schema. Opening requires
+The immutable handoff is now exposed through `/mh-memory palace` and
+`/mh-memory palace close`. The handoff stays outside the model-callable management
+schema. Opening requires
 TUI mode, an idle ABI2 primary and existing `agent_memory_manage` read authority.
 One tracked operation captures current status, committed `palaceStructure`, the
 exact offset-zero `knowledgeHistory` page, public context/effective-prompt metadata
@@ -231,3 +233,19 @@ transport close when validation ignores abort, authority revocation, new-work
 closure and ABI1 refusal. This does not prove installed current-profile behavior,
 browser rendering, provider-backed consumption, longitudinal reliability, same-user
 bearer resistance or Mahiro visual/product/RAM acceptance. R7-I/O/H remain open.
+
+## R7-10 product command consolidation
+
+Mahiro intentionally exposes one Palace product façade rather than each evidence
+checkpoint as a separate feature:
+
+- `/mh-memory palace` opens the immutable metadata viewer;
+- `/mh-memory palace close` stops it;
+- `/mh-memory palace json` returns the earlier structural JSON diagnostic.
+
+Earlier checkpoint routes remain hidden compatibility aliases so existing source
+and operator evidence keeps working. Public help and user documentation do not
+advertise them. Runtime owners remain separate and
+keep their independent bounds and final checks; consolidation does not make their
+sequential observations atomic. It adds no browser opener, profile activation,
+provider proof, authority expansion or R7-I/O/H credit.

@@ -13,7 +13,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
   const runtime = createAgentMemoryRouter(pi, config)
   registerWorkflowCommand(pi, 'mh-memory', {
     description:
-      'Memory readiness, JSON diagnostics, bounded ABI2 Palace HTML, remember, dream and tiered v2 init',
+      'Memory readiness, one bounded ABI2 Palace viewer, diagnostics, remember, dream and tiered v2 init',
     handler: async (args, ctx) => {
       const trimmed = args.trim()
       const [subcommand, ...rest] = trimmed ? trimmed.split(/\s+/) : ['status']
@@ -34,20 +34,32 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         ].includes(subcommand)
       ) {
         ctx.ui.notify(
-          'Use /mh-memory [status|help|remember <text>|dream|doctor|palace|context|palace-context|palace-history [offset]|palace-html [close]|init]. This command never enables memory or changes permissions.',
+          'Use /mh-memory [status|help|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
           'warning',
         )
         return
       }
       if (subcommand === 'help') {
         ctx.ui.notify(
-          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory doctor returns engine-specific JSON diagnostics: ABI2 reports budget, missing-description, unmigrated-path and conflict state; legacy ABI1 also reports Git-entry and broken-link findings. /mh-memory palace returns a JSON-only structural/link/view/episode report in the TUI notification; it has no HTML page, dashboard or file export. /mh-memory context returns a bounded ABI2-only invocation diagnostic that separates Pi context estimates, current effective prompt size and the last memory-owner projection receipt; provider consumption and category token accounting remain unavailable. /mh-memory palace-context (no arguments) returns a bounded ABI2 combined diagnostic: revision/config matched at observed checks, not an atomic snapshot or viewer; lifecycle is omitted and replay unsupported. /mh-memory palace-history [offset] returns one bounded ABI2 first-parent page containing commit identity and UTC time only; it exposes no author, subject, path, count or diff body and is not a Git browser. /mh-memory palace-html starts one immutable ten-minute ABI2 metadata page on a capability-scoped 127.0.0.1 URL; each retrieval revalidates current authority and captured structure/history, while invocation association remains non-atomic. It does not open a browser, expose bodies/diffs, or provide replay. Use /mh-memory palace-html close to stop the current page. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Use action policy with current revision + configHash + automatic true/false for explicit automatic admission control; off is preserved on upgrade. Status policyOperation classifies retained policy locks; only a fresh primary policy-reconcile with target + revision=digest may remove verified owned files after actual process-local drain, never replay/revert config. Unknown/restarted operations require owner review, not lock stealing. Reflection uses eligible settled interactive/RPC episodes, never every turn; explicit agent_memory_reflect assignments remain separate. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion; context activates next request. Cancel/conflicts/forget/rollback use existing management tools. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It does not open a browser or expose memory bodies, diffs, authors or subjects. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
           'info',
         )
         return
       }
       try {
         const observe = attention.capture(ctx)
+        const openPalace = async () => {
+          if (ctx.mode !== 'tui' || !ctx.hasUI) return
+          const result = await runtime.openPalaceViewer(ctx)
+          ctx.ui.notify(
+            `Palace metadata snapshot: ${result.url}\nExpires: ${result.expiresAt}\nClose: ${result.closeCommand}\nAnyone holding this capability URL can read the frozen metadata while it remains valid. The capture is non-atomic and is not provider-consumption proof.`,
+            'warning',
+          )
+        }
+        const closePalace = async () => {
+          const result = await runtime.closePalaceViewer()
+          ctx.ui.notify(result.closed ? 'Palace viewer closed.' : 'No Palace viewer is open.', 'info')
+        }
         if (subcommand === 'status') {
           const result = await runtime.diagnose(ctx)
           observe('memory', result)
@@ -61,9 +73,21 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           return
         }
         if (subcommand === 'palace') {
-          const result = await runtime.run('agent_memory_manage', { action: 'palace' }, ctx)
-          observe('memory', result)
-          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          if (rest.length === 0) {
+            await openPalace()
+            return
+          }
+          if (rest.length === 1 && rest[0] === 'close') {
+            await closePalace()
+            return
+          }
+          if (rest.length === 1 && rest[0] === 'json') {
+            const result = await runtime.run('agent_memory_manage', { action: 'palace' }, ctx)
+            observe('memory', result)
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+            return
+          }
+          ctx.ui.notify('Usage: /mh-memory palace [close|json]', 'warning')
           return
         }
         if (subcommand === 'palace-history') {
@@ -89,23 +113,14 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         }
         if (subcommand === 'palace-html') {
           if (rest.length === 1 && rest[0] === 'close') {
-            const result = await runtime.closePalaceViewer()
-            ctx.ui.notify(
-              result.closed ? 'Palace HTML viewer closed.' : 'No Palace HTML viewer is open.',
-              'info',
-            )
+            await closePalace()
             return
           }
           if (rest.length) {
             ctx.ui.notify('Usage: /mh-memory palace-html [close]', 'warning')
             return
           }
-          if (ctx.mode !== 'tui' || !ctx.hasUI) return
-          const result = await runtime.openPalaceViewer(ctx)
-          ctx.ui.notify(
-            `Palace HTML metadata snapshot: ${result.url}\nExpires: ${result.expiresAt}\nClose: ${result.closeCommand}\nAnyone holding this capability URL can read the frozen metadata while it remains valid. The capture is non-atomic and is not provider-consumption proof.`,
-            'warning',
-          )
+          await openPalace()
           return
         }
         if (subcommand === 'context') {

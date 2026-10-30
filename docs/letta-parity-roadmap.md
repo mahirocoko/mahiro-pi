@@ -65,8 +65,10 @@ installed routing. Synthetic completion is not an installed end-to-end product.
 Later ABI2 source checkpoints add command-time context, owner-certified committed
 structure, bounded identity/time history and a separate immutable metadata HTML
 handoff outside `local/**`; their invocation association remains non-atomic and
-no current-profile installation/rendered acceptance is claimed. `/mh-memory palace`
-remains the bounded JSON diagnostic. Mahiro accepted the roadmap direction on
+no current-profile installation/rendered acceptance is claimed. The public command
+surface is consolidated behind `/mh-memory palace`, with `palace close` for
+lifecycle and `palace json` for the legacy structural diagnostic. Mahiro accepted
+the roadmap direction on
 2026-10-30 and authorized continued repository write/test/checkpoint execution.
 R0–R7 source milestones and R8 source audit have bounded records, not
 complete-product acceptance. R7-I/O/H and R8-I/O/H remain open; Phase H acceptance
@@ -490,30 +492,30 @@ scoring is above. Phase H stays paused/unaccepted.
 - [x] **R7-S focused synthetic** DTO provenance, estimates/unavailable labels,
   projection receipts, bounded history/diffs, lifecycle separation, forgetting and
   stale refusal. Full differential/installed/observed/rendered evidence is not claimed.
-- [x] **R7-06 source/public-SDK prerequisite** `/mh-memory context` adds a bounded
-  ABI2-only, idle-primary JSON diagnostic outside `local/**`: current revision/config
+- [x] **R7-06 source/public-SDK prerequisite** A bounded ABI2-only idle-primary
+  invocation diagnostic outside `local/**` reports current revision/config
   identity, public Pi usage estimates, effective-prompt bytes and last memory-owner
   projection receipt. An ordinary disposable public-SDK install invokes the command
   before/after a genuine Faux request. Provider consumption/category accounting stay
   unavailable; no Palace snapshot, history persistence, HTML route or activation.
-- [x] **R7-07 source/public-SDK prerequisite** Command-only ABI2
-  `/mh-memory palace-context` uses a dedicated internal config-certified, commit-bound
-  structural RPC (including warm-cache active-path authorization and final config/HEAD
+- [x] **R7-07 source/public-SDK prerequisite** The internal combined ABI2
+  diagnostic uses a dedicated config-certified, commit-bound structural RPC
+  (including warm-cache active-path authorization and final config/HEAD
   drift refusal). Diagnostic v2 labels the committed snapshot owner-certified but
   invocation association observed-non-atomic, with final runtime authority barriers.
   Engine 64 KiB / command 32 KiB JSON, 128 files, honest separate upstream/output
   counts and digests, body inspection not requested; no lifecycle,
   replay, viewer or new model action. R7-I/O/H remain open.
-- [x] **R7-08 source/public-SDK prerequisite** Command-only ABI2
-  `/mh-memory palace-history [offset]` uses a dedicated internal first-parent RPC
-  bound to exact current revision/config/ledger identity. It returns at most eight
+- [x] **R7-08 source/public-SDK prerequisite** The internal ABI2 history
+  diagnostic uses a dedicated first-parent RPC bound to exact current
+  revision/config/ledger identity. It returns at most eight
   identity/time-only rows within a 128-commit window; author, subject, path/count,
   diff/body and arbitrary Git selectors are absent. Any forgotten source, shallow
   history, grafts, replacement refs or final binding drift refuses. Endpoint checks
   are sequential, not atomic/ABA-proof. No replay registry, HTML route, `local/**`
   authority or model action is added; R7-I/O/H remain open.
-- [x] **R7-09 source-only immutable HTML handoff** `/mh-memory palace-html` builds
-  one allowlisted/frozen 48 KiB ABI2 metadata DTO and at most 256 KiB static page
+- [x] **R7-09 source-only immutable HTML handoff** The runtime builds one
+  allowlisted/frozen 48 KiB ABI2 metadata DTO and at most 256 KiB static page
   from the existing committed structure, invocation metadata and exact offset-zero
   history page. A runtime-owned 10-minute `127.0.0.1:0` capability server serves
   frozen bytes only after per-request authority/revision/config/digest/history/branch
@@ -523,6 +525,11 @@ scoring is above. Phase H stays paused/unaccepted.
   and CSP/privacy headers are bounded; no browser opener, files, bodies/diffs, replay,
   `local/**`, profile/installer/kernel or Phase I change is included. Focused source
   fixtures are not R7-I/O/H, provider, rendered or human evidence.
+- [x] **R7-10 source-only command consolidation** `/mh-memory palace` is the
+  product façade, `palace close` owns viewer lifecycle and `palace json` retains
+  the structural diagnostic. Earlier checkpoint routes remain hidden compatibility
+  aliases, not advertised product surfaces. Internal owners
+  and non-atomic labels remain unchanged; no installed/rendered/human credit moves.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data

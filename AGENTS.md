@@ -125,9 +125,9 @@ dated source records, not current installation instructions.
   core memory, external memory, and history. Context renders one optional fixed
   session-context snapshot captured before startup. Omitted context is
   unavailable and is not corpus paging. It serves a fresh temporary
-  synthetic service and is not live authority. `/mh-memory palace`
-  stays JSON-only. Extension, kernel, installer, and profile code do not import
-  it. It does not publish, select installation, or switch live authority.
+  synthetic service, is not live authority and does not own the public Palace
+  command. Extension, kernel, installer, and profile code do not import it. It
+  does not publish, select installation, or switch live authority.
   The separate installed-path ABI2 metadata handoff is owned by
   `lib/agent-memory/palace-handoff.ts` and rendering-only `lib/palace-render/`.
   It must not import `lib/agent-memory/local/**`, receive roots/Git/file readers,
@@ -137,7 +137,11 @@ dated source records, not current installation instructions.
   non-atomic association, per-request authority/digest revalidation, one runtime
   lifetime owner, bounded transport close with abort- and generation-fenced late
   validation, and capability-scoped `127.0.0.1:0` GET/HEAD-only transport with
-  strict Host/body/origin/CSP/privacy controls.
+  strict Host/body/origin/CSP/privacy controls. The public product façade is
+  `/mh-memory palace`, with `palace close` for lifecycle and `palace json` for the
+  legacy structural diagnostic. Context/history/HTML checkpoint commands may
+  remain hidden compatibility aliases but must not be advertised as separate
+  product surfaces.
   Browser opening, profile activation/reload, replay registries, Phase I and human
   acceptance remain separate scopes.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.

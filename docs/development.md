@@ -193,12 +193,18 @@ node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 te
 `test/agent-memory-local-palace.test.ts` is the disconnected synthetic Palace
 preview. It checks the metadata snapshot, bounded document read, corpus paging,
 loopback page,
-and `pnpm memory:palace-preview`. It does not read a live private root or change
-`/mh-memory palace`:
+and `pnpm memory:palace-preview`. It does not read a live private root or own the
+installed `/mh-memory palace` façade:
 
 ```sh
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-palace.test.ts
 ```
+
+The installed command surface is intentionally smaller: `/mh-memory palace`
+opens the immutable ABI2 metadata viewer, `palace close` stops it and `palace json`
+returns the legacy structural diagnostic. Earlier context/history/HTML command
+names remain hidden compatibility aliases and are covered by runtime/lifecycle
+fixtures rather than advertised as product commands.
 
 Those files do not select an installed engine, bind the kernel, or change
 profile records. They exercise one in-process coordinator and a service-owned

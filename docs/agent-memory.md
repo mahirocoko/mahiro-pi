@@ -212,7 +212,7 @@ loaded runtime actually advertises.
    a bounded, unverified continuity checkpoint is preserved for the next turn. This
    one-shot prompt context is separate from the metadata-only review records below.
 
-`agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. `/mh-memory palace` currently prints that bounded JSON report in a TUI notification only; it has no HTML page, dashboard, graph viewer or file export. The experimental local preview is a separate synthetic page and does not change this command. `/mh-memory context` is a separate ABI2-only, idle-primary JSON diagnostic outside the model-callable management schema. It reports the current committed revision/config identity, bounded public Pi context estimates (including explicit unknown values), current effective-system-prompt byte size and the last output receipt from the real ABI2 memory projection owner. It never returns prompt or memory text, root/session paths, exact provider prompt consumption or fabricated category token accounting. A projection receipt proves owner output only; it is not proof that the provider consumed those bytes or that the disconnected HTML Palace captured an invocation. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. `/mh-memory` exposes `status`, `help`, `doctor`, `palace`, `context`, `init`, `remember <text>` and `dream`. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+`agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. The command façade is separate from that model-callable action: `/mh-memory palace` opens the immutable ABI2 metadata viewer, `/mh-memory palace close` stops it and `/mh-memory palace json` returns the bounded structural report. The experimental local preview remains a separate synthetic page and does not own this command. A hidden compatibility diagnostic reports current committed revision/config identity, bounded public Pi context estimates, effective-system-prompt byte size and the last ABI2 projection-owner output receipt; it never returns prompt/memory text, root/session paths, exact provider consumption or fabricated category accounting. A projection receipt proves owner output only. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. Public help exposes `status`, `help`, `doctor`, `palace [close|json]`, `init`, `remember <text>` and `dream`; earlier context/history/HTML checkpoint commands remain hidden aliases. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
 Discovery is path/index-driven: committed `Core.md` and `index.md` remain loaded alongside
 `system/persona.md` and only the current project's `system/overview.md` and
@@ -999,8 +999,9 @@ Mahiro changes branding, authority, data binding, security, and responsive
 behavior. See `THIRD_PARTY_NOTICES.md`. Committed files can be opened.
 History separates an explicitly unavailable Knowledge history section from bounded
 Lifecycle history and publication facts. Reload is a link. There are no mutation
-controls, but reads may reconcile/recover under the service owner.
-`/mh-memory palace` stays the JSON-only TUI notification.
+controls, but reads may reconcile/recover under the service owner. This synthetic
+preview does not own the installed command. The public `/mh-memory palace` façade
+uses the separate ABI2 metadata handoff described below.
 
 The [R7 disconnected invocation-view contract](letta-parity-r7.md) adds a separate
 strict envelope and service-only captured snapshot/first-parent knowledge-history/
@@ -1063,11 +1064,11 @@ and [continuity](../extensions/mahiro-continuity.ts).
 Source/SDK fixtures do not establish installed activation, semantic learning,
 memory-use performance or human acceptance.
 
-## R7-07 command-only combined diagnostic prerequisite
+## R7-07 internal combined diagnostic prerequisite
 
-`/mh-memory palace-context` accepts no trailing arguments and requires the existing
-exact `agent_memory_manage` read authority on an idle ABI2 primary. ABI1 refuses
-without fallback. One runtime capture resolves the owner once, reads initial
+The combined diagnostic owner requires existing exact `agent_memory_manage` read
+authority on an idle ABI2 primary; ABI1 refuses without fallback. One runtime
+capture resolves the owner once, reads initial
 status/config, invokes the dedicated internal `palaceStructure` engine RPC, samples public context and
 the projection-owner receipt, then checks final status/config, branch, activity,
 authority and binding. Revision/config mismatches refuse without silent retry.
@@ -1093,15 +1094,16 @@ source IDs, history/diffs and private root/profile/session paths. A prior projec
 receipt remains separately labelled from current committed revision until the next
 request (when its binding/config remains applicable). Public Pi estimates are not
 provider consumption or category accounting. No model-callable action, persistent
-registry, file export, HTML/HTTP, activation or Phase I is added. Existing `context`
-and `palace` commands remain separate. R7-I/O/H remain open; this prerequisite does
-not establish installed/rendered longitudinal or human acceptance.
+registry, file export, HTML/HTTP, activation or Phase I is added. The internal
+context and structure owners remain separate even though the final public command
+surface is consolidated below. R7-I/O/H remain open; this prerequisite does not
+establish installed/rendered longitudinal or human acceptance.
 
-## R7-08 command-only first-parent history prerequisite
+## R7-08 internal first-parent history prerequisite
 
-`/mh-memory palace-history [offset]` is ABI2-only and accepts either no argument
-(offset zero) or one canonical decimal offset from 0 through 127. It uses the
-existing idle-primary `agent_memory_manage` read authority and a dedicated internal
+The bounded first-parent history owner is ABI2-only. It accepts only a canonical
+offset from 0 through 127 through its internal compatibility route, uses existing
+idle-primary `agent_memory_manage` read authority and invokes a dedicated internal
 `knowledgeHistory` engine RPC; ABI1 refuses without fallback. The RPC binds the
 mapped project, expected current revision and config hash, reads the committed
 current ledger, and walks at most 128 commits from that exact HEAD along Git's
@@ -1128,7 +1130,8 @@ acceptance remain open.
 
 ## R7-09 source-only immutable Palace HTML handoff
 
-`/mh-memory palace-html` is an ABI2-only TUI command in source. It does not use or
+The immutable handoff is exposed publicly by `/mh-memory palace`. It is ABI2-only
+and TUI-only in source. It does not use or
 import the disconnected `lib/agent-memory/local/**` Palace. One idle-primary
 operation captures the existing owner-certified committed structure, public
 invocation metadata and exactly the offset-zero eight-row knowledge-history page,
@@ -1154,7 +1157,7 @@ revision/config, committed structure/snapshot digests, exact offset-zero history
 branch, idle state and authority. It never rerenders from newer data. Drift or
 denial returns a generic unavailable response and revokes the viewer; new agent
 work, compaction, memory mutation/writer admission, navigation, shutdown,
-replacement, explicit `/mh-memory palace-html close` and expiry also revoke it and
+replacement, explicit `/mh-memory palace close` (or the hidden legacy close alias) and expiry also revoke it and
 close its transport. Timeout/close aborts current validation and generation-fences
 late results; arbitrary third-party Promise work is not claimed to be synchronously
 cancellable. A URL already delivered to a browser cannot be retroactively erased, and another
@@ -1164,3 +1167,20 @@ This is source implementation and focused fixture evidence only. No current-prof
 installation/reload, browser opening, rendered review, provider-backed inference,
 longitudinal observation, Phase I wiring or Mahiro visual/product/RAM acceptance is
 claimed; R7-I/O/H remain open.
+
+## R7-10 consolidated Palace command surface
+
+The product-facing command is intentionally smaller than the implementation seams:
+
+- `/mh-memory palace` opens the immutable ABI2 metadata viewer;
+- `/mh-memory palace close` closes the current capability viewer;
+- `/mh-memory palace json` returns the legacy bounded structural/link/view/episode
+  diagnostic.
+
+Earlier checkpoint routes remain accepted only as hidden compatibility aliases for
+source and operator evidence. They are omitted from public help and are not separate
+product features. Their underlying runtime/RPC owners stay separate so the
+façade cannot mislabel sequential context, structure and history checks as one
+atomic snapshot. This consolidation changes command UX only: it does not open a
+browser, activate a profile, add data routes, expand authority, establish R7-I/O/H
+or alter the live ABI2 publication owner.

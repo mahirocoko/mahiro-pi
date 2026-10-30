@@ -159,14 +159,22 @@ const contracts = [
   ['docs/agent-memory.md', /not live authority/, 'synthetic palace is not live authority'],
   [
     'docs/agent-memory.md',
-    /\/mh-memory palace` currently prints that bounded JSON report/,
-    'live palace stays JSON',
+    /\/mh-memory palace` opens the immutable ABI2 metadata viewer/,
+    'Palace viewer façade',
+  ],
+  [
+    'docs/agent-memory.md',
+    /earlier context\/history\/HTML checkpoint commands remain hidden aliases/,
+    'hidden Palace compatibility aliases',
   ],
   ['docs/workflows.md', /never executed/, 'recorded commands are metadata'],
   ['docs/integrations.md', /UNKNOWN/, 'unavailable is not zero'],
 ]
 for (const [name, pattern, contract] of contracts)
   assert.match(texts.get(name) ?? '', pattern, `${name}: missing ${contract}`)
+const hiddenPalaceCommand = /\/mh-memory context\b|\bpalace-(?:context|history|html)\b/
+for (const name of ['docs/agent-memory.md', 'docs/letta-parity-r7.md', 'docs/letta-parity-roadmap.md'])
+  assert.doesNotMatch(texts.get(name) ?? '', hiddenPalaceCommand, `${name}: hidden Palace command leaked`)
 for (const [name, text] of texts) {
   if (name.startsWith('docs/releases/') || name === 'THIRD_PARTY_NOTICES.md') continue
   assert.doesNotMatch(text, /\/(?:Users|home)\/[a-zA-Z0-9_.-]+/, `${name}: personal home path`)

@@ -157,7 +157,7 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 </div>
 </section>
 </main>
-<footer>This page is served from a capability URL on <code>127.0.0.1</code>. Anyone holding the URL can read this frozen metadata while it remains valid. Refresh requires current ABI2 authority; use <code>/mh-memory palace-html close</code> to stop serving it.</footer>
+<footer>This page is served from a capability URL on <code>127.0.0.1</code>. Anyone holding the URL can read this frozen metadata while it remains valid. Refresh requires current ABI2 authority; use <code>/mh-memory palace close</code> to stop serving it.</footer>
 </div>
 </body>
 </html>`

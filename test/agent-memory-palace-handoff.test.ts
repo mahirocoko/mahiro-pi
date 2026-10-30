@@ -165,4 +165,6 @@ test('ABI2 Palace page escapes metadata and keeps semantic bounded static sectio
   assert.doesNotMatch(html, /<script\b/i)
   assert.match(html, /Non-atomic capture/)
   assert.match(html, /Latest up to 8 first-parent commits/)
+  assert.match(html, /\/mh-memory palace close/)
+  assert.doesNotMatch(html, /\/mh-memory palace-html close/)
 })

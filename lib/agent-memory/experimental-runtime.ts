@@ -786,7 +786,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         immutable: true as const,
         atomic: false as const,
         replay: 'unsupported' as const,
-        closeCommand: '/mh-memory palace-html close' as const,
+        closeCommand: '/mh-memory palace close' as const,
       }
     } catch (error) {
       abort.abort()

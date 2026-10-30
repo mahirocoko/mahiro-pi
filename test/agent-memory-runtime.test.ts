@@ -243,7 +243,7 @@ function fixture(twoProjects = false) {
   }
 }
 
-test('memory help identifies Palace as JSON-only diagnostics and distinguishes ABI1/ABI2 doctor fields', async () => {
+test('memory help presents one Palace façade and hides checkpoint diagnostics', async () => {
   const f = fixture()
   try {
     await f.emit('session_start')
@@ -252,34 +252,44 @@ test('memory help identifies Palace as JSON-only diagnostics and distinguishes A
     await f.commands.get('mh-memory').handler('help', f.ctx)
     const help = notifications.at(-1)!
     assert.match(help, /doctor returns engine-specific JSON diagnostics/)
-    assert.match(help, /ABI2 reports budget, missing-description, unmigrated-path and conflict state/)
-    assert.match(help, /legacy ABI1 also reports Git-entry and broken-link findings/)
-    assert.match(help, /palace returns a JSON-only structural\/link\/view\/episode report/)
-    assert.match(help, /no HTML page, dashboard or file export/)
-    assert.match(help, /context returns a bounded ABI2-only invocation diagnostic/)
-    assert.match(help, /provider consumption and category token accounting remain unavailable/)
-    assert.match(help, /palace-context \(no arguments\)/)
-    assert.match(help, /not an atomic snapshot or viewer/)
-    assert.match(help, /palace-history \[offset\]/)
-    assert.match(help, /commit identity and UTC time only/)
-    assert.match(help, /not a Git browser/)
-    assert.match(help, /palace-html starts one immutable ten-minute ABI2 metadata page/)
-    assert.match(help, /does not open a browser, expose bodies\/diffs, or provide replay/)
-    assert.doesNotMatch(help, /doctor runs health, budget and link checks/)
+    assert.match(help, /palace opens one immutable ten-minute ABI2 metadata viewer/)
+    assert.match(help, /Use \/mh-memory palace close to stop it/)
+    assert.match(
+      help,
+      /\/mh-memory palace json for the legacy structural\/link\/view\/episode JSON diagnostic/,
+    )
+    assert.match(help, /explicitly non-atomic and non-replayable/)
+    assert.match(help, /does not open a browser or expose memory bodies, diffs, authors or subjects/)
+    assert.doesNotMatch(help, /\/mh-memory context/)
+    assert.doesNotMatch(help, /palace-context|palace-history|palace-html/)
+    await f.commands.get('mh-memory').handler('unknown', f.ctx)
+    const usage = notifications.at(-1)!
+    assert.match(usage, /palace \[close\|json\]/)
+    assert.doesNotMatch(usage, /context|palace-context|palace-history|palace-html/)
   } finally {
     f.close()
   }
 })
 
-test('memory context command refuses ABI1 without fallback or storage mutation', async () => {
+test('Palace façade refuses ABI1 while hidden diagnostic aliases remain compatible', async () => {
   const f = fixture()
   try {
     await f.emit('session_start')
     const revision = f.store.snapshot().revision
     const notifications: string[] = []
+    await f.commands.get('mh-memory').handler('palace', f.ctx)
+    assert.equal(notifications.length, 0)
     f.ctx.mode = 'tui'
     f.ctx.hasUI = true
     f.ctx.ui = { notify: (text: string) => notifications.push(text) }
+    await f.commands.get('mh-memory').handler('palace', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    await f.commands.get('mh-memory').handler('palace close', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    await f.commands.get('mh-memory').handler('palace json', f.ctx)
+    assert.equal(typeof JSON.parse(notifications.at(-1)!), 'object')
+    await f.commands.get('mh-memory').handler('palace extra', f.ctx)
+    assert.match(notifications.at(-1)!, /Usage: .*palace \[close\|json\]/)
     await f.commands.get('mh-memory').handler('context', f.ctx)
     assert.match(notifications.at(-1)!, /reason: unknown/)
     await f.commands.get('mh-memory').handler('palace-context', f.ctx)

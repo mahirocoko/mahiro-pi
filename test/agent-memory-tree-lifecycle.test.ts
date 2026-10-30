@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import test from 'node:test'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
 
@@ -18,7 +19,7 @@ const deferred = () => {
 }
 
 // Controlled ABI double for adversarial scheduling; real data child/store, not kernel/PSS proof.
-function fixture() {
+function fixture(commandSurface = false) {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'memory-tree-'))
   const root = join(directory, 'memory')
   const previous = { ...process.env }
@@ -51,6 +52,8 @@ function fixture() {
     '# Core\nSYNTHETIC_TREE_CORE\n',
   )
   const handlers = new Map<string, Function[]>()
+  const commands = new Map<string, any>()
+  const notifications: string[] = []
   const tools = ['agent_memory_read', 'agent_memory_manage', 'agent_memory_reflect'].map((name) => ({ name }))
   const pi = {
     on(name: string, fn: Function) {
@@ -58,11 +61,18 @@ function fixture() {
       handlers.get(name)!.push(fn)
     },
     getAllTools: () => tools,
+    registerCommand(name: string, command: unknown) {
+      commands.set(name, command)
+    },
+    registerTool(tool: unknown) {
+      tools.push(tool as (typeof tools)[number])
+    },
   } as unknown as ExtensionAPI
   const branch = [{ id: 'a' }, { id: 'b' }]
   const manager = {
     getSessionId: () => 'primary',
     getBranch: () => branch,
+    getHeader: () => ({ type: 'session', id: 'primary' }),
     getSessionFile: () => undefined,
   }
   let idle = true
@@ -77,6 +87,10 @@ function fixture() {
     model: { provider: 'openai', id: 'synthetic-model' },
     getContextUsage: () => (typeof usage === 'function' ? (usage as () => unknown)() : usage),
     getSystemPrompt: () => systemPrompt,
+    ui: {
+      notify: (text: string) => notifications.push(text),
+      setWidget: () => {},
+    },
   } as unknown as ExtensionContext
   let holds = 0
   let granted = true
@@ -115,7 +129,9 @@ function fixture() {
   const oldRegistry = globals[registry]
   const nodes = new Map([['primary', node]])
   globals[registry] = nodes
-  const runtime = createExperimentalMemoryRuntime(pi)
+  const runtime: any = commandSurface
+    ? activateAgentMemory(pi, { root, nodes: nodes as any })
+    : createExperimentalMemoryRuntime(pi)
   const emit = async (name: string, event = {}, context = ctx) => {
     const results = []
     for (const handler of handlers.get(name) ?? []) results.push(await handler(event, context))
@@ -123,6 +139,8 @@ function fixture() {
   }
   return {
     runtime,
+    commands,
+    notifications,
     abi,
     node,
     nodes,
@@ -139,8 +157,11 @@ function fixture() {
     authorize: (fn: () => Promise<void>) => (authorize = fn),
     read: (context = ctx) => runtime.run('agent_memory_read', { path: 'Core.md' }, context),
     async close() {
-      await runtime.cancel()
-      await runtime.drain()
+      if (commandSurface) await emit('session_shutdown')
+      else {
+        await runtime.cancel()
+        await runtime.drain()
+      }
       assert.equal(holds, 0)
       assert.equal(retirements.size, 0)
       globals[registry] = oldRegistry
@@ -354,7 +375,7 @@ test('ABI2 Palace context observes real Palace and rejects sampling races withou
         assert.equal(result.structure.bodyInspection, 'not-requested')
         assert.equal(result.structure.configHash, result.context.binding.configHash)
         assert.equal(result.structure.revision, result.context.memoryProjection?.revision)
-        assert.ok(result.structure.files.some((file) => file.path === 'Core.md'))
+        assert.ok(result.structure.files.some((file: { path: string }) => file.path === 'Core.md'))
         assert.doesNotMatch(
           JSON.stringify(result),
           /SYNTHETIC_TREE_CORE|memory-tree-|Synthetic effective prompt/,
@@ -368,6 +389,35 @@ test('ABI2 Palace context observes real Palace and rejects sampling races withou
   }
 })
 
+test('public Palace façade dispatches viewer, close and structural JSON on ABI2', async () => {
+  const f = fixture(true)
+  try {
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+
+    await command.handler('palace json', f.ctx)
+    const diagnostic = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(typeof diagnostic, 'object')
+    assert.equal('url' in diagnostic, false)
+
+    await command.handler('palace', f.ctx)
+    const opened = f.notifications.at(-1)!
+    const url = opened.match(/http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}/)?.[0]
+    assert.ok(url)
+    assert.match(opened, /Close: \/mh-memory palace close/)
+    const response = await fetch(url)
+    assert.equal(response.status, 200)
+    assert.match(await response.text(), /\/mh-memory palace close/)
+
+    await command.handler('palace close', f.ctx)
+    assert.equal(f.notifications.at(-1), 'Palace viewer closed.')
+    await assert.rejects(fetch(url))
+  } finally {
+    await f.close()
+  }
+})
+
 test('ABI2 Palace HTML serves one frozen page and revokes on authority or new work', async () => {
   const f = fixture()
   try {
@@ -376,6 +426,7 @@ test('ABI2 Palace HTML serves one frozen page and revokes on authority or new wo
     const opened = await f.runtime.openPalaceViewer(f.ctx)
     assert.equal(opened.kind, 'abi2-palace-html-viewer')
     assert.equal(opened.atomic, false)
+    assert.equal(opened.closeCommand, '/mh-memory palace close')
     assert.match(opened.url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/)
     const response = await fetch(opened.url)
     assert.equal(response.status, 200)
