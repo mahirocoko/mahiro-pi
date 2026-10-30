@@ -67,7 +67,10 @@ dated source records, not current installation instructions.
   Live publication is ABI1 or ABI2: exact-root authority is mandatory.
   Native writers use identity-bound private views and public prompt replacement, not
   cwd overrides, shell tools or inherited private corpus. Preserve existing memory;
-  initialize only absent roots. The approved experimental local Git/worktree service
+  initialize only absent roots. Capacity fallback diagnostics remain exact-root,
+  idle-primary and count-only: no names, paths, record bodies, corpus data or cleanup
+  handle, and no diagnostic authorizes deletion/adoption/profile activation.
+  The approved experimental local Git/worktree service
   under `lib/agent-memory/local/` is synthetic-only. One in-process coordinator
   creates and reopens its own bare repository. It does not adopt an arbitrary
   Git repository, synchronize a parent checkout, or claim resistance to another

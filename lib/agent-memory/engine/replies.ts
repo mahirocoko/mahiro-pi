@@ -409,6 +409,142 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       ensure(Array.isArray(value) && value.length <= 4)
       for (const e of value) ensure(observedEpisode(e).project === input.project)
       return
+    case 'capacityDiagnostic': {
+      const v = shape(value, [
+        'version',
+        'kind',
+        'revision',
+        'configHash',
+        'scanLimit',
+        'association',
+        'namespaces',
+        'derived',
+        'blockers',
+        'classification',
+        'corpusReturned',
+      ])
+      ensure(
+        v.version === 1 &&
+          v.kind === 'abi2-capacity-diagnostic' &&
+          revision(v.revision) &&
+          hash(v.configHash) &&
+          v.scanLimit === 8192 &&
+          v.association === 'sequential-non-atomic' &&
+          v.corpusReturned === false,
+      )
+      const namespaceNames = ['journal', 'legacyViews', 'drafts', 'episodes']
+      const namespaces = shape(v.namespaces, namespaceNames)
+      const namespaceRows: Record<string, Record<string, unknown>> = {}
+      const states = ['available', 'blocked', 'unknown', 'not-applicable']
+      const boundedState = (blocked: boolean, exact: boolean) =>
+        blocked ? 'blocked' : exact ? 'available' : 'unknown'
+      for (const name of namespaceNames) {
+        const entry = shape(namespaces[name], [
+          'entries',
+          'matching',
+          'exact',
+          'status',
+          'doctor',
+          'admission',
+        ])
+        ensure(
+          integer(entry.entries, 8193) &&
+            integer(entry.matching, 8193) &&
+            (entry.matching as number) <= (entry.entries as number) &&
+            typeof entry.exact === 'boolean' &&
+            entry.exact === (entry.entries as number) <= 8192 &&
+            states.includes(entry.status as string) &&
+            states.includes(entry.doctor as string) &&
+            states.includes(entry.admission as string),
+        )
+        const entries = entry.entries as number
+        const matching = entry.matching as number
+        const exact = entry.exact as boolean
+        const expected =
+          name === 'journal'
+            ? {
+                status: boundedState(matching > limits.views, exact),
+                doctor: 'not-applicable',
+                admission: boundedState(entries >= limits.views, exact),
+              }
+            : name === 'legacyViews'
+              ? {
+                  status: 'not-applicable',
+                  doctor: boundedState(matching > limits.views, exact),
+                  admission: 'not-applicable',
+                }
+              : name === 'drafts'
+                ? {
+                    status: 'not-applicable',
+                    doctor: boundedState(matching > limits.views, exact),
+                    admission: boundedState(entries >= limits.views, exact),
+                  }
+                : {
+                    status: 'not-applicable',
+                    doctor: boundedState(matching > 256, exact),
+                    admission:
+                      matching > 256 ? 'blocked' : matching === 256 || !exact ? 'unknown' : 'available',
+                  }
+        ensure(
+          entry.status === expected.status &&
+            entry.doctor === expected.doctor &&
+            entry.admission === expected.admission,
+        )
+        namespaceRows[name] = entry
+      }
+      const derived = shape(v.derived, ['retainedViews'])
+      const retainedViews = shape(derived.retainedViews, ['matching', 'exact', 'doctor'])
+      const expectedRetainedMatching =
+        (namespaceRows.legacyViews.matching as number) + (namespaceRows.drafts.matching as number)
+      const expectedRetainedExact =
+        namespaceRows.legacyViews.exact === true && namespaceRows.drafts.exact === true
+      const expectedRetainedDoctor =
+        expectedRetainedMatching > limits.views ? 'blocked' : expectedRetainedExact ? 'available' : 'unknown'
+      ensure(
+        integer(retainedViews.matching, 16386) &&
+          retainedViews.matching === expectedRetainedMatching &&
+          retainedViews.exact === expectedRetainedExact &&
+          retainedViews.doctor === expectedRetainedDoctor,
+      )
+      const blockers = shape(v.blockers, ['status', 'doctor', 'admission'])
+      for (const key of ['status', 'admission']) {
+        const list = blockers[key]
+        ensure(
+          Array.isArray(list) &&
+            list.length <= namespaceNames.length &&
+            new Set(list).size === list.length &&
+            list.every(
+              (name) => namespaceNames.includes(name) && namespaceRows[String(name)][key] === 'blocked',
+            ),
+        )
+        ensure(
+          namespaceNames.filter((name) => namespaceRows[name][key] === 'blocked').join('\n') ===
+            list.join('\n'),
+        )
+      }
+      const doctor = blockers.doctor
+      const expectedDoctor = [
+        ...namespaceNames.filter((name) => namespaceRows[name].doctor === 'blocked'),
+        ...(retainedViews.doctor === 'blocked' ? ['retainedViews'] : []),
+      ]
+      ensure(
+        Array.isArray(doctor) &&
+          doctor.length === expectedDoctor.length &&
+          new Set(doctor).size === doctor.length &&
+          doctor.every((name, index) => typeof name === 'string' && name === expectedDoctor[index]),
+      )
+      const statusBlocked = (blockers.status as unknown[]).length > 0
+      const statusUnknown = namespaceNames.some((name) => namespaceRows[name].status === 'unknown')
+      ensure(
+        v.classification ===
+          (statusBlocked
+            ? 'status-namespace-capacity'
+            : statusUnknown
+              ? 'inconclusive'
+              : 'non-namespace-status-capacity'),
+      )
+      return
+    }
     case 'status': {
       const v = shape(value, ['revision', 'files', 'pendingOperations'])
       ensure(revision(v.revision) && paths(v.files) && Array.isArray(v.pendingOperations))

@@ -419,6 +419,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       throw memoryFailure('branch', 'Native memory branch changed')
     return ids
   }
+  const capacityDiagnostic = async (ctx: ExtensionContext) => {
+    if (!ctx.isIdle() || starting || job || draft)
+      throw Error('Idle ABI2 primary capacity diagnostic required')
+    const f = await resolve(ctx, 'agent_memory_manage', 'read')
+    if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx))
+      throw Error('Primary capacity diagnostic required')
+    return await f.request('capacityDiagnostic', {})
+  }
   const captureInvocation = async (ctx: ExtensionContext, combined = false) => {
     if (!ctx.isIdle() || starting || job || draft)
       throw Error('Idle ABI2 primary invocation context required')
@@ -1721,6 +1729,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       kind: 'abi2-palace-html-close' as const,
       closed: await closeViewer(),
     }),
+    capacityDiagnostic: (ctx: ExtensionContext) => admit(ctx, () => capacityDiagnostic(ctx)),
     captureInvocation: (ctx: ExtensionContext) =>
       admit(
         ctx,

@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { memoryFailure } from '../reasons.ts'
 import { snapshotDigest, structureDigest, type PalaceStructure } from '../palace-structure.ts'
 import { palaceLayerFor } from '../retrieval.ts'
-import { lstat, mkdir, readdir, rmdir, unlink } from 'node:fs/promises'
+import { lstat, mkdir, opendir, readdir, rmdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
@@ -46,7 +46,18 @@ import {
   safePath,
   type Check,
 } from './io.ts'
-import type { Change, Counters, Input, Method, Operations, Plan, Receipt, Stage } from './protocol.ts'
+import type {
+  CapacityDiagnostic,
+  CapacityNamespace,
+  Change,
+  Counters,
+  Input,
+  Method,
+  Operations,
+  Plan,
+  Receipt,
+  Stage,
+} from './protocol.ts'
 import {
   allowedPath,
   applySurgicalEdit,
@@ -722,6 +733,131 @@ export class MemoryDataEngine {
       | { conflict: string[] }
     if (!('plan' in result)) throw Error('Management revision conflict; proposal retained')
     return result
+  }
+  private async capacityNamespace(
+    folder: string,
+    pattern: RegExp,
+    thresholds: {
+      status?: number
+      doctor?: number
+      admissionEntries?: number
+      admissionMatching?: number
+      admissionMatchingMayPrune?: number
+    },
+  ): Promise<CapacityNamespace> {
+    await this.gate([folder], [], 'view')
+    await safePath(folder)
+    let entries = 0
+    let matching = 0
+    let exact = true
+    try {
+      await privateDirectory(folder)
+      const directory = await opendir(folder)
+      try {
+        for await (const entry of directory) {
+          entries++
+          if (pattern.test(entry.name)) matching++
+          if (entries > 8192) {
+            exact = false
+            break
+          }
+        }
+      } finally {
+        await directory.close().catch(() => {})
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const state = (threshold: number | undefined) => {
+      if (threshold === undefined) return 'not-applicable' as const
+      if (matching > threshold) return 'blocked' as const
+      return exact ? ('available' as const) : ('unknown' as const)
+    }
+    const admission = () => {
+      if (thresholds.admissionEntries !== undefined && entries >= thresholds.admissionEntries)
+        return 'blocked' as const
+      if (thresholds.admissionMatching !== undefined && matching >= thresholds.admissionMatching)
+        return 'blocked' as const
+      if (thresholds.admissionMatchingMayPrune !== undefined) {
+        if (matching > thresholds.admissionMatchingMayPrune) return 'blocked' as const
+        if (matching === thresholds.admissionMatchingMayPrune) return 'unknown' as const
+      }
+      if (
+        thresholds.admissionEntries === undefined &&
+        thresholds.admissionMatching === undefined &&
+        thresholds.admissionMatchingMayPrune === undefined
+      )
+        return 'not-applicable' as const
+      return exact ? ('available' as const) : ('unknown' as const)
+    }
+    return {
+      entries,
+      matching,
+      exact,
+      status: state(thresholds.status),
+      doctor: state(thresholds.doctor),
+      admission: admission(),
+    }
+  }
+  private async capacityDiagnostic(): Promise<CapacityDiagnostic> {
+    const { configHash } = await this.config()
+    const revision = await this.head()
+    const namespaces = {
+      journal: await this.capacityNamespace(join(this.folder, 'journal'), /^[a-f0-9-]{36}\.json$/, {
+        status: limits.views,
+        admissionEntries: limits.views,
+      }),
+      legacyViews: await this.capacityNamespace(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/, {
+        doctor: limits.views,
+      }),
+      drafts: await this.capacityNamespace(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/, {
+        doctor: limits.views,
+        admissionEntries: limits.views,
+      }),
+      episodes: await this.capacityNamespace(join(this.root, '.episodes'), /^[a-f0-9]{64}\.json$/, {
+        doctor: 256,
+        admissionMatchingMayPrune: 256,
+      }),
+    }
+    const names = Object.keys(namespaces) as (keyof typeof namespaces)[]
+    const retainedViews = {
+      matching: namespaces.legacyViews.matching + namespaces.drafts.matching,
+      exact: namespaces.legacyViews.exact && namespaces.drafts.exact,
+      doctor:
+        namespaces.legacyViews.matching + namespaces.drafts.matching > limits.views
+          ? ('blocked' as const)
+          : namespaces.legacyViews.exact && namespaces.drafts.exact
+            ? ('available' as const)
+            : ('unknown' as const),
+    }
+    const blockers = {
+      status: names.filter((name) => namespaces[name].status === 'blocked'),
+      doctor: [
+        ...names.filter((name) => namespaces[name].doctor === 'blocked'),
+        ...(retainedViews.doctor === 'blocked' ? (['retainedViews'] as const) : []),
+      ],
+      admission: names.filter((name) => namespaces[name].admission === 'blocked'),
+    }
+    const statusUnknown = names.some((name) => namespaces[name].status === 'unknown')
+    if ((await this.config()).configHash !== configHash || (await this.head()) !== revision)
+      throw memoryFailure('CAS', 'Capacity diagnostic state changed')
+    return {
+      version: 1,
+      kind: 'abi2-capacity-diagnostic',
+      revision,
+      configHash,
+      scanLimit: 8192,
+      association: 'sequential-non-atomic',
+      namespaces,
+      derived: { retainedViews },
+      blockers,
+      classification: blockers.status.length
+        ? 'status-namespace-capacity'
+        : statusUnknown
+          ? 'inconclusive'
+          : 'non-namespace-status-capacity',
+      corpusReturned: false,
+    }
   }
   private async names(folder: string, pattern: RegExp) {
     await this.gate([folder], [], 'view')
@@ -1462,6 +1598,8 @@ export class MemoryDataEngine {
       }
       case 'config':
         return await this.config()
+      case 'capacityDiagnostic':
+        return await this.capacityDiagnostic()
       case 'status': {
         const { config, configHash } = await this.config()
         const base = await this.certify(config, configHash)

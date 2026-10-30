@@ -389,6 +389,62 @@ test('ABI2 Palace context observes real Palace and rejects sampling races withou
   }
 })
 
+test('public status adds a bounded capacity subtype when ABI2 storage status is blocked', async () => {
+  const f = fixture(true)
+  try {
+    const journal = join(f.root, '.views/.engine-v2/journal')
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < 65; index++) {
+      const hex = index.toString(16)
+      const name = `${hex.padStart(8, '0')}-0000-4000-8000-${hex.padStart(12, '0')}.json`
+      writeFileSync(join(journal, name), 'private-invalid-record')
+    }
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('status', f.ctx)
+    const status = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(status.storage, 'unavailable')
+    assert.equal(status.storageReason, 'capacity')
+    assert.equal(status.storageCapacity.kind, 'abi2-capacity-diagnostic')
+    assert.equal(status.storageCapacity.classification, 'status-namespace-capacity')
+    assert.equal(status.storageCapacity.association, 'sequential-non-atomic')
+    assert.deepEqual(status.storageCapacity.blockers.status, ['journal'])
+    assert.deepEqual(status.storageCapacity.namespaces.journal, {
+      entries: 65,
+      matching: 65,
+      exact: true,
+      status: 'blocked',
+      doctor: 'not-applicable',
+      admission: 'blocked',
+    })
+    assert.equal(status.storageCapacity.corpusReturned, false)
+    assert.doesNotMatch(JSON.stringify(status), /private-invalid-record|memory-tree-|\.views/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('public status does not attach capacity metadata to a non-capacity storage failure', async () => {
+  const f = fixture(true)
+  try {
+    const journal = join(f.root, '.views/.engine-v2/journal')
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    writeFileSync(join(journal, '00000000-0000-4000-8000-000000000000.json'), 'private-invalid-record')
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('status', f.ctx)
+    const status = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(status.storage, 'unavailable')
+    assert.equal(status.storageReason, 'unknown')
+    assert.equal(Object.hasOwn(status, 'storageCapacity'), false)
+    assert.doesNotMatch(JSON.stringify(status), /private-invalid-record|memory-tree-|\.views/)
+  } finally {
+    await f.close()
+  }
+})
+
 test('public Palace façade dispatches viewer, close and structural JSON on ABI2', async () => {
   const f = fixture(true)
   try {

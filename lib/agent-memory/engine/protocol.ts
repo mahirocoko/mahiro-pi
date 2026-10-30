@@ -68,6 +68,45 @@ export interface Page {
   truncated: boolean
   missing?: boolean
 }
+export type CapacityNamespaceName = 'journal' | 'legacyViews' | 'drafts' | 'episodes'
+export type CapacityDoctorBlockerName = CapacityNamespaceName | 'retainedViews'
+export type CapacityNamespaceState = 'available' | 'blocked' | 'unknown' | 'not-applicable'
+export interface CapacityNamespace {
+  entries: number
+  matching: number
+  exact: boolean
+  status: CapacityNamespaceState
+  doctor: CapacityNamespaceState
+  admission: CapacityNamespaceState
+}
+export interface CapacityDiagnostic {
+  version: 1
+  kind: 'abi2-capacity-diagnostic'
+  revision: string
+  configHash: string
+  scanLimit: number
+  association: 'sequential-non-atomic'
+  namespaces: {
+    journal: CapacityNamespace
+    legacyViews: CapacityNamespace
+    drafts: CapacityNamespace
+    episodes: CapacityNamespace
+  }
+  derived: {
+    retainedViews: {
+      matching: number
+      exact: boolean
+      doctor: CapacityNamespaceState
+    }
+  }
+  blockers: {
+    status: CapacityNamespaceName[]
+    doctor: CapacityDoctorBlockerName[]
+    admission: CapacityNamespaceName[]
+  }
+  classification: 'status-namespace-capacity' | 'non-namespace-status-capacity' | 'inconclusive'
+  corpusReturned: false
+}
 export interface Operations {
   knowledgeHistory: {
     input: { project: string; expectedRevision: string; expectedConfigHash: string; offset: number }
@@ -89,6 +128,7 @@ export interface Operations {
     }
   }
   config: { input: Record<string, never>; output: { config: MemoryConfig; configHash: string } }
+  capacityDiagnostic: { input: Record<string, never>; output: CapacityDiagnostic }
   status: {
     input: Record<string, never>
     output: {
@@ -199,6 +239,7 @@ export const methods: Method[] = [
   'palaceStructure',
   'projection',
   'config',
+  'capacityDiagnostic',
   'status',
   'offlineCertify',
   'episodes',
@@ -228,6 +269,7 @@ export function validateInput(method: Method, input: unknown) {
     palaceStructure: ['project', 'expectedConfigHash'],
     projection: ['project', 'shared'],
     config: [],
+    capacityDiagnostic: [],
     status: [],
     offlineCertify: ['revision'],
     episodes: ['project'],

@@ -40,11 +40,12 @@ lifecycle/document owners. The later ABI2 metadata handoff has its own focused
 source fixtures and does not import that service:
 
 ```sh
-node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-palace-handoff.test.ts test/palace-immutable-server.test.ts test/agent-memory-tree-lifecycle.test.ts test/agent-memory-runtime.test.ts
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-engine.test.ts test/agent-memory-palace-handoff.test.ts test/palace-immutable-server.test.ts test/agent-memory-tree-lifecycle.test.ts test/agent-memory-runtime.test.ts
 ```
 
 These tests cover the frozen DTO/renderer, capability-scoped immutable server,
-runtime authority/lifecycle revocation and command/ABI1 grammar. They do not open
+runtime authority/lifecycle revocation, command/ABI1 grammar and count-only ABI2
+capacity fallback without parsing retained record bodies. They do not open
 a browser, mutate a current profile, prove provider consumption, complete R7-I/O/H
 or establish Mahiro visual/product/RAM acceptance.
 

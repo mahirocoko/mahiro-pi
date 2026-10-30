@@ -100,6 +100,15 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
         causes: readiness.causes,
       }
     } catch (error) {
+      const failure = memoryFailureCode(error)
+      let storageCapacity: unknown
+      if (mode === 2 && failure.reason === 'capacity') {
+        try {
+          storageCapacity = await experimental.capacityDiagnostic(ctx)
+        } catch {
+          // The primary storage failure remains authoritative; diagnostic absence is unknown.
+        }
+      }
       return {
         ...readiness,
         readiness: readiness.readiness === 'Ready' ? 'Needs setup' : readiness.readiness,
@@ -112,7 +121,8 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
           },
         ].slice(0, 5),
         storage: 'unavailable',
-        storageReason: memoryFailureCode(error).reason,
+        storageReason: failure.reason,
+        ...(storageCapacity === undefined ? {} : { storageCapacity }),
         publication: 'unknown',
       }
     }

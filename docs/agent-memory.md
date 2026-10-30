@@ -214,6 +214,18 @@ loaded runtime actually advertises.
 
 `agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. The command façade is separate from that model-callable action: `/mh-memory palace` opens the immutable ABI2 metadata viewer, `/mh-memory palace close` stops it and `/mh-memory palace json` returns the bounded structural report. The experimental local preview remains a separate synthetic page and does not own this command. A hidden compatibility diagnostic reports current committed revision/config identity, bounded public Pi context estimates, effective-system-prompt byte size and the last ABI2 projection-owner output receipt; it never returns prompt/memory text, root/session paths, exact provider consumption or fabricated category accounting. A projection receipt proves owner output only. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. Public help exposes `status`, `help`, `doctor`, `palace [close|json]`, `init`, `remember <text>` and `dream`; earlier context/history/HTML checkpoint commands remain hidden aliases. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
+When ordinary ABI2 status fails specifically with `storageReason: capacity`, the
+source runtime makes one separately authorized, idle-primary read-only attempt to
+attach `storageCapacity`. The closed diagnostic scans only four private metadata
+namespaces—journal, legacy views, engine drafts and episodes—with an 8,192-entry
+exactness limit; one additional entry becomes the bounded overflow sentinel. It
+returns sequential non-atomic clamped counts, exact/unknown markers, a derived
+combined retained-view doctor check and separate status/doctor/admission blocker
+lists; it returns no names, paths, record bodies,
+corpus text or cleanup handle. Missing diagnostics remain unknown. A reported
+blocker does not authorize deletion, discard, adoption, restart, policy change or
+profile activation; remediation requires a separately reviewed owner workflow.
+
 Discovery is path/index-driven: committed `Core.md` and `index.md` remain loaded alongside
 `system/persona.md` and only the current project's `system/overview.md` and
 `system/conventions.md`. Other human/project details are read on demand, not injected automatically.

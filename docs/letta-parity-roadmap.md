@@ -400,6 +400,14 @@ Audit gaps: 9–12.
   and suppresses cleanup. Remote/helper-bearing config and protocols refuse. This
   is an explicit support boundary, not universal HTTP/SSH descendant settlement or
   cross-platform observation.
+- [x] **R5-06 source-only capacity diagnosis** When ordinary ABI2 status fails with
+  reason `capacity`, an authorized idle primary can receive a closed count-only
+  diagnostic for journal, legacy-view, engine-draft and episode namespaces. An
+  8,192-entry exactness limit plus one overflow sentinel returns sequential
+  non-atomic exact/unknown state, a derived combined retained-view doctor check
+  and separate status/doctor/admission blockers, never names, bodies, paths or a remediation
+  handle. This does not change the generic failure, clean retained state, activate
+  a profile or establish installed/observed/human recovery evidence.
 
 - [x] **R5-S** 2026-10-30: bounded child-process/state-machine fixtures cover
   competing and independent roots, partial/dead claims, adapter revocation,

@@ -52,6 +52,7 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
     method === 'palaceStructure' ||
     method === 'knowledgeHistory' ||
     method === 'config' ||
+    method === 'capacityDiagnostic' ||
     method === 'status' ||
     method === 'episodes' ||
     method === 'conflicts' ||

@@ -36,6 +36,7 @@ import {
 import { MemoryDataEngine } from '../lib/agent-memory/engine/data.ts'
 import { encode, Frames, transportLimits, type Plan } from '../lib/agent-memory/engine/protocol.ts'
 import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
+import { validateReply } from '../lib/agent-memory/engine/replies.ts'
 import { recoveryCeiling } from '../lib/agent-memory/engine/recovery.ts'
 import {
   allowedPath as newPath,
@@ -64,6 +65,7 @@ test('ordinary reads and offline certification are completion-driven; mutation/p
     'offlineCertify',
     'projection',
     'config',
+    'capacityDiagnostic',
     'status',
     'episodes',
     'conflicts',
@@ -1090,6 +1092,130 @@ test('ordinary reads outlive the former deadline and remain caller-cancellable',
     assert.equal(f.engine.queueSize, 0, 'active cancellation settles after child drain')
   } finally {
     t.mock.timers.reset()
+    await f.close()
+  }
+})
+
+test('capacity diagnostic reports bounded namespace counts without parsing retained bodies', async () => {
+  const f = fixture(0)
+  try {
+    const uuid = (value: number) => {
+      const hex = value.toString(16)
+      return `${hex.padStart(8, '0')}-0000-4000-8000-${hex.padStart(12, '0')}.json`
+    }
+    const journal = join(f.root, '.views/.engine-v2/journal')
+    const legacyViews = join(f.root, '.views')
+    const drafts = join(f.root, '.views/.engine-v2/drafts')
+    const episodes = join(f.root, '.episodes')
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    mkdirSync(drafts, { recursive: true, mode: 0o700 })
+    mkdirSync(episodes, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < 65; index++) writeFileSync(join(journal, uuid(index)), 'not-json')
+    writeFileSync(join(legacyViews, uuid(999)), 'not-json')
+    for (let index = 0; index < 64; index++) writeFileSync(join(drafts, uuid(index)), 'not-json')
+    for (let index = 0; index < 256; index++)
+      writeFileSync(join(episodes, `${index.toString(16).padStart(64, '0')}.json`), 'not-json')
+
+    await assert.rejects(f.engine.request('status', {}, f.context), engineError({ reason: 'capacity' }))
+    const diagnostic = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(diagnostic.kind, 'abi2-capacity-diagnostic')
+    assert.equal(diagnostic.classification, 'status-namespace-capacity')
+    assert.equal(diagnostic.association, 'sequential-non-atomic')
+    assert.deepEqual(diagnostic.namespaces.journal, {
+      entries: 65,
+      matching: 65,
+      exact: true,
+      status: 'blocked',
+      doctor: 'not-applicable',
+      admission: 'blocked',
+    })
+    assert.deepEqual(diagnostic.namespaces.legacyViews, {
+      entries: 2,
+      matching: 1,
+      exact: true,
+      status: 'not-applicable',
+      doctor: 'available',
+      admission: 'not-applicable',
+    })
+    assert.deepEqual(diagnostic.namespaces.drafts, {
+      entries: 64,
+      matching: 64,
+      exact: true,
+      status: 'not-applicable',
+      doctor: 'available',
+      admission: 'blocked',
+    })
+    assert.deepEqual(diagnostic.namespaces.episodes, {
+      entries: 256,
+      matching: 256,
+      exact: true,
+      status: 'not-applicable',
+      doctor: 'available',
+      admission: 'unknown',
+    })
+    assert.deepEqual(diagnostic.derived.retainedViews, {
+      matching: 65,
+      exact: true,
+      doctor: 'blocked',
+    })
+    assert.deepEqual(diagnostic.blockers, {
+      status: ['journal'],
+      doctor: ['retainedViews'],
+      admission: ['journal', 'drafts'],
+    })
+    assert.equal(diagnostic.corpusReturned, false)
+    assert.doesNotMatch(JSON.stringify(diagnostic), /not-json|\.views|\.episodes|memory-/)
+
+    const forgedState: any = structuredClone(diagnostic)
+    forgedState.namespaces.journal.status = 'available'
+    forgedState.namespaces.journal.admission = 'available'
+    forgedState.blockers.status = []
+    forgedState.blockers.admission = ['drafts']
+    forgedState.classification = 'non-namespace-status-capacity'
+    assert.throws(() => validateReply('capacityDiagnostic', {}, forgedState), /Invalid/)
+    const forgedExact: any = structuredClone(diagnostic)
+    forgedExact.namespaces.journal.entries = 8193
+    forgedExact.namespaces.journal.exact = true
+    assert.throws(() => validateReply('capacityDiagnostic', {}, forgedExact), /Invalid/)
+    const forgedDoctor: any = structuredClone(diagnostic)
+    forgedDoctor.blockers.doctor = [['retainedViews']]
+    assert.throws(() => validateReply('capacityDiagnostic', {}, forgedDoctor), /Invalid/)
+
+    rmSync(join(journal, uuid(64)))
+    const admissionOnly = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(admissionOnly.classification, 'non-namespace-status-capacity')
+    assert.deepEqual(admissionOnly.blockers.status, [])
+    assert.deepEqual(admissionOnly.blockers.admission, ['journal', 'drafts'])
+  } finally {
+    await f.close()
+  }
+})
+
+test('capacity diagnostic stops at one overflow sentinel and keeps partial counts unknown', async () => {
+  const f = fixture(0)
+  try {
+    const legacyViews = join(f.root, '.views')
+    mkdirSync(legacyViews, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < 8193; index++)
+      writeFileSync(join(legacyViews, `unknown-${index.toString(16).padStart(4, '0')}`), 'private')
+    const diagnostic = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.deepEqual(diagnostic.namespaces.legacyViews, {
+      entries: 8193,
+      matching: 0,
+      exact: false,
+      status: 'not-applicable',
+      doctor: 'unknown',
+      admission: 'not-applicable',
+    })
+    assert.deepEqual(diagnostic.derived.retainedViews, {
+      matching: 0,
+      exact: false,
+      doctor: 'unknown',
+    })
+    assert.equal(diagnostic.classification, 'non-namespace-status-capacity')
+    assert.equal(diagnostic.corpusReturned, false)
+    assert.doesNotMatch(JSON.stringify(diagnostic), /unknown-|private|\.views|memory-/)
+  } finally {
     await f.close()
   }
 })

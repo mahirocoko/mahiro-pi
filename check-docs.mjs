@@ -167,6 +167,11 @@ const contracts = [
     /earlier context\/history\/HTML checkpoint commands remain hidden aliases/,
     'hidden Palace compatibility aliases',
   ],
+  [
+    'docs/agent-memory.md',
+    /storageCapacity[\s\S]*returns no names, paths, record bodies,\s+corpus text or cleanup handle/,
+    'count-only capacity diagnostic',
+  ],
   ['docs/workflows.md', /never executed/, 'recorded commands are metadata'],
   ['docs/integrations.md', /UNKNOWN/, 'unavailable is not zero'],
 ]
