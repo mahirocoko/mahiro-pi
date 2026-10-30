@@ -36,8 +36,9 @@ records are references, not rerun proof.
 
 Next gates are a disposable installed R4/R5 journey only after authorization,
 installed R6 operator rehearsal after its own authorization (the fixed-synthetic
-source operator is disconnected), R7 installed collector and
-rendered review, then longitudinal evaluation and a separate release decision.
+source operator is disconnected), R7 active-change/stale/shutdown and 320px/
+assistive-technology observation, then Mahiro rendered/resource review, longitudinal
+evaluation and a separate release decision.
 Phase H continuation and Phase I remain paused until their own gates pass.
 Direction acceptance does not authorize push, tag, release, profile/install
 mutation, private migration, live cutover or Phase I, nor replace later human-only
@@ -1187,12 +1188,16 @@ identity, digest or authority predicate. Arbitrary third-party Promise work is n
 claimed to be synchronously cancellable. A URL already delivered to a browser cannot be retroactively erased, and another
 same-user process holding that URL is outside the loopback bearer contract.
 
-Source fixtures plus a narrow current-profile command/transport observation exist.
-The installed command produced a frozen loopback URL, and candidate source with the
-15-second validation bound served the exact HTML successfully in about seven seconds,
-returned the documented privacy headers and revoked after explicit close. This is not
-a browser/rendered review, provider-backed inference, longitudinal observation, Phase I
-wiring or Mahiro visual/product/RAM acceptance; broader R7-I/O/H gates remain open.
+Source fixtures and the bounded R7-I installed slice now exist. The current-profile
+command produced a frozen loopback URL; source with the 15-second validation bound
+served the exact HTML successfully in about seven seconds, returned the documented
+privacy headers and revoked after explicit close. A separate owned browser rendered
+that authority-bound page at 1272×902 CSS pixels and 200% zoom (636×451), with content
+boxes within the viewport and the documented semantic/focus structure. The 400%
+owned-session attempt remained unavailable at browser document-stability, so no
+320px/400% or screen-reader claim follows. Provider-backed inference, active-change/
+shutdown observation, longitudinal behavior, Phase I wiring and Mahiro visual/product/
+RAM acceptance remain open under R7-O/H.
 
 ## R7-10 consolidated Palace command surface
 

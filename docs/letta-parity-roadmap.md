@@ -74,7 +74,8 @@ lifecycle and `palace json` for the legacy structural diagnostic. Mahiro accepte
 the roadmap direction on
 2026-10-30 and authorized continued repository write/test/checkpoint execution.
 R0–R7 source milestones and R8 source audit have bounded records, not
-complete-product acceptance. R7-I/O/H and R8-I/O/H remain open; Phase H acceptance
+complete-product acceptance. R7-I is now boundedly complete; R7-O/H and R8-I/O/H
+remain open. Phase H acceptance
 and Phase I remain paused until their own gates pass. The R8 security-audit pass
 itself ran source review only; later scoped source fixtures are separate evidence.
 
@@ -96,9 +97,12 @@ There are two views of the same nine weighted domains:
 - Aggregate with the domain weights below, then round to the nearest **5
   percentage points**. Do not round intermediate calculations when recalculating.
   Current weighted source total is 75.75%; its source-layer contribution is
-  75.75 × 0.50 = 37.875 percentage points. Installed, observed and human current
-  claim contributions are each zero: 37.875 + 0 + 0 + 0 = 37.875%. These display
-  as 75% and 40%. Per-domain evidence below is source × 50%. B0/B1's historical
+  75.75 × 0.50 = 37.875 percentage points. The installed Palace/context/history
+  slice now carries 50% domain coverage at 10% domain weight: weighted installed
+  coverage is 5%, contributing 5 × 0.20 = 1 point. Observed-runtime and human
+  claim contributions remain zero: 37.875 + 1 + 0 + 0 = 38.875%. These still
+  display as 75% and 40%. Per-domain evidence below is source × 50%, plus the
+  cited Palace installed contribution. B0/B1's historical
   61.5% / 30.75% totals displayed as 60% / 30%; they are not rewritten.
 - Planned work earns zero. A deliberate C exclusion earns no implementation
   points and needs explicit approval. Do not silently drop its denominator;
@@ -109,9 +113,10 @@ There are two views of the same nine weighted domains:
 Confidence labels are qualitative evidence confidence, not statistical intervals:
 **moderate/low** means credible audited source with unestablished end-to-end
 proof; **limited/low** also signals unresolved semantic or integration choices.
-No high-confidence installed or human claim is made by this assessment.
-Installed/observed/human zeros mean unestablished at this checkpoint, not failure
-and not a denial of R0's narrower historical inventory/read observations.
+One bounded Palace installed-integration claim is now credited; no broad-product
+installed, observed-runtime or human claim is made by this assessment. Remaining
+zeros mean unestablished at this checkpoint, not failure and not a denial of R0's
+narrower historical inventory/read observations.
 
 | Domain | Weight | Source | Displayed/evidence | Confidence (source/end-to-end) | Rationale | Next-band condition |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -121,16 +126,17 @@ and not a denial of R0's narrower historical inventory/read observations.
 | Writer/publication | 15 | 90% | 45% | Moderate/low | R4 genuine deterministic child completion drives ABI2 publication; the synthetic local coordinator is not this publisher. | Authorized installed routing, permissions, conflict and no-learning journeys. |
 | Recovery/concurrency/lifecycle | 10 | 80% | 40% | Moderate/low | R5 synthetic repair/abandon, CAS/restart, cooperative claims and retained Git uncertainty exist; installed/live recovery is absent. | Installed faults, alternate-root isolation and bounded helper observations; no universal helper-tree certainty. |
 | Commands/migration/operator workflows | 5 | 50% | 25% | Limited/low | R6 export/bundle/shadow/quarantine are distinct; active migration, backup/restore and cutover remain unavailable. | Build an authorized operator product before installed rehearsal. |
-| Palace/context/history | 10 | 60% | 30% | Limited/low | R7 disconnected capture/projection receipts and first-parent history/diff API exist; no installed collector, HTML history/diff or live active-prompt attribution. | Installed invocation collector, safe rendered history and Mahiro's review. |
+| Palace/context/history | 10 | 60% | 40% | Limited/moderate | R7's current-profile command produced its authority-bound frozen metadata, which a separate owned browser rendered at desktop and 200% zoom. Installed evidence covers invoking-session context, structure, identity/time history, immutable transport and explicit close; it does not cover a matching projection receipt, provider consumption, replay/diff, 400%/screen-reader proof or human review. | Matching projection-receipt journey, active-change/stale/shutdown observation, 320px/400% and assistive-tech evidence, then Mahiro's review. |
 | Memory skills/guidance | 10 | 70% | 35% | Moderate/low | R2 preserves synthesis/reasons/examples and bounded diagnosis through existing owners, zero new skills; delivery/quality remain unproven. | Installed job delivery and longitudinal human synthesis/discovery review. |
 | Authority/privacy/isolation | 5 | 80% | 40% | Moderate/low | Exact-root private views, public PSS and confined tools have source owners; R8 maps limits, not universal sandbox or provider privacy. | R4/R5 installed negative boundaries and R8-I/O/H. |
-| **Overall** | **100** | **75%** | **40%** | **Limited end-to-end evidence** | **75.75% source; 37.875% source-only evidence, rounded to nearest 5 points.** | **Only cited layer evidence and fresh verification can move the assessment.** |
+| **Overall** | **100** | **75%** | **40%** | **Limited end-to-end evidence** | **75.75% source; 38.875% evidence including the bounded Palace installed slice, rounded to nearest 5 points.** | **Only cited layer evidence and fresh verification can move the assessment.** |
 
 Explicit source arithmetic: `(80×10 + 85×15 + 70×20 + 90×15 + 80×10 +
 50×5 + 60×10 + 70×10 + 80×5) / 100 = 75.75`. Evidence arithmetic:
-`75.75×0.50 + 0×0.20 + 0×0.20 + 0×0.10 = 37.875`.
-The increase reflects the bounded R1–R7 source/SDK capabilities now assessed,
-not new R8 execution, installed credit or security superiority.
+`75.75×0.50 + 5×0.20 + 0×0.20 + 0×0.10 = 38.875`, where the weighted
+installed value 5 is `50×10/100` for Palace/context/history only. The displayed
+band stays 40%; the new credit is narrow installed integration, not observed-runtime,
+human, release-readiness or security-superiority evidence.
 
 ### Maintained update protocol
 
@@ -161,7 +167,8 @@ not new R8 execution, installed credit or security superiority.
 | --- | --- | --- | --- | --- |
 | B0 | 2026-10-29 | Mahiro `7c4169477fcacc472018678848f74342173de2b2` + audited dirty tree; Letta `a8900b882446d7aa99fedf2845d400743affd1b6` / v0.34.31 | 60% → 30% | 28-gap read-only audit; source-only credit. B0 dirty-source identity unfrozen/unavailable: no immutable whole-dirty-tree manifest was captured; the commit alone is insufficient. Roadmap direction and phase exits were not accepted at B0. |
 | B1 | 2026-10-30 | Mahiro `f46cade7e3c984981b5eeb55eb68a4a610b45ba2`; same Letta pins | 60% → 30% | Immutable experimental Palace/context and roadmap checkpoint. R0-00 candidate evidence and R0-H direction acceptance recorded. No score movement: latest-source re-audit, installed/runtime evidence and later phase exits remain open. |
-| R8 | 2026-10-30 | Assessed product source Mahiro `85d2f0a82088103eb67d4bd29876e0f4e4b471a8`; same Letta pins; ledger authored in the later docs-only checkpoint containing this row | 75% → 40% | Current editorial source assessment: 75.75 / 37.875 unrounded. R1–R7 source/SDK records and R8 threat/context ledger; no target execution in R8, no new I/O/H credit. NOT ALIGNED; NOT READY for release/cutover. |
+| R8 | 2026-10-30 | Assessed product source Mahiro `85d2f0a82088103eb67d4bd29876e0f4e4b471a8`; same Letta pins; ledger authored in the later docs-only checkpoint containing this row | 75% → 40% | Editorial source assessment: 75.75 / 37.875 unrounded. R1–R7 source/SDK records and R8 threat/context ledger; no target execution in R8, no new I/O/H credit. NOT ALIGNED; NOT READY for release/cutover. |
+| R7-I | 2026-10-30 | Mahiro `7b673a65785597c4a42ebec3fa8d5a8c2271c683`; same Letta pins; installed observation recorded by the later docs checkpoint containing this row | 75% → 40% | Installed Palace coverage moves from 0 to 50% of its 10% domain: invoking-session context, structure, identity/time history, immutable transport and explicit close are evidenced; matching projection receipt and later outcomes are not. Unrounded evidence moves 37.875 → 38.875; rounded band stays 40%. Desktop/200% owned-browser evidence exists; 400%/screen-reader, broader R7-O/H, provider, longitudinal and human evidence remain open. NOT ALIGNED; NOT READY. |
 
 Dated R1–R7 appendices retain their unchanged-score statements (60%/30%) as
 checkpoint history. They do not override this current R8 assessment. Historical
@@ -494,9 +501,10 @@ Moves: Palace/context/history, projection/retrieval and operator workflows only
 where directly evidenced. Audit gaps: 14–18, 24.
 
 The [R7 source contract](letta-parity-r7.md) owns the bounded disconnected slice.
-The checks below mean source specification/synthetic service only, not installed
-or HTML history/diff completion. Its dated 60%/30% score is history; current R8
-scoring is above. Phase H stays paused/unaccepted.
+R7-01 through R7-10 are source/specification/synthetic prerequisites, not installed
+completion by themselves; R7-11 and R7-12 are explicitly labelled later installed
+observations. The dated 60%/30% score is history; current scoring is above. Phase H
+stays paused/unaccepted.
 
 - [x] **R7-01 source specification** Separate committed invocation-view envelope;
   no ambient private lookup or publication-authority change. Future installed
@@ -564,9 +572,36 @@ scoring is above. Phase H stays paused/unaccepted.
   MIME/resource-policy headers. Explicit `palace close` then revoked the capability,
   the temporary Pi exited and only its owned pane was removed. This is one installed
   command/transport slice, not rendered, provider, longitudinal, stale-data/shutdown
-  coverage or score movement; R7-I/O/H remain open.
-- [ ] **R7-I** Explicitly authorized installed command captures the invoking
-  session rather than synthetic context and opens only its authorized snapshot.
+  coverage or score movement; R7-I/O/H remained open at this checkpoint and R7-12
+  supplies the later bounded installed/rendered credit.
+- [x] **R7-12 / R7-I installed rendered integration** The gate remains: an
+  explicitly authorized installed command captures the invoking session rather than
+  synthetic context and opens only its authorized snapshot. On 2026-10-30 at
+  `7b673a65785597c4a42ebec3fa8d5a8c2271c683`, a fresh Pi invoked Palace while the
+  original owner session remained selected. The live ABI2 path receives that command's
+  `ExtensionContext`, samples its public invocation metadata and projection association,
+  then rechecks primary binding, branch, revision/config/digests and current authority;
+  it has no `local/**` or ambient synthetic-context fallback. The returned page exposed
+  the command-time invocation association and only its capability-scoped frozen handoff.
+  A separate owned background browser rendered desktop (1272×902 CSS px) and 200%
+  browser zoom (636×451); at 200%, the shell/hero were 604 CSS px wide and the
+  heading/lede stayed within their content boxes. Source and browser inspection found
+  one main landmark, sequential h1/h2 structure, labelled navigation, captioned scoped
+  tables, named focusable overflow regions and a 3px focus-visible outline. Known
+  browser sessions and the viewer closed, the temporary Pi exited, and only its owned
+  pane was removed. A 400% owned-session attempt remained unavailable at browser
+  document-stability, so no product failure or 320px/400% proof is inferred.
+
+  Installed coverage uses ten equal 10-point Palace outcomes. This journey establishes
+  (1) invoking-session context, (3) committed structure, (4) first-parent identity/time
+  history, (5) immutable capability transport and (6) explicit close/revocation: 50%.
+  It does not establish (2) a matching current projection receipt, (7) active memory/
+  knowledge-change reflection, (8) forgotten/stale/shutdown handling, (9) provider
+  consumption/category accounting or (10) replay/lifecycle/document/diff controls.
+  Source alignment remains 60% because source fixtures additionally cover outcome 2.
+  Screen-reader traversal, actual keyboard table scrolling, broader R7-O and Mahiro
+  R7-H remain open. Unrounded evidence moves to 38.875 while displayed 75%/40% bands
+  remain unchanged.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data
   filtering, stale/revoked requests, shutdown and no leaked capability/file access.
 - [ ] **R7-H** Mahiro reviews rendered Context, core/deferred memory and both

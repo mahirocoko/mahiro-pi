@@ -7,8 +7,9 @@
 R7-01–05 retain the disconnected synthetic service contract. Later bounded ABI2
 source slices add command-time context, committed structure, identity/time-only
 history and an immutable metadata HTML handoff outside `lib/agent-memory/local/**`.
-They do not establish current-profile installation, provider consumption, rendered
-acceptance or Phase I. R7-I/O/H remain open. The dated **60% source / 30%
+Those source slices did not establish current-profile installation, provider
+consumption, rendered acceptance or Phase I. A later bounded current-profile/browser
+observation now completes R7-I only; R7-O/H remain open. The dated **60% source / 30%
 evidence-backed** statement belongs to the original R7 checkpoint; current scoring
 remains owned by the roadmap and is not recalculated here. No private corpus,
 provider, remote transport, profile activation or browser opening is authorized.
@@ -238,8 +239,8 @@ bearer resistance or Mahiro visual/product/RAM acceptance. A narrow current-prof
 probe found the earlier three-second request bound insufficient for real structure
 and history validation; candidate source with the 15-second bound served the frozen
 page in about seven seconds with the expected privacy headers, then explicit close
-revoked the capability. This is installed command/transport evidence only; broader
-R7-I/O/H remain open.
+revoked the capability. A later owned-browser observation completes R7-I; this
+paragraph's command/transport probe alone did not establish R7-O/H.
 
 ## R7-10 product command consolidation
 
@@ -255,4 +256,38 @@ and operator evidence keeps working. Public help and user documentation do not
 advertise them. Runtime owners remain separate and
 keep their independent bounds and final checks; consolidation does not make their
 sequential observations atomic. It adds no browser opener, profile activation,
-provider proof, authority expansion or R7-I/O/H credit.
+provider proof, authority expansion or R7-I/O/H credit by itself.
+
+## R7-12 installed technical rendered observation
+
+R7-I requires the installed command to capture its invoking session rather than
+synthetic context and open only that session's authorized snapshot. At source commit
+`7b673a65785597c4a42ebec3fa8d5a8c2271c683`, an explicitly authorized fresh Pi
+invoked the current-profile façade while the original owner session remained selected.
+The live ABI2 route consumes that command's `ExtensionContext`, samples public
+invocation metadata and conditionally associates its owner projection receipt before
+final binding/authority checks; it has no `local/**` or ambient synthetic-context
+fallback. The command did not open a browser automatically. An
+owned background browser then loaded the capability-scoped frozen handoff at a
+1272×902 CSS-pixel viewport and at 200% browser zoom (636×451). At 200%, computed
+shell and hero width was 604 CSS pixels, with the heading and lede contained inside
+their content boxes.
+
+Source/browser inspection observed one main landmark, sequential h1/h2 sections,
+labelled native navigation links, captioned tables with scoped row and column
+headers, named focusable overflow regions and a synthetic `:focus-visible` result
+of a 3px solid accent outline with 3px offset. Declared solid text/background pairs
+measured above their applicable WCAG AA thresholds. The page remained script-free
+and remote-asset-free; known browser sessions closed, explicit Palace close revoked
+the viewer, the temporary Pi exited and only its owned pane was removed.
+
+An owned 400% session could not establish document stability, so this is not
+320px/400%, real keyboard table-scrolling, accessibility-tree/screen-reader,
+active-change/stale/shutdown, provider, longitudinal, resource/RAM or human visual
+acceptance evidence. The roadmap's ten equal Palace outcomes credit this installed
+journey for invoking-session context, committed structure, first-parent identity/time
+history, immutable transport and explicit close/revocation: 50%. A matching current
+projection receipt (outcome 2) and the four later outcomes (7–10) remain
+unestablished. R7-I is boundedly complete; R7-O/H remain open. Unrounded evidence
+moves to 38.875 while the displayed
+75% source / 40% evidence bands remain unchanged.
