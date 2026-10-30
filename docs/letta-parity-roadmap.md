@@ -60,16 +60,18 @@ performance, learning quality or human acceptance.
 
 The live ABI1/ABI2 product has substantial authority, projection and writer
 infrastructure. The local Git/worktree, trajectory, model-worker, projection,
-forgetting, migration and Palace experiments remain disconnected from installed
-routing. Synthetic completion is not an installed end-to-end product. The checkpointed
-Palace context DTO is a partial repair with fixture/unavailable context, not
-command-time capture from the invoking session. `/mh-memory palace` remains a
-bounded JSON diagnostic. Mahiro accepted the roadmap direction on 2026-10-30
-and authorized continued repository write/test/checkpoint execution. R0–R7 source
-milestones and R8 source audit now have bounded records, not complete-product
-acceptance. R8-I/O/H remain open; Phase H continuation and Phase I remain paused
-until their own gates pass. R8's security execution boundary supersedes ordinary
-check instructions for this pass: no tests, builds, formatters or target checks ran.
+forgetting, migration and synthetic Palace experiments remain disconnected from
+installed routing. Synthetic completion is not an installed end-to-end product.
+Later ABI2 source checkpoints add command-time context, owner-certified committed
+structure, bounded identity/time history and a separate immutable metadata HTML
+handoff outside `local/**`; their invocation association remains non-atomic and
+no current-profile installation/rendered acceptance is claimed. `/mh-memory palace`
+remains the bounded JSON diagnostic. Mahiro accepted the roadmap direction on
+2026-10-30 and authorized continued repository write/test/checkpoint execution.
+R0–R7 source milestones and R8 source audit have bounded records, not
+complete-product acceptance. R7-I/O/H and R8-I/O/H remain open; Phase H acceptance
+and Phase I remain paused until their own gates pass. The R8 security-audit pass
+itself ran source review only; later scoped source fixtures are separate evidence.
 
 ## Scoring method
 
@@ -510,6 +512,17 @@ scoring is above. Phase H stays paused/unaccepted.
   history, grafts, replacement refs or final binding drift refuses. Endpoint checks
   are sequential, not atomic/ABA-proof. No replay registry, HTML route, `local/**`
   authority or model action is added; R7-I/O/H remain open.
+- [x] **R7-09 source-only immutable HTML handoff** `/mh-memory palace-html` builds
+  one allowlisted/frozen 48 KiB ABI2 metadata DTO and at most 256 KiB static page
+  from the existing committed structure, invocation metadata and exact offset-zero
+  history page. A runtime-owned 10-minute `127.0.0.1:0` capability server serves
+  frozen bytes only after per-request authority/revision/config/digest/history/branch
+  revalidation; denial, drift, new work, writes, navigation, shutdown, replacement,
+  explicit close or expiry revoke it and close the transport. Current validation is
+  aborted and late results are generation-fenced. GET/HEAD, Host/path/body/origin
+  and CSP/privacy headers are bounded; no browser opener, files, bodies/diffs, replay,
+  `local/**`, profile/installer/kernel or Phase I change is included. Focused source
+  fixtures are not R7-I/O/H, provider, rendered or human evidence.
 - [ ] **R7-I** Explicitly authorized installed command captures the invoking
   session rather than synthetic context and opens only its authorized snapshot.
 - [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data

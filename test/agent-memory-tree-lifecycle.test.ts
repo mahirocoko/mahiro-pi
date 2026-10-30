@@ -70,6 +70,8 @@ function fixture() {
   let systemPrompt: unknown = 'Synthetic effective prompt'
   const ctx = {
     cwd,
+    mode: 'tui',
+    hasUI: true,
     sessionManager: manager,
     isIdle: () => idle,
     model: { provider: 'openai', id: 'synthetic-model' },
@@ -363,6 +365,67 @@ test('ABI2 Palace context observes real Palace and rejects sampling races withou
       await writer
       await f.close()
     }
+  }
+})
+
+test('ABI2 Palace HTML serves one frozen page and revokes on authority or new work', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    const opened = await f.runtime.openPalaceViewer(f.ctx)
+    assert.equal(opened.kind, 'abi2-palace-html-viewer')
+    assert.equal(opened.atomic, false)
+    assert.match(opened.url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/)
+    const response = await fetch(opened.url)
+    assert.equal(response.status, 200)
+    const html = await response.text()
+    assert.match(html, /Committed memory, frozen for review/)
+    assert.doesNotMatch(html, /SYNTHETIC_TREE_CORE|Synthetic effective prompt|memory-tree-/)
+    assert.equal(f.runtime.status().palaceViewer, 'open')
+
+    f.setGranted(false)
+    const stale = await fetch(opened.url)
+    assert.equal(stale.status, 409)
+    assert.notEqual(f.runtime.status().palaceViewer, 'open')
+    f.setGranted(true)
+
+    const replacement = await f.runtime.openPalaceViewer(f.ctx)
+    assert.equal(f.runtime.status().palaceViewer, 'open')
+    await f.emit('input', { text: 'new work', source: 'interactive' })
+    assert.equal(f.runtime.status().palaceViewer, undefined)
+    await assert.rejects(fetch(replacement.url))
+
+    const closeResult = await f.runtime.closePalaceViewer()
+    assert.equal(closeResult.closed, false)
+    const nonTui = { ...(f.ctx as unknown as Record<string, unknown>), mode: 'print', hasUI: false }
+    await assert.rejects(f.runtime.openPalaceViewer(nonTui as unknown as ExtensionContext), /TUI/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('ABI2 Palace HTML opening is abortable and joined before it can publish a server', async () => {
+  const f = fixture()
+  const reached = deferred()
+  const release = deferred()
+  try {
+    await f.emit('session_start')
+    f.authorize(async () => {
+      reached.resolve()
+      await release.promise
+    })
+    const opening = f.runtime.openPalaceViewer(f.ctx)
+    const rejected = assert.rejects(opening)
+    await reached.promise
+    const closing = f.runtime.closePalaceViewer()
+    release.resolve()
+    assert.equal((await closing).closed, true)
+    await rejected
+    assert.equal(f.runtime.status().palaceViewer, undefined)
+  } finally {
+    release.resolve()
+    await f.close()
   }
 })
 

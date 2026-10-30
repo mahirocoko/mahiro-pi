@@ -140,6 +140,14 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
       if (mode !== 2) throw Error('ABI2 Palace context unavailable')
       return experimental.capturePalaceContext(ctx)
     },
+    openPalaceViewer: (ctx: ExtensionContext) => {
+      if (mode !== 2) throw Error('ABI2 Palace HTML unavailable')
+      return experimental.openPalaceViewer(ctx)
+    },
+    closePalaceViewer: () => {
+      if (mode !== 2) throw Error('ABI2 Palace HTML unavailable')
+      return experimental.closePalaceViewer()
+    },
     cancel: () => selected().cancel(),
     startWriter: (...args: Parameters<typeof legacy.startWriter>) => selected().startWriter(...args),
     status: () => selected().status(),

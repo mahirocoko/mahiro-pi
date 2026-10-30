@@ -263,6 +263,8 @@ test('memory help identifies Palace as JSON-only diagnostics and distinguishes A
     assert.match(help, /palace-history \[offset\]/)
     assert.match(help, /commit identity and UTC time only/)
     assert.match(help, /not a Git browser/)
+    assert.match(help, /palace-html starts one immutable ten-minute ABI2 metadata page/)
+    assert.match(help, /does not open a browser, expose bodies\/diffs, or provide replay/)
     assert.doesNotMatch(help, /doctor runs health, budget and link checks/)
   } finally {
     f.close()
@@ -275,6 +277,8 @@ test('memory context command refuses ABI1 without fallback or storage mutation',
     await f.emit('session_start')
     const revision = f.store.snapshot().revision
     const notifications: string[] = []
+    f.ctx.mode = 'tui'
+    f.ctx.hasUI = true
     f.ctx.ui = { notify: (text: string) => notifications.push(text) }
     await f.commands.get('mh-memory').handler('context', f.ctx)
     assert.match(notifications.at(-1)!, /reason: unknown/)
@@ -284,6 +288,12 @@ test('memory context command refuses ABI1 without fallback or storage mutation',
     assert.match(notifications.at(-1)!, /Usage: .*no arguments/)
     await f.commands.get('mh-memory').handler('palace-history', f.ctx)
     assert.match(notifications.at(-1)!, /reason: unknown/)
+    await f.commands.get('mh-memory').handler('palace-html', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    await f.commands.get('mh-memory').handler('palace-html close', f.ctx)
+    assert.match(notifications.at(-1)!, /reason: unknown/)
+    await f.commands.get('mh-memory').handler('palace-html extra', f.ctx)
+    assert.match(notifications.at(-1)!, /Usage: .*palace-html \[close\]/)
     for (const args of [
       'palace-history -1',
       'palace-history 01',

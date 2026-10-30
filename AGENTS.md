@@ -128,6 +128,18 @@ dated source records, not current installation instructions.
   synthetic service and is not live authority. `/mh-memory palace`
   stays JSON-only. Extension, kernel, installer, and profile code do not import
   it. It does not publish, select installation, or switch live authority.
+  The separate installed-path ABI2 metadata handoff is owned by
+  `lib/agent-memory/palace-handoff.ts` and rendering-only `lib/palace-render/`.
+  It must not import `lib/agent-memory/local/**`, receive roots/Git/file readers,
+  or grow document/diff/mutation routes. It may render only the bounded
+  owner-certified structure, invocation metadata and offset-zero identity/time
+  history supplied by the live ABI2 runtime. Preserve frozen bytes, explicit
+  non-atomic association, per-request authority/digest revalidation, one runtime
+  lifetime owner, bounded transport close with abort- and generation-fenced late
+  validation, and capability-scoped `127.0.0.1:0` GET/HEAD-only transport with
+  strict Host/body/origin/CSP/privacy controls.
+  Browser opening, profile activation/reload, replay registries, Phase I and human
+  acceptance remain separate scopes.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
   Preserve their authored route/lock/tool contracts; only the canonical installed
   managed-memory-writer model/thinking slots may vary through explicit paired

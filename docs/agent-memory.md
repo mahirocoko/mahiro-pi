@@ -1125,3 +1125,42 @@ no model-callable management action, HTML/HTTP route, `local/**` authority, prof
 activation or Phase I wiring. Source and disposable SDK evidence remain a
 prerequisite only; provider-backed, rendered, longitudinal and Mahiro-owned R7
 acceptance remain open.
+
+## R7-09 source-only immutable Palace HTML handoff
+
+`/mh-memory palace-html` is an ABI2-only TUI command in source. It does not use or
+import the disconnected `lib/agent-memory/local/**` Palace. One idle-primary
+operation captures the existing owner-certified committed structure, public
+invocation metadata and exactly the offset-zero eight-row knowledge-history page,
+then checks revision, config, branch, writer/draft state, generation, binding and
+current read authority. The combined association remains explicitly non-atomic;
+provider prompt consumption, category token accounting, lifecycle, bodies, diffs,
+authors, subjects, changed paths and replay remain unavailable.
+
+The allowlisted handoff DTO is deeply copied/frozen and bounded to 48 KiB. Its
+static semantic HTML is bounded to 256 KiB, contains no script or remote asset,
+and exposes only invocation metadata, returned committed structure and the latest
+bounded first-parent identity/time rows. The runtime serves those exact frozen
+bytes for at most ten minutes on one random capability path at `127.0.0.1:0`.
+It does not open a browser or write an HTML file. Only exact Host + capability
+GET/HEAD requests without a body are accepted. CSP uses one fixed inline-style
+hash with `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`,
+`img-src 'none'` and `font-src 'none'`; responses also disable caching, referrers,
+framing, MIME sniffing and unused camera/location/microphone features. There is no
+CORS grant, cookie, JSON/document route, remote host or mutation control.
+
+Every valid retrieval reauthorizes the current ABI2 owner and rechecks the captured
+revision/config, committed structure/snapshot digests, exact offset-zero history,
+branch, idle state and authority. It never rerenders from newer data. Drift or
+denial returns a generic unavailable response and revokes the viewer; new agent
+work, compaction, memory mutation/writer admission, navigation, shutdown,
+replacement, explicit `/mh-memory palace-html close` and expiry also revoke it and
+close its transport. Timeout/close aborts current validation and generation-fences
+late results; arbitrary third-party Promise work is not claimed to be synchronously
+cancellable. A URL already delivered to a browser cannot be retroactively erased, and another
+same-user process holding that URL is outside the loopback bearer contract.
+
+This is source implementation and focused fixture evidence only. No current-profile
+installation/reload, browser opening, rendered review, provider-backed inference,
+longitudinal observation, Phase I wiring or Mahiro visual/product/RAM acceptance is
+claimed; R7-I/O/H remain open.

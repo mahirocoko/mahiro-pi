@@ -35,9 +35,18 @@ focused source fixtures (not an installed/provider/browser acceptance probe):
 node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-local-invocation.test.ts test/agent-memory-local-palace.test.ts test/agent-memory-local-projection.test.ts test/agent-memory-local-forgetting.test.ts
 ```
 
-The current HTML remains per-request fixture/synthetic; service captures alone are
-head/policy-pinned. Knowledge history has no new HTTP route; lifecycle DTOs remain
-separate. Source checks do not complete R7-I/O/H or unpause Phase H.
+The disconnected HTML remains per-request fixture/private-shadow with separate
+lifecycle/document owners. The later ABI2 metadata handoff has its own focused
+source fixtures and does not import that service:
+
+```sh
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-palace-handoff.test.ts test/palace-immutable-server.test.ts test/agent-memory-tree-lifecycle.test.ts test/agent-memory-runtime.test.ts
+```
+
+These tests cover the frozen DTO/renderer, capability-scoped immutable server,
+runtime authority/lifecycle revocation and command/ABI1 grammar. They do not open
+a browser, mutate a current profile, prove provider consumption, complete R7-I/O/H
+or establish Mahiro visual/product/RAM acceptance.
 
 Heavy tiers require explicit scope and run serially:
 

@@ -23,7 +23,11 @@ import type { TurnEpisode } from './store.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
 import { buildMemoryInvocationContext, type MemoryProjectionReceipt } from './invocation-context.ts'
-import { buildPalaceDiagnostic } from './palace-diagnostic.ts'
+import { buildPalaceDiagnostic, type PalaceDiagnostic } from './palace-diagnostic.ts'
+import { buildPalaceHandoff, type PalaceHandoff } from './palace-handoff.ts'
+import type { KnowledgeHistory } from './knowledge-history.ts'
+import { abi2PalaceStyle, renderAbi2PalacePage } from '../palace-render/abi2-page.ts'
+import { startImmutablePalaceServer, type ImmutablePalaceServer } from '../palace-render/immutable-server.ts'
 
 interface RuntimeBinding {
   manager: ExtensionContext['sessionManager']
@@ -84,6 +88,38 @@ interface PendingEpisode {
   toolCalls: Set<string>
 }
 const registry = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
+const palaceViewerTtlMs = 10 * 60 * 1000
+const viewerReadActions = new Set(['status', 'doctor', 'palace', 'migration-export', 'offline-inspect'])
+
+interface PalaceViewerCapture {
+  handoff: PalaceHandoff
+  token: number
+  binding: RuntimeBinding
+  admission: number
+  branch: string[]
+  project: string
+  revision: string
+  configHash: string
+  structureDigest: string
+  snapshotDigest: string
+  historyJson: string
+}
+
+interface PalaceViewer {
+  serial: number
+  server: ImmutablePalaceServer
+  timer: NodeJS.Timeout
+  abort: AbortController
+  capture: PalaceViewerCapture
+  revoked: boolean
+}
+
+interface PalaceViewerOpening {
+  abort: AbortController
+  server?: ImmutablePalaceServer
+  done: Promise<void>
+  finish(): void
+}
 
 export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   let epoch = 0
@@ -123,15 +159,41 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   let releaseController: (() => void) | undefined
   let unregisterRetire: (() => void) | undefined
   let bindingSerial = 0
+  let viewerSerial = 0
+  let viewerOpening: PalaceViewerOpening | undefined
+  let viewer: PalaceViewer | undefined
   let treeResume:
     | (RuntimeBinding & { serial: number; token: number; drained: Promise<void>; ready: boolean })
     | undefined
   const nodes = () => (globalThis as Record<symbol, Map<string, MemoryNode>>)[registry]
+  const closeActiveViewer = async (): Promise<boolean> => {
+    viewerSerial++
+    const own = viewer
+    viewer = undefined
+    if (!own) return false
+    clearTimeout(own.timer)
+    own.abort.abort()
+    await own.server.close()
+    return true
+  }
+  const closeViewer = async (): Promise<boolean> => {
+    const opening = viewerOpening
+    if (opening) {
+      viewerOpening = undefined
+      opening.abort.abort()
+      viewerSerial++
+    }
+    const closed = await closeActiveViewer()
+    if (opening?.server) await opening.server.close()
+    if (opening) await opening.done
+    return closed || Boolean(opening)
+  }
   const retire = (): Promise<void> => {
     // Even an already-draining terminal transition revokes pending tree/start rebinds.
     bindingSerial++
     treeResume = undefined
     if (retirement) return retirement
+    const viewerDrain = closeViewer()
     epoch++
     admissionSerial++
     active = false
@@ -156,6 +218,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     releaseRuntime = releaseController = unregisterRetire = undefined
     retirement = (async () => {
       // A retired owner can only join native work/close handles, never finish publication.
+      await viewerDrain
       await lifetime.drain()
       if (engine) await engine.close() // data child LAST, after all parent continuations
       controllerRelease?.()
@@ -471,7 +534,273 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     assertCurrent(f.context)
     return result
   }
+  const capturePalaceViewer = async (
+    ctx: ExtensionContext,
+    signal: AbortSignal,
+  ): Promise<PalaceViewerCapture> => {
+    if (signal.aborted || !ctx.isIdle() || starting || job || draft)
+      throw Error('Idle ABI2 primary Palace viewer required')
+    const exactBranch = await branch(ctx)
+    const token = epoch
+    const ownBinding = binding
+    const serial = admissionSerial
+    const f = await resolve(ctx, 'agent_memory_manage', 'read', signal)
+    if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || !ownBinding || ownBinding !== binding)
+      throw Error('Primary Palace viewer required')
+    const current = f.context.current
+    f.context.current = (targets) => !signal.aborted && serial === admissionSerial && current(targets)
+    const status = await f.request('status', {})
+    const palace = await f.request('palaceStructure', {
+      project: f.project,
+      expectedConfigHash: f.configHash,
+    })
+    const history = await f.request('knowledgeHistory', {
+      project: f.project,
+      expectedRevision: status.revision,
+      expectedConfigHash: f.configHash,
+      offset: 0,
+    })
+    const receipt = projectionReceipt
+    let usage: unknown
+    let systemPrompt: unknown
+    try {
+      usage = ctx.getContextUsage()
+    } catch {
+      usage = undefined
+    }
+    try {
+      systemPrompt = ctx.getSystemPrompt()
+    } catch {
+      systemPrompt = undefined
+    }
+    const finalStatus = await f.request('status', {})
+    const finalConfig = await f.barrier()
+    const finalBranch = await branch(ctx)
+    if (finalStatus.revision !== status.revision || finalConfig.configHash !== f.configHash)
+      throw memoryFailure('CAS', 'Palace viewer binding changed during capture')
+    if (
+      signal.aborted ||
+      token !== epoch ||
+      serial !== admissionSerial ||
+      ownBinding !== binding ||
+      !ctx.isIdle() ||
+      starting ||
+      job ||
+      draft ||
+      exactBranch.length !== finalBranch.length ||
+      exactBranch.some((id, index) => id !== finalBranch[index])
+    )
+      throw memoryFailure('branch', 'Palace viewer invocation changed during capture')
+    assertCurrent(f.context)
+    const projection =
+      receipt &&
+      receipt.binding === ownBinding &&
+      receipt.token === token &&
+      receipt.project === f.project &&
+      receipt.configHash === f.configHash
+        ? {
+            revision: receipt.revision,
+            configHash: receipt.configHash,
+            capturedAt: receipt.capturedAt,
+            emittedBlockUtf8Bytes: receipt.emittedBlockUtf8Bytes,
+          }
+        : undefined
+    const context = buildMemoryInvocationContext({
+      revision: status.revision,
+      configHash: f.configHash,
+      model: ctx.model,
+      usage,
+      systemPrompt,
+      projection,
+    })
+    const diagnostic = buildPalaceDiagnostic(context, palace)
+    const handoff = buildPalaceHandoff({
+      diagnostic,
+      history,
+      expiresAt: new Date(Date.now() + palaceViewerTtlMs),
+    })
+    return {
+      handoff,
+      token,
+      binding: ownBinding,
+      admission: serial,
+      branch: [...exactBranch],
+      project: f.project,
+      revision: status.revision,
+      configHash: f.configHash,
+      structureDigest: palace.structureDigest,
+      snapshotDigest: palace.snapshotDigest,
+      historyJson: JSON.stringify(history),
+    }
+  }
+  const validatePalaceViewer = async (
+    ctx: ExtensionContext,
+    capture: PalaceViewerCapture,
+    signal: AbortSignal,
+    currentViewer: () => boolean,
+  ): Promise<boolean> => {
+    const locallyCurrent = () =>
+      currentViewer() &&
+      !signal.aborted &&
+      active &&
+      capture.token === epoch &&
+      capture.binding === binding &&
+      capture.admission === admissionSerial &&
+      ctx.isIdle() &&
+      !starting &&
+      !job &&
+      !draft
+    if (!locallyCurrent()) return false
+    try {
+      const f = await resolve(ctx, 'agent_memory_manage', 'read', signal)
+      if (
+        f.access.kind !== 'primary' ||
+        !f.abi.isPrimarySession(ctx) ||
+        f.project !== capture.project ||
+        f.configHash !== capture.configHash ||
+        !locallyCurrent()
+      )
+        return false
+      const original = f.context.current
+      f.context.current = (targets) => locallyCurrent() && original(targets)
+      const status = await f.request('status', {})
+      if (status.revision !== capture.revision) return false
+      const palace = await f.request('palaceStructure', {
+        project: capture.project,
+        expectedConfigHash: capture.configHash,
+      })
+      if (
+        palace.revision !== capture.revision ||
+        palace.structureDigest !== capture.structureDigest ||
+        palace.snapshotDigest !== capture.snapshotDigest
+      )
+        return false
+      const history = await f.request('knowledgeHistory', {
+        project: capture.project,
+        expectedRevision: capture.revision,
+        expectedConfigHash: capture.configHash,
+        offset: 0,
+      })
+      if (JSON.stringify(history) !== capture.historyJson) return false
+      const finalStatus = await f.request('status', {})
+      const finalConfig = await f.barrier()
+      const finalBranch = await branch(ctx)
+      if (
+        finalStatus.revision !== capture.revision ||
+        finalConfig.configHash !== capture.configHash ||
+        capture.branch.length !== finalBranch.length ||
+        capture.branch.some((id, index) => id !== finalBranch[index]) ||
+        !locallyCurrent()
+      )
+        return false
+      assertCurrent(f.context)
+      return true
+    } catch {
+      return false
+    }
+  }
+  const openPalaceViewer = async (ctx: ExtensionContext) => {
+    if (ctx.mode !== 'tui' || !ctx.hasUI) throw Error('TUI Palace viewer required')
+    if (viewerOpening) throw Error('Palace viewer start already active')
+    let finishOpening!: () => void
+    const abort = new AbortController()
+    const opening: PalaceViewerOpening = {
+      abort,
+      done: new Promise<void>((resolve) => {
+        finishOpening = resolve
+      }),
+      finish: () => finishOpening(),
+    }
+    viewerOpening = opening
+    let server: ImmutablePalaceServer | undefined
+    let candidate: PalaceViewer | undefined
+    try {
+      await closeActiveViewer()
+      if (viewerOpening !== opening || abort.signal.aborted) throw Error('Palace viewer admission changed')
+      const serial = ++viewerSerial
+      const capture = await capturePalaceViewer(ctx, abort.signal)
+      const html = renderAbi2PalacePage(capture.handoff)
+      server = await startImmutablePalaceServer({
+        html,
+        style: abi2PalaceStyle,
+        validate: async (signal) => {
+          const own = candidate
+          if (!own) return false
+          const valid = await validatePalaceViewer(ctx, capture, signal, () => viewer === own && !own.revoked)
+          if (!valid && viewer === own) {
+            own.revoked = true
+            clearTimeout(own.timer)
+            own.abort.abort()
+          }
+          return valid
+        },
+      })
+      opening.server = server
+      if (viewerOpening !== opening || abort.signal.aborted) throw Error('Palace viewer admission changed')
+      const ready = await validatePalaceViewer(
+        ctx,
+        capture,
+        abort.signal,
+        () => serial === viewerSerial && !abort.signal.aborted,
+      )
+      if (!ready || serial !== viewerSerial || capture.token !== epoch || capture.binding !== binding)
+        throw Error('Palace viewer admission changed')
+      const expiresAt = Date.parse(capture.handoff.delivery.expiresAt)
+      const timer = setTimeout(
+        () => {
+          if (viewer === candidate)
+            void closeViewer().catch(() => {
+              lastError = 'palace-viewer-close-unavailable'
+            })
+        },
+        Math.max(1, expiresAt - Date.now()),
+      )
+      timer.unref()
+      candidate = { serial, server, timer, abort, capture, revoked: false }
+      const published = candidate
+      viewer = published
+      void server.closed.then(
+        () => {
+          if (viewer === published) {
+            clearTimeout(published.timer)
+            published.abort.abort()
+            viewer = undefined
+          }
+        },
+        () => {
+          if (viewer === published) {
+            clearTimeout(published.timer)
+            published.abort.abort()
+            viewer = undefined
+          }
+          lastError = 'palace-viewer-close-unavailable'
+        },
+      )
+      return {
+        version: 1 as const,
+        kind: 'abi2-palace-html-viewer' as const,
+        url: server.url,
+        captureId: capture.handoff.diagnostic.captureId,
+        revision: capture.revision,
+        expiresAt: capture.handoff.delivery.expiresAt,
+        immutable: true as const,
+        atomic: false as const,
+        replay: 'unsupported' as const,
+        closeCommand: '/mh-memory palace-html close' as const,
+      }
+    } catch (error) {
+      abort.abort()
+      if (candidate && viewer === candidate) viewer = undefined
+      if (candidate) clearTimeout(candidate.timer)
+      if (server) await server.close()
+      throw error
+    } finally {
+      if (viewerOpening === opening) viewerOpening = undefined
+      opening.finish()
+    }
+  }
   const startWriter = async (ctx: ExtensionContext, assignment?: string) => {
+    await closeViewer()
     if (starting || job) throw Error('Managed memory writer already active')
     if (assignment !== undefined && !bounded(assignment, 4096))
       throw Error('Bounded explicit memory assignment required')
@@ -1143,7 +1472,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     await reactivateTree(ctx, true)
   })
   pi.on('session_shutdown', retire)
-  pi.on('session_before_compact', (event, ctx) => {
+  pi.on('session_before_compact', async (event, ctx) => {
+    await closeViewer()
     compactionCheckpoint = `reason=${event.reason}; tokensBefore=${event.preparation?.tokensBefore ?? 'unknown'}`
     compacting = undefined
     try {
@@ -1191,6 +1521,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   })
   pi.on('before_agent_start', (event, ctx) =>
     lifetime.track(async () => {
+      await closeViewer()
       const base = event.systemPrompt.replace(
         /\n<mahiro-managed-memory>[\s\S]*?<\/mahiro-managed-memory>/g,
         '',
@@ -1245,6 +1576,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   )
   pi.on('input', (event, ctx) =>
     admit(ctx, async () => {
+      await closeViewer()
       const serial = ++admissionSerial
       job?.cancel()
       pending = undefined
@@ -1370,7 +1702,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       admit(args[2], async () => {
         const abi = pinned?.managedMemory
         const root = abi?.version === 2 ? abi.root : undefined
+        const readOnly =
+          args[0] === 'agent_memory_read' ||
+          (args[0] === 'agent_memory_manage' && viewerReadActions.has(String(actionOf(args[1]))))
         try {
+          if (!readOnly) await closeViewer()
           return await run(...args)
         } catch (error) {
           if (root) recordMemoryDiagnostic(root, 'runtime-error', { tool: args[0] }, error)
@@ -1379,6 +1715,12 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }),
     cancel: retire,
     startWriter: (...args: Parameters<typeof startWriter>) => admit(args[0], () => startWriter(...args)),
+    openPalaceViewer: (ctx: ExtensionContext) => admit(ctx, () => openPalaceViewer(ctx)),
+    closePalaceViewer: async () => ({
+      version: 1 as const,
+      kind: 'abi2-palace-html-close' as const,
+      closed: await closeViewer(),
+    }),
     captureInvocation: (ctx: ExtensionContext) =>
       admit(
         ctx,
@@ -1394,6 +1736,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       draft: draft ? 'open' : undefined,
       lastError,
       pid: primaryEngine?.pid,
+      palaceViewer: viewer ? (viewer.revoked ? 'closing' : 'open') : viewerOpening ? 'starting' : undefined,
     }),
     drain: async () => {
       if (retirement) await retirement

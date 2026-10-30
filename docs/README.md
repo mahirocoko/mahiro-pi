@@ -19,7 +19,7 @@
 - [RTK](rtk.md) — modes, resolver bounds and guarded failure behavior.
 - [Memory and historical recall](agent-memory.md) — live ABI1/ABI2 maintained knowledge, discovery,
   editable starter, ordinary engine, readiness/policy limits, scoped writing,
-  conflict recovery and separate quotation controls. The
+  conflict recovery, bounded ABI2 metadata diagnostics/HTML handoff and separate quotation controls. The
   [experimental local Git/worktree service](agent-memory.md#experimental-local-gitworktree-service)
   is synthetic-only and is not the installed engine.
 - [Letta parity roadmap](letta-parity-roadmap.md) — current maintained-memory parity/status,

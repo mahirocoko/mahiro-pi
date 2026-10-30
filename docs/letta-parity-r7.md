@@ -4,12 +4,14 @@
 
 ## Scope and evidence boundary
 
-R7-01–05 have a bounded source specification and synthetic service implementation,
-not an installed invocation collector. R7-S is focused source/synthetic evidence,
-not a full latest-Letta differential or rendered acceptance. R7-I/O/H remain open.
-Phase H is paused/unaccepted; Phase I is not authorized. Scores stay **60% source**
-and **30% evidence-backed end-to-end**. No installer, profile, private corpus,
-provider, browser, remote transport or live command is involved.
+R7-01–05 retain the disconnected synthetic service contract. Later bounded ABI2
+source slices add command-time context, committed structure, identity/time-only
+history and an immutable metadata HTML handoff outside `lib/agent-memory/local/**`.
+They do not establish current-profile installation, provider consumption, rendered
+acceptance or Phase I. R7-I/O/H remain open. The dated **60% source / 30%
+evidence-backed** statement belongs to the original R7 checkpoint; current scoring
+remains owned by the roadmap and is not recalculated here. No private corpus,
+provider, remote transport, profile activation or browser opening is authorized.
 
 ## 2026-10-30 ABI2 invocation-diagnostic follow-up
 
@@ -93,19 +95,29 @@ forgetting is not secure Git-history erasure or retroactive browser erasure.
 
 ## HTML and transport boundary
 
-The current HTML preview is fixture/synthetic and per-request; it does **not**
-use the new envelope to pin an installed invocation. Its History view now names
-separate **Knowledge history** (explicitly unavailable in HTML) and **Lifecycle
-history** sections. Existing `snapshot.history` keeps its lifecycle/publication/
-detached semantics unchanged. No history/diff HTTP route or asynchronous callback
-was added. Thus no raw diff is interpolated into HTML; any future renderer must
-escape all metadata, paths and diff text with the existing escaping owner.
+Two HTML owners remain deliberately separate:
 
-Exact Host/capability validation, GET/HEAD only, no request bodies/CORS/cookies,
-loopback binding, restrictive CSP including `img-src 'none'`, fixed font assets,
-route/output bounds, callback abort/generation and shutdown drain remain owned by
-the existing server. There are no mutation controls or arbitrary file routes.
-The installed `/mh-memory palace` remains the bounded JSON diagnostic.
+- `lib/agent-memory/local/**` retains its fixture/private-shadow, per-request
+  synthetic preview with document/corpus callbacks and lifecycle-oriented views.
+  Extension, kernel, installer and profile code still do not import it.
+- The later source-only ABI2 handoff uses `lib/palace-render/**` with one frozen,
+  metadata-only page. It receives no root, Git handle, file reader, document
+  callback or disconnected-service DTO.
+
+The ABI2 page renders only invocation metadata, returned committed structure and
+one eight-row first-parent identity/time page. It has no JavaScript, remote asset,
+font, diff/body route, JSON API, lifecycle tab, replay control or mutation control.
+Every metadata string is escaped. Semantic headings, landmarks, definition lists
+and tables remain keyboard-scrollable at narrow widths. This is not visual parity
+with the disconnected four-view Palace and is not Mahiro acceptance.
+
+The new transport binds only `127.0.0.1:0` and generates one 32-byte base64url
+capability path. It requires exact Host/path, accepts only GET/HEAD without a body,
+refuses foreign Origin/cross-site Fetch Metadata, and grants no CORS or cookies.
+A hash-only fixed style CSP keeps `default-src`, scripts, connections, images,
+fonts, workers and objects denied. `no-store`, `no-referrer`, `nosniff`, frame
+denial, same-origin resource policy and disabled unused permissions accompany each
+response. Requests, headers, URL length and validation concurrency are bounded.
 
 ## Focused verification and remaining gates
 
@@ -188,3 +200,34 @@ registry, arbitrary Git browser, model-callable action, HTML/history route,
 `local/**` authority, profile activation or Phase I wiring. This advances source
 and disposable installed-command evidence only; R7-I/O/H, provider, rendered,
 longitudinal and Mahiro acceptance remain open.
+
+## R7-09 source-only immutable ABI2 metadata viewer
+
+`/mh-memory palace-html` and `/mh-memory palace-html close` form a separate
+source-only handoff outside the model-callable management schema. Opening requires
+TUI mode, an idle ABI2 primary and existing `agent_memory_manage` read authority.
+One tracked operation captures current status, committed `palaceStructure`, the
+exact offset-zero `knowledgeHistory` page, public context/effective-prompt metadata
+and the applicable projection-owner receipt, then rechecks config, revision,
+branch, writer/draft state, generation, binding and authority. Cross-component
+revision/config/project identity must match. The combined association stays
+`atomic: false`; there is no replay ID or persistent capture registry.
+
+The closed DTO is allowlisted, deeply copied/frozen and at most 48 KiB. Static HTML
+is at most 256 KiB. One runtime-owned viewer replaces any predecessor and expires
+after ten minutes. Every exact capability GET/HEAD reauthorizes the owner and
+rechecks captured revision/config, structure/snapshot digests, offset-zero history,
+branch, idle state and authority. New data is never substituted into the frozen
+page. Denial/drift, new work, compaction, writes/writer admission, navigation,
+shutdown, replacement, explicit close and expiry revoke the viewer and close its
+transport. The server aborts a current validation on timeout/close and fences any
+late result by generation; it does not claim that arbitrary third-party Promise
+work is synchronously cancellable.
+
+Focused source fixtures cover DTO identity/freezing/bounds and malformed/extra-field
+refusal, escaping/semantic markup, exact Host/path/method/body/origin rules, security
+headers, byte-identical GET/HEAD delivery, concurrent-validation refusal, bounded
+transport close when validation ignores abort, authority revocation, new-work
+closure and ABI1 refusal. This does not prove installed current-profile behavior,
+browser rendering, provider-backed consumption, longitudinal reliability, same-user
+bearer resistance or Mahiro visual/product/RAM acceptance. R7-I/O/H remain open.
