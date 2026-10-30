@@ -79,11 +79,30 @@ synthesis-not-logs and future-request discoverability rather than counting files
 The [roadmap G-SKILL gate](letta-parity-roadmap.md#g-skill-admission-gate) owns
 candidate admission: user job, existing owner, disposition, preserved upstream
 contract, named deltas, trigger/refusal tests, truthful tools/authority and explicit
-scope approval. Core/deferred maintenance and bounded context diagnosis are
-candidates only. Initialization and filesystem synchronization retain existing
-owners for now; cloud/shared guidance is excluded unless separately requested.
-Skill creation remains a separate owner and grants no automatic memory-writer
-skill-mutation authority.
+scope approval. The R2 source decision on 2026-10-30 admits **zero new package
+skills**. These six job dispositions retain existing delivery owners:
+
+| Job / representative request | Disposition and delivery boundary |
+| --- | --- |
+| Compact core / "remember this correction" | Existing writer and shared package doctrine: synthesize reasons, resolve contradictions, shrink before growth and replace examples, not logs. |
+| Deferred detail / "find our rollback constraints" | Existing writer, root-bound reads and index owners: one home, request-shaped cues and future-request discovery checks; an uncued file is discoverability debt, not proof of absent storage. |
+| Initialization / "set up memory" | Existing installer/manage/docs owners: explicit initialization only for absent roots; no overwrite, personal corpus import or new setup skill. |
+| Sync/repair / "why is publication pending?" | Existing runtime/manage/recovery/docs owners: distinguish drafts, committed and published state; hosted/shared sync is excluded. A diagnosis is not repair authorization. |
+| Context diagnosis / "why was this memory not used?" | Existing source/runtime diagnostics and the [bounded procedure](agent-memory.md#curation-guidance-and-bounded-context-diagnosis): separate structural from causal evidence, require successful controls, and allow healthy, inconclusive and no-edit outcomes. No package `context-doctor` is installed or claimed. |
+| Reusable procedures / "make this a skill" | Separate native procedure/skill owner; a separately authorized proposal, not writer authoring/install authority. |
+
+The delivery gaps remain explicit: source guidance cannot prove installed
+triggers, historical projection, causal behavior or future-request utility.
+External `skill-doctor` references do not register a missing tool or delegate its
+transcript-review job to memory writers. Cloud/shared guidance is excluded unless
+separately requested. No skill-mutation authority is inherited.
+
+`agents/managed-memory-writer.md` is intentionally unchanged: installer validation
+requires descriptor byte-match except the explicitly paired model/thinking route
+slots. R2 updates shared doctrine and docs, not installed role bytes, package
+discovery, installer/profile state or selected routes. See the
+[roadmap decision](letta-parity-roadmap.md#candidate-dispositions) for adaptation
+provenance and the still-open evidence gates.
 
 ## Commit skill
 

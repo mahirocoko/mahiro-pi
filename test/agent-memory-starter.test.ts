@@ -25,3 +25,31 @@ test('curation foundations are package-owned independently of editable persona',
   assert.match(projection, /Use only root-bound agent_memory tools/)
   assert.match(projection, /ambiguous one-off does not establish an enduring preference/)
 })
+
+test('curation retains compact synthesis and request-shaped deferred discovery', () => {
+  for (const invariant of [
+    /Refine the existing subject\/principle with its reason instead of appending incident logs/,
+    /resolve contradictions against current instructions\/live owners/,
+    /Shrink-before-grow:.*within native retention rules and budgets/,
+    /at most one or two distinct contrastive examples per principle/,
+    /replace weaker examples instead of accumulating examples/,
+    /one authoritative home per subject and refine it in place/,
+    /request-shaped discovery cues/,
+    /natural future request can find it.*without already knowing the path/,
+  ])
+    assert.match(memoryCurationDoctrine, invariant)
+})
+
+test('upstream curation does not discard native evidence or grant procedural authority', () => {
+  for (const invariant of [
+    /Preserve native source IDs and supersession evidence/,
+    /do not copy upstream instructions to discard provenance/,
+    /within the same draft commit; the Lossless Retention Guard/,
+    /native procedures or a separately authorized skill proposal/,
+    /never automatic skill mutation or installation/,
+    /If selectors are unavailable in the installed runtime, report that limit/,
+    /never fabricate a missing fact or treat unavailable memory as empty/,
+  ])
+    assert.match(memoryCurationDoctrine, invariant)
+  assert.ok(Buffer.byteLength(memoryCurationDoctrine) < 6500, 'keep shared prompt guidance compact')
+})

@@ -105,7 +105,7 @@ No high-confidence installed or human claim is made by this baseline.
 | Recovery/concurrency/lifecycle | 10 | 60% | 30% | Moderate/low | Generation/drain and uncertainty preservation exist; repair-needed has no terminal recovery. | R5 proves repair/abandon, crash outcomes, root isolation and helper settlement without weakening uncertainty. |
 | Commands/migration/operator workflows | 5 | 50% | 25% | Limited/low | Shadow export/seed is not active migration, backup/restore or cutover. | R6 demonstrates distinct operator jobs, truthful state labels and tested rollback; installed proof separately cited. |
 | Palace/context/history | 10 | 40% | 20% | Limited/low | Synthetic preview and context DTO are not live invocation context or Git knowledge history. | R7 binds a read-only invocation snapshot, active-memory attribution and separate knowledge/lifecycle history. |
-| Memory skills/guidance | 10 | 60% | 30% | Moderate/low | Writer has substantial curation guidance; dedicated job delivery is uneven and admission undecided. | R2 G-SKILL job evaluations improve guidance and access without authority expansion; human longitudinal quality remains separate. |
+| Memory skills/guidance | 10 | 60% | 30% | Moderate/low | R2 selects existing guidance owners and zero new skills; installed job delivery remains unproven. | R2 G-SKILL job evaluations improve guidance and access without authority expansion; human longitudinal quality remains separate. |
 | Authority/privacy/isolation | 5 | 80% | 40% | Moderate/low | Exact-root private views and narrow tools are strong; threat models differ and live integration is absent. | R8 matrix plus R4/R5 negative installed evidence prove effective boundaries, not optional sandbox assumptions. |
 | **Overall** | **100** | **60%** | **30%** | **Limited end-to-end evidence** | **Rounded editorial weighted assessment.** | **Only cited layer evidence and fresh verification can move the baseline.** |
 
@@ -233,19 +233,23 @@ Dependencies: R0 scope and R1 discovery contract for deferred guidance. Moves:
 memory skills/guidance; projection/retrieval only with separate behavioral proof.
 Audit gaps: 21, 26, 27. Apply [G-SKILL](#g-skill-admission-gate) per candidate.
 
-- [ ] **R2-01** Evaluate the six user jobs below against existing writer, role,
+- [x] **R2-01** 2026-10-30: [six-job owner dispositions](agents.md#memory-guidance-and-selective-skill-admission) evaluate the six user jobs below against existing writer, role,
   runtime, docs and skill owners; identify delivery/trigger gaps before new files.
-- [ ] **R2-02** Review upstream guidance closely, preserving useful constraints
+- [x] **R2-02** 2026-10-30: [source adaptation record](#candidate-dispositions)
+  reviews upstream guidance closely, preserving useful constraints
   and examples. Name each minimal adaptation and why the native contract needs it;
   reject customization that weakens the original job.
-- [ ] **R2-03** Decide each candidate through G-SKILL, including existing-owner
+- [x] **R2-03** 2026-10-30: [candidate dispositions](#candidate-dispositions)
+  decide each candidate through G-SKILL, including existing-owner
   and exclude outcomes. Obtain explicit scope before creating or installing any
   skill; zero new skills is a valid result.
-- [ ] **R2-04** Specify trigger/refusal fixtures for synthesis-not-logs,
+- [x] **R2-04** 2026-10-30: [bounded diagnosis and source fixtures](agent-memory.md#curation-guidance-and-bounded-context-diagnosis)
+  plus `test/agent-memory-starter.test.ts` specify trigger/refusal fixtures for synthesis-not-logs,
   contradictions, reasons, examples, shrink-before-grow, one-home placement,
   request-shaped cues, unavailable tools and inconclusive/no-edit diagnosis.
-- [ ] **R2-S** Review guidance and negative fixtures by job, with preserved
-  upstream contracts and explicit tool/authority deltas; do not score file count.
+- [x] **R2-S** 2026-10-30: fresh source review passed the six job dispositions,
+  shared-doctrine adaptation, bounded diagnosis procedure and negative/no-edit
+  fixtures with no finding; skill count and source prose earn no installed credit.
 - [ ] **R2-I** Verify only approved guidance is discoverable at the intended job
   boundary and actual tools/routes exist; no inherited skill-mutation authority.
 - [ ] **R2-O** Observe bounded job delivery, correct refusal and useful no-edit
@@ -487,15 +491,37 @@ Apply all items to each proposed candidate; link the decision to R2 evidence.
 
 ### Candidate dispositions
 
-These are planning candidates, not authorization or claims that files exist.
+R2 source-only decision, 2026-10-30 (R2-01–04): zero new package skills.
+These dispositions apply G-SKILL to existing owners; they do not authorize skill
+creation/installation or claim installed delivery. R2-I/O/H stay open pending
+installed discovery, observed job delivery and longitudinal human evidence.
+All domain, six-job and overall scores are unchanged.
+
+Adaptation evidence: the [R0-pinned comparator](letta-parity-r0.md#mandate-and-baseline)
+`a8900b882446d7aa99fedf2845d400743affd1b6`,
+`src/skills/builtin/{maintaining-core-memory,maintaining-deferred-memory}/SKILL.md`,
+retains revision-not-log synthesis, reasons, contradictions, one/two contrastive
+examples, shrink-before-grow, one home and future-request index tracing. The
+native shared doctrine in `lib/agent-memory/guidance.ts` minimally adapts these to
+Core/index and root-bound selectors rather than upstream MEMORY.md discovery,
+config or shell/Git assumptions. Source-ID/supersession and same-commit retention
+replace advice to omit provenance; native owners or an authorized proposal replace
+automatic procedure-to-skill mutation. These deltas preserve useful outcomes
+without importing upstream prompt layout, permissions or publication semantics.
+The [bounded diagnosis procedure](agent-memory.md#curation-guidance-and-bounded-context-diagnosis)
+uses existing evidence owners, not a port or installation of `context-doctor`.
+The [six-job table](agents.md#memory-guidance-and-selective-skill-admission) records
+representative triggers, tool/authority boundaries and delivery gaps; source
+fixtures specify positive, refusal and inconclusive/no-edit cases. Descriptor
+byte-match constraints prohibit silently editing the installed writer role.
 
 | Upstream candidate | Proposed disposition | Contract to preserve / boundary |
 | --- | --- | --- |
-| `maintaining-core-memory` | Minimal adaptation candidate | Synthesis, not logs; reasons, contradictions, concrete examples and shrink-before-grow. Keep current instructions above memory. |
-| `maintaining-deferred-memory` | Minimal adaptation candidate | One home, progressive disclosure, request-shaped discovery cues and verification against future requests. |
-| `initializing-memory` | Existing agent/docs for now | Reconsider only if a recurring initialization job remains underserved; no overwrite of existing memory. |
+| `maintaining-core-memory` | Existing writer/shared doctrine owner | Synthesis, not logs; reasons, contradictions, concrete examples and shrink-before-grow. Keep current instructions above memory. |
+| `maintaining-deferred-memory` | Existing writer/read/index owners | One home, progressive disclosure, request-shaped discovery cues and verification against future requests. |
+| `initializing-memory` | Existing installer/manage/docs owners | Reconsider only if a recurring initialization job remains underserved; no overwrite of existing memory. |
 | `syncing-memory-filesystem` | Existing runtime/docs owner | Native publication/recovery truth; no hosted sync implication or second authority. |
-| `context-doctor` | Minimal adaptation candidate | Current external `skill-doctor` guidance points to an unavailable context-doctor; preserve bounded behavioral/structural diagnosis and inconclusive/no-edit outcomes, without changing that separate skill here. |
+| `context-doctor` | Existing diagnostics/docs owners | Preserve bounded structural/causal diagnosis, successful controls, discoverability-debt reporting and healthy/inconclusive/no-edit outcomes. No new skill or external `skill-doctor` change; missing historical evidence cannot establish causality. |
 | `creating-skills` | Separate owner | No automatic memory-writer authority to author/install skills. |
 | `managing-shared-memory` and cloud skills | Exclude unless separately requested | No organization repository, hosted authority or network grants by analogy. |
 

@@ -72,6 +72,53 @@ not generic filesystem writes. Style changes do not reset knowledge, alter polic
 select models or create a new store. Package-owned guidance retains procedural,
 authority and curation fundamentals separately from editable persona.
 
+## Curation guidance and bounded context diagnosis
+
+R2 source decision (2026-10-30): use the existing package-owned
+`memoryCurationDoctrine` in `lib/agent-memory/guidance.ts`, not new package skills.
+The native adaptation preserves upstream core/deferred synthesis: shrink before
+adding, replace weaker examples, keep one authoritative home per subject, and
+write request-shaped index cues. Trace a natural future request from the advertised
+indexes/selectors to deferred detail without knowing its path first. A valid path
+alone is not proof of discoverability. Native source IDs, supersession evidence,
+root-bound tools and retention rules remain required; upstream advice to omit
+provenance or move procedures into skills grants no native mutation authority.
+[Role dispositions](agents.md#memory-guidance-and-selective-skill-admission) own
+the six-job assignment; the [roadmap](letta-parity-roadmap.md#r2--selective-memory-skill-admission-and-guidance-quality)
+owns review and delivery gates.
+
+For a request to diagnose memory/context behavior, use this bounded procedure:
+
+1. Name one reported behavior, one expected outcome and the relevant request or
+   revision. Inspect only the authorized source/metadata/read surfaces needed to
+   test that claim; do not dump the corpus or transcripts.
+2. Separate **stored** knowledge, **retrieved** read results, **projected** prompt
+   input, **requested** actions and **executed** outcomes. A stored fact does not
+   prove retrieval, projection does not prove use, and a request is not execution.
+3. Separate structural checks (paths, indexes, budgets, available tools, revision
+   envelopes) from causal diagnosis of behavior. Today's state is not proof of a
+   historical prompt. Record observations, inferences and missing evidence apart.
+4. Compare a successful control request at the same relevant boundary, when
+   existing authorized evidence permits it. If either the historical input or a
+   meaningful control is missing, return **inconclusive**, not a guessed cause.
+5. Return **healthy**, a supported defect, or **inconclusive**. **No-edit** is valid
+   for healthy/inconclusive cases and when no proportional authorized repair is
+   supported. A defect report does not itself authorize a repair. Recheck the same
+   narrow defect and control after an explicitly scoped repair.
+6. Do not replay live/provider requests or run paid evaluations by default. This
+   procedure grants no profile, permission, model, skill or installed-role mutation
+   authority. An unavailable tool is a reported limit, not permission to bypass it.
+
+Source fixtures for R2-04: repeated corrections refine one reasoned principle
+instead of adding incident logs; a stronger example replaces a weaker one;
+a later "rollback" request must discover deferred deployment detail without its
+path. Refuse unavailable-tool bypass and automatic skill/profile changes. A
+missing historical projection yields inconclusive/no-edit even when current
+storage is healthy; a successful control is evidence, not permission for live
+replay. `test/agent-memory-starter.test.ts` guards the shared doctrine text against
+these specific omissions; it does not execute a model, prove future retrieval or
+establish installed/human outcomes. Those remain R2-S/I/O/H gates.
+
 ## Read and discover
 
 `agent_memory_read` has mutually exclusive modes:
