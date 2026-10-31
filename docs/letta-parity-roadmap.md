@@ -202,6 +202,12 @@ when it appears in real use.
   parity work, mandatory evidence ladders and speculative proof loops are retired.
 - 2026-10-31: Reflection scheduling follows the upstream step-count direction within
   ABI2's bounded episode and authority model; it does not claim durable transcript parity.
+- 2026-10-31: Letta's selectable reflection modes were traced at `59df542` and not
+  added. Fresh settings resolve to step-count 25; `automatic: true` already does
+  that, and `automatic: false` is off. `compaction-event` and a configurable step
+  count have no field in the seven-key config or the eleven-field policy identity.
+  A paired compaction boundary still only admits an episode. It does not launch a
+  writer, and this lane does not change that.
 - Open questions should be resolved when they block a concrete implementation, not
   expanded into a standalone audit phase.
 

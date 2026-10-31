@@ -382,6 +382,17 @@ outstanding sum from the episode files again. Files without `assistantSteps`
 stay zero. `automatic: false` does not start this schedule. An explicit reflect
 still runs immediately and still reads the oldest unreviewed episodes.
 
+Letta can persist `off`, `step-count`, or `compaction-event`, and a positive
+integer step count, in global, project, and per-agent settings. This root does
+not. `config.json` stays the seven-key version-1 object, and policy evidence
+stays the eleven-field identity whose only switch is `automatic`. Absent any
+new field, `automatic: false` is off and `automatic: true` is the fixed 25-step
+schedule. A paired `session_before_compact` / `session_compact` boundary can
+admit one compaction episode while that policy is on. That admission does not
+launch a writer. A compaction-event launch, or a step count other than 25,
+needs a new exact-root field inside the same locked policy CAS. Adding it would
+change both ABI parsers and make an in-flight policy record fail closed.
+
 Curation should refine an existing subject and its reason, not append incident
 logs. Preserve useful provenance, current owners and uncertainty. An ambiguous
 one-off is not an enduring preference. Structural screening and prompt delivery
