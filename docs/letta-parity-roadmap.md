@@ -195,4 +195,3 @@ when it appears in real use.
 No generic proof gate is next. Continue direct source work against current Letta Code.
 Stop only at an actual permission boundary: private/profile mutation, live authority
 cutover, tag, release, destructive cleanup or another explicitly protected action.
-OneDee remains out of scope.
