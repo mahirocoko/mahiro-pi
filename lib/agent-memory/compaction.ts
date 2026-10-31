@@ -5,6 +5,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import { digest } from '../continuity/records.ts'
 import { compactionMetadata, observedEpisode, serializeCompactionMetadata } from './engine/episodes.ts'
+import { appendedSuffixSync, type SessionAnchor } from './session-branch.ts'
 import type { CompactionEpisode } from './store.ts'
 
 // Before/after lifecycle pairing is evidence only, never permission. No summaries or
@@ -15,11 +16,10 @@ export function compactionBoundary(
 ) {
   const manager = ctx.sessionManager
   const session = manager.getSessionId()
-  const branch = manager.getBranch()
-  if (event.signal.aborted || branch.length > 8191) throw Error('Compaction boundary unavailable')
-  const prefix = branch.map((entry) => entry.id)
-  if (new Set(prefix).size !== prefix.length) throw Error('Ambiguous compaction branch')
-  return { manager, session, prefix, reason: event.reason, willRetry: event.willRetry, signal: event.signal }
+  const leafId = manager.getLeafId()
+  if (event.signal.aborted || (leafId !== null && manager.getEntry(leafId)?.id !== leafId))
+    throw Error('Compaction boundary unavailable')
+  return { manager, session, leafId, reason: event.reason, willRetry: event.willRetry, signal: event.signal }
 }
 
 // Select metadata only. Never serialize/hash the full native entry: it contains summary,
@@ -39,20 +39,21 @@ export function compactionObservation(
     event.willRetry !== boundary.willRetry
   )
     throw Error('Unpaired compaction event')
-  const entries = manager.getBranch()
-  if (
-    entries.length !== boundary.prefix.length + 1 ||
-    entries.length > 8192 ||
-    !boundary.prefix.every((id, index) => entries[index]?.id === id) ||
-    new Set(entries.map((entry) => entry.id)).size !== entries.length
-  )
-    throw Error('Compaction branch changed or append ambiguous')
-  const entry = entries.at(-1)!
+  const anchor: SessionAnchor = {
+    manager: boundary.manager,
+    sessionId: boundary.session,
+    leafId: boundary.leafId,
+  }
+  // Exactly one appended entry. A longer, missing, cyclic, sibling, or rewound chain is not that append.
+  const verdict = appendedSuffixSync(ctx, anchor, 1)
+  if (!verdict.ok || verdict.suffix.length !== 1) throw Error('Compaction branch changed or append ambiguous')
+  const entry = verdict.suffix[0]
+  if (!entry) throw Error('Compaction branch changed or append ambiguous')
   const reported = event.compactionEntry
   const native = manager.getEntry(reported.id)
   if (
     entry.type !== 'compaction' ||
-    entry.parentId !== (boundary.prefix.at(-1) ?? null) ||
+    entry.parentId !== boundary.leafId ||
     native?.id !== reported.id ||
     native.type !== 'compaction' ||
     native.timestamp !== reported.timestamp ||
@@ -97,18 +98,18 @@ export function compactionObservation(
     compaction,
   }
   observedEpisode({ ...identity, project: 'validation' })
-  const prefix = entries.map((value) => value.id)
   return {
     episode: (project: string): CompactionEpisode => ({ ...identity, project }),
     current: () => {
       if (ctx.sessionManager !== manager || manager.getSessionId() !== session || boundary.signal.aborted)
         return false
-      const branch = manager.getBranch()
-      const leaf = branch.at(-1)
+      const now = appendedSuffixSync(ctx, anchor, 1)
+      const leaf = now.ok ? now.suffix[0] : undefined
       return (
-        branch.length === prefix.length &&
-        prefix.every((id, index) => branch[index]?.id === id) &&
+        now.ok &&
+        now.suffix.length === 1 &&
         leaf?.type === 'compaction' &&
+        leaf.id === entry.id &&
         leaf.timestamp === identity.observedAt &&
         leaf.parentId === compaction.parentId &&
         leaf.firstKeptEntryId === compaction.firstKeptEntryId &&

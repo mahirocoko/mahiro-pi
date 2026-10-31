@@ -6,6 +6,7 @@ import test from 'node:test'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
+import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
 
@@ -68,11 +69,18 @@ function fixture(commandSurface = false) {
       tools.push(tool as (typeof tools)[number])
     },
   } as unknown as ExtensionAPI
-  const branch = [{ id: 'a' }, { id: 'b' }]
+  const branch: { id: string; parentId?: string | null; type?: string; timestamp?: string }[] = [
+    { id: 'a', parentId: null },
+    { id: 'b', parentId: 'a' },
+  ]
   const manager = {
     getSessionId: () => 'primary',
     getLeafId: () => branch.at(-1)?.id ?? null,
-    getBranch: () => branch,
+    getBranch: () => {
+      if (branch.length > 8192) throw Error('synthetic getBranch refused')
+      return branch
+    },
+    getEntry: (id: string) => branch.find((entry) => entry.id === id),
     getHeader: () => ({ type: 'session', id: 'primary' }),
     getSessionFile: () => undefined,
   }
@@ -426,22 +434,150 @@ test('public status adds a bounded capacity subtype when ABI2 storage status is 
   }
 })
 
-test('public status diagnoses branch capacity without traversing the oversized branch again', async () => {
+const longBranch = (
+  branch: { id: string; parentId?: string | null; type?: string; timestamp?: string }[],
+) => {
+  branch[0] = { ...branch[0], parentId: null }
+  for (let index = 1; index < branch.length; index++)
+    branch[index] = { ...branch[index], parentId: branch[index - 1]?.id ?? null }
+  while (branch.length < 8194)
+    branch.push({
+      id: `branch-${branch.length}`,
+      parentId: branch.at(-1)?.id ?? null,
+      type: 'message',
+      timestamp: 't',
+    })
+}
+const duringConfig = async (mutate: () => void, body: () => Promise<void>) => {
+  const original = MemoryEngineController.prototype.request
+  let pending = true
+  MemoryEngineController.prototype.request = async function (this: MemoryEngineController, ...args) {
+    if (pending && args[0] === 'config') {
+      pending = false
+      mutate()
+    }
+    return original.apply(this, args)
+  }
+  try {
+    await body()
+  } finally {
+    MemoryEngineController.prototype.request = original
+  }
+}
+
+test('public status reads a long session from the leaf without calling getBranch', async () => {
   const f = fixture(true)
   try {
-    for (let index = f.branch.length; index < 8193; index++) f.branch.push({ id: `branch-${index}` })
+    longBranch(f.branch)
+    assert.throws(() => f.ctx.sessionManager.getBranch(), /getBranch refused/)
     await f.emit('session_start')
     const command = f.commands.get('mh-memory')
     assert.ok(command)
     await command.handler('status', f.ctx)
     const status = JSON.parse(f.notifications.at(-1)!)
-    assert.equal(status.storage, 'unavailable')
-    assert.equal(status.storageReason, 'capacity')
-    assert.equal(status.storageCapacity.kind, 'abi2-capacity-diagnostic')
-    assert.equal(status.storageCapacity.classification, 'non-namespace-status-capacity')
-    assert.deepEqual(status.storageCapacity.blockers, { status: [], doctor: [], admission: [] })
-    assert.equal(status.storageCapacity.corpusReturned, false)
-    assert.doesNotMatch(JSON.stringify(status), /branch-8192|memory-tree-|\.views/)
+    assert.equal(status.storage, 'authorized')
+    assert.equal(Object.hasOwn(status, 'storageCapacity'), false)
+    assert.equal(f.branch.length, 8194)
+    assert.doesNotMatch(JSON.stringify(status), /branch-8193|memory-tree-|\.views/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('public status accepts one appended child and rejects a sibling, rewind, or revoked grant', async () => {
+  for (const change of ['append', 'sibling', 'rewind', 'revocation'] as const) {
+    const f = fixture(true)
+    try {
+      longBranch(f.branch)
+      const before = f.branch.length
+      await f.emit('session_start')
+      const command = f.commands.get('mh-memory')
+      assert.ok(command)
+      await duringConfig(
+        () => {
+          const leaf = f.branch.at(-1)
+          if (change === 'append')
+            f.branch.push({ id: 'appended', parentId: leaf?.id ?? null, type: 'message', timestamp: 't' })
+          if (change === 'sibling')
+            f.branch.push({
+              id: 'sibling',
+              parentId: f.branch.at(-2)?.id ?? null,
+              type: 'message',
+              timestamp: 't',
+            })
+          if (change === 'rewind') f.branch.pop()
+          if (change === 'revocation') f.setGranted(false)
+        },
+        () => command.handler('status', f.ctx),
+      )
+      const status = JSON.parse(f.notifications.at(-1)!)
+      if (change === 'append') {
+        assert.equal(status.storage, 'authorized')
+        assert.equal(f.branch.length, before + 1)
+      } else {
+        assert.equal(status.storage, 'unavailable')
+        assert.equal(Object.hasOwn(status, 'storageCapacity'), false)
+        assert.equal(
+          f.branch.length,
+          change === 'sibling' ? before + 1 : change === 'rewind' ? before - 1 : before,
+        )
+      }
+      assert.doesNotMatch(JSON.stringify(status), /branch-8193|memory-tree-|\.views/)
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('exact invocation capture on a long session rejects a moved leaf', async () => {
+  const childOfLeaf = (
+    branch: { id: string; parentId?: string | null; type?: string; timestamp?: string }[],
+  ) => {
+    const leaf = branch.at(-1)
+    assert.ok(leaf)
+    branch.push({ id: 'child', parentId: leaf.id, type: 'message', timestamp: 't' })
+  }
+  for (const change of ['same', 'sibling', 'rewind', 'append'] as const) {
+    const f = fixture(true)
+    try {
+      longBranch(f.branch)
+      await f.emit('session_start')
+      await f.emit('before_agent_start', { systemPrompt: 'Base' })
+      f.setUsage(() => {
+        if (change === 'sibling')
+          f.branch.push({
+            id: 'sibling',
+            parentId: f.branch.at(-2)?.id ?? null,
+            type: 'message',
+            timestamp: 't',
+          })
+        if (change === 'rewind') f.branch.pop()
+        if (change === 'append') childOfLeaf(f.branch)
+        return { tokens: 320, contextWindow: 4096, percent: 7.8125 }
+      })
+      if (change === 'same') {
+        const captured = await f.runtime.captureInvocation(f.ctx)
+        assert.equal(typeof captured, 'object')
+        assert.equal(f.branch.length, 8194)
+      } else await assert.rejects(f.runtime.captureInvocation(f.ctx), /context changed during capture/)
+    } finally {
+      await f.close()
+    }
+  }
+  const f = fixture(true)
+  try {
+    longBranch(f.branch)
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await duringConfig(
+      () => childOfLeaf(f.branch),
+      () => command.handler('status', f.ctx),
+    )
+    const status = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(status.storage, 'authorized')
+    assert.equal(f.branch.at(-1)?.id, 'child')
+    assert.equal(f.branch.at(-1)?.parentId, f.branch.at(-2)?.id)
   } finally {
     await f.close()
   }
@@ -450,7 +586,15 @@ test('public status diagnoses branch capacity without traversing the oversized b
 test('public capacity fallback fails closed when idle eligibility changes during authorization', async () => {
   const f = fixture(true)
   try {
-    for (let index = f.branch.length; index < 8193; index++) f.branch.push({ id: `branch-${index}` })
+    const journal = join(f.root, '.views/.engine-v2/journal')
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < 65; index++) {
+      const hex = index.toString(16)
+      writeFileSync(
+        join(journal, `${hex.padStart(8, '0')}-0000-4000-8000-${hex.padStart(12, '0')}.json`),
+        'private-invalid-record',
+      )
+    }
     let authorizations = 0
     f.authorize(async () => {
       authorizations++
@@ -472,11 +616,19 @@ test('public capacity fallback fails closed when idle eligibility changes during
 test('public capacity fallback fails closed when the current leaf changes during authorization', async () => {
   const f = fixture(true)
   try {
-    for (let index = f.branch.length; index < 8193; index++) f.branch.push({ id: `branch-${index}` })
+    const journal = join(f.root, '.views/.engine-v2/journal')
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < 65; index++) {
+      const hex = index.toString(16)
+      writeFileSync(
+        join(journal, `${hex.padStart(8, '0')}-0000-4000-8000-${hex.padStart(12, '0')}.json`),
+        'private-invalid-record',
+      )
+    }
     let authorizations = 0
     f.authorize(async () => {
       authorizations++
-      if (authorizations === 2) f.branch[f.branch.length - 1] = { id: 'changed-leaf' }
+      if (authorizations === 2) f.branch[f.branch.length - 1] = { id: 'changed-leaf', parentId: 'a' }
     })
     await f.emit('session_start')
     const command = f.commands.get('mh-memory')

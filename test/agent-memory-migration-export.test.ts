@@ -323,7 +323,10 @@ test('full migration-export requests authorize as reads in ABI1 and ABI2', async
   const generation = {}
   const manager = {
     getSessionId: () => 'primary',
-    getBranch: () => [{ id: 'a' }],
+    getLeafId: () => 'a',
+    getBranch: () => [{ id: 'a', parentId: null }],
+    getEntry: (id: string) =>
+      id === 'a' ? { id: 'a', parentId: null, type: 'message', timestamp: 't' } : undefined,
     getSessionFile: () => undefined,
   }
   const ctx = { cwd: project, sessionManager: manager, isIdle: () => true }

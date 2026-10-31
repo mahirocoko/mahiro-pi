@@ -101,6 +101,7 @@ function fixture(version: 1 | 2 = 2) {
   const siblings: any[] = []
   const manager = {
     getSessionId: () => sessionId,
+    getLeafId: () => branch.at(-1)?.id ?? null,
     getBranch: () => branch,
     getEntry: (id: string) => [...branch, ...siblings].find((entry) => entry.id === id),
     getSessionFile: () => undefined,
@@ -358,9 +359,19 @@ test('paired append resolves ancestral duplicate-summary event to leaf metadata 
     leaf.tokensBefore++
     assert.equal(observation.current(), false, 'same-ID leaf metadata mutation invalidates observation')
     leaf.tokensBefore--
+    const hiddenPrefix = f.branch[0]
     f.branch[0] = { id: 'changed-prefix' }
+    assert.equal(
+      observation.current(),
+      true,
+      'ancestry behind the anchor is not re-read; append-only links are assumed',
+    )
+    assert.doesNotThrow(() => pairedCompactionObservation(reported, f.ctx, boundary))
+    f.branch[0] = hiddenPrefix
+    const anchor = f.branch[1]
+    f.branch[1] = { id: 'missing-anchor', parentId: 'parent-one' }
     assert.throws(() => pairedCompactionObservation(reported, f.ctx, boundary), /append ambiguous/)
-    f.branch[0] = { id: 'parent-one' }
+    f.branch[1] = anchor
     const abort = new AbortController()
     abort.abort()
     assert.throws(
@@ -1015,5 +1026,33 @@ test('data-operation automatic and final target revocation are checked before pu
       await engine.close()
       await f.close()
     }
+  }
+})
+
+test('ABI2 compaction admits one append after more than 8193 historical entries', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const history = []
+    let parent: string | null = null
+    for (let index = 0; index < 8194; index++) {
+      const id = `history-${index}`
+      history.push({ id, parentId: parent, type: 'message', timestamp: 't' })
+      parent = id
+    }
+    const event = syntheticCompaction('after-history')
+    event.compactionEntry.parentId = history.at(-1)?.id ?? null
+    f.branch.splice(0, f.branch.length, ...history, event.compactionEntry)
+    let branchReads = 0
+    const original = f.ctx.sessionManager.getBranch.bind(f.ctx.sessionManager)
+    f.ctx.sessionManager.getBranch = () => {
+      branchReads += 1
+      return original()
+    }
+    await f.emit('session_compact', event)
+    assert.equal(branchReads, 1)
+    assert.equal(f.files().length, 1)
+  } finally {
+    await f.close()
   }
 })

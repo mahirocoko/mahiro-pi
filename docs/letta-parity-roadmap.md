@@ -208,6 +208,11 @@ when it appears in real use.
   count have no field in the seven-key config or the eleven-field policy identity.
   A paired compaction boundary still only admits an episode. It does not launch a
   writer, and this lane does not change that.
+- 2026-10-31: ABI2 session checks keep an operation-local leaf anchor and walk at
+  most 8192 appended parent links, 64 per yield. A leaf change during a yielded
+  chunk refuses that check. They do not call `getBranch` or freeze older
+  ancestry. Append-only parent links are a public-session assumption. Exact
+  capture still rejects a moved leaf.
 - Open questions should be resolved when they block a concrete implementation, not
   expanded into a standalone audit phase.
 

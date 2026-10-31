@@ -86,6 +86,7 @@ function fixture() {
   const branch: { id: string; type: string; parentId?: string | null; [key: string]: unknown }[] = []
   const manager = {
     getSessionId: () => 'primary',
+    getLeafId: () => branch.at(-1)?.id ?? null,
     getBranch: () => branch,
     getEntry: (id: string) => branch.find((entry) => entry.id === id),
     getHeader: () => ({ type: 'session', id: 'primary' }),
@@ -241,7 +242,12 @@ function fixture() {
     nativeEvent,
     async turn(text: string, assistantMessages: number) {
       await emit('input', { source: 'rpc', text })
-      branch.push({ id: `user-${text}`, type: 'message', message: { role: 'user', content: text } })
+      branch.push({
+        id: `user-${text}`,
+        type: 'message',
+        parentId: branch.at(-1)?.id ?? null,
+        message: { role: 'user', content: text },
+      })
       await emit('before_agent_start', { systemPrompt: 'Base' })
       for (let index = 0; index < assistantMessages; index++)
         await emit('message_end', {
@@ -382,7 +388,12 @@ test('ordinary input then before_agent_start observes the turn and can reach the
   try {
     await f.emit('session_start')
     await f.emit('input', { source: 'rpc', text: 'ordinary' })
-    f.branch.push({ id: 'user-ordinary', type: 'message', message: { role: 'user', content: 'ordinary' } })
+    f.branch.push({
+      id: 'user-ordinary',
+      type: 'message',
+      parentId: null,
+      message: { role: 'user', content: 'ordinary' },
+    })
     await f.emit('before_agent_start', { systemPrompt: 'Base' })
     await f.emit('message_end', {
       message: { role: 'assistant', content: [{ type: 'text', text: 'ordinary assistant' }] },
@@ -392,7 +403,12 @@ test('ordinary input then before_agent_start observes the turn and can reach the
     assert.equal(f.spawns.length, 0)
     assert.ok(readdirSync(join(f.root, '.episodes')).includes(`${digest('primary:user-ordinary')}.json`))
     await f.emit('input', { source: 'rpc', text: 'threshold' })
-    f.branch.push({ id: 'user-threshold', type: 'message', message: { role: 'user', content: 'threshold' } })
+    f.branch.push({
+      id: 'user-threshold',
+      type: 'message',
+      parentId: 'user-ordinary',
+      message: { role: 'user', content: 'threshold' },
+    })
     await f.emit('before_agent_start', { systemPrompt: 'Base' })
     for (let index = 0; index < 24; index++)
       await f.emit('message_end', {
@@ -582,6 +598,31 @@ test('retired runtime keeps credited steps below threshold and launches when a l
       episodeIds(f.spawns[0]?.prompt ?? '').some((episode) => episode.id === digest('primary:user-one')),
       true,
     )
+  } finally {
+    await f.close()
+  }
+})
+
+test('reflection observes one new turn after more than 8193 historical entries', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    let parent: string | null = null
+    for (let index = 0; index < 8194; index++) {
+      const id = `history-${index}`
+      f.branch.push({
+        id,
+        type: 'message',
+        parentId: parent,
+        message: { role: 'user', content: 'old' },
+      })
+      parent = id
+    }
+    f.ctx.sessionManager.getBranch = () => {
+      throw Error('getBranch refused')
+    }
+    await f.turn('after-history', 1)
+    assert.ok(readdirSync(join(f.root, '.episodes')).includes(`${digest('primary:user-after-history')}.json`))
   } finally {
     await f.close()
   }

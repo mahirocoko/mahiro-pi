@@ -203,6 +203,25 @@ loaded runtime actually advertises.
 
 `agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. The command façade is separate from that model-callable action: `/mh-memory palace` opens the immutable ABI2 metadata viewer, `/mh-memory palace close` stops it and `/mh-memory palace json` returns the bounded structural report. The experimental local preview remains a separate synthetic page and does not own this command. A hidden compatibility diagnostic reports current committed revision/config identity, bounded public Pi context estimates, effective-system-prompt byte size and the last ABI2 projection-owner output receipt; it never returns prompt/memory text, root/session paths, exact provider consumption or fabricated category accounting. A projection receipt proves owner output only. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. Public help exposes `status`, `help`, `doctor`, `palace [close|json]`, `init`, `remember <text>` and `dream`; earlier context/history/HTML checkpoint commands remain hidden aliases. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
+Ordinary ABI2 branch checks record one operation-local anchor: the manager
+object, the session id, and the leaf id. A later read follows at most 8,192
+`getEntry` parent links from the then-current leaf back to that anchor, and it
+does not call `getBranch`. `getEntry` returns the live entry. The walk copies
+the parent id it just read. It does not freeze that object or re-read ancestry
+behind the anchor. Older links are trusted because the public session contract
+is append-only, not because this check seals them. Tampering with that older
+ancestry is outside the proof. The same leaf is an empty suffix. A chain that
+still reaches the anchor stays valid when that leaf is unchanged for the whole
+check. An append that lands while a chunk is yielded changes the leaf, so this
+check may refuse it; the caller retries from a fresh anchor. A missing anchor,
+a cycle, a sibling, a rewind, a manager or session change, or a longer suffix
+is rejected. Each yielded chunk reads at most 64 links, and revocation or
+abort still fails through the existing current guard. Total history is not a capacity
+limit and is not pruned. Exact invocation, history and Palace capture require
+that same leaf. Initialization, policy, writer admission, observation and
+compaction use that same rule; compaction still admits only the one paired
+append.
+
 When ordinary ABI2 status fails specifically with `storageReason: capacity`, the
 source runtime makes one separately authorized, idle-primary read-only attempt to
 attach `storageCapacity`. The closed diagnostic scans only four private metadata

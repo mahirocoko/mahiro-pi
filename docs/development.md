@@ -46,7 +46,7 @@ node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 te
 These tests cover the frozen DTO/renderer, capability-scoped immutable server,
 runtime authority/lifecycle revocation, configurable bounded Palace validation
 (deadline success/timeout), command/ABI1 grammar and count-only ABI2 capacity
-fallback—including an already-overflowed session branch—without parsing retained
+fallback—storage-namespace overflow, not session-history length—without parsing retained
 record bodies. They do not open
 a browser, mutate a current profile, prove provider consumption, complete R7-I/O/H
 or establish Mahiro visual/product/RAM acceptance.

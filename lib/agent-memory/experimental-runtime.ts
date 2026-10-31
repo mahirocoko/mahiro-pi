@@ -1,6 +1,5 @@
 import { realpath } from 'node:fs/promises'
 import { join } from 'node:path'
-import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
@@ -25,6 +24,14 @@ import { buildPalaceDiagnostic, type PalaceDiagnostic } from './palace-diagnosti
 import { buildPalaceHandoff, type PalaceHandoff } from './palace-handoff.ts'
 import { primaryDelegationDoctrine } from './prompt.ts'
 import { memoryFailure, memoryFailureCode } from './reasons.ts'
+import {
+  appendedSuffix,
+  appendedSuffixSync,
+  sameSessionAnchor,
+  sessionAnchor,
+  sessionSuffixBound,
+  type SessionAnchor,
+} from './session-branch.ts'
 import {
   applyDerivedAssistantCredit,
   completeReflectionDelivery,
@@ -94,7 +101,7 @@ const retain = <T>(items: T[], item: T) => {
 interface PendingEpisode {
   serial: number
   input: TurnEpisode['input']
-  branch: string[]
+  branch: SessionAnchor
   actions: TurnEpisode['actions']
   results: TurnEpisode['results']
   toolCalls: Set<string>
@@ -109,7 +116,7 @@ interface PalaceViewerCapture {
   token: number
   binding: RuntimeBinding
   admission: number
-  branch: string[]
+  branch: SessionAnchor
   project: string
   revision: string
   configHash: string
@@ -481,13 +488,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       (access.kind === 'worker' && (access.value.version !== 2 || access.value.root !== root))
     )
       throw Error('Opaque parent engine binding mismatch')
-    let branchPrefix: string[] | undefined
+    let branchPrefix: SessionAnchor | undefined
     const barrier = async () => {
       assertCurrent(context)
-      branchPrefix = await branch(ctx, branchPrefix)
+      const guard = () => assertCurrent(context)
+      branchPrefix = await branch(ctx, branchPrefix, guard)
       if (access.kind === 'worker') await access.value.dataBarrier()
       const data = await engine.request('config', {}, context)
-      await branch(ctx, branchPrefix)
+      await branch(ctx, branchPrefix, guard)
       assertCurrent(context)
       if (access.kind === 'worker' && data.configHash !== access.value.configHash)
         throw Error('Worker configuration changed')
@@ -521,17 +529,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       throw Error('Project identity collision')
     return { ...f, project, configHash }
   }
-  const branch = async (ctx: ExtensionContext, prefix?: string[]) => {
-    const entries = ctx.sessionManager.getBranch()
-    if (entries.length > 8192) throw memoryFailure('capacity', 'Branch barrier capacity exceeded')
-    const ids: string[] = []
-    for (let start = 0; start < entries.length; start += 64) {
-      for (const entry of entries.slice(start, start + 64)) ids.push(entry.id)
-      await yieldTurn()
-    }
-    if (prefix?.some((id, index) => ids[index] !== id))
-      throw memoryFailure('branch', 'Native memory branch changed')
-    return ids
+  const branch = async (ctx: ExtensionContext, anchor?: SessionAnchor, guard?: () => void) => {
+    const captured = anchor ?? sessionAnchor(ctx)
+    const verdict = await appendedSuffix(ctx, captured, sessionSuffixBound, guard)
+    if (!verdict.ok) throw memoryFailure('branch', 'Native memory branch changed')
+    return captured
   }
   const capacityDiagnostic = async (ctx: ExtensionContext) => {
     if (!ctx.isIdle() || starting || job || draft)
@@ -551,9 +553,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     assertCurrent(f.context)
     if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx))
       throw Error('Primary capacity diagnostic required')
-    // This fallback diagnoses ordinary status capacity, including a branch that is
-    // already too large for the normal project/config barrier. The child still
-    // rechecks config/HEAD and every private metadata target under current authority.
+    // This fallback diagnoses private metadata capacity. It does not walk the
+    // session branch. The child still rechecks config/HEAD and every private
+    // metadata target under current authority.
     const result = await f.engine.request('capacityDiagnostic', {}, f.context)
     assertCurrent(f.context)
     return result
@@ -584,17 +586,12 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     } catch {
       systemPrompt = undefined
     }
+    if (!sameSessionAnchor(ctx, exactBranch))
+      throw memoryFailure('branch', 'Invocation context changed during capture')
     const finalStatus = combined ? await f.request('status', {}) : undefined
     const finalConfig = await f.barrier()
     if (finalStatus && finalStatus.revision !== status.revision)
       throw memoryFailure('CAS', 'Palace revision mismatch during capture')
-    const finalEntries = ctx.sessionManager.getBranch()
-    if (finalEntries.length > 8192) throw memoryFailure('capacity', 'Branch barrier capacity exceeded')
-    const finalBranch = finalEntries.map((entry) => {
-      if (typeof entry.id !== 'string' || Buffer.byteLength(entry.id) > 4096)
-        throw memoryFailure('branch', 'Invalid branch entry identity')
-      return entry.id
-    })
     if (finalConfig.configHash !== f.configHash)
       throw memoryFailure('CAS', 'Invocation configuration changed during capture')
     if (
@@ -604,8 +601,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       starting ||
       job ||
       draft ||
-      exactBranch.length !== finalBranch.length ||
-      exactBranch.some((id, index) => finalBranch[index] !== id)
+      !sameSessionAnchor(ctx, exactBranch)
     )
       throw memoryFailure('branch', 'Invocation context changed during capture')
     assertCurrent(f.context)
@@ -656,7 +652,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     })
     const finalStatus = await f.request('status', {})
     const finalConfig = await f.barrier()
-    const finalBranch = await branch(ctx)
     if (finalStatus.revision !== status.revision || finalConfig.configHash !== f.configHash)
       throw memoryFailure('CAS', 'History binding changed')
     if (
@@ -666,8 +661,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       starting ||
       job ||
       draft ||
-      exactBranch.length !== finalBranch.length ||
-      exactBranch.some((id, i) => id !== finalBranch[i])
+      !sameSessionAnchor(ctx, exactBranch)
     )
       throw memoryFailure('branch', 'History invocation changed')
     assertCurrent(f.context)
@@ -714,7 +708,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }
     const finalStatus = await f.request('status', {})
     const finalConfig = await f.barrier()
-    const finalBranch = await branch(ctx)
     if (finalStatus.revision !== status.revision || finalConfig.configHash !== f.configHash)
       throw memoryFailure('CAS', 'Palace viewer binding changed during capture')
     if (
@@ -726,8 +719,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       starting ||
       job ||
       draft ||
-      exactBranch.length !== finalBranch.length ||
-      exactBranch.some((id, index) => id !== finalBranch[index])
+      !sameSessionAnchor(ctx, exactBranch)
     )
       throw memoryFailure('branch', 'Palace viewer invocation changed during capture')
     assertCurrent(f.context)
@@ -763,7 +755,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       token,
       binding: ownBinding,
       admission: serial,
-      branch: [...exactBranch],
+      branch: exactBranch,
       project: f.project,
       revision: status.revision,
       configHash: f.configHash,
@@ -823,12 +815,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       if (JSON.stringify(history) !== capture.historyJson) return false
       const finalStatus = await f.request('status', {})
       const finalConfig = await f.barrier()
-      const finalBranch = await branch(ctx)
       if (
         finalStatus.revision !== capture.revision ||
         finalConfig.configHash !== capture.configHash ||
-        capture.branch.length !== finalBranch.length ||
-        capture.branch.some((id, index) => id !== finalBranch[index]) ||
+        !sameSessionAnchor(ctx, capture.branch) ||
         !locallyCurrent()
       )
         return false
@@ -1048,10 +1038,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
       const dataBarrier = async () => {
         assertCurrent(jobContext)
-        await branch(ctx, prefix)
+        const guard = () => assertCurrent(jobContext)
+        await branch(ctx, prefix, guard)
         const data = await f.engine.request('config', {}, jobContext)
         if (data.configHash !== value.configHash) throw Error('Native memory config fence changed')
-        await branch(ctx, prefix)
+        await branch(ctx, prefix, guard)
         assertCurrent(jobContext)
       }
       value.dataBarrier = dataBarrier
@@ -1293,20 +1284,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       args.action === 'initialize'
     ) {
       const f = owner(ctx, name, 'write', signal)
-      // Capture bootstrap branch eligibility at admission, before authorization yields.
-      // The ordinary data barrier reads config, which cannot exist at bootstrap.
-      const entries = ctx.sessionManager.getBranch()
-      if (entries.length > 8192) throw memoryFailure('capacity', 'Branch barrier capacity exceeded')
-      const prefix = entries.map((entry) => entry.id)
+      // Capture the leaf before authorization yields. Initialization has no config
+      // for the ordinary data barrier. Later checks accept only a bounded suffix.
+      const anchor = await branch(ctx, undefined, () => assertCurrent(f.context))
       const context = {
         ...f.context,
         barrier: async () => {
           assertCurrent(f.context)
-          await branch(ctx, prefix)
-          // Re-read after the yielding traversal, before returning to native admission.
-          const current = ctx.sessionManager.getBranch()
-          if (current.length > 8192 || prefix.some((id, index) => current[index]?.id !== id))
-            throw memoryFailure('branch', 'Native memory branch changed')
+          await branch(ctx, anchor, () => assertCurrent(f.context))
           assertCurrent(f.context)
         },
       }
@@ -1330,18 +1315,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         throw Error('Idle ephemeral primary maintenance owner required')
       // No ordinary config/data barrier, cached recovered plan or manufactured current verdict.
       // Root maintenanceAccess rechecks the real manager, generation, tool and exact PSS targets.
-      const prefix = await branch(ctx)
+      const anchor = await branch(ctx)
       const current = f.context.current
       const context: OperationContext = {
         ...f.context,
-        current: (targets) => {
-          const entries = ctx.sessionManager.getBranch()
-          return (
-            entries.length <= 8192 &&
-            prefix.every((id, index) => entries[index]?.id === id) &&
-            current(targets)
-          )
-        },
+        current: (targets) => appendedSuffixSync(ctx, anchor).ok && current(targets),
       }
       assertCurrent(context)
       return await offlineMaintenance(f.engine, context, args as unknown as MaintenanceRequest)
@@ -1500,18 +1478,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         }
       }
       const policyContext = () => {
-        const ids = ctx.sessionManager.getBranch().map((entry) => entry.id)
-        if (ids.length > 8192) throw memoryFailure('capacity', 'Policy branch capacity exceeded')
+        const anchor = sessionAnchor(ctx)
+        const verdict = appendedSuffixSync(ctx, anchor)
+        if (!verdict.ok) throw memoryFailure('branch', 'Native memory branch changed')
         return {
           ...f.context,
-          current: (targets: Parameters<OperationContext['current']>[0]) => {
-            const branch = ctx.sessionManager.getBranch()
-            return (
-              branch.length <= 8192 &&
-              ids.every((id, index) => branch[index]?.id === id) &&
-              f.context.current(targets)
-            )
-          },
+          current: (targets: Parameters<OperationContext['current']>[0]) =>
+            appendedSuffixSync(ctx, anchor).ok && f.context.current(targets),
         }
       }
       if (args.action === 'policy-reconcile') {
@@ -1937,16 +1910,16 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         f.context.current = (targets) => own.serial === admissionSerial && current(targets)
         assertCurrent(f.context)
         if (f.access.kind !== 'primary' || !(await f.barrier()).config.automatic) return
-        await branch(ctx, own.branch)
-        const observed = ctx.sessionManager
-          .getBranch()
-          .slice(own.branch.length)
-          .filter(
-            (entry) =>
-              entry.type === 'message' &&
-              entry.message.role === 'user' &&
-              bounded(rawText(entry.message.content)) === own.input.text,
-          )
+        const appended = await appendedSuffix(ctx, own.branch, sessionSuffixBound, () =>
+          assertCurrent(f.context),
+        )
+        if (!appended.ok) throw memoryFailure('branch', 'Native memory branch changed')
+        const observed = appended.suffix.filter(
+          (entry) =>
+            entry.type === 'message' &&
+            entry.message.role === 'user' &&
+            bounded(rawText(entry.message.content)) === own.input.text,
+        )
         if (observed.length !== 1 || !own.actions.length || token !== epoch) return
         const episode: TurnEpisode = {
           id: digest(`${ctx.sessionManager.getSessionId()}:${observed[0].id}`),
