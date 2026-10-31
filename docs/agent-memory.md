@@ -364,7 +364,20 @@ integrates only after successful native completion.
 Automatic writing depends on private `automatic` policy and bounded eligible,
 settled interactive/RPC observed episodes, not every turn. Standard installation
 selects true for a new starter root and preserves existing policy; startup never enables it. Observations omit reasoning,
-tool arguments, arbitrary read/recall payloads and imported transcripts. A native
+arbitrary tool arguments, arbitrary read/recall payloads and imported transcripts.
+A new exact `pnpm check` or `pnpm test` result may also store that command when
+the result text passes the stricter decoded screen. `pnpm check:<name>`,
+`pnpm test:<name>`, and `node --test ...` still store result text only. The
+command and any path in it are not stored, and that is not a finding that the
+path is public or private. A final newline is not a selected command. Records
+that have no command keep the previous result check, so existing text such as
+`100%` or `C:\users\test` still reads and does not block backlog or credit
+enumeration. Part count and raw bytes are checked before a new result is joined.
+A common quoted key (`password`, `secret`, `credential`, `api key`, or
+`access token`) with a quoted value is dropped on a command-bearing result.
+The value scan is bounded. Other labeled credential shapes and unlabeled text
+can still remain. This is not a universal secret guarantee and not Letta's
+normalized transcript. A native
 user entry is not authenticated human identity. Failed or cancelled attempts do
 not establish successful learning or integration.
 

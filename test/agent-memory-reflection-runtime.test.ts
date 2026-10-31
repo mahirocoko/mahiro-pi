@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
@@ -13,8 +14,11 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
 import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
+import { observedEpisode } from '../lib/agent-memory/engine/episodes.ts'
+import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
+import { verificationPartLimit } from '../lib/agent-memory/verification-evidence.ts'
+import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
 import type { EngineWorkerValue } from '../lib/agent-memory/experimental-contracts.ts'
 import { createMemoryStore, type Episode } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
@@ -224,6 +228,9 @@ function fixture() {
     spawns,
     records,
     holds,
+    revoke() {
+      granted = false
+    },
     binding: () => binding,
     authorizations: () => authorizations,
     holdAuthorizations(after: number) {
@@ -871,6 +878,406 @@ test('a high step threshold recovers tracked episodes after the directory fills'
     assert.deepEqual(f.store.snapshot().reviewed.slice().sort(), recovered.slice().sort())
     assert.equal(readdirSync(join(f.root, '.episodes')).filter((name) => name.endsWith('.json')).length, 256)
   } finally {
+    await f.close()
+  }
+})
+
+test('matched verification command stays with its result and recognized secrets stay out of the queue and writer prompt', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'step-count', 1, true)
+    const text = 'run the check'
+    const secret = `ghp_${'c'.repeat(24)}`
+    const malformed = 'Bea%72er%2Z synthetic-token-value'
+    const composed = '\\u0026#66;earer\\u0026#32;synthetic-token-value'
+    const quoted = '{"password":"synthetic-value"}'
+    const quotedEncoded = '%7B%22password%22%3A%22synthetic-value%22%7D'
+    const excerpt = `${'Q'.repeat(2048)}${secret}`
+    await f.emit('input', { source: 'rpc', text })
+    f.branch.push({
+      id: `user-${text}`,
+      type: 'message',
+      parentId: f.branch.at(-1)?.id ?? null,
+      message: { role: 'user', content: text },
+    })
+    await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    await f.emit('message_end', {
+      message: { role: 'assistant', content: [{ type: 'text', text: 'I will run the check.' }] },
+    })
+    const bash = async (id: string, command: string, result: string, extra: Record<string, string> = {}) => {
+      await f.emit('tool_execution_start', {
+        toolName: 'bash',
+        toolCallId: id,
+        args: { command, ...extra },
+      })
+      await f.emit('tool_execution_end', {
+        toolName: 'bash',
+        toolCallId: id,
+        isError: false,
+        result: { content: [{ type: 'text', text: result }] },
+      })
+    }
+    await bash('excerpt', 'pnpm check', excerpt)
+    await bash('malformed', 'pnpm test', malformed)
+    await bash('composed', 'pnpm check', composed)
+    await bash('quoted', 'pnpm test', quoted)
+    await bash('quoted-encoded', 'pnpm check', quotedEncoded)
+    await bash('newline', 'pnpm check\n', 'NEWLINE_COMMAND')
+    await bash('newline-node', 'node --test test/example.test.ts\n', 'NEWLINE_NODE')
+    await bash('colon', 'pnpm check:fast', 'coverage 100%')
+    await bash('private-command', 'cat profile', 'PRIVATE_COMMAND_RESULT')
+    await bash('shell', 'node --test test/foo.test.ts;id', 'SHELL_META')
+    const many = Array.from({ length: verificationPartLimit + 1 }, (_, index) => ({
+      type: 'text',
+      text: index === verificationPartLimit ? secret : 'part',
+    }))
+    await f.emit('tool_execution_start', {
+      toolName: 'bash',
+      toolCallId: 'many',
+      args: { command: 'pnpm check' },
+    })
+    await f.emit('tool_execution_end', {
+      toolName: 'bash',
+      toolCallId: 'many',
+      isError: false,
+      result: { content: many },
+    })
+    const wide = Array.from({ length: 3 }, (_, index) => ({
+      type: 'text',
+      text: index === 2 ? `${'W'.repeat(800)}${secret}` : 'W'.repeat(800),
+    }))
+    await f.emit('tool_execution_start', {
+      toolName: 'bash',
+      toolCallId: 'wide',
+      args: { command: 'pnpm test' },
+    })
+    await f.emit('tool_execution_end', {
+      toolName: 'bash',
+      toolCallId: 'wide',
+      isError: false,
+      result: { content: wide },
+    })
+    await f.emit('tool_execution_start', {
+      toolName: 'bash',
+      toolCallId: 'error-echo',
+      args: { command: 'pnpm check', raw: 'PRIVATE_ARGUMENTS' },
+    })
+    await f.emit('tool_execution_end', {
+      toolName: 'bash',
+      toolCallId: 'error-echo',
+      isError: `echo ${secret}`,
+      result: { content: [{ type: 'text', text: 'should not echo' }] },
+    })
+    await f.emit('tool_execution_start', {
+      toolName: 'bash',
+      toolCallId: 'keep',
+      args: { command: 'pnpm check' },
+    })
+    await f.emit('tool_execution_end', {
+      toolName: 'bash',
+      toolCallId: 'other',
+      isError: false,
+      result: { content: [{ type: 'text', text: 'MISMATCHED_RESULT' }] },
+    })
+    await f.emit('tool_execution_end', {
+      toolName: 'bash',
+      toolCallId: 'keep',
+      isError: false,
+      result: { content: [{ type: 'text', text: 'format ok' }] },
+    })
+    for (const toolName of ['agent_memory_read', 'agent_memory_edit', 'profile', 'unknown_tool']) {
+      await f.emit('tool_execution_start', {
+        toolName,
+        toolCallId: toolName,
+        args: { command: 'pnpm check', path: 'PRIVATE_PROFILE' },
+      })
+      await f.emit('tool_execution_end', {
+        toolName,
+        toolCallId: toolName,
+        isError: false,
+        result: { content: [{ type: 'text', text: `${toolName} PRIVATE_CALL` }] },
+      })
+    }
+    await bash('literal', 'pnpm test', 'omit')
+    await bash('legacy-node', 'node --test secrets/token', '1 passed')
+    await f.emit('agent_before_settle', { outcome: 'completed' })
+    await f.emit('agent_settled', { aborted: false })
+    await until(() => f.spawns.length === 1)
+    const id = digest(`primary:user-${text}`)
+    const queued = readFileSync(join(f.root, '.episodes', `${id}.json`), 'utf8')
+    const prompt = f.spawns[0]?.prompt ?? ''
+    const stored = JSON.parse(queued) as {
+      results: { tool: string; error: boolean; command: string; text: string }[]
+    }
+    assert.deepEqual(
+      stored.results.map((result) => [result.command, result.text]),
+      [
+        [undefined, 'coverage 100%'],
+        ['pnpm check', 'format ok'],
+        ['pnpm test', 'omit'],
+        [undefined, '1 passed'],
+      ],
+    )
+    assert.equal(JSON.parse(prompt).episodes[0].results[2].text, 'omit')
+    for (const marker of [
+      secret,
+      malformed,
+      composed,
+      quoted,
+      quotedEncoded,
+      'synthetic-value',
+      'NEWLINE_COMMAND',
+      'NEWLINE_NODE',
+      'PRIVATE_COMMAND_RESULT',
+      'SHELL_META',
+      'MISMATCHED_RESULT',
+      'PRIVATE_ARGUMENTS',
+      'PRIVATE_PROFILE',
+      'PRIVATE_CALL',
+      'should not echo',
+      'Q'.repeat(64),
+      'W'.repeat(64),
+      'secrets/token',
+      'pnpm check:fast',
+      'node --test',
+    ]) {
+      assert.equal(queued.includes(marker), false, marker)
+      assert.equal(prompt.includes(marker), false, marker)
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+test('legacy episodes without a verification command still deliver', async () => {
+  const f = fixture()
+  try {
+    const legacy = {
+      id: digest('primary:legacy-evidence'),
+      project: 'project',
+      session: 'primary',
+      evidence: 'observed-native-unverified' as const,
+      observedAt: '2026-08-01T00:00:00.000Z',
+      entryHash: digest('legacy-evidence'),
+      input: { text: 'legacy input', source: 'rpc' as const },
+      actions: [{ text: 'legacy action' }],
+      results: [{ tool: 'bash' as const, error: false, text: 'legacy result' }],
+      outcome: 'completed' as const,
+    }
+    const parsed = observedEpisode(legacy)
+    if ('kind' in parsed) throw Error('legacy turn was read as compaction')
+    assert.equal('command' in parsed.results[0], false)
+    f.store.recordEpisode(legacy.id, legacy)
+    await f.emit('session_start')
+    await f.runtime.run('agent_memory_reflect', { assignment: 'Review the legacy episode' }, f.ctx)
+    await until(() => f.spawns.length === 1)
+    const delivered = JSON.parse(f.spawns[0]?.prompt ?? '').episodes[0]
+    assert.equal(delivered.results[0].text, 'legacy result')
+    assert.equal(delivered.results[0].command, undefined)
+    assert.equal(f.spawns[0]?.prompt.includes('legacy result'), true)
+  } finally {
+    await f.close()
+  }
+})
+
+test('delivery revalidation rejects a recognized secret without echoing it', async () => {
+  const f = fixture()
+  try {
+    const malformed = 'Bea%72er%2Z synthetic-token-value'
+    const poisoned = {
+      id: digest('primary:poisoned-evidence'),
+      project: 'project',
+      session: 'primary',
+      evidence: 'observed-native-unverified' as const,
+      observedAt: '2026-08-01T00:00:00.000Z',
+      entryHash: digest('poisoned-evidence'),
+      input: { text: 'poison input', source: 'rpc' as const },
+      actions: [{ text: 'poison action' }],
+      results: [{ tool: 'bash' as const, error: false, command: 'pnpm check', text: malformed }],
+      outcome: 'completed' as const,
+    }
+    assert.throws(
+      () => observedEpisode(poisoned),
+      (error: unknown) => {
+        assert.doesNotMatch(String(error), /Bearer|%2Z|pnpm check|malformed/)
+        return true
+      },
+    )
+    assert.throws(
+      () =>
+        observedEpisode({
+          ...poisoned,
+          id: digest('primary:bad-command'),
+          results: [{ tool: 'bash', error: false, command: 'cat profile', text: 'omitted' }],
+        }),
+      (error: unknown) => {
+        assert.doesNotMatch(String(error), /cat profile|omitted/)
+        return true
+      },
+    )
+    assert.throws(
+      () =>
+        observedEpisode({
+          ...poisoned,
+          id: digest('primary:absolute-command'),
+          results: [
+            {
+              tool: 'bash',
+              error: false,
+              command: 'node --test /tmp/secret.test.ts',
+              text: 'ABSOLUTE_STORED',
+            },
+          ],
+        }),
+      (error: unknown) => {
+        assert.doesNotMatch(String(error), /\/tmp\/secret|ABSOLUTE_STORED/)
+        return true
+      },
+    )
+    assert.throws(
+      () =>
+        observedEpisode({
+          ...poisoned,
+          id: digest('primary:composed-evidence'),
+          results: [
+            {
+              tool: 'bash',
+              error: false,
+              command: 'pnpm test',
+              text: '\\u0026#66;earer\\u0026#32;synthetic-token-value',
+            },
+          ],
+        }),
+      (error: unknown) => {
+        assert.doesNotMatch(String(error), /Bearer|synthetic-token|\\u0026/)
+        return true
+      },
+    )
+    mkdirSync(join(f.root, '.episodes'), { mode: 0o700 })
+    writeFileSync(join(f.root, '.episodes', `${poisoned.id}.json`), `${JSON.stringify(poisoned)}\n`, {
+      mode: 0o600,
+    })
+    await f.emit('session_start')
+    await assert.rejects(
+      () => f.runtime.run('agent_memory_reflect', { assignment: 'Do not deliver the secret' }, f.ctx),
+      (error: unknown) => {
+        assert.doesNotMatch(String(error), /Bearer|%2Z|synthetic-token/)
+        return true
+      },
+    )
+    assert.equal(f.spawns.length, 0)
+  } finally {
+    await f.close()
+  }
+})
+
+test('cancellation and revocation drop an in-flight verification capture', async () => {
+  for (const mode of ['cancel', 'revoke'] as const) {
+    const f = fixture()
+    try {
+      await f.emit('session_start')
+      await selectReflection(f, 'step-count', 1, true)
+      const text = mode
+      await f.emit('input', { source: 'rpc', text })
+      f.branch.push({
+        id: `user-${text}`,
+        type: 'message',
+        parentId: null,
+        message: { role: 'user', content: text },
+      })
+      await f.emit('before_agent_start', { systemPrompt: 'Base' })
+      await f.emit('message_end', {
+        message: { role: 'assistant', content: [{ type: 'text', text: 'stop before writing' }] },
+      })
+      await f.emit('tool_execution_start', {
+        toolName: 'bash',
+        toolCallId: mode,
+        args: { command: 'pnpm check' },
+      })
+      await f.emit('tool_execution_end', {
+        toolName: 'bash',
+        toolCallId: mode,
+        isError: false,
+        result: { content: [{ type: 'text', text: `${mode}-marker` }] },
+      })
+      if (mode === 'cancel') await f.runtime.cancel()
+      else f.revoke()
+      await f.emit('agent_before_settle', { outcome: 'completed' })
+      await f.emit('agent_settled', { aborted: false })
+      await f.runtime.drain()
+      assert.equal(f.spawns.length, 0, mode)
+      const folder = join(f.root, '.episodes')
+      const written =
+        existsSync(folder) &&
+        readdirSync(folder).some((name) => name === `${digest(`primary:user-${text}`)}.json`)
+      assert.equal(written, false, mode)
+      assert.equal(
+        f.spawns.some((spawn) => spawn.prompt.includes(`${mode}-marker`) || spawn.prompt.includes('%2Z')),
+        false,
+      )
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('commandless coverage and Windows-path results still enumerate another project', async () => {
+  const f = fixture()
+  const engine = new MemoryEngineController(f.root, engineEnvironment(process.env))
+  try {
+    const folder = join(f.root, '.episodes')
+    mkdirSync(folder, { mode: 0o700 })
+    const write = (name: string, project: string, text: string, steps: number) => {
+      const episode = {
+        id: digest(`primary:${name}`),
+        project,
+        session: 'primary',
+        evidence: 'observed-native-unverified' as const,
+        observedAt: '2026-08-01T00:00:00.000Z',
+        entryHash: digest(name),
+        input: { text: name, source: 'rpc' as const },
+        actions: [{ text: 'kept' }],
+        results: [{ tool: 'bash' as const, error: false, text }],
+        outcome: 'completed' as const,
+        assistantSteps: steps,
+      }
+      writeFileSync(join(folder, `${episode.id}.json`), `${JSON.stringify(episode)}\n`, { mode: 0o600 })
+      return episode.id
+    }
+    const coverage = write('coverage', 'project', '100%', 2)
+    const windows = write('windows', 'project', 'C:\\users\\test', 3)
+    const sibling = write('sibling', 'other', 'other project ok', 4)
+    const before = readdirSync(folder).sort()
+    const context = { current: () => true }
+    const projectBacklog = await engine.request('episodeBacklog', { project: 'project', limit: 32 }, context)
+    const otherBacklog = await engine.request('episodeBacklog', { project: 'other', limit: 32 }, context)
+    const projectCredit = await engine.request(
+      'episodeCredit',
+      { project: 'project', session: 'primary' },
+      context,
+    )
+    const otherCredit = await engine.request(
+      'episodeCredit',
+      { project: 'other', session: 'primary' },
+      context,
+    )
+    assert.deepEqual(projectBacklog.ids.slice().sort(), [coverage, windows].sort())
+    assert.deepEqual(otherBacklog.ids, [sibling])
+    assert.deepEqual(projectCredit, { steps: 5 })
+    assert.deepEqual(otherCredit, { steps: 4 })
+    assert.deepEqual(readdirSync(folder).sort(), before)
+    const stored = JSON.parse(readFileSync(join(folder, `${coverage}.json`), 'utf8')) as {
+      results: { command?: string; text: string }[]
+    }
+    assert.equal(stored.results[0]?.text, '100%')
+    assert.equal(stored.results[0]?.command, undefined)
+    const pathText = JSON.parse(readFileSync(join(folder, `${windows}.json`), 'utf8')) as {
+      results: { text: string }[]
+    }
+    assert.equal(pathText.results[0]?.text, 'C:\\users\\test')
+  } finally {
+    await engine.close()
     await f.close()
   }
 })

@@ -1,10 +1,14 @@
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
+import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
+import { observedEpisode } from '../lib/agent-memory/engine/episodes.ts'
+import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
 import { createAgentMemoryRuntime } from '../lib/agent-memory/runtime.ts'
+import { verificationPartLimit } from '../lib/agent-memory/verification-evidence.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
 import { memoryCurationDoctrine } from '../lib/agent-memory/guidance.ts'
@@ -1308,6 +1312,7 @@ test('semantic episode links observed input, assistant action, selected tool res
     assert.equal(prompt.episodes[0].input.text, text)
     assert.equal(prompt.episodes[0].actions[0].text, 'I will run and inspect the bounded check.')
     assert.equal(prompt.episodes[0].results[0].error, true)
+    assert.equal(prompt.episodes[0].results[0].command, 'pnpm check')
     assert.match(prompt.episodes[0].results[0].text, /stale context/)
     assert.equal(prompt.episodes[0].evidence, 'observed-native-unverified')
     assert.doesNotMatch(JSON.stringify(prompt), /verified-human/)
@@ -1454,6 +1459,7 @@ test('rejected late aggregate text never evicts safe evidence or salvages metada
       [1, 2, 3, 4].map((i) => ({
         tool: 'bash',
         error: false,
+        command: 'pnpm check',
         text: `Safe result ${i}`,
       })),
     )
@@ -1519,7 +1525,7 @@ test('text-absent metadata stays eligible; tool names are typed, screened before
     await settleEpisode(f)
     const stored: any = f.store.pendingEpisodes('project')[0]
     assert.deepEqual(stored.actions, [{ tools: safe }])
-    assert.deepEqual(stored.results, [{ tool: 'bash', error: true }])
+    assert.deepEqual(stored.results, [{ tool: 'bash', error: true, command: 'pnpm check' }])
     assert.doesNotMatch(f.spawned.prompt, /PRIVATE_|ghp_|ninth|BadName|bad-name/)
     assert.deepEqual(JSON.parse(f.spawned.prompt).episodes, [stored])
   } finally {
@@ -1594,7 +1600,7 @@ test('pending verification IDs skip new starts at 64 and free capacity on matchi
     await f.emit('tool_execution_start', {
       toolName: 'bash',
       toolCallId: 'cap-65',
-      args: { command: 'node --test test/example.test.ts' },
+      args: { command: 'pnpm test' },
     })
     await end(65)
     await settleEpisode(f)
@@ -1643,7 +1649,7 @@ test('serialized episode pruning preserves exact fields/endpoints or rejects an 
         const a = `Action ${i}: ${unit.repeat(Math.floor(fieldBudget / Buffer.byteLength(unit)))}`
         const r = `Result ${i}: ${unit.repeat(Math.floor(fieldBudget / Buffer.byteLength(unit)))}`
         actions.push({ text: a })
-        results.push({ tool: 'bash', error: false, text: r })
+        results.push({ tool: 'bash', error: false, command: 'pnpm check', text: r })
         await action(f, a)
         await verification(f, `size-${i}`, r)
       }
@@ -1698,6 +1704,7 @@ test('exact 16384-byte JSON payload is pruned because the persisted newline also
     const results = [1, 2, 3, 4].map((i) => ({
       tool: 'bash',
       error: false,
+      command: 'pnpm check',
       text: `Result ${i}`,
     }))
     const input = 'Input exact boundary'
@@ -3247,5 +3254,277 @@ test('deferred worker A before_agent_start cannot cancel replacement worker B on
     } finally {
       f.close()
     }
+  }
+})
+
+test('ABI1 keeps a narrow verification command with its result and drops encoded or unsafe captures', async () => {
+  const f = fixture()
+  try {
+    const secret = `ghp_${'c'.repeat(24)}`
+    const malformed = 'Bea%72er%2Z synthetic-token-value'
+    const composed = '\\u0026#66;earer\\u0026#32;synthetic-token-value'
+    const quoted = '{"password":"synthetic-value"}'
+    const quotedEncoded = '%7B%22password%22%3A%22synthetic-value%22%7D'
+    const entry = await beginEpisode(f, 'run the check')
+    await action(f, 'I will run the check.')
+    const bash = async (id: string, command: string, result: string | { type: string; text: string }[]) => {
+      await f.emit('tool_execution_start', { toolName: 'bash', toolCallId: id, args: { command } })
+      await f.emit('tool_execution_end', {
+        toolName: 'bash',
+        toolCallId: id,
+        isError: false,
+        result: { content: typeof result === 'string' ? [{ type: 'text', text: result }] : result },
+      })
+    }
+    await bash('excerpt', 'pnpm check', `${'Q'.repeat(2048)}${secret}`)
+    await bash('malformed', 'pnpm test', malformed)
+    await bash('composed', 'pnpm check', composed)
+    await bash('quoted', 'pnpm test', quoted)
+    await bash('quoted-encoded', 'pnpm check', quotedEncoded)
+    await bash('newline', 'pnpm check\n', 'NEWLINE_COMMAND')
+    await bash('newline-node', 'node --test test/example.test.ts\n', 'NEWLINE_NODE')
+    await bash('colon', 'pnpm check:fast', 'coverage 100%')
+    await bash('private-command', 'cat profile', 'PRIVATE_COMMAND_RESULT')
+    await bash(
+      'many',
+      'pnpm check',
+      Array.from({ length: verificationPartLimit + 1 }, (_, index) => ({
+        type: 'text',
+        text: index === verificationPartLimit ? secret : 'part',
+      })),
+    )
+    await bash(
+      'wide',
+      'pnpm test',
+      Array.from({ length: 3 }, (_, index) => ({
+        type: 'text',
+        text: index === 2 ? `${'W'.repeat(800)}${secret}` : 'W'.repeat(800),
+      })),
+    )
+    await f.emit('tool_execution_start', {
+      toolName: 'bash',
+      toolCallId: 'keep',
+      args: { command: 'pnpm check' },
+    })
+    await f.emit('tool_execution_end', {
+      toolName: 'bash',
+      toolCallId: 'other',
+      isError: false,
+      result: { content: [{ type: 'text', text: 'MISMATCHED_RESULT' }] },
+    })
+    await f.emit('tool_execution_end', {
+      toolName: 'bash',
+      toolCallId: 'keep',
+      isError: false,
+      result: { content: [{ type: 'text', text: 'format ok' }] },
+    })
+    await bash('literal', 'pnpm test', 'omit')
+    await bash('legacy-node', 'node --test secrets/token', '1 passed')
+    await settleEpisode(f)
+    const queued = readFileSync(join(f.root, '.episodes', `${digest(`primary:${entry.id}`)}.json`), 'utf8')
+    const prompt = f.spawned.prompt as string
+    const stored = JSON.parse(queued) as { results: { command: string; text: string }[] }
+    assert.deepEqual(
+      stored.results.map((result) => [result.command, result.text]),
+      [
+        [undefined, 'coverage 100%'],
+        ['pnpm check', 'format ok'],
+        ['pnpm test', 'omit'],
+        [undefined, '1 passed'],
+      ],
+    )
+    assert.equal(JSON.parse(prompt).episodes[0].results[2].text, 'omit')
+    for (const marker of [
+      secret,
+      malformed,
+      composed,
+      quoted,
+      quotedEncoded,
+      'synthetic-value',
+      'NEWLINE_COMMAND',
+      'NEWLINE_NODE',
+      'PRIVATE_COMMAND_RESULT',
+      'MISMATCHED_RESULT',
+      'Q'.repeat(64),
+      'W'.repeat(64),
+      'secrets/token',
+      'pnpm check:fast',
+      'node --test',
+    ]) {
+      assert.equal(queued.includes(marker), false, marker)
+      assert.equal(prompt.includes(marker), false, marker)
+    }
+  } finally {
+    f.close()
+  }
+})
+
+test('ABI1 cancellation, revocation, legacy read, and a tampered episode do not echo', async () => {
+  for (const mode of ['cancel', 'revoke'] as const) {
+    const f = fixture()
+    try {
+      const entry = await beginEpisode(f, mode)
+      await action(f, 'stop before writing')
+      await f.emit('tool_execution_start', {
+        toolName: 'bash',
+        toolCallId: mode,
+        args: { command: 'pnpm check' },
+      })
+      await f.emit('tool_execution_end', {
+        toolName: 'bash',
+        toolCallId: mode,
+        isError: false,
+        result: { content: [{ type: 'text', text: `${mode}-marker` }] },
+      })
+      if (mode === 'cancel') f.runtime.cancel()
+      else f.revoke()
+      await settleEpisode(f)
+      assert.equal(f.spawned, undefined, mode)
+      const folder = join(f.root, '.episodes')
+      const written =
+        existsSync(folder) &&
+        readdirSync(folder).some((name) => name === `${digest(`primary:${entry.id}`)}.json`)
+      assert.equal(written, false, mode)
+    } finally {
+      f.close()
+    }
+  }
+  const legacyFixture = fixture()
+  try {
+    const legacy = {
+      id: digest('primary:legacy-evidence'),
+      project: 'project',
+      session: 'primary',
+      evidence: 'observed-native-unverified' as const,
+      observedAt: '2026-08-01T00:00:00.000Z',
+      entryHash: digest('legacy-evidence'),
+      input: { text: 'legacy input', source: 'rpc' as const },
+      actions: [{ text: 'legacy action' }],
+      results: [{ tool: 'bash' as const, error: false, text: 'legacy result' }],
+      outcome: 'completed' as const,
+    }
+    const parsed = observedEpisode(legacy)
+    if ('kind' in parsed) throw Error('legacy turn was read as compaction')
+    assert.equal('command' in parsed.results[0], false)
+    legacyFixture.store.recordEpisode(legacy.id, legacy)
+    await legacyFixture.emit('session_start')
+    await legacyFixture.runtime.run(
+      'agent_memory_reflect',
+      { assignment: 'Review the legacy episode' },
+      legacyFixture.ctx,
+    )
+    assert.equal(JSON.parse(legacyFixture.spawned.prompt).episodes[0].results[0].command, undefined)
+    assert.equal(JSON.parse(legacyFixture.spawned.prompt).episodes[0].results[0].text, 'legacy result')
+  } finally {
+    legacyFixture.close()
+  }
+  const poisonedFixture = fixture()
+  try {
+    const malformed = 'Bea%72er%2Z synthetic-token-value'
+    const poisoned = {
+      id: digest('primary:poisoned-evidence'),
+      project: 'project',
+      session: 'primary',
+      evidence: 'observed-native-unverified' as const,
+      observedAt: '2026-08-01T00:00:00.000Z',
+      entryHash: digest('poisoned-evidence'),
+      input: { text: 'poison input', source: 'rpc' as const },
+      actions: [{ text: 'poison action' }],
+      results: [{ tool: 'bash' as const, error: false, command: 'pnpm check', text: malformed }],
+      outcome: 'completed' as const,
+    }
+    mkdirSync(join(poisonedFixture.root, '.episodes'), { mode: 0o700 })
+    writeFileSync(
+      join(poisonedFixture.root, '.episodes', `${poisoned.id}.json`),
+      `${JSON.stringify(poisoned)}\n`,
+      {
+        mode: 0o600,
+      },
+    )
+    await poisonedFixture.emit('session_start')
+    await assert.rejects(
+      () =>
+        poisonedFixture.runtime.run(
+          'agent_memory_reflect',
+          { assignment: 'Do not deliver the secret' },
+          poisonedFixture.ctx,
+        ),
+      (error: unknown) => {
+        assert.doesNotMatch(String(error), /Bearer|%2Z|synthetic-token/)
+        return true
+      },
+    )
+    assert.equal(poisonedFixture.spawned, undefined)
+  } finally {
+    poisonedFixture.close()
+  }
+})
+
+test('ABI1 commandless coverage and Windows-path results still enumerate another project', async () => {
+  const f = fixture(true)
+  const engine = new MemoryEngineController(f.root, engineEnvironment(process.env))
+  try {
+    await f.emit('session_start')
+    const folder = join(f.root, '.episodes')
+    mkdirSync(folder, { mode: 0o700 })
+    const write = (name: string, project: string, text: string, steps: number) => {
+      const episode = {
+        id: digest(`primary:${name}`),
+        project,
+        session: 'primary',
+        evidence: 'observed-native-unverified' as const,
+        observedAt: '2026-08-01T00:00:00.000Z',
+        entryHash: digest(name),
+        input: { text: name, source: 'rpc' as const },
+        actions: [{ text: 'kept' }],
+        results: [{ tool: 'bash' as const, error: false, text }],
+        outcome: 'completed' as const,
+        assistantSteps: steps,
+      }
+      writeFileSync(join(folder, `${episode.id}.json`), `${JSON.stringify(episode)}\n`, { mode: 0o600 })
+      return episode.id
+    }
+    const coverage = write('coverage', 'project', '100%', 2)
+    const windows = write('windows', 'project', 'C:\\users\\test', 3)
+    const sibling = write('sibling', 'other', 'other project ok', 4)
+    const before = readdirSync(folder).sort()
+    const listed = f.store.pendingEpisodes('project')
+    const others = f.store.pendingEpisodes('other')
+    assert.deepEqual(
+      listed
+        .flatMap((episode) => ('results' in episode ? episode.results.map((result) => result.text) : []))
+        .sort(),
+      ['100%', 'C:\\users\\test'],
+    )
+    assert.equal(
+      listed.every(
+        (episode) => 'results' in episode && episode.results.every((result) => !('command' in result)),
+      ),
+      true,
+    )
+    assert.deepEqual(
+      others.flatMap((episode) => ('results' in episode ? episode.results.map((result) => result.text) : [])),
+      ['other project ok'],
+    )
+    const context = { current: () => true }
+    assert.deepEqual(
+      (await engine.request('episodeBacklog', { project: 'project', limit: 32 }, context)).ids.slice().sort(),
+      [coverage, windows].sort(),
+    )
+    assert.deepEqual((await engine.request('episodeBacklog', { project: 'other', limit: 32 }, context)).ids, [
+      sibling,
+    ])
+    assert.deepEqual(
+      await engine.request('episodeCredit', { project: 'project', session: 'primary' }, context),
+      { steps: 5 },
+    )
+    assert.deepEqual(
+      await engine.request('episodeCredit', { project: 'other', session: 'primary' }, context),
+      { steps: 4 },
+    )
+    assert.deepEqual(readdirSync(folder).sort(), before)
+  } finally {
+    await engine.close()
+    f.close()
   }
 })

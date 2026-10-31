@@ -1,5 +1,6 @@
 import { bytes, digest, hasSecret, objectShape, validId } from '../../continuity/records.ts'
 import type { CompactionEpisode, Episode } from '../store.ts'
+import { verificationCommand, verificationResultText } from '../verification-evidence.ts'
 import { idPattern } from './schema.ts'
 
 const identity = ['id', 'project', 'session', 'evidence', 'observedAt', 'entryHash']
@@ -95,14 +96,24 @@ export function observedEpisode(value: unknown): Episode {
             action.tools.some((n: unknown) => typeof n !== 'string' || !/^[a-z_]{1,64}$/.test(n))))
       )
         throw Error('Invalid observed action')
-    for (const result of value.results)
+    for (const result of value.results) {
       if (
-        !objectShape(result, ['tool', 'error', 'text']) ||
+        !objectShape(result, ['tool', 'error', 'text', 'command']) ||
         result.tool !== 'bash' ||
         typeof result.error !== 'boolean' ||
-        (result.text !== undefined && typeof result.text !== 'string')
+        (result.text !== undefined && typeof result.text !== 'string') ||
+        (result.command !== undefined && verificationCommand(result.command) !== result.command)
       )
         throw Error('Invalid selected result')
+      // Commandless records keep the previous text check: a string, then the
+      // episode-level secret and size checks below. Strict decoding applies only
+      // when a command is present, so older "100%" and Windows-path results still read.
+      if (result.command !== undefined && typeof result.text === 'string') {
+        const decision = verificationResultText(result.text)
+        if (decision.kind !== 'keep' || !decision.strict || decision.text !== result.text)
+          throw Error('Episode rejected')
+      }
+    }
     if (
       value.assistantSteps !== undefined &&
       (!Number.isSafeInteger(value.assistantSteps) ||

@@ -77,7 +77,7 @@ interface EpisodeIdentity {
 export interface TurnEpisode extends EpisodeIdentity {
   input: { text: string; source: string }
   actions: { text?: string; tools?: string[] }[]
-  results: { tool: string; error: boolean; text?: string }[]
+  results: { tool: string; error: boolean; text?: string; command?: string }[]
   outcome: 'completed'
   /** Absent on legacy episodes. Never inferred from the truncated action list. */
   assistantSteps?: number

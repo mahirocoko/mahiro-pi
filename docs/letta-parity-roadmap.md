@@ -59,6 +59,10 @@ quality and must not create more work by themselves.
   the 255-file check and admit two more files. The directory then fails closed
   above 256. Neither case is repaired by deleting files or taking over a lock.
   Source checks do not by themselves establish installation or live behavior.
+  Exact `pnpm check` and `pnpm test` may store the command. Older
+  `pnpm check:*`, `pnpm test:*`, and `node --test` results stay result-only.
+  Commandless records keep the previous read check. The recognizer does not
+  prove that unlabeled text or other labeled credentials are free of secrets.
 - The disconnected `lib/agent-memory/local/**` Git/worktree service remains source
   experimentation. It is not silently combined with ABI2 or activated by this roadmap.
 - `/mh-memory palace`, `palace close` and `palace json` remain the public Palace

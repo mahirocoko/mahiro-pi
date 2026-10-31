@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
+import { selectedVerification, verificationResultText } from './verification-evidence.ts'
 import { createMemoryStore, allowedPath, type View, type TurnEpisode, type EditModeOptions } from './store.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { resolveAgentDir } from '../setup.ts'
@@ -206,7 +207,7 @@ interface PendingEpisode {
   branch: string[]
   actions: TurnEpisode['actions']
   results: TurnEpisode['results']
-  toolCalls: Set<string>
+  toolCalls: Map<string, { command?: 'pnpm check' | 'pnpm test' }>
   unsafe: boolean
 }
 export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig = {}) {
@@ -1049,7 +1050,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         branch: ctx.sessionManager.getBranch().map((e) => e.id),
         actions: [],
         results: [],
-        toolCalls: new Set(),
+        toolCalls: new Map(),
         unsafe: false,
       }
     } catch {
@@ -1081,16 +1082,12 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     }
   })
   pi.on('tool_execution_start', (event) => {
-    // Only bounded local verification commands supply selected result text. No arbitrary
-    // read/recall payload, tool arguments, reasoning, imported corpus or auth is persisted.
-    if (
-      pending &&
-      pending.toolCalls.size < 64 &&
-      event.toolName === 'bash' &&
-      typeof event.args?.command === 'string' &&
-      /^(?:pnpm (?:check|test)(?::[a-z-]+)?|node --test [a-zA-Z0-9_./* -]+)$/.test(event.args.command)
-    )
-      pending.toolCalls.add(event.toolCallId)
+    // Only the matched verification command is kept, and only with its own result.
+    // No arbitrary arguments, transcripts, private corpus, or raw fallback.
+    if (!pending || pending.toolCalls.size >= 64 || event.toolName !== 'bash') return
+    const selected = selectedVerification(event.args?.command)
+    if (!selected || typeof event.toolCallId !== 'string' || !event.toolCallId) return
+    pending.toolCalls.set(event.toolCallId, selected.kind === 'pair' ? { command: selected.command } : {})
   })
   const observeToolEnd = (event: { toolName?: unknown; isError?: unknown }, ctx: ExtensionContext) => {
     try {
@@ -1139,15 +1136,18 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
   }
   pi.on('tool_execution_end', (event, ctx) => {
     observeToolEnd(event, ctx)
-    if (!pending?.toolCalls.delete(event.toolCallId)) return
-    if (event.toolName !== 'bash') return
-    const raw = rawTextContent(event.result?.content)
-    const text = bounded(raw)
-    if (raw && !text) return
+    const tracked = pending?.toolCalls.get(event.toolCallId)
+    if (!pending?.toolCalls.delete(event.toolCallId) || event.toolName !== 'bash' || !tracked) return
+    if (typeof event.isError !== 'boolean') return
+    const text = verificationResultText(event.result?.content)
+    if (text.kind === 'drop' || (text.kind === 'keep' && tracked.command && !text.strict)) return
+    const command =
+      tracked.command && (text.kind === 'none' || text.kind === 'keep') ? tracked.command : undefined
     retainEvidence(pending.results, {
-      tool: event.toolName,
+      tool: 'bash',
       error: event.isError,
-      ...(text ? { text } : {}),
+      ...(command ? { command } : {}),
+      ...(text.kind === 'keep' ? { text: text.text } : {}),
     })
   })
   pi.on('agent_before_settle', (event) => {

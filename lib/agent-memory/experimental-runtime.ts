@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
+import { selectedVerification, verificationResultText } from './verification-evidence.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
 import { abi2PalaceStyle, renderAbi2PalacePage } from '../palace-render/abi2-page.ts'
 import { type ImmutablePalaceServer, startImmutablePalaceServer } from '../palace-render/immutable-server.ts'
@@ -111,7 +112,7 @@ interface PendingEpisode {
   branch: SessionAnchor
   actions: TurnEpisode['actions']
   results: TurnEpisode['results']
-  toolCalls: Set<string>
+  toolCalls: Map<string, { command?: 'pnpm check' | 'pnpm test' }>
   assistantEvents: number
 }
 const registry = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
@@ -1925,7 +1926,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           branch: prefix,
           actions: [],
           results: [],
-          toolCalls: new Set(),
+          toolCalls: new Map(),
           assistantEvents: 0,
         }
       } catch {
@@ -1957,21 +1958,25 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }
   })
   pi.on('tool_execution_start', (event) => {
-    if (
-      pending &&
-      pending.toolCalls.size < 64 &&
-      event.toolName === 'bash' &&
-      typeof event.args?.command === 'string' &&
-      /^(?:pnpm (?:check|test)(?::[a-z-]+)?|node --test [a-zA-Z0-9_./* -]+)$/.test(event.args.command)
-    )
-      pending.toolCalls.add(event.toolCallId)
+    if (!pending || pending.toolCalls.size >= 64 || event.toolName !== 'bash') return
+    const selected = selectedVerification(event.args?.command)
+    if (!selected || typeof event.toolCallId !== 'string' || !event.toolCallId) return
+    pending.toolCalls.set(event.toolCallId, selected.kind === 'pair' ? { command: selected.command } : {})
   })
   pi.on('tool_execution_end', (event) => {
-    if (!pending?.toolCalls.delete(event.toolCallId) || event.toolName !== 'bash') return
-    const raw = rawText(event.result?.content)
-    const text = bounded(raw)
-    if (raw && !text) return
-    retain(pending.results, { tool: 'bash', error: event.isError, ...(text ? { text } : {}) })
+    const tracked = pending?.toolCalls.get(event.toolCallId)
+    if (!pending?.toolCalls.delete(event.toolCallId) || event.toolName !== 'bash' || !tracked) return
+    if (typeof event.isError !== 'boolean') return
+    const text = verificationResultText(event.result?.content)
+    if (text.kind === 'drop' || (text.kind === 'keep' && tracked.command && !text.strict)) return
+    const command =
+      tracked.command && (text.kind === 'none' || text.kind === 'keep') ? tracked.command : undefined
+    retain(pending.results, {
+      tool: 'bash',
+      error: event.isError,
+      ...(command ? { command } : {}),
+      ...(text.kind === 'keep' ? { text: text.text } : {}),
+    })
   })
   pi.on('agent_before_settle', (event) => {
     outcome = event.outcome
