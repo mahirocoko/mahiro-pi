@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -8,7 +8,9 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
 import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
+import { memoryFailureCode } from '../lib/agent-memory/reasons.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
+import { digest } from '../lib/continuity/records.ts'
 
 const registry = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
 const deferred = () => {
@@ -431,6 +433,255 @@ test('public status adds a bounded capacity subtype when ABI2 storage status is 
     assert.doesNotMatch(JSON.stringify(status), /private-invalid-record|memory-tree-|\.views/)
   } finally {
     await f.close()
+  }
+})
+
+function journalId(index: number) {
+  const hex = index.toString(16)
+  return `${hex.padStart(8, '0')}-0000-4000-8000-${hex.padStart(12, '0')}`
+}
+
+function terminalJournal(root: string, revision: string) {
+  const ledger = {
+    forgottenPaths: [],
+    forgottenSources: [],
+    reviewed: [],
+    sources: { 'Core.md': [], 'index.md': [] },
+    version: 2,
+  }
+  const ledgerText = JSON.stringify(ledger)
+  const blob = 'a'.repeat(64)
+  const planMeta = {
+    id: '00000000-0000-4000-8000-000000000001',
+    view: '00000000-0000-4000-8000-000000000002',
+    base: revision,
+    current: revision,
+    configHash: blob,
+    ledgerHash: digest(ledgerText),
+    changes: [],
+  }
+  const plan = { ...planMeta, digest: digest(JSON.stringify(planMeta)) }
+  const immutable = {
+    root,
+    rootIdentity: '1:1',
+    plan,
+    next: {
+      'Core.md': { hash: blob, size: 1, sources: [] },
+      'index.md': { hash: blob, size: 1, sources: [] },
+    },
+    ledger,
+    ledgerText,
+    proposalHash: blob,
+    tree: [`100644 blob ${blob}\tCore.md`, `100644 blob ${blob}\tindex.md`],
+  }
+  return JSON.stringify({
+    version: 1,
+    immutable,
+    immutableHash: digest(JSON.stringify(immutable)),
+    sequence: 0,
+    owner: null,
+    receipt: { stage: 'reconciled_committed', observedCommit: revision },
+  })
+}
+
+test('64 terminal journals or drafts leave status Ready while explicit reflect hits capacity before spawn', async () => {
+  for (const kind of ['journal', 'drafts'] as const) {
+    const f = fixture(true)
+    const spawns: string[] = []
+    try {
+      mkdirSync(join(f.root, '../agents'), { recursive: true })
+      writeFileSync(
+        join(f.root, '../agents/managed-memory-writer.md'),
+        readFileSync(new URL('../agents/managed-memory-writer.md', import.meta.url)),
+      )
+      const physical = {
+        provider: 'openai',
+        id: 'gpt-6.1-sol',
+        api: 'openai-responses',
+        baseUrl: 'https://example.invalid',
+        reasoning: true,
+      }
+      Object.assign(f.ctx, {
+        modelRegistry: {
+          getAll: () => [physical],
+          getAvailable: () => [physical],
+          find: () => physical,
+        },
+      })
+      ;(f.abi as { parentService?: () => unknown }).parentService = () => ({
+        supportsInitialOutcomeClaim: true,
+        getAgentType: () => ({
+          name: 'managed-memory-writer',
+          model: 'openai/gpt-6.1-sol',
+          thinking: 'medium',
+          locked: true,
+          inheritContext: false,
+          runInBackground: true,
+          promptMode: 'replace',
+          toolNames: ['agent_memory_read', 'agent_memory_edit', 'agent_memory_commit'],
+        }),
+        spawn(_name: string, prompt: string) {
+          spawns.push(prompt)
+          return `job-${spawns.length}`
+        },
+      })
+      const folder = join(f.root, '.views/.engine-v2', kind)
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      const body =
+        kind === 'journal' ? terminalJournal(realpathSync(f.root), f.store.snapshot().revision) : '{}'
+      for (let index = 0; index < 64; index++)
+        writeFileSync(join(folder, `${journalId(index)}.json`), body, { mode: 0o600 })
+      await f.emit('session_start')
+      const command = f.commands.get('mh-memory')
+      assert.ok(command)
+      await command.handler('status', f.ctx)
+      const status = JSON.parse(f.notifications.at(-1)!)
+      assert.equal(status.readiness, 'Ready', kind)
+      assert.equal(status.storage, 'authorized', kind)
+      assert.equal(Object.hasOwn(status, 'storageCapacity'), false, kind)
+      await assert.rejects(
+        f.runtime.run('agent_memory_reflect', { assignment: 'Inspect retained capacity' }, f.ctx),
+        (error: unknown) => {
+          assert.equal(memoryFailureCode(error).reason, 'capacity')
+          assert.doesNotMatch(String(error), /users|journal|drafts|\.views/)
+          return true
+        },
+      )
+      assert.equal(spawns.length, 0, kind)
+      const diagnostic = await f.runtime.run('agent_memory_manage', { action: 'capacity' }, f.ctx)
+      assert.equal(diagnostic.kind, 'abi2-capacity-diagnostic')
+      assert.equal(diagnostic.corpusReturned, false)
+      assert.equal(diagnostic.classification, 'non-namespace-status-capacity')
+      assert.deepEqual(diagnostic.blockers.status, [])
+      assert.deepEqual(diagnostic.blockers.admission, [kind])
+      assert.equal(diagnostic.namespaces[kind].entries, 64)
+      assert.equal(diagnostic.namespaces[kind].admission, 'blocked')
+      assert.doesNotMatch(JSON.stringify(diagnostic), /SYNTHETIC_TREE_CORE|memory-tree-|\.views|users/)
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('/mh-memory capacity dispatches the idle count-only diagnostic', async () => {
+  const f = fixture(true)
+  try {
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('capacity extra', f.ctx)
+    assert.match(f.notifications.at(-1)!, /Usage: \/mh-memory capacity/)
+    await command.handler('capacity', f.ctx)
+    const diagnostic = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(diagnostic.kind, 'abi2-capacity-diagnostic')
+    assert.equal(diagnostic.corpusReturned, false)
+    assert.doesNotMatch(JSON.stringify(diagnostic), /SYNTHETIC_TREE_CORE|memory-tree-|\.views/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('explicit capacity AbortSignal rejects before work and during a direct idle call', async () => {
+  const f = fixture(true)
+  try {
+    await f.emit('session_start')
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('capacity', f.ctx)
+    const dispatched = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(dispatched.kind, 'abi2-capacity-diagnostic')
+    await assert.rejects(
+      f.runtime.run('agent_memory_manage', { action: 'capacity' }, f.ctx, AbortSignal.abort()),
+      (error: unknown) => {
+        assert.equal(error instanceof Error && error.name, 'AbortError')
+        return true
+      },
+    )
+    const controller = new AbortController()
+    const original = MemoryEngineController.prototype.request
+    MemoryEngineController.prototype.request = async function (this: MemoryEngineController, ...args) {
+      if (args[0] === 'capacityDiagnostic') controller.abort()
+      return original.apply(this, args)
+    }
+    try {
+      await assert.rejects(f.runtime.capacityDiagnostic(f.ctx, controller.signal), (error: unknown) => {
+        assert.equal(error instanceof Error && error.name, 'AbortError')
+        return true
+      })
+    } finally {
+      MemoryEngineController.prototype.request = original
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+test('a denied capacity read leaves the Palace viewer open', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    const opened = await f.runtime.openPalaceViewer(f.ctx)
+    assert.equal(f.runtime.status().palaceViewer, 'open')
+    f.setGranted(false)
+    await assert.rejects(f.runtime.run('agent_memory_manage', { action: 'capacity' }, f.ctx))
+    assert.equal(f.runtime.status().palaceViewer, 'open')
+    f.setGranted(true)
+    const response = await fetch(opened.url)
+    assert.equal(response.status, 200)
+  } finally {
+    await f.close()
+  }
+})
+
+test('explicit capacity diagnostic stays bounded and fails closed when the idle fence moves', async () => {
+  for (const race of ['none', 'leaf', 'revocation', 'idle', 'busy', 'cancel', 'generation'] as const) {
+    const f = fixture(true)
+    try {
+      await f.emit('session_start')
+      const command = f.commands.get('mh-memory')
+      assert.ok(command)
+      await command.handler('status', f.ctx)
+      const status = JSON.parse(f.notifications.at(-1)!)
+      assert.equal(status.storage, 'authorized')
+      assert.equal(Object.hasOwn(status, 'storageCapacity'), false)
+      const diagnose = () => f.runtime.run('agent_memory_manage', { action: 'capacity' }, f.ctx)
+      if (race === 'none') {
+        const diagnostic = await diagnose()
+        assert.equal(diagnostic.kind, 'abi2-capacity-diagnostic')
+        assert.equal(diagnostic.corpusReturned, false)
+        assert.deepEqual(diagnostic.blockers.admission, [])
+        assert.doesNotMatch(JSON.stringify(diagnostic), /SYNTHETIC_TREE_CORE|memory-tree-|\.views/)
+      } else if (race === 'idle') {
+        f.setIdle(false)
+        await assert.rejects(diagnose(), /Idle ABI2 primary capacity diagnostic required/)
+      } else {
+        const original = MemoryEngineController.prototype.request
+        MemoryEngineController.prototype.request = async function (this: MemoryEngineController, ...args) {
+          if (args[0] === 'capacityDiagnostic') {
+            if (race === 'leaf')
+              f.branch.push({
+                id: 'moved',
+                parentId: f.branch.at(-1)?.id ?? null,
+                type: 'message',
+                timestamp: 't',
+              })
+            if (race === 'revocation') f.setGranted(false)
+            if (race === 'busy') f.setIdle(false)
+            if (race === 'cancel') void f.runtime.cancel()
+            if (race === 'generation') f.abi.generation = {}
+          }
+          return original.apply(this, args)
+        }
+        try {
+          await assert.rejects(diagnose())
+        } finally {
+          MemoryEngineController.prototype.request = original
+        }
+      }
+    } finally {
+      await f.close()
+    }
   }
 })
 

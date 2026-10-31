@@ -117,7 +117,14 @@ interface PendingEpisode {
 }
 const registry = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
 const palaceViewerTtlMs = 10 * 60 * 1000
-const viewerReadActions = new Set(['status', 'doctor', 'palace', 'migration-export', 'offline-inspect'])
+const viewerReadActions = new Set([
+  'status',
+  'doctor',
+  'palace',
+  'migration-export',
+  'offline-inspect',
+  'capacity',
+])
 
 interface PalaceViewerCapture {
   handoff: PalaceHandoff
@@ -543,19 +550,26 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (!verdict.ok) throw memoryFailure('branch', 'Native memory branch changed')
     return captured
   }
-  const capacityDiagnostic = async (ctx: ExtensionContext) => {
+  const capacityDiagnostic = async (ctx: ExtensionContext, signal?: AbortSignal) => {
+    signal?.throwIfAborted()
+    ctx.signal?.throwIfAborted()
     if (!ctx.isIdle() || starting || job || draft)
       throw Error('Idle ABI2 primary capacity diagnostic required')
     const leaf = ctx.sessionManager.getLeafId()
-    const f = owner(ctx, 'agent_memory_manage', 'read')
+    const f = owner(ctx, 'agent_memory_manage', 'read', signal ?? ctx.signal)
     const current = f.context.current
-    f.context.current = (targets) =>
-      ctx.isIdle() &&
-      !starting &&
-      !job &&
-      !draft &&
-      ctx.sessionManager.getLeafId() === leaf &&
-      current(targets)
+    f.context.current = (targets) => {
+      signal?.throwIfAborted()
+      ctx.signal?.throwIfAborted()
+      return (
+        ctx.isIdle() &&
+        !starting &&
+        !job &&
+        !draft &&
+        ctx.sessionManager.getLeafId() === leaf &&
+        current(targets)
+      )
+    }
     assertCurrent(f.context)
     await f.abi.authorize(f.tool, ctx, f.root, 'read')
     assertCurrent(f.context)
@@ -955,6 +969,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (assignment !== undefined && !bounded(assignment, 4096))
       throw Error('Bounded explicit memory assignment required')
     starting = true
+    let own!: Job
     try {
       if (stale()) return { skipped: 'stale-launch' as const }
       const f = await resolve(ctx, 'agent_memory_reflect', 'write')
@@ -1055,7 +1070,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
       value.dataBarrier = dataBarrier
       jobContext.barrier = dataBarrier
-      const own: Job = {
+      own = {
         id: undefined,
         value,
         phase: 'starting',
@@ -1206,7 +1221,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         void own.finish()
         return { job: own.id, status: 'native-dispatched', providerProof: false }
       } catch (error) {
-        own.cancel('dispatch-failed')
+        if (own) own.cancel('dispatch-failed')
         throw error
       }
     } finally {
@@ -1286,6 +1301,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }
   }
   const run = async (name: string, args: unknown, ctx: ExtensionContext, signal?: AbortSignal) => {
+    if (
+      name === 'agent_memory_manage' &&
+      objectShape(args, ['action']) &&
+      args.action === 'capacity' &&
+      Object.keys(args).length === 1
+    )
+      return await capacityDiagnostic(ctx, signal)
     if (
       name === 'agent_memory_manage' &&
       objectShape(args, ['action', 'core', 'projectId', 'automatic']) &&
@@ -2158,7 +2180,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       kind: 'abi2-palace-html-close' as const,
       closed: await closeViewer(),
     }),
-    capacityDiagnostic: (ctx: ExtensionContext) => admit(ctx, () => capacityDiagnostic(ctx)),
+    capacityDiagnostic: (ctx: ExtensionContext, signal?: AbortSignal) =>
+      admit(ctx, () => capacityDiagnostic(ctx, signal)),
     captureInvocation: (ctx: ExtensionContext) =>
       admit(
         ctx,

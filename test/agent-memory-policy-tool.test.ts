@@ -42,11 +42,19 @@ test('registered manage tool accepts bounded reflection fields and rejects the r
     })
     assert.equal(accepted.reflectionTrigger, 'step-count')
     assert.equal(accepted.reflectionStepCount, 1)
+    const capacity = validateToolCall([manage], {
+      type: 'toolCall',
+      id: 'capacity-action',
+      name: 'agent_memory_manage',
+      arguments: { action: 'capacity' },
+    })
+    assert.equal(capacity.action, 'capacity')
     const rejected: { [key: string]: string | number | boolean }[] = [
       { action: 'policy', automatic: true, reflectionTrigger: 'weekly', reflectionStepCount: 1 },
       { action: 'policy', automatic: true, reflectionTrigger: 'step-count', reflectionStepCount: 0 },
       { action: 'policy', automatic: true, reflectionTrigger: 'step-count', reflectionStepCount: 100001 },
       { action: 'policy', automatic: true, reflectionMode: 'step-count' },
+      { action: 'capacity', reflectionMode: 'status' },
     ]
     for (const arguments_ of rejected)
       assert.throws(

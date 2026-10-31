@@ -255,6 +255,7 @@ test('memory help presents one Palace façade and hides checkpoint diagnostics',
     f.ctx.ui = { notify: (text: string) => notifications.push(text) }
     await f.commands.get('mh-memory').handler('help', f.ctx)
     const help = notifications.at(-1)!
+    assert.match(help, /\/mh-memory capacity is the idle count-only storage diagnostic/)
     assert.match(help, /doctor returns engine-specific JSON diagnostics/)
     assert.match(help, /palace opens one immutable ten-minute ABI2 metadata viewer/)
     assert.match(help, /Use \/mh-memory palace close to stop it/)
@@ -268,6 +269,7 @@ test('memory help presents one Palace façade and hides checkpoint diagnostics',
     assert.doesNotMatch(help, /palace-context|palace-history|palace-html/)
     await f.commands.get('mh-memory').handler('unknown', f.ctx)
     const usage = notifications.at(-1)!
+    assert.match(usage, /capacity/)
     assert.match(usage, /palace \[close\|json\]/)
     assert.doesNotMatch(usage, /context|palace-context|palace-history|palace-html/)
   } finally {

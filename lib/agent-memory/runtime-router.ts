@@ -138,6 +138,10 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
         ? diagnose(args[2], true)
         : selected().run(...args),
     diagnose,
+    capacityDiagnostic: (ctx: ExtensionContext, signal?: AbortSignal) => {
+      if (mode !== 2) throw Error('ABI2 capacity diagnostic unavailable')
+      return experimental.capacityDiagnostic(ctx, signal)
+    },
     captureInvocation: (ctx: ExtensionContext) => {
       if (mode !== 2) throw Error('ABI2 invocation context unavailable')
       return experimental.captureInvocation(ctx)

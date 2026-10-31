@@ -22,6 +22,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         ![
           'status',
           'help',
+          'capacity',
           'remember',
           'dream',
           'doctor',
@@ -34,14 +35,14 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         ].includes(subcommand)
       ) {
         ctx.ui.notify(
-          'Use /mh-memory [status|help|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
+          'Use /mh-memory [status|help|capacity|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
           'warning',
         )
         return
       }
       if (subcommand === 'help') {
         ctx.ui.notify(
-          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It does not open a browser or expose memory bodies, diffs, authors or subjects. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory capacity is the idle count-only storage diagnostic and can run after a successful status; it returns no names, paths, record bodies, or cleanup handle. A model tool turn is not idle. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It does not open a browser or expose memory bodies, diffs, authors or subjects. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
           'info',
         )
         return
@@ -62,6 +63,16 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         }
         if (subcommand === 'status') {
           const result = await runtime.diagnose(ctx)
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'capacity') {
+          if (rest.length) {
+            ctx.ui.notify('Usage: /mh-memory capacity', 'warning')
+            return
+          }
+          const result = await runtime.run('agent_memory_manage', { action: 'capacity' }, ctx)
           observe('memory', result)
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
           return
@@ -190,6 +201,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           type: 'string',
           enum: [
             'status',
+            'capacity',
             'doctor',
             'palace',
             'migration-export',
@@ -249,7 +261,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         agent_memory_commit:
           'Commit/integrate the current private memory draft against its base revision. Disjoint edits merge automatically; overlapping edits preserve a conflict. Native workers mark ready; the healthy parent integrates only after successful completion. Active primary context refreshes on the next request.',
         agent_memory_manage:
-          'Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. migration-export is a primary read of the current committed revision. Page section binding, sources, forgotten-paths, forgotten-sources or reviewed with offset/limit at most 32 entries. Every page repeats that revision, config hash and whole ledger digest, and a changed revision fails stale. sources rows include each active file committed SHA-256 content hash, the same hash agent_memory_read returns, and no file text. It returns no credentials, root paths, draft bodies or unrelated corpus, and it does not apply a migration. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files. ABI2: policy changes automatic admission with current revision/configHash, and may set reflectionTrigger plus reflectionStepCount from 1 through 100000; it never changes permissions, engine or writer route. Status policyOperation diagnoses policy lock retention and observed outcome, not unchanged-on-abort. policy-reconcile uses target UUID and revision=policy digest from status, only after actual executor drain under fresh primary authority; removes verified owned staging/lock only, never changes config. Missing references/restart/mismatches retain unknown evidence for owner review. Reconcile observes one existing publication operation (target UUID, revision plan digest); never replays publication, returns chunks, steals locks or initializes an existing root.',
+          'Primary-only new-store initialization (explicit core/projectId, optional automatic), bounded memory status, cancellation, source/path forgetting and rollback. capacity is the same idle-primary count-only storage diagnostic as a failed status; a model tool turn is not idle, so use /mh-memory capacity. It returns no names, paths, record bodies, or cleanup handle. conflicts lists up to 8 retained views; target selects a view, path selects a proposal file. Read all pages with Unicode offset/limit (4096 maximum) before recovery; proposalHash covers the full text. Resolve manually through current CAS tools, then discard that view with current revision. Initialization never overwrites an existing root or native bootstrap; separate root permission must already exist. Requires current revision for changes. migration-export is a primary read of the current committed revision. Page section binding, sources, forgotten-paths, forgotten-sources or reviewed with offset/limit at most 32 entries. Every page repeats that revision, config hash and whole ledger digest, and a changed revision fails stale. sources rows include each active file committed SHA-256 content hash, the same hash agent_memory_read returns, and no file text. It returns no credentials, root paths, draft bodies or unrelated corpus, and it does not apply a migration. Logical forgetting filters recovery, not secure Git/history erasure. Revise Core/index to remove the forgotten knowledge and its source link before source-forgetting, preserving identity. Global/deferred/procedure source-forgetting conservatively removes entire affected files. ABI2: policy changes automatic admission with current revision/configHash, and may set reflectionTrigger plus reflectionStepCount from 1 through 100000; it never changes permissions, engine or writer route. Status policyOperation diagnoses policy lock retention and observed outcome, not unchanged-on-abort. policy-reconcile uses target UUID and revision=policy digest from status, only after actual executor drain under fresh primary authority; removes verified owned staging/lock only, never changes config. Missing references/restart/mismatches retain unknown evidence for owner review. Reconcile observes one existing publication operation (target UUID, revision plan digest); never replays publication, returns chunks, steals locks or initializes an existing root.',
         agent_memory_reflect:
           'Assign a locked native background writer to maintain the SAME private memory using current scoped episodes. No caller-chosen role/model/path. Registration, authority and native identity binding must already exist. Does not claim provider proof or semantic correctness.',
       }[name],

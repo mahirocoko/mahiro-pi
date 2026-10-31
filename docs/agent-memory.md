@@ -232,7 +232,10 @@ combined retained-view doctor check and separate status/doctor/admission blocker
 lists. The fallback does not retraverse an already-overflowed session branch; it
 instead fences the current leaf, runtime binding, idle state and exact authority
 throughout the attempt. It returns no names, paths, record bodies, corpus text or
-cleanup handle. Missing diagnostics remain unknown. A reported
+cleanup handle. Missing diagnostics remain unknown. `/mh-memory capacity` requests that same
+count-only diagnostic while the session is idle, including after status
+succeeded. A model tool turn is not idle, so the registered `capacity` action is
+not a substitute for that command. A reported
 blocker does not authorize deletion, discard, adoption, restart, policy change or
 profile activation; remediation requires a separately reviewed owner workflow.
 A 2026-10-30 current-profile read-only observation at source commit `68def01`
