@@ -62,8 +62,8 @@ dated source records, not current installation instructions.
   never sets blanket allow. Preserve targeted restrictions and refuse missing
   required grants truthfully. See `docs/bootstrap.md`.
 - Maintained knowledge has one private Markdown/Git owner, separate from historical
-  recall. `docs/letta-parity-roadmap.md` owns current parity planning/scoring;
-  percentages summarize evidence, not activation or acceptance truth.
+  recall. `docs/letta-parity-roadmap.md` owns the current direct-upstream direction;
+  historical percentages and evidence ladders are records, not planning or release gates.
   Live publication is ABI1 or ABI2: exact-root authority is mandatory.
   Native writers use identity-bound private views and public prompt replacement, not
   cwd overrides, shell tools or inherited private corpus. Preserve existing memory;
@@ -147,15 +147,15 @@ dated source records, not current installation instructions.
   legacy structural diagnostic. Context/history/HTML checkpoint commands may
   remain hidden compatibility aliases but must not be advertised as separate
   product surfaces.
-  Palace visual authority is the current pulled Letta Code memory-viewer stylesheet
-  (`src/web/memory-viewer-template.txt`), minimally adapted to Mahiro's markup, not
-  a competing visual system. Before every new Letta Code reference review, verify
-  the reference checkout is clean and run `git pull --ff-only`; if unsafe or not
-  fast-forwardable, stop and report, never reset. Record the exact commit/version.
-  Preserve Mahiro's security, data, authority and transport boundaries; never copy
-  Letta brand assets. Use bounded source/semantic/security QA, not broad taste-driven
-  QA. Keep exact inspected commit/version and comparison evidence in the owning parity
-  guide or third-party notice rather than treating an old reference identity as current.
+  For maintained-memory, reflection, migration and Palace parity, Letta Code is the
+  implementation baseline. Before each new reference review, verify its checkout is
+  clean and run `git pull --ff-only`; stop on unsafe or diverged state rather than
+  resetting it. Start by following upstream code and behavior directly. Do not turn
+  matching upstream behavior into a separate Mahiro specification, alternative design,
+  extra edge-case contract or new test matrix. Adapt only where an existing Mahiro
+  authority, privacy, security or transport contract actually conflicts, and keep that
+  deviation narrow. Never copy Letta brand assets. Keep exact reference identity and
+  necessary attribution in the owning parity guide or third-party notice.
   Browser opening, profile activation/reload, replay registries, Phase I and human
   acceptance remain separate scopes.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.
@@ -171,17 +171,20 @@ dated source records, not current installation instructions.
 
 ## Verification and style
 
-Use scoped static checks (`check:fast`, also the default `check`) and exact relevant
-regression test files for ordinary changes when the authorized test window is available.
-Run the explicit public-host geometry smoke for geometry changes. Full source/SDK suites
-and combined `check:release` require explicit scope; serialize heavy checks.
-The whole `.agent-state` must remain strictly below 1 GiB. State gates are bounded
-checkpoint accounting, not an OS quota; test owners must bound writes and cleanup exact
-newly-created runtime roots. Never prune unknown/live state or private knowledge.
-Synthetic/source checks are not rendered, installed or human acceptance.
-Use a fresh verifier for independent QA. Under an explicit security-audit
-execution constraint, do not run target-controlled tests, builds or formatters
-without the required sandbox; report source/diff checks and unrun gates instead.
+Use the smallest check that can catch the likely regression: a targeted formatter,
+type/docs check, or exact focused test. Do not default every ordinary or Letta-following
+change to `check:fast`, a broad test matrix, browser loops and a fresh verifier together.
+Use `check:fast` when a change crosses several owned contracts or before an authorized
+checkpoint; use geometry smoke only for geometry behavior that is actually changed.
+Fresh verification is for material authority/security/recovery/release risk, an observed
+regression or a genuinely unresolved finding. Full source/SDK suites and combined
+`check:release` require explicit scope; serialize heavy checks. The whole `.agent-state`
+must remain strictly below 1 GiB. State gates are bounded checkpoint accounting, not an
+OS quota; test owners must bound writes and cleanup exact newly-created runtime roots.
+Never prune unknown/live state or private knowledge. Synthetic/source checks are not
+rendered, installed or human acceptance. Under an explicit security-audit execution
+constraint, do not run target-controlled tests, builds or formatters without the required
+sandbox; report source/diff checks and unrun gates instead.
 
 Follow repository-local Biome: two spaces, single JavaScript/TypeScript quotes,
 ASI-safe semicolons only as needed, 110 columns, trailing commas, LF, parenthesized

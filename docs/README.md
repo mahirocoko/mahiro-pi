@@ -22,27 +22,13 @@
   conflict recovery, bounded ABI2 metadata diagnostics/HTML handoff and separate quotation controls. The
   [experimental local Git/worktree service](agent-memory.md#experimental-local-gitworktree-service)
   is synthetic-only and is not the installed engine.
-- [Letta parity roadmap](letta-parity-roadmap.md) — current maintained-memory parity/status,
-  planning and scoring owner; evidence gates and selective guidance admission, not activation truth.
-  The [R0 contract appendix](letta-parity-r0.md) maps all 28 gaps, selected source directions,
-  latest-source differential and acceptance worksheets. The [R1 schema contract](letta-parity-r1.md)
-  freezes native path/projection/discovery mapping against Letta v0.34.31. The
-  [R3 trajectory contract](letta-parity-r3.md) records synthetic assistant-step triggers,
-  captured-prefix draining, bounded redaction, progress and non-executing replay. The
-  [R4 ABI2 route checkpoint](letta-parity-r4.md) proves one disposable automatic
-  SDK route, not installed/provider/human acceptance. The
-  [R5 recovery contract](letta-parity-r5.md) defines explicit synthetic repair/abandon,
-  unchanged recovery watermarks, retained evidence and open concurrency/helper limits. The
-  [R6 operator contract](letta-parity-r6.md) separates metadata export, caller bundles,
-  disconnected shadow verification and quarantine from unavailable backup/restore,
-  active migration and authority cutover. The
-  [R7 invocation-view contract](letta-parity-r7.md) specifies disconnected committed
-  captures, projection receipts and bounded knowledge history, not installed capture
-  or HTML diff navigation. The
-  [R8 source/security/context-contract closeout](letta-parity-r8.md) records the
-  current 75% source / 40% evidence assessment, threat/coverage ledger and
-  **NOT ALIGNED / NOT READY** decision; no target-controlled gates ran in R8.
-  None establishes installed parity or activation.
+- [Letta maintained-memory roadmap](letta-parity-roadmap.md) — current direct-upstream
+  direction: follow the latest Letta Code owner, keep only necessary Mahiro security/
+  authority adaptations and use the smallest relevant regression. The R0–R8 pages are
+  retained as dated implementation history, not active percentage or evidence gates:
+  [R0](letta-parity-r0.md), [R1](letta-parity-r1.md),
+  [R3](letta-parity-r3.md), [R4](letta-parity-r4.md), [R5](letta-parity-r5.md),
+  [R6](letta-parity-r6.md), [R7](letta-parity-r7.md), [R8](letta-parity-r8.md).
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),
   readable tool cards, [Goals](workflows.md#goals),

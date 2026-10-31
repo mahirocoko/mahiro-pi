@@ -278,50 +278,26 @@ boundaries. It does not validate external websites or prove semantic truth.
 Source/test changes still require contract review. Dated release notes remain
 source records, not rewritten histories or current activation instructions.
 
-### Parity score and evidence maintenance
+### Direct Letta maintenance
 
-The [Letta parity roadmap](letta-parity-roadmap.md) is the current planning/scoring
-owner. Its percentages are rounded editorial evidence summaries, not equivalence,
-activation, performance or human acceptance. Keep the baseline date, Mahiro commit
-and any audited dirty-diff identity, Letta version/pins, checklist IDs and evidence
-references together. Retain old baselines in Git and explain old/new domain values
-and weighted totals in the roadmap revision table; never silently edit a score.
-The [R0 contract appendix](letta-parity-r0.md) owns the detailed gap/owner map,
-selected directions, read-only differential commands and L/D/N/I/O/H worksheets;
-the roadmap remains the status/scoring owner.
+The [Letta roadmap](letta-parity-roadmap.md) owns the current direct-upstream
+direction. Percentage scoring and mandatory evidence ladders are retired; their old
+values remain historical records in Git.
 
-Scores move only with cited evidence layers: source 50%, installed integration
-20%, observed runtime 20%, human acceptance 10%. Missing evidence earns no credit
-but is not automatic behavioral failure. Documentation, local regressions and
-Faux/SDK checks cannot earn installed/runtime/human credit by assertion. Planned
-work and approved C exclusions earn no implementation points; any scope or
-weight/denominator change needs explicit approval. Recalculate after material
-contract/implementation changes, new layer evidence or a new upstream differential,
-including downward corrections. A fresh verifier must challenge material score
-movement against final source and receipts; human acceptance stays Mahiro-owned.
+Before inspecting Letta Code, verify its checkout is clean and pull with
+`git pull --ff-only`. Read the current executable owner, then port the behavior
+directly when Mahiro does not already match it. Do not create another local
+specification, gap phase or broad fixture matrix for matching upstream behavior.
+Keep only existing Mahiro authority/privacy/security differences that actually
+conflict with the upstream implementation.
 
-### Latest-source differential verification
-
-For a parity claim, record both exact Letta pins and compare executable owners,
-not just upstream guides or matching names. The baseline comparison is previous
-`5dea67021b99810707ff753db35e4534f70ff1fd` to v0.34.31
-`a8900b882446d7aa99fedf2845d400743affd1b6`. Distinguish existing architecture
-from latest config-root isolation and Git-helper termination changes. Follow R0's
-owner map and A/B/C decisions before changing behavior; upstream source-guide
-contradictions must be resolved in favor of executable evidence.
-
-Record read-only source-diff commands, symbols, chosen outcome and deliberate
-deltas. Design defect-specific synthetic fixtures for schema/projection,
-assistant-step counting, captured-range watermarks/replay, recovery disposition,
-root isolation and helper teardown. Label local regression, latest-source
-differential, SDK, installed, observed/runtime and human evidence separately.
-Running upstream tests, installers or generators is not required or implicitly
-authorized. Do not import private runtime, corpus or credentials for a fixture.
-Keep sensitive receipts ignored and publish only sanitized evidence summaries.
-
-A specification/source-test milestone does not reopen Phase H/Phase I, install an
-engine, migrate memory or authorize a release. Use explicit scoped checks; full
-source/SDK/release tiers and live probes retain their separate approval gates.
+Use the smallest relevant check: docs check for docs, one focused regression or
+smoke for a direct source port, and `check:fast` only when several owned contracts
+change together or before an authorized checkpoint. Add broader suites, a fresh
+verifier or browser work only for a real failure, material security/authority risk
+or release. Never import private runtime, corpus or credentials for a fixture.
+Running upstream installers, generators or tests remains outside ordinary reference
+inspection.
 
 ## Source releases
 

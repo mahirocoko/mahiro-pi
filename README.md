@@ -59,7 +59,7 @@ profile selection, restriction failures and upgrades.
 | [Status and notifications](docs/status.md) | Compact statusline, cache-only usage inspector, Git/context/RTK status, streaming activity and completion voice |
 | [RTK](docs/rtk.md) | Visible modes, bounded resolver proposals and policy checks before execution |
 | [Memory and recall](docs/agent-memory.md) | Private Markdown/Git knowledge, scoped drafts, bounded lexical retrieval and separately screened historical quotations |
-| [Letta parity roadmap](docs/letta-parity-roadmap.md) | Current maintained-memory parity/status, planning and evidence gates; not a performance claim |
+| [Letta memory roadmap](docs/letta-parity-roadmap.md) | Direct current-upstream implementation plan; historical scores and proof ladders are not work drivers |
 | [Guards and permissions](docs/guards.md) | One Root guard, public permission resolution, final-argument checks and filtered configuration helpers |
 | [Workflow tools](docs/workflows.md) | Readable tool cards, owner-delegating inspector, Goals, Code Evidence, UX handoffs and execution coordination metadata |
 | [Utilities](docs/utilities.md) | Naturally chosen multi-step tracking, branch-local steps, editable staging, response copying, realignment, clock and Code Map |

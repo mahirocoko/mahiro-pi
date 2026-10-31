@@ -1,806 +1,198 @@
-# Letta maintained-memory parity roadmap
+# Letta maintained-memory roadmap
 
 [← Documentation](README.md) · [Memory contract](agent-memory.md) · [Development](development.md)
 
-[R0 contract appendix](letta-parity-r0.md) owns detailed pins, the 28-gap owner map,
-selected source directions and evidence worksheets; this roadmap owns status and scores.
+This is the current direction for Mahiro Pi maintained memory. The detailed R0–R8
+pages are retained as dated implementation records; they no longer define a growing
+proof ladder, percentage target or mandatory test matrix.
 
 ## Scope and authority
 
-This is the canonical **current planning, parity status and scoring owner** for
-Mahiro Pi's full maintained-memory product: storage, discovery, reflection,
-publication, recovery, operator workflows, Palace and guidance. It is not a plan
-to reproduce the whole Letta app, hosted backend or every command and skill.
-[Memory](agent-memory.md) still owns the implemented live contract;
-[agents](agents.md) owns roles and skill boundaries. Source and observed runtime
-outrank prose, phase names, green test counts and percentages.
+Letta Code is the implementation baseline for maintained memory, reflection,
+migration and Palace. Before a new comparison, verify the reference checkout is
+clean and update it with `git pull --ff-only`. If it cannot fast-forward safely,
+stop rather than reset it. Record the exact inspected commit/version when source is
+copied or materially compared.
 
-Current assessment of product source: **2026-10-30**, Mahiro commit
-`85d2f0a82088103eb67d4bd29876e0f4e4b471a8`, compared with the Letta pin below.
-The later docs-only checkpoint containing this roadmap and the
-[R8 source/security/context-contract closeout](letta-parity-r8.md) records
-**75% source / 40% evidence-backed end-to-end**, **NOT ALIGNED** and **NOT READY**
-for release/cutover. R8 source audit is complete; installed/observed/human (I/O/H)
-gates remain open. No target-controlled execution was performed for R8. A later
-narrow installed read-only capacity observation at source commit `68def01` is
-recorded under R5-07. It establishes only current-profile diagnostic activation
-and healthy fresh-session status; no domain-level I/O/H gate or score changes.
+Current references:
 
-The original B0 baseline was **2026-10-29**, Mahiro commit
-`7c4169477fcacc472018678848f74342173de2b2` plus the audited dirty working tree.
-B0's dirty-source identity remains **unfrozen/unavailable**: the original audit
-did not capture an immutable whole-dirty-tree manifest. That commit alone is
-insufficient to reproduce the audited dirty Palace/context/identity work. A
-later manifest or checkpoint cannot retroactively identify that earlier tree.
-The read-only 28-gap audit is supporting local evidence at
-`.agent-state/runtime/memory-v012/letta-v03431-full-parity-audit.md`; it is ignored
-operator evidence, not a public prerequisite or a new authority. The durable gap
-mapping and gates below preserve its actionable conclusions without copying
-private corpus or runtime payloads into source.
+- full-product audit baseline: Letta Code `a8900b882446d7aa99fedf2845d400743affd1b6`
+  / v0.34.31;
+- latest pulled visual reference: `8f72222dec142dfc2316692d68ada3ab2e439d46`
+  / v0.34.36;
+- the memory-viewer template is unchanged between those two references.
 
-Reference: Letta Code **v0.34.31**, commit
-`a8900b882446d7aa99fedf2845d400743affd1b6`; previous comparison pin
-`5dea67021b99810707ff753db35e4534f70ff1fd`. Most MemFS v2, reflection and Palace
-architecture predates the latest pin. The material latest-source deltas are
-config-root isolation/security consistency and Git child/helper termination.
+Executable source and observed product behavior outrank documentation, tests,
+reports and old roadmap language. Current human direction outranks every historical
+appendix.
 
-Palace visual authority is the current pulled Letta memory-viewer stylesheet,
-minimally adapted, not a competing visual system. For this visual correction the
-clean reference checkout was updated and verified with `git pull --ff-only` at
-`8f72222dec142dfc2316692d68ada3ab2e439d46` / **v0.34.36**. Its
-`src/web/memory-viewer-template.txt` has no diff from the audited v0.34.31 pin above;
-this is not a new full-product parity audit. Before each new reference review,
-verify cleanliness and pull fast-forward-only; stop/report unsafe or diverged
-state without resetting. The installed ABI2 subset preserves Mahiro's security,
-data, authority and transport contracts, excludes Letta brand assets and remote
-fonts/scripts, and uses CSS dark-mode tokens with system font fallbacks.
-[The R7 boundary](letta-parity-r7.md#html-and-transport-boundary) records the
-adaptation. QA stays bounded to source fidelity, semantics and security, not
-broad taste-driven review. No parity score or acceptance gate changes for style.
-Executable source wins over source-guide contradictions, including failed
-reflection integration cleanup.
+## Current direction
 
-A means **match closely**, B means **adapt the outcome**, C means **do not copy
-exactly**. R0's [selected source directions](letta-parity-r0.md#selected-source-directions--r0-03)
-record dispositions on 2026-10-30; implementation and later acceptance remain gated.
-Mahiro's exact-root authority, fallible-memory doctrine, private worker views,
-bounded tools, logical forgetting and preserved uncertainty are intentional
-constraints, not obstacles to remove for a score. No section authorizes Phase I,
-a live cutover, profile changes, a commit, release or new skill installation.
+Follow Letta Code directly instead of designing a parallel Mahiro interpretation:
 
-## Current verdict
+1. locate the current upstream owner;
+2. copy or adapt its behavior with the smallest practical change;
+3. keep an existing Mahiro authority, privacy, security or transport difference only
+   when it actually conflicts with upstream behavior;
+4. run the smallest focused check or smoke that can catch the likely regression;
+5. stop when the feature works and no real failure remains.
 
-**NOT ALIGNED.** Current editorial assessments are **75% source-capability
-coverage** and **40% evidence-backed end-to-end parity**. Both are rounded,
-weighted planning summaries, not objective equivalence, benchmark results,
-performance, learning quality or human acceptance.
+Do not create a new local specification, gap taxonomy, score, evidence worksheet,
+edge-case contract or verifier/browser loop for behavior that already matches Letta.
+Synthetic fixtures and receipts may help debug a defect, but they are not product
+quality and must not create more work by themselves.
 
-The live ABI1/ABI2 product has substantial authority, projection and writer
-infrastructure. The local Git/worktree, trajectory, model-worker, projection,
-forgetting, migration and synthetic Palace experiments remain disconnected from
-installed routing. Synthetic completion is not an installed end-to-end product.
-Later ABI2 source checkpoints add command-time context, owner-certified committed
-structure, bounded identity/time history and a separate immutable metadata HTML
-handoff outside `local/**`; their invocation association remains non-atomic and
-no current-profile installation/rendered acceptance is claimed. The public command
-surface is consolidated behind `/mh-memory palace`, with `palace close` for
-lifecycle and `palace json` for the legacy structural diagnostic. Mahiro accepted
-the roadmap direction on
-2026-10-30 and authorized continued repository write/test/checkpoint execution.
-R0–R7 source milestones and R8 source audit have bounded records, not
-complete-product acceptance. R7-I is now boundedly complete; R7-O/H and R8-I/O/H
-remain open. Phase H acceptance
-and Phase I remain paused until their own gates pass. The R8 security-audit pass
-itself ran source review only; later scoped source fixtures are separate evidence.
+## Current product state
 
-## Scoring method
+- ABI2 remains the live maintained-memory authority and preserves the existing
+  private corpus.
+- The disconnected `lib/agent-memory/local/**` Git/worktree service remains source
+  experimentation. It is not silently combined with ABI2 or activated by this roadmap.
+- `/mh-memory palace`, `palace close` and `palace json` remain the public Palace
+  façade. The installed page now follows the pulled Letta memory-viewer visual grammar.
+- Palace visual work is complete for the current scope. Do not resume screenshot,
+  zoom, score or taste-review loops unless Mahiro reports a real defect.
+- Existing migration/recovery experiments remain available as source history. They
+  are not prerequisites that must be repeatedly reproven before ordinary development.
+- Profile mutation, private migration, live authority cutover, tag and release remain
+  separate explicit actions because they change user state or publication, not because
+  a percentage or evidence gate is missing.
 
-There are two views of the same nine weighted domains:
+## Next implementation
 
-- **Source capability** estimates implemented behavior against the agreed user
-  outcomes. Similar names, planned work and test quantity earn no points.
-- **Displayed/evidence parity** weights evidence layers: source **50%**, installed
-  integration **20%**, observed runtime **20%**, human acceptance **10%**. For a
-  domain, sum layer coverage times those weights. Source includes contract review,
-  local regressions and latest-source differential; these are distinct evidence
-  types within that layer, not extra installed credit.
-- Missing evidence earns **zero credit**, but means unestablished, not automatic
-  behavioral failure. Documentation and tests cannot claim installed, observed
-  runtime or human credit. Faux integration is source/SDK evidence unless the
-  claimed installed seam itself is independently established.
-- Aggregate with the domain weights below, then round to the nearest **5
-  percentage points**. Do not round intermediate calculations when recalculating.
-  Current weighted source total is 75.75%; its source-layer contribution is
-  75.75 × 0.50 = 37.875 percentage points. The installed Palace/context/history
-  slice now carries 50% domain coverage at 10% domain weight: weighted installed
-  coverage is 5%, contributing 5 × 0.20 = 1 point. Observed-runtime and human
-  claim contributions remain zero: 37.875 + 1 + 0 + 0 = 38.875%. These still
-  display as 75% and 40%. Per-domain evidence below is source × 50%, plus the
-  cited Palace installed contribution. B0/B1's historical
-  61.5% / 30.75% totals displayed as 60% / 30%; they are not rewritten.
-- Planned work earns zero. A deliberate C exclusion earns no implementation
-  points and needs explicit approval. Do not silently drop its denominator;
-  record any approved scope/denominator change as a new baseline.
+Continue one real upstream behavior at a time:
 
-### Domain scorecard
+1. pull the current Letta reference before inspection;
+2. inspect the relevant upstream implementation, not its issue title or tests alone;
+3. port the behavior when Mahiro does not already have it;
+4. keep a no-op when current Mahiro behavior already matches the outcome;
+5. add only a focused regression for Mahiro-specific adaptation or an observed bug.
 
-Confidence labels are qualitative evidence confidence, not statistical intervals:
-**moderate/low** means credible audited source with unestablished end-to-end
-proof; **limited/low** also signals unresolved semantic or integration choices.
-One bounded Palace installed-integration claim is now credited; no broad-product
-installed, observed-runtime or human claim is made by this assessment. Remaining
-zeros mean unestablished at this checkpoint, not failure and not a denial of R0's
-narrower historical inventory/read observations.
+The next source change should be selected from a concrete current Letta memory delta
+with visible product value. Do not spend a phase proving that a no-op, screenshot,
+percentage or synthetic journey is complete. If the next useful change requires
+private-profile mutation or live cutover, stop at that action boundary and request
+that scope directly.
 
-| Domain | Weight | Source | Displayed/evidence | Confidence (source/end-to-end) | Rationale | Next-band condition |
-| --- | --- | --- | --- | --- | --- | --- |
-| Storage/schema/forgetting | 10 | 80% | 40% | Moderate/low | R1 mapping and R6 logical non-resurrection cover committed owners; not secure erasure or MemFS v2 compatibility. | Authorized installed seed/rollback and independent non-resurrection evidence. |
-| Projection/retrieval | 15 | 85% | 42.5% | Moderate/low | R1 single-revision projection/discovery and R4 next-request SDK route exist; local projection remains disconnected. | Installed next-request visibility and novel-request discovery. |
-| Reflection/trajectory/progress | 20 | 70% | 35% | Moderate/low | R3 assistant-step/captured-prefix/replay semantics and R4 automatic SDK route exist; no installed trajectory delivery or longitudinal quality proof. | Installed success/no-op/failure/replay and longitudinal utility. |
-| Writer/publication | 15 | 90% | 45% | Moderate/low | R4 genuine deterministic child completion drives ABI2 publication; the synthetic local coordinator is not this publisher. | Authorized installed routing, permissions, conflict and no-learning journeys. |
-| Recovery/concurrency/lifecycle | 10 | 80% | 40% | Moderate/low | R5 synthetic repair/abandon, CAS/restart, cooperative claims and retained Git uncertainty exist; installed/live recovery is absent. | Installed faults, alternate-root isolation and bounded helper observations; no universal helper-tree certainty. |
-| Commands/migration/operator workflows | 5 | 50% | 25% | Limited/low | R6 export/bundle/shadow/quarantine are distinct; active migration, backup/restore and cutover remain unavailable. | Build an authorized operator product before installed rehearsal. |
-| Palace/context/history | 10 | 60% | 40% | Limited/moderate | R7's current-profile command produced its authority-bound frozen metadata, which a separate owned browser rendered at desktop and 200% zoom. Installed evidence covers invoking-session context, structure, identity/time history, immutable transport and explicit close; it does not cover a matching projection receipt, provider consumption, replay/diff, 400%/screen-reader proof or human review. | Matching projection-receipt journey, active-change/stale/shutdown observation, 320px/400% and assistive-tech evidence, then Mahiro's review. |
-| Memory skills/guidance | 10 | 70% | 35% | Moderate/low | R2 preserves synthesis/reasons/examples and bounded diagnosis through existing owners, zero new skills; delivery/quality remain unproven. | Installed job delivery and longitudinal human synthesis/discovery review. |
-| Authority/privacy/isolation | 5 | 80% | 40% | Moderate/low | Exact-root private views, public PSS and confined tools have source owners; R8 maps limits, not universal sandbox or provider privacy. | R4/R5 installed negative boundaries and R8-I/O/H. |
-| **Overall** | **100** | **75%** | **40%** | **Limited end-to-end evidence** | **75.75% source; 38.875% evidence including the bounded Palace installed slice, rounded to nearest 5 points.** | **Only cited layer evidence and fresh verification can move the assessment.** |
+## Verification
 
-Explicit source arithmetic: `(80×10 + 85×15 + 70×20 + 90×15 + 80×10 +
-50×5 + 60×10 + 70×10 + 80×5) / 100 = 75.75`. Evidence arithmetic:
-`75.75×0.50 + 5×0.20 + 0×0.20 + 0×0.10 = 38.875`, where the weighted
-installed value 5 is `50×10/100` for Palace/context/history only. The displayed
-band stays 40%; the new credit is narrow installed integration, not observed-runtime,
-human, release-readiness or security-superiority evidence.
+Default verification is narrow:
 
-### Maintained update protocol
+- docs-only change: documentation check and diff/whitespace check;
+- direct source port: exact focused regression or smoke for the changed behavior;
+- several owned contracts changed together: `check:fast`;
+- release: the separately authorized release tier.
 
-1. Freeze a baseline with date, Mahiro commit plus dirty-diff identity if relevant,
-   Letta commit/version and previous pin. Retain old baselines in Git; do not
-   overwrite historical release records or pretend the initial dirty tree was
-   committed evidence.
-2. Record checklist IDs, exact source owners/lines or symbols, fixture/test names,
-   command/result/date and immutable revision or receipt identity for every
-   completed gate. Public evidence summaries must omit private paths, corpus,
-   credentials and transcripts. Local runtime receipts stay private/ignored.
-3. Maintain a per-domain evidence worksheet: accepted outcome, A/B/C decision,
-   source coverage, installed coverage, observed-runtime coverage, human coverage,
-   confidence, missing/failed evidence and next-band condition. Missing and failed
-   evidence must be distinguishable. Checkboxes alone never supply credit.
-4. Recalculate after an approved contract change, material implementation or new
-   layer evidence, or a new upstream pin/differential. No automatic increase for a
-   phase name, doc edit, suite count or planned delivery. Regressions and revoked
-   evidence can reduce scores. Keep weights fixed absent explicit scope approval.
-5. Show old/new domain values, unrounded weighted totals, rounded totals, reasons,
-   checklist IDs and evidence references in the revision record. No silent
-   percentage edits; update this owner before summaries in other docs.
-6. A **fresh verifier** must challenge material score movement against the actual
-   final source and cited layers. Mahiro alone supplies human acceptance. Resolve
-   contradictions before claiming a higher band; record unresolved disputes.
+A fresh verifier, broad suite, browser pass, resource study or longitudinal run is
+not a routine prerequisite. Use one only for a material authority/security/recovery
+risk, a real regression, an unresolved finding or an explicit release decision.
+Mahiro still owns subjective product acceptance; do not try to manufacture it from
+more automated evidence.
 
-| Revision | Date | Baseline and reference | Score/source → evidence | Evidence and disposition |
-| --- | --- | --- | --- | --- |
-| B0 | 2026-10-29 | Mahiro `7c4169477fcacc472018678848f74342173de2b2` + audited dirty tree; Letta `a8900b882446d7aa99fedf2845d400743affd1b6` / v0.34.31 | 60% → 30% | 28-gap read-only audit; source-only credit. B0 dirty-source identity unfrozen/unavailable: no immutable whole-dirty-tree manifest was captured; the commit alone is insufficient. Roadmap direction and phase exits were not accepted at B0. |
-| B1 | 2026-10-30 | Mahiro `f46cade7e3c984981b5eeb55eb68a4a610b45ba2`; same Letta pins | 60% → 30% | Immutable experimental Palace/context and roadmap checkpoint. R0-00 candidate evidence and R0-H direction acceptance recorded. No score movement: latest-source re-audit, installed/runtime evidence and later phase exits remain open. |
-| R8 | 2026-10-30 | Assessed product source Mahiro `85d2f0a82088103eb67d4bd29876e0f4e4b471a8`; same Letta pins; ledger authored in the later docs-only checkpoint containing this row | 75% → 40% | Editorial source assessment: 75.75 / 37.875 unrounded. R1–R7 source/SDK records and R8 threat/context ledger; no target execution in R8, no new I/O/H credit. NOT ALIGNED; NOT READY for release/cutover. |
-| R7-I | 2026-10-30 | Mahiro `7b673a65785597c4a42ebec3fa8d5a8c2271c683`; same Letta pins; installed observation recorded by the later docs checkpoint containing this row | 75% → 40% | Installed Palace coverage moves from 0 to 50% of its 10% domain: invoking-session context, structure, identity/time history, immutable transport and explicit close are evidenced; matching projection receipt and later outcomes are not. Unrounded evidence moves 37.875 → 38.875; rounded band stays 40%. Desktop/200% owned-browser evidence exists; 400%/screen-reader, broader R7-O/H, provider, longitudinal and human evidence remain open. NOT ALIGNED; NOT READY. |
+## Domain scorecard
 
-Dated R1–R7 appendices retain their unchanged-score statements (60%/30%) as
-checkpoint history. They do not override this current R8 assessment. Historical
-R0 inventory/reads do not establish the later complete installed journey.
+Percentage scoring is retired as an active planning mechanism. Historical 60/30 and
+75/40 assessments remain in Git and the dated R8 record, but they do not determine
+what to build next, authorize activation or require additional proof work.
 
 ## Roadmap and evidence gates
 
-Stable IDs identify outcomes, not current progress. Unchecked boxes remain open;
-writing the plan alone does not complete them. R0 decisions precede implementation;
-R1–R3 specify semantics before R4; R5 safety blocks any live R4 activation;
-R6 and R7 build on a proven integration seam; R8 evaluates the complete system.
-Specification and source fixtures may precede installed authorization. For every
-phase, **S/I/O/H** means source, installed integration, observed runtime and human
-exit evidence. An unapproved I/O/H gate stays pending; a source exit is not a full
-phase exit. C/non-applicable exits require an explicit reason and approval, not a
-passing checkbox.
+The former S/I/O/H ladder is historical vocabulary, not a mandatory phase machine.
+Use the evidence layer that answers the actual question. A source change needs source
+verification; a live-state change needs its real action receipt; a visual preference
+needs Mahiro's review. Do not collect every layer for every change.
 
 ### R0 — Canonical contract and latest-source differential
 
-Dependencies: none. Moves: all domains' evidence accuracy; no implementation
-credit for this specification. Audit gaps: 1–28, especially 11, 12 and 28.
-
-- [x] **R0-00** 2026-10-30: captured current-candidate evidence, excluding private
-  corpus, at base HEAD `7c4169477fcacc472018678848f74342173de2b2`.
-  Tracked diff SHA-256:
-  `f4513d4e32910885336d36d914e3b1f7ce24ed35d5a25a44d5ea4d7d8495f57a`.
-  Untracked manifest SHA-256:
-  `bce6ac71e8b70a235a30495d506a7748dbdd0628d897b9b3552127528ebf8188`.
-  Ignored manifest: `.agent-state/runtime/memory-v012/checkpoint-2026-10-30/manifest.json`.
-  This does not retroactively identify B0's earlier audited dirty tree; its
-  provenance limitation remains. Semantic changes require re-audit against the
-  frozen source before material score movement.
-- [x] **R0-01** 2026-10-30: [28-gap owner map](letta-parity-r0.md#complete-audit-gap-map--r0-01)
-  records executable owners in both repositories, user outcomes, selected A/B/C
-  dispositions, dependencies and closure evidence; executable cleanup wins over guide prose.
-- [x] **R0-02** 2026-10-30: [latest-source differential](letta-parity-r0.md#latest-source-differential--r0-02)
-  separates pre-existing contracts from config-root/helper deltas and provides
-  reproducible read-only Git commands; no upstream execution claimed.
-- [x] **R0-03** 2026-10-30: [selected source directions](letta-parity-r0.md#selected-source-directions--r0-03)
-  record schema, ABI2-preserving seam, trajectory, assistant-step policy, recovery,
-  snapshot and zero-new-skill decisions with rejected alternatives and risks.
-  This is source selection, not installed or human product acceptance.
-- [x] **R0-04** 2026-10-30: [nine-domain worksheet](letta-parity-r0.md#evidence-classes-and-acceptance-worksheet--r0-04)
-  defines L/D/N/I/O/H, falsifiable cases, evidence identity and scoring boundaries.
-- [x] **R0-S** 2026-10-30: fresh read-only verification passed the owner map,
-  pins, differential, gap coverage, selected semantics, worksheets and sanitized
-  installed claims with no high/medium finding. One low assistant-step owner
-  reference was corrected; implementation and human gates remain open.
-- [x] **R0-I** 2026-10-30: [sanitized installed inventory](letta-parity-r0.md#sanitized-installedruntime-observations--r0-i--r0-o)
-  identifies package, completed receipt, selected ABI2 surface and grants;
-  disconnected local-service/HTML installation is not established.
-- [x] **R0-O** 2026-10-30: same record reports successful bounded Discovery v2
-  namespace/revision reads and manage/status unavailable, reason `unknown`.
-  Observation completeness is not status-health success or writer/publication proof.
-- [x] **R0-H** 2026-10-30: Mahiro accepted the roadmap direction and authorized
-  continued repository write/test/checkpoint execution after reviewing the
-  checkpoint plan. Specific A/B/C decisions remain tracked under R0-03. This does
-  not authorize push, tag, release, profile/install mutation, live cutover or
-  Phase I, nor supply later human-only product/visual acceptance.
-
-Non-goals: code changes, private-corpus migration, activation, upstream execution,
-release or acceptance by percentage.
+Historical owner map and baseline record: [R0 appendix](letta-parity-r0.md). Reopen
+only when an upstream owner materially changes.
 
 ### R1 — Schema, projection and discovery decision
 
-Dependencies: R0 schema/authority decisions. Moves: storage/schema/forgetting,
-projection/retrieval. Audit gaps: 2, 3, 13, 14, 20, 27.
-
-- [x] **R1-01** 2026-10-30: [R1 schema mapping](letta-parity-r1.md#selected-schema)
-  retains Mahiro Core/index/persona/project owners as a documented native
-  adaptation, names unsupported Letta paths/shared mounts and fails archive
-  identity collisions closed; it does not claim MemFS v2 compatibility.
-- [x] **R1-02** 2026-10-30: [projection identity](letta-parity-r1.md#projection-and-state-identity)
-  freezes the five possible automatic owners, ordering, project identity and
-  committed/draft/integrated/projected/active-prompt distinctions. All other
-  memory stays deferred or excluded and skills remain separate.
-- [x] **R1-03** 2026-10-30: [deferred outcomes](letta-parity-r1.md#deferred-discovery-outcomes)
-  specify exact reads, bounded path/topic/query paging, descriptions, freshness,
-  exhaustion and a future rollback request discovered without a known path.
-- [x] **R1-04** 2026-10-30: [differential matrix](letta-parity-r1.md#differential-fixture-matrix)
-  covers required/optional owners, root/nested mapping, mixed legacy collision,
-  forgetting, stale views, Unicode/paging, contradictions and future-request
-  discovery. Mechanical retention remains non-semantic.
-- [x] **R1-S** 2026-10-30: fresh source review passed the pinned mapping,
-  projection membership/state boundaries, deferred outcomes, non-resurrection
-  matrix and shared archive-collision guard with no high/medium finding. Helper
-  regressions plus source tracing cover both migration owners; installed and
-  behavioral gates remain separate.
-- [ ] **R1-I** An authorized installed synthetic root projects exactly the agreed
-  subset and refuses unauthorized/stale reads with unchanged private memory.
-- [ ] **R1-O** Observe discovery and next-request refresh on approved surfaces;
-  confirm a viewed draft is never mislabeled active prompt truth.
-- [ ] **R1-H** Mahiro accepts discoverability, compactness and schema trade-offs
-  using representative request tasks, not matching filenames alone.
-
-Non-goals: renaming or migrating the private corpus for terminology, embeddings,
-whole-corpus injection or broad worker filesystem access.
+Historical native schema/projection adaptation: [R1 appendix](letta-parity-r1.md).
+Current code owns current behavior.
 
 ### R2 — Selective memory-skill admission and guidance quality
 
-Dependencies: R0 scope and R1 discovery contract for deferred guidance. Moves:
-memory skills/guidance; projection/retrieval only with separate behavioral proof.
-Audit gaps: 21, 26, 27. Apply [G-SKILL](#g-skill-admission-gate) per candidate.
-
-- [x] **R2-01** 2026-10-30: [six-job owner dispositions](agents.md#memory-guidance-and-selective-skill-admission) evaluate the six user jobs below against existing writer, role,
-  runtime, docs and skill owners; identify delivery/trigger gaps before new files.
-- [x] **R2-02** 2026-10-30: [source adaptation record](#candidate-dispositions)
-  reviews upstream guidance closely, preserving useful constraints
-  and examples. Name each minimal adaptation and why the native contract needs it;
-  reject customization that weakens the original job.
-- [x] **R2-03** 2026-10-30: [candidate dispositions](#candidate-dispositions)
-  decide each candidate through G-SKILL, including existing-owner
-  and exclude outcomes. Obtain explicit scope before creating or installing any
-  skill; zero new skills is a valid result.
-- [x] **R2-04** 2026-10-30: [bounded diagnosis and source fixtures](agent-memory.md#curation-guidance-and-bounded-context-diagnosis)
-  plus `test/agent-memory-starter.test.ts` specify trigger/refusal fixtures for synthesis-not-logs,
-  contradictions, reasons, examples, shrink-before-grow, one-home placement,
-  request-shaped cues, unavailable tools and inconclusive/no-edit diagnosis.
-- [x] **R2-S** 2026-10-30: fresh source review passed the six job dispositions,
-  shared-doctrine adaptation, bounded diagnosis procedure and negative/no-edit
-  fixtures with no finding; skill count and source prose earn no installed credit.
-- [ ] **R2-I** Verify only approved guidance is discoverable at the intended job
-  boundary and actual tools/routes exist; no inherited skill-mutation authority.
-- [ ] **R2-O** Observe bounded job delivery, correct refusal and useful no-edit
-  outcomes without broad filesystem, cloud or profile changes.
-- [ ] **R2-H** Mahiro reviews longitudinal synthesis and future-request utility;
-  source text quality and test passes alone do not prove learning.
-
-Non-goals: copying all Letta skills, automatic skill installation or allowing the
-memory writer to create procedures in another owner's skill namespace.
+The dated guidance review remains in Git history. Do not create a new skill or
+guidance layer when direct upstream behavior or existing owners are enough.
 
 ### R3 — Reflection, trajectory, watermark and replay semantics
 
-Dependencies: R0 trigger/privacy decisions; R1 projection expectations; R2 quality
-criteria inform worker output. Moves: reflection/trajectory/progress,
-writer/publication. Audit gaps: 4–8, 26–28.
-
-- [x] **R3-01** 2026-10-30: [synthetic policy/state contract](letta-parity-r3.md#comparator-and-policy-choice--r3-0102)
-  separates observation, eligibility, queue, launch, settlement and progress.
-  Threshold 25 is supported explicitly; no live default or conversation setting changes.
-- [x] **R3-02** 2026-10-30: synthetic step-count counts only caller-finalized
-  assistant rows after the watermark; mixed-role threshold-25 fixtures cover repeated callbacks.
-- [x] **R3-03** 2026-10-30: [captured range/privacy contract](letta-parity-r3.md#captured-ranges-privacy-and-retention--r3-03)
-  specifies bounded chunks, secret redaction before truncation, reasoning exclusion,
-  exact prefix IDs and the persisted omitted-body integrity limitation.
-- [x] **R3-04** 2026-10-30: [progress/replay contract](letta-parity-r3.md#progress-settlement-replay-and-retry--r3-04)
-  separates explicit retry from branch/job/digest-bound non-executing replay;
-  cross-conversation and hosted transcript selection remain unsupported.
-- [x] **R3-05** 2026-10-30: [source state-machine fixtures](letta-parity-r3.md#source-regression-evidence--r3-05)
-  cover captured-prefix draining, late append, no-op, failure/retry, conflict,
-  restart, compaction and replay. Installed cancellation/provider lifecycle remains unproven.
-  Source implementation is not independent acceptance; no score change was
-  recorded at that R3 checkpoint. Current R8 scoring is above.
-- [x] **R3-S** 2026-10-30: fresh source review passed assistant-only threshold
-  25, bounded captured-prefix continuation, late-tail isolation, monotonic
-  settlement, explicit retry/non-executing replay, secret replacement and existing
-  snapshot compatibility with no blocking finding. Omitted-body integrity and
-  installed/live behavior remain explicit limits.
-- [ ] **R3-I** An approved installed synthetic journey proves actual hooks select
-  and launch the intended writer exactly once under the chosen settings.
-- [ ] **R3-O** Observe progress before/after success, no-op, failure and replay,
-  showing no skipped late experience or duplicate consumption.
-- [ ] **R3-H** Mahiro accepts cadence, privacy and experiential usefulness,
-  including honest limitations of omitted evidence.
-
-Non-goals: collecting arbitrary transcripts, exposing reasoning, adopting hosted
-reflection or treating replay as current authenticated instruction.
+Historical synthetic trajectory work: [R3 appendix](letta-parity-r3.md). Future
+reflection changes should follow current Letta behavior directly.
 
 ### R4 — One installed end-to-end integration slice
 
-[R4 source/SDK checkpoint](letta-parity-r4.md): R4-01–04/R4-S are complete
-at the disposable deterministic layer. ABI2 remains sole authority; the local
-service stays disconnected. R4-I/O/H remain open; its dated 60%/30% statement is
-history, superseded for current scoring by R8 above.
-
-Dependencies: R0–R3 source contracts; R5 safety design/source gates before live
-activation; explicit installed scope and rollback approval. Moves:
-writer/publication, reflection/trajectory/progress, projection/retrieval,
-authority/privacy/isolation. Audit gap: 1 and cross-cutting 28.
-
-- [x] **R4-01** Select one primary/session/revision/root-bound seam: Pi settled
-  session → eligible trajectory → confined writer/worktree → coordinator
-  integration → committed projection → next primary request. Name each owner.
-- [x] **R4-02** Decide whether/how the local service joins the product; preserve
-  ABI2 authority until an explicitly approved replacement and rollback exist.
-  Do not add a parallel knowledge owner or imply ABI3 from experiments.
-- [x] **R4-03** Specify readiness, permission loss, locked route, private view,
-  no-learning, conflicting proposal, revocation and stale-generation behavior.
-  Record provider authorization separately from Faux transport.
-- [x] **R4-04** Prepare disposable synthetic roots and an exact rollback plan;
-  bound state and cleanup only newly owned fixtures. Define success receipts
-  without storing private corpus in public source.
-- [x] **R4-S** Source/SDK tests prove dispatch binding and negative boundaries;
-  the actual loaded kernel selects ABI2 and the automatic controller route is exercised.
-- [ ] **R4-I** Explicitly install and verify routing/grants in an authorized
-  disposable profile; prove the complete slice, not isolated component APIs.
-- [ ] **R4-O** Observe actual success/no-op/failure/conflict journeys and next
-  request visibility on each claimed TUI/RPC/headless surface; untested surfaces
-  remain unclaimed. Record provider-backed versus deterministic runs separately.
-- [ ] **R4-H** Mahiro accepts the bounded outcome and rollback demonstration;
-  no daily-primary or complete parity acceptance is implied.
-
-Non-goals: broad live migration, default changes, profile edits without separate
-approval, release or connecting every experimental feature at once.
+Historical SDK route proof: [R4 appendix](letta-parity-r4.md). Do not repeat it as a
+routine prerequisite.
 
 ### R5 — Repair, recovery, concurrency and helper lifecycle
 
-Dependencies: R0 recovery decisions; R3 progress state machine. Safety source gates
-block R4 activation; installed exercises use R4's approved seam. Moves:
-recovery/concurrency/lifecycle, authority/privacy/isolation, writer/publication.
-Audit gaps: 9–12.
-
-- [x] **R5-01** 2026-10-30: [synthetic recovery contract](letta-parity-r5.md#explicit-recovery-contract--r5-01)
-  and focused recovery/migration/Palace fixtures implement explicit reviewed
-  repair-needed → repaired/abandoned, failed-reflection-only retry, exact candidate
-  CAS/restart and retained conflict evidence. Neither repair nor abandonment
-  settles trajectory; later reflection requires captured-range coverage. This is
-  source implementation, not independent R5-S or installed acceptance.
-- [x] **R5-02** 2026-10-30: [pinned comparison and crash matrix](letta-parity-r5.md#pinned-comparison-and-crash-matrix--r5-02)
-  records Letta 0.34.31 token/cleanup behavior, retained uncertainty and lease,
-  worktree, write, publication, rename, watermark and drain boundaries. New
-  prepared/CAS/terminal restart fixtures are source evidence; untested power-loss,
-  installed generation and helper outcomes remain explicitly open.
-- [x] **R5-03** 2026-10-30: [cooperative concurrency](letta-parity-r5.md#cooperative-concurrency-and-generation--r5-03-source-supported)
-  adds one exclusive sibling claim for every disconnected service/migration turn,
-  pins root identity plus the existing v1 service nonce, revokes worker adapters
-  before coordinator continuation and refuses stale/dead/partial claims without
-  PID/age takeover. This preserves v1 records and coordinator-only publication;
-  mixed versions, hostile same-user mutation and automatic retained-claim recovery
-  remain unsupported.
-- [x] **R5-04** 2026-10-30: [config-root source audit](letta-parity-r5.md#config-root-audit--r5-04)
-  maps installer, kernel, memory, agent, viewer, guard and test inputs. Kernel
-  now uses shared `resolveAgentDir` while retaining canonical realpath validation;
-  setup fixtures cover override/tilde/relative/default behavior. Installed
-  alternate-root policy isolation remains a separate R4/R5-I gate.
-- [x] **R5-05** 2026-10-30: [local Git settlement](letta-parity-r5.md#local-git-settlement-and-unsupported-helper-trees--r5-05-source-supported)
-  supports fixed local commands only. Normal/nonzero child close is drained;
-  timeout, output overflow or signal termination poisons and retains the root claim
-  and suppresses cleanup. Remote/helper-bearing config and protocols refuse. This
-  is an explicit support boundary, not universal HTTP/SSH descendant settlement or
-  cross-platform observation.
-- [x] **R5-06 source-only capacity diagnosis** When ordinary ABI2 status fails with
-  reason `capacity`, an authorized idle primary can receive a closed count-only
-  diagnostic for journal, legacy-view, engine-draft and episode namespaces. An
-  8,192-entry exactness limit plus one overflow sentinel returns sequential
-  non-atomic exact/unknown state, a derived combined retained-view doctor check
-  and separate status/doctor/admission blockers. The fallback avoids the ordinary
-  full-branch traversal so branch capacity itself remains diagnosable, while current
-  leaf/binding/idle/authority fences remain mandatory; it never returns names, bodies,
-  paths or a remediation handle. This does not change the generic failure, clean retained state, activate
-  a profile or establish installed/observed/human recovery evidence.
-- [x] **R5-07 narrow installed capacity observation** 2026-10-30: the current
-  profile already referenced source commit `68def01`, with an all-noop installer
-  preview. In the retained long session, the diagnostic reported no status namespace
-  blockers and classified the failure as `non-namespace-status-capacity`; combined
-  retained views were 69 and doctor-blocked separately. A temporary fresh Pi session
-  in a separate owned Herdr pane then reported `Ready`, authorized storage,
-  automatic policy, committed-head publication, idle worker/policy and no pending
-  operations. The temporary process was quit and its pane removed while the original
-  owner session remained selected. This establishes installed diagnostic activation
-  and identifies branch-local capacity as the supported cause; it does not exercise
-  fault recovery, authorize retained-view cleanup, close R5-I/O/H or move scores.
-
-- [x] **R5-S** 2026-10-30: bounded child-process/state-machine fixtures cover
-  competing and independent roots, partial/dead claims, adapter revocation,
-  root/meta replacement, rollback exclusion, normal Git close, prefix drainage,
-  forced-interruption retention and helper/config refusal. Fresh source QA found no
-  material issue. R5-I/O/H, mixed-version actors and universal process-tree claims
-  remain open.
-- [ ] **R5-I** Authorized disposable installed fault actors exercise actual
-  execution, permissions, generation overlap and recovery commands.
-- [ ] **R5-O** Observe crash/restart/conflict/abandon and hung-helper outcomes;
-  distinguish drained, retained and unknown states with bounded receipts.
-- [ ] **R5-H** Mahiro accepts operator burden and uncertain-state handling;
-  unavailable recovery must be honest rather than aggressively automatic.
-
-Non-goals: hostile same-user tamper resistance claims for the local coordinator,
-PID-based certainty, silent conflict deletion or blanket process killing.
+Historical recovery/concurrency work: [R5 appendix](letta-parity-r5.md). Add recovery
+logic only for an actual failure mode or direct upstream behavior.
 
 ### R6 — Migration, operator workflows and rollback
 
-[R6 source/synthetic checkpoint](letta-parity-r6.md): R6-01–04 source specification
-and R6-S are complete only with explicit unavailable states. Metadata export,
-caller-supplied bundles, shadow verification and target quarantine stay separate;
-backup/restore, active migration, authority cutover and conversation replay remain
-unavailable/prospective. R7 now supplies synthetic service knowledge history/diff,
-not a user/operator/HTML history workflow. A subsequent bounded source slice,
-task `4135aadb-95bf-4bd4-986d-5651cef2ec5a`, adds the standalone
-[fixed-synthetic rehearsal operator](letta-parity-r6.md#fixed-synthetic-rehearsal-operator),
-implemented from base `d0a55716347179ef127812ddb6fe12492a9b4eae`.
-It reviews an explicit disposable target, applies only its authored synthetic
-fixture, reports status and quarantines that exact shadow, with bounded chained
-intent/terminal receipts under the existing migration claim. No active migration,
-backup/restore, route restoration or live wiring is added. R6-I/O/H remain open;
-its dated 60%/30% statement remains history. Current roadmap scores are unchanged
-pending fresh independent assessment of this source-only slice.
-
-Dependencies: R1 mapping, R4 proven seam and R5 recovery. Moves:
-commands/migration/operator workflows, storage/schema/forgetting,
-recovery/concurrency/lifecycle. Audit gaps: 19, 20, 25.
-
-- [x] **R6-01** Inventory user jobs: inspect/configure reflection, select/replay,
-  diff knowledge, export, backup, restore, migrate and rollback. Choose native
-  command ownership by outcome, not Letta command spelling.
-- [x] **R6-02** Separate metadata export, content bundle, shadow verification,
-  active migration, backup/restore and authority cutover. Define revision/hash
-  consistency, paging completeness and refusal of stale or mixed bundles.
-- [x] **R6-03** Preserve forgetting policy across import, later seed, rollback
-  and conflict recovery; tombstones are logical non-resurrection, not secure
-  history erasure. Required compact files remain valid without exposing excluded blobs.
-- [x] **R6-04** Specify preview/apply consent, exact source/target identities,
-  resumability, quiescent rollback and failure receipts. Preserve original memory
-  and unrelated profile choices; never claim shadow completion as live migration.
-- [x] **R6-S** Synthetic fixtures cover partial seed, changed hashes, missing
-  pages, root replacement, interrupted operations and forgotten material.
-- [ ] **R6-I** An explicitly approved disposable installed rehearsal proves
-  operator commands use the intended authority and can restore the prior route.
-- [ ] **R6-O** Observe migration and rollback through the actual command path,
-  including a refusal case and post-rollback next-request projection.
-- [ ] **R6-H** Mahiro accepts clarity, safety and recovery instructions before
-  any private-root migration or live cutover is separately considered.
-
-Non-goals: automatic real-corpus migration, hosted pull/sync, treating a Git
-archive as secure deletion or allowing rollback to resurrect forgotten knowledge.
+Historical migration/rehearsal work: [R6 appendix](letta-parity-r6.md). Private
+migration or authority cutover still requires explicit action scope.
 
 ### R7 — Live Palace, context and knowledge history
 
-Dependencies: R1 snapshot semantics, R4 seam, R5 lifecycle and R6 operator labels.
-Moves: Palace/context/history, projection/retrieval and operator workflows only
-where directly evidenced. Audit gaps: 14–18, 24.
-
-The [R7 source contract](letta-parity-r7.md) owns the bounded disconnected slice.
-R7-01 through R7-10 are source/specification/synthetic prerequisites, not installed
-completion by themselves; R7-11 and R7-12 are explicitly labelled later installed
-observations. The dated 60%/30% score is history; current scoring is above. Phase H
-stays paused/unaccepted.
-
-- [x] **R7-01 source specification** Separate committed invocation-view envelope;
-  no ambient private lookup or publication-authority change. Future installed
-  primary session/revision/root binding remains an R7-I prerequisite.
-- [x] **R7-02 synthetic** One capture identity/time with fixture, caller-supplied
-  or unavailable context. This disconnected service capture is not the later ABI2
-  command diagnostic; corpus bytes are not context usage.
-- [x] **R7-03 synthetic** Receipt from the real committed projection owner,
-  including project selection, bytes/clipping/deferred/absent/blocked. Explicit
-  synthetic-local-projection provenance, not installed active memory.
-- [x] **R7-04 synthetic service** Bounded first-parent knowledge history and safe
-  replacement diffs with filtered stats, separate from unchanged lifecycle DTOs.
-  HTML names both sections but knowledge history is explicitly unavailable there.
-- [x] **R7-05 source specification/synthetic** Committed-at-capture head/policy
-  staleness fences; working tree unavailable. Existing server security/drain and
-  route bounds unchanged; no new history/diff HTTP routes.
-- [x] **R7-S focused synthetic** DTO provenance, estimates/unavailable labels,
-  projection receipts, bounded history/diffs, lifecycle separation, forgetting and
-  stale refusal. Full differential/installed/observed/rendered evidence is not claimed.
-- [x] **R7-06 source/public-SDK prerequisite** A bounded ABI2-only idle-primary
-  invocation diagnostic outside `local/**` reports current revision/config
-  identity, public Pi usage estimates, effective-prompt bytes and last memory-owner
-  projection receipt. An ordinary disposable public-SDK install invokes the command
-  before/after a genuine Faux request. Provider consumption/category accounting stay
-  unavailable; no Palace snapshot, history persistence, HTML route or activation.
-- [x] **R7-07 source/public-SDK prerequisite** The internal combined ABI2
-  diagnostic uses a dedicated config-certified, commit-bound structural RPC
-  (including warm-cache active-path authorization and final config/HEAD
-  drift refusal). Diagnostic v2 labels the committed snapshot owner-certified but
-  invocation association observed-non-atomic, with final runtime authority barriers.
-  Engine 64 KiB / command 32 KiB JSON, 128 files, honest separate upstream/output
-  counts and digests, body inspection not requested; no lifecycle,
-  replay, viewer or new model action. R7-I/O/H remain open.
-- [x] **R7-08 source/public-SDK prerequisite** The internal ABI2 history
-  diagnostic uses a dedicated first-parent RPC bound to exact current
-  revision/config/ledger identity. It returns at most eight
-  identity/time-only rows within a 128-commit window; author, subject, path/count,
-  diff/body and arbitrary Git selectors are absent. Any forgotten source, shallow
-  history, grafts, replacement refs or final binding drift refuses. Endpoint checks
-  are sequential, not atomic/ABA-proof. No replay registry, HTML route, `local/**`
-  authority or model action is added; R7-I/O/H remain open.
-- [x] **R7-09 source-only immutable HTML handoff** The runtime builds one
-  allowlisted/frozen 48 KiB ABI2 metadata DTO and at most 256 KiB static page
-  from the existing committed structure, invocation metadata and exact offset-zero
-  history page. A runtime-owned 10-minute `127.0.0.1:0` capability server serves
-  frozen bytes only after per-request authority/revision/config/digest/history/branch
-  revalidation; denial, drift, new work, writes, navigation, shutdown, replacement,
-  explicit close or expiry revoke it and close the transport. Current validation has
-  a 15-second maximum, is aborted on timeout/close and generation-fences late results.
-  GET/HEAD, Host/path/body/origin
-  and CSP/privacy headers are bounded; no browser opener, files, bodies/diffs, replay,
-  `local/**`, profile/installer/kernel or Phase I change is included. Focused source
-  fixtures are not R7-I/O/H, provider, rendered or human evidence.
-- [x] **R7-10 source-only command consolidation** `/mh-memory palace` is the
-  product façade, `palace close` owns viewer lifecycle and `palace json` retains
-  the structural diagnostic. Earlier checkpoint routes remain hidden compatibility
-  aliases, not advertised product surfaces. Internal owners
-  and non-atomic labels remain unchanged; no installed/rendered/human credit moves.
-- [x] **R7-11 narrow installed command/transport observation** 2026-10-30: a
-  separate owned fresh Pi pane invoked the current-profile Palace façade without
-  replacing the original owner session or opening a browser. The original
-  three-second retrieval validation returned generic 409 at its exact deadline;
-  candidate source raised the bounded maximum to 15 seconds and served the frozen
-  31,560-byte HTML in about 7.1 seconds with the expected CSP/no-store/referrer/frame/
-  MIME/resource-policy headers. Explicit `palace close` then revoked the capability,
-  the temporary Pi exited and only its owned pane was removed. This is one installed
-  command/transport slice, not rendered, provider, longitudinal, stale-data/shutdown
-  coverage or score movement; R7-I/O/H remained open at this checkpoint and R7-12
-  supplies the later bounded installed/rendered credit.
-- [x] **R7-12 / R7-I installed rendered integration** The gate remains: an
-  explicitly authorized installed command captures the invoking session rather than
-  synthetic context and opens only its authorized snapshot. On 2026-10-30 at
-  `7b673a65785597c4a42ebec3fa8d5a8c2271c683`, a fresh Pi invoked Palace while the
-  original owner session remained selected. The live ABI2 path receives that command's
-  `ExtensionContext`, samples its public invocation metadata and projection association,
-  then rechecks primary binding, branch, revision/config/digests and current authority;
-  it has no `local/**` or ambient synthetic-context fallback. The returned page exposed
-  the command-time invocation association and only its capability-scoped frozen handoff.
-  A separate owned background browser rendered desktop (1272×902 CSS px) and 200%
-  browser zoom (636×451); at 200%, the shell/hero were 604 CSS px wide and the
-  heading/lede stayed within their content boxes. Source and browser inspection found
-  one main landmark, sequential h1/h2 structure, labelled navigation, captioned scoped
-  tables, named focusable overflow regions and a 3px focus-visible outline. Known
-  browser sessions and the viewer closed, the temporary Pi exited, and only its owned
-  pane was removed. A 400% owned-session attempt remained unavailable at browser
-  document-stability, so no product failure or 320px/400% proof is inferred.
-
-  Installed coverage uses ten equal 10-point Palace outcomes. This journey establishes
-  (1) invoking-session context, (3) committed structure, (4) first-parent identity/time
-  history, (5) immutable capability transport and (6) explicit close/revocation: 50%.
-  It does not establish (2) a matching current projection receipt, (7) active memory/
-  knowledge-change reflection, (8) forgotten/stale/shutdown handling, (9) provider
-  consumption/category accounting or (10) replay/lifecycle/document/diff controls.
-  Source alignment remains 60% because source fixtures additionally cover outcome 2.
-  Screen-reader traversal, actual keyboard table scrolling, broader R7-O and Mahiro
-  R7-H remain open. Unrounded evidence moves to 38.875 while displayed 75%/40% bands
-  remain unchanged.
-- [ ] **R7-O** Observe active memory and real knowledge changes, forgotten-data
-  filtering, stale/revoked requests, shutdown and no leaked capability/file access.
-- [ ] **R7-H** Mahiro reviews rendered Context, core/deferred memory and both
-  histories; accepts usefulness, visual behavior and RAM separately from tests.
-
-Non-goals: continuing Phase H polish before roadmap approval, reproducing Letta's
-HTML transport exactly, mutating memory from the viewer or claiming exact provider
-token accounting from estimates.
+Historical Palace/context work: [R7 appendix](letta-parity-r7.md). The current Palace
+visual direction follows Letta Code and is complete unless a real product defect is
+reported.
 
 ### R8 — Threat model, verification and acceptance readiness
 
-Dependencies: R0 decisions and source exits; installed/runtime exits R4–R7 for
-complete-product readiness. Moves: authority/privacy/isolation and any domain
-with newly established layers, never by blanket suite credit. Audit gaps: 22,
-23, 26–28 and all unresolved evidence gaps.
-
-- [x] **R8-01** 2026-10-30: [source threat/outcome matrix](letta-parity-r8.md#threatoutcome-matrix--r8-01)
-  identifies principals, resources, enforcement, regression owners and unsupported
-  threats. Source inspection only; a data subprocess is not an OS sandbox.
-- [x] **R8-02** 2026-10-30: [evidence ledger](letta-parity-r8.md#evidence-and-coverage-ledger--r8-02)
-  maps R0–R7 A/B outcomes, exclusions and direct/indirect/missing/human-only
-  coverage without promoting source/SDK records to installed proof.
-- [x] **R8-03** 2026-10-30: source/context reconciliation at `85d2f0a` and
-  current layer arithmetic above retain B0/B1 and dated R1–R7 scores as history.
-  This is a source-only assessment, not independently rerun receipt validation
-  or complete-product verification; independent QA remains a separate review.
-- [x] **R8-04** 2026-10-30: [named longitudinal workloads and metrics](letta-parity-r8.md#longitudinal-evaluation-plan--r8-04)
-  define future evaluation, not measured efficacy, performance or RAM acceptance.
-- [x] **R8-05** 2026-10-30: [release/cutover decision](letta-parity-r8.md#release-and-cutover-decision--r8-05)
-  is **NOT READY**, with rollback, install, authorization and human gates explicit.
-- [x] **R8-S** 2026-10-30: source/security/context-contract audit closeout only.
-  No confirmed vulnerability or severity assigned by this source pass. No
-  target-controlled test, build, formatter or check ran: no qualifying OS sandbox
-  is established. Prior test records are references, not R8 rerun proof.
-- [ ] **R8-I** Verify actual grants, routing and confinement for the claimed
-  installed package/profile rather than source defaults alone.
-- [ ] **R8-O** Collect bounded longitudinal and failure observations on the
-  claimed surfaces; state provider, workload and environment limitations.
-- [ ] **R8-H** Mahiro alone accepts daily-primary, product/visual quality, RAM
-  and roadmap completion. Acceptance is recorded separately from score/release.
-
-Non-goals: source tests as human acceptance, optional sandbox as universal safety,
-whole-Letta parity or automatic release once a percentage is reached.
+Historical source/security closeout: [R8 appendix](letta-parity-r8.md). It is not the
+current planning owner and its score arithmetic is not an active release gate.
 
 ## Memory guidance and selective skill admission
 
-The repository currently ships only the `git-commit` skill. The managed writer
-already contains substantial curation guidance; roles, runtime and docs are valid
-existing delivery owners. Installed user skills elsewhere are not package skills.
-Do not copy every Letta skill. Equally, do not over-customize useful guidance until
-it loses its reasons, examples or effectiveness. Close adoption or minimal
-adaptation is preferable where the job and authority fit.
+Prefer current upstream behavior and existing owners. Do not add a skill, role,
+reminder or doctrine merely to explain work that the implementation can perform
+directly.
 
 ### G-SKILL admission gate
 
-Apply all items to each proposed candidate; link the decision to R2 evidence.
-
-- [ ] **G-SKILL-01 — User job:** Name the recurring request, intended user benefit
-  and a representative future request that must succeed.
-- [ ] **G-SKILL-02 — Existing owner:** Check writer, role, docs, runtime and skill
-  owners first; demonstrate the underserved delivery/trigger gap.
-- [ ] **G-SKILL-03 — Disposition:** Choose adopt closely, adapt minimally,
-  existing owner or exclude. Zero new skills is valid; no bulk-import presumption.
-- [ ] **G-SKILL-04 — Preserved upstream contract:** Record upstream pin, useful
-  constraints, reasons, examples and intended outcomes that must survive.
-- [ ] **G-SKILL-05 — Named deltas:** List only necessary native changes with
-  rationale; review whether any adaptation weakens guidance quality.
-- [ ] **G-SKILL-06 — Trigger/refusal tests:** Specify positive jobs, non-triggers,
-  unsafe/unavailable-tool refusals and inconclusive/no-edit outcomes.
-- [ ] **G-SKILL-07 — Tool/authority truth:** Verify actual native tools, owners,
-  permissions and delivery path; no shell, cloud, profile or skill-mutation
-  authority may be inferred from upstream prose.
-- [ ] **G-SKILL-08 — Explicit scope approval:** Obtain Mahiro's approval of exact
-  authoring/install scope and preserve separate role, skill and memory owners.
+Add a memory-specific skill only when Mahiro explicitly wants a distinct reusable
+workflow and existing repository guidance cannot own it. Matching Letta behavior alone
+is not a reason to add another skill.
 
 ### Candidate dispositions
 
-R2 source-only decision, 2026-10-30 (R2-01–04): zero new package skills.
-These dispositions apply G-SKILL to existing owners; they do not authorize skill
-creation/installation or claim installed delivery. R2-I/O/H stay open pending
-installed discovery, observed job delivery and longitudinal human evidence.
-All domain, six-job and overall scores are unchanged.
-
-Adaptation evidence: the [R0-pinned comparator](letta-parity-r0.md#mandate-and-baseline)
-`a8900b882446d7aa99fedf2845d400743affd1b6`,
-`src/skills/builtin/{maintaining-core-memory,maintaining-deferred-memory}/SKILL.md`,
-retains revision-not-log synthesis, reasons, contradictions, one/two contrastive
-examples, shrink-before-grow, one home and future-request index tracing. The
-native shared doctrine in `lib/agent-memory/guidance.ts` minimally adapts these to
-Core/index and root-bound selectors rather than upstream MEMORY.md discovery,
-config or shell/Git assumptions. Source-ID/supersession and same-commit retention
-replace advice to omit provenance; native owners or an authorized proposal replace
-automatic procedure-to-skill mutation. These deltas preserve useful outcomes
-without importing upstream prompt layout, permissions or publication semantics.
-The [bounded diagnosis procedure](agent-memory.md#curation-guidance-and-bounded-context-diagnosis)
-uses existing evidence owners, not a port or installation of `context-doctor`.
-The [six-job table](agents.md#memory-guidance-and-selective-skill-admission) records
-representative triggers, tool/authority boundaries and delivery gaps; source
-fixtures specify positive, refusal and inconclusive/no-edit cases. Descriptor
-byte-match constraints prohibit silently editing the installed writer role.
-
-| Upstream candidate | Proposed disposition | Contract to preserve / boundary |
-| --- | --- | --- |
-| `maintaining-core-memory` | Existing writer/shared doctrine owner | Synthesis, not logs; reasons, contradictions, concrete examples and shrink-before-grow. Keep current instructions above memory. |
-| `maintaining-deferred-memory` | Existing writer/read/index owners | One home, progressive disclosure, request-shaped discovery cues and verification against future requests. |
-| `initializing-memory` | Existing installer/manage/docs owners | Reconsider only if a recurring initialization job remains underserved; no overwrite of existing memory. |
-| `syncing-memory-filesystem` | Existing runtime/docs owner | Native publication/recovery truth; no hosted sync implication or second authority. |
-| `context-doctor` | Existing diagnostics/docs owners | Preserve bounded structural/causal diagnosis, successful controls, discoverability-debt reporting and healthy/inconclusive/no-edit outcomes. No new skill or external `skill-doctor` change; missing historical evidence cannot establish causality. |
-| `creating-skills` | Separate owner | No automatic memory-writer authority to author/install skills. |
-| `managing-shared-memory` and cloud skills | Exclude unless separately requested | No organization repository, hosted authority or network grants by analogy. |
+- **Follow:** direct current Letta behavior.
+- **Adapt narrowly:** only an existing Mahiro authority/privacy/security/transport
+  conflict.
+- **Do not copy:** Letta brand assets, hosted-account business logic, credentials or
+  actions that mutate private/profile state without explicit scope.
 
 ### Six-job guidance scorecard
 
-Source percentages are editorial job coverage, **not file counts**. The six-job
-mean is 63.33%; it is diagnostic input, not the mathematical basis of the
-separately adjudicated current 70% skills source domain (60% at B0/B1), another
-weighted domain or an extra evidence layer. Quality includes preserved
-reasoning/examples and useful synthesis; delivery includes correct triggers,
-available tools, discoverability and refusal behavior. Installed/runtime/human
-delivery remains unestablished in this baseline.
-
-| User job | Current source | Quality/delivery gap to evaluate |
-| --- | --- | --- |
-| Curate compact core knowledge | 80% | Writer guidance is substantial; demonstrate synthesis, contradictions, reasons and shrink-before-grow over time. |
-| Place and discover deferred detail | 60% | Preserve one home and cues that succeed on a later request, not only valid paths. |
-| Initialize useful memory safely | 40% | Starter and docs exist; verify recurring setup needs before proposing another skill. |
-| Maintain/synchronize the native memory filesystem | 50% | Runtime publication/recovery exists; disconnected local stack and operator delivery are incomplete, not hosted sync. |
-| Diagnose context and memory behavior | 70% | Diagnostics/guidance exist; bounded diagnosis and honest inconclusive/no-edit delivery need review, including the unavailable context-doctor reference. |
-| Maintain reusable procedural guidance within proper ownership | 80% | Substantial writer/role guidance exists; skill creation remains separately authorized and cannot be inferred from procedural memory. |
+Retired. Job-by-job guidance scores are not a product target. Fix a guidance problem
+when it appears in real use.
 
 ## Behaviors not to copy 100%
 
-- Cloud/shared organization repositories, hosted APIs, server context authority
-  and cross-machine synchronization: no second private knowledge authority by default.
-- Identity doctrine that makes experiential memory outrank current human,
-  repository or runtime evidence; memory remains fallible.
-- Broad worker filesystem access, non-Markdown mutation or skill creation without
-  the separate owner's explicit authorization.
-- Working-tree Palace snapshots if Mahiro chooses committed snapshots: match
-  user-visible truth and label freshness, not Letta's storage access mechanically.
-- PID-based dead-owner recovery when it weakens preserved uncertainty,
-  generation ownership or actual drain guarantees.
-- Optional/degraded sandbox behavior presented as universal enforcement. Tool
-  confinement and OS sandboxing protect different threats and need separate proof.
-- Source-guide contradictions: executable behavior wins, then record deliberate
-  adaptation. C exclusions require approval and earn no implementation points.
+- Letta names, logos, wordmarks, images or other excluded brand assets;
+- hosted-service/account behavior that Mahiro Pi does not own;
+- credential, profile, private-memory, cutover or publication actions without their
+  explicit scope;
+- behavior that directly violates an existing Mahiro authority or privacy boundary.
 
 ## Decision log and open questions
 
-Selected source directions were recorded on **2026-10-30** under the delegated
-repository scope. The [R0 decision appendix](letta-parity-r0.md#selected-source-directions--r0-03)
-owns dependency order, rejected alternatives and risks. Selection does not close
-implementation, installed/runtime or human-only gates.
-
-| Decision ID | Selected source direction | Remaining dependent gates |
-| --- | --- | --- |
-| D-SCHEMA | B: retain Mahiro schema with explicit automatic/deferred mapping, no bulk private-corpus rename. | R1-01–04 and R1-H. |
-| D-SEAM | B: one ABI2-preserving installed slice, sole publication owner and rollback proof; not a permanent third ABI. | R4-01–04 and R5 safety exits; no activation authorized here. |
-| D-TRAJECTORY | B/C: bounded redacted trajectory, captured ranges and explicit privacy exclusions. | R3-03–05, R8-01; installed producer and quality remain unproven. |
-| D-CONTEXT | B: command-time public Pi session capture, estimated/unavailable labels; separate Git knowledge history from maintenance. | R7-02–03 and history gates; exact attribution owner still needs implementation proof. |
-| D-RECOVERY | B: repair/abandon transitions preserving unknown publication and ownership evidence. | R5-01–03; no automatic semantic conflict resolution. |
-| D-PALACE | B: committed default snapshot; distinguish drafts, integrated state and current active prompt. | R1-02, R7-01–05 and human visual/product acceptance. |
-| D-SKILLS | B/C: zero new package skills now; preserve core/deferred/context-doctor quality, admit only through G-SKILL. | R2 and G-SKILL; no bulk/cloud adoption or silent skill mutation. |
-| D-TRIGGER | A/B: finalized assistant steps, future threshold 25 independent of batch cap; captured-range watermark and separate replay. | R3-01–05; no live default change established. |
-| D-EXCLUSIONS | C: no hosted/shared authority, bulk skill adoption, raw private payload copying or conflicting companion doctrine. | R8-02; no free implementation credit or denominator change. |
+- 2026-10-30: ABI2 remains live authority; disconnected local work is not silently
+  activated.
+- 2026-10-31: Letta Code becomes the direct implementation baseline. Percentage-driven
+  parity work, mandatory evidence ladders and speculative proof loops are retired.
+- Open questions should be resolved when they block a concrete implementation, not
+  expanded into a standalone audit phase.
 
 ## Next authorized-scope gates
 
-R0–R7 bounded source milestones and R8 source audit are recorded. The next
-integration gate is a **disposable installed R4/R5 journey only after explicit
-authorization**, with exact grants/routes, owned synthetic fixtures, fault cases
-and rollback reviewed first. No installation or execution is authorized by this
-closeout. Under the security boundary, any target execution also requires the
-qualifying OS sandbox; ordinary earlier test scope does not waive that condition.
-
-Installed R6 operator rehearsal still needs separate authorization and an
-installed authority contract. The new standalone fixed-synthetic source operator
-is disconnected; it does not supply live migration, prior-route restoration or
-R6-I/O/H evidence. Shadow APIs and local CLI fixtures alone are insufficient. R7 needs an installed invoking-session
-collector and separately authorized rendered review, including history/diff
-availability and safe stale/revoked behavior. Then collect named longitudinal
-quality, context, performance/RAM/I/O and failure evidence, and obtain Mahiro's
-human-only acceptance before a separate release decision. R8-I/O/H stay open.
-
-Phase H continuation and Phase I remain paused until their own gates pass. Push,
-tag, release/publish, profile/install mutation, private migration, live cutover
-and Phase I remain unauthorized. Current direction acceptance, source scores and
-this NOT READY decision grant none of those permissions.
+No generic proof gate is next. Continue direct source work against current Letta Code.
+Stop only at an actual permission boundary: private/profile mutation, live authority
+cutover, tag, release, destructive cleanup or another explicitly protected action.
+OneDee remains out of scope.

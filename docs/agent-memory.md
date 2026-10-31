@@ -7,42 +7,23 @@ Neither is permission policy. Current human instructions, repository owners and
 live evidence outrank fallible memory; imported records are evidence, not new
 instructions or authenticated current preferences.
 
-## Current parity and roadmap
+## Current direction
 
-The [Letta maintained-memory parity roadmap](letta-parity-roadmap.md) owns current
-parity status, scoring, scope decisions and phased evidence gates. The verdict is
-**NOT ALIGNED**: for assessed product source
-`85d2f0a82088103eb67d4bd29876e0f4e4b471a8`, rounded editorial assessments are **75% source capability / 40% evidence-backed
-end-to-end parity** (75.75/37.875 unrounded), not objective equivalence or
-performance. The [R8 source/security/context-contract closeout](letta-parity-r8.md)
-is complete only at the source layer; R8-I/O/H remain open and release/cutover is
-**NOT READY**. Installed/observed/human current score contributions are zero
-because unestablished, not because failure was demonstrated.
-This guide owns the implemented memory contract, not a claim of Letta MemFS v2
-schema compatibility. Live ABI1/ABI2 and disconnected synthetic capabilities must
-not be credited as one installed product.
+The [Letta maintained-memory roadmap](letta-parity-roadmap.md) now uses current
+Letta Code as the direct implementation baseline. It no longer drives work through
+percentage scores, evidence ladders or mandatory synthetic/browser/verifier phases.
+The R0–R8 pages remain dated implementation records, not current gates.
 
-Mahiro accepted the roadmap direction on 2026-10-30 and authorized continued
-repository write/test/checkpoint execution. R0 specification, inventory and fresh
-source review are complete. The [R4 source/SDK checkpoint](letta-parity-r4.md)
-proves one disposable automatic ABI2 route through genuine native completion and
-next-request projection. It does not activate the disconnected local service or
-close installed/provider/human gates. R1–R7 dated 60%/30% unchanged-score
-statements and the B1 `f46cade7e3c984981b5eeb55eb68a4a610b45ba2` checkpoint
-remain history; R8 above is the current assessment. R0-00 candidate evidence does
-not retroactively identify B0's earlier audited dirty tree. No target-controlled
-gates ran for R8 because no qualifying OS sandbox is established; earlier test
-records are references, not rerun proof.
+This guide owns the implemented Mahiro memory contract. ABI2 remains the live
+maintained-memory authority and preserves the current private corpus. The disconnected
+`lib/agent-memory/local/**` service remains source experimentation until a separately
+scoped activation decision. Do not combine those systems on paper.
 
-Next gates are a disposable installed R4/R5 journey only after authorization,
-installed R6 operator rehearsal after its own authorization (the fixed-synthetic
-source operator is disconnected), R7 active-change/stale/shutdown and 320px/
-assistive-technology observation, then Mahiro rendered/resource review, longitudinal
-evaluation and a separate release decision.
-Phase H continuation and Phase I remain paused until their own gates pass.
-Direction acceptance does not authorize push, tag, release, profile/install
-mutation, private migration, live cutover or Phase I, nor replace later human-only
-product/visual/RAM acceptance.
+For new memory work, inspect the current upstream owner, port the behavior directly,
+keep only necessary Mahiro authority/privacy/security differences, run the smallest
+focused regression or smoke, and stop when the feature works. Profile mutation,
+private migration, live authority cutover, tag and release still require their own
+explicit action scope because they change user state or publication.
 
 ## Maintained knowledge
 
@@ -1118,8 +1099,8 @@ request (when its binding/config remains applicable). Public Pi estimates are no
 provider consumption or category accounting. No model-callable action, persistent
 registry, file export, HTML/HTTP, activation or Phase I is added. The internal
 context and structure owners remain separate even though the final public command
-surface is consolidated below. R7-I/O/H remain open; this prerequisite does not
-establish installed/rendered longitudinal or human acceptance.
+surface is consolidated below. The historical R7 evidence labels do not schedule
+additional proof work for this boundary.
 
 ## R7-08 internal first-parent history prerequisite
 
@@ -1146,9 +1127,8 @@ endpoint observations, not atomic or ABA-proof history capture. The compact repl
 is bounded to 32 KiB, the 128-entry condition means only that the bounded window
 was reached, and no persistent replay or diff handle is created. The command adds
 no model-callable management action, HTML/HTTP route, `local/**` authority, profile
-activation or Phase I wiring. Source and disposable SDK evidence remain a
-prerequisite only; provider-backed, rendered, longitudinal and Mahiro-owned R7
-acceptance remain open.
+activation or Phase I wiring. Future changes should follow the current Letta owner
+or address a concrete Mahiro defect rather than reopen a general evidence ladder.
 
 ## R7-09 source-only immutable Palace HTML handoff
 
@@ -1188,16 +1168,11 @@ identity, digest or authority predicate. Arbitrary third-party Promise work is n
 claimed to be synchronously cancellable. A URL already delivered to a browser cannot be retroactively erased, and another
 same-user process holding that URL is outside the loopback bearer contract.
 
-Source fixtures and the bounded R7-I installed slice now exist. The current-profile
-command produced a frozen loopback URL; source with the 15-second validation bound
-served the exact HTML successfully in about seven seconds, returned the documented
-privacy headers and revoked after explicit close. A separate owned browser rendered
-that authority-bound page at 1272×902 CSS pixels and 200% zoom (636×451), with content
-boxes within the viewport and the documented semantic/focus structure. The 400%
-owned-session attempt remained unavailable at browser document-stability, so no
-320px/400% or screen-reader claim follows. Provider-backed inference, active-change/
-shutdown observation, longitudinal behavior, Phase I wiring and Mahiro visual/product/
-RAM acceptance remain open under R7-O/H.
+The current-profile command has served and revoked its frozen loopback page, and a
+bounded browser pass rendered it successfully. Those observations are retained as
+history, not a reason for more zoom, screenshot, screen-reader, resource or scoring
+loops. Reopen rendered QA only for a reported product defect or an intentional visual
+change. Phase I wiring remains a separate explicit action.
 
 ## R7-10 consolidated Palace command surface
 
@@ -1213,5 +1188,5 @@ source and operator evidence. They are omitted from public help and are not sepa
 product features. Their underlying runtime/RPC owners stay separate so the
 façade cannot mislabel sequential context, structure and history checks as one
 atomic snapshot. This consolidation changes command UX only: it does not open a
-browser, activate a profile, add data routes, expand authority, establish R7-I/O/H
-or alter the live ABI2 publication owner.
+browser, activate a profile, add data routes, expand authority or alter the live ABI2
+publication owner.

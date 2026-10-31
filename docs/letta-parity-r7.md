@@ -2,17 +2,19 @@
 
 [← Documentation](README.md) · [Roadmap/status](letta-parity-roadmap.md) · [Memory](agent-memory.md)
 
-## Scope and evidence boundary
+## Historical scope
 
-R7-01–05 retain the disconnected synthetic service contract. Later bounded ABI2
-source slices add command-time context, committed structure, identity/time-only
-history and an immutable metadata HTML handoff outside `lib/agent-memory/local/**`.
-Those source slices did not establish current-profile installation, provider
-consumption, rendered acceptance or Phase I. A later bounded current-profile/browser
-observation now completes R7-I only; R7-O/H remain open. The dated **60% source / 30%
-evidence-backed** statement belongs to the original R7 checkpoint; current scoring
-remains owned by the roadmap and is not recalculated here. No private corpus,
-provider, remote transport, profile activation or browser opening is authorized.
+This page preserves the dated R7 implementation record. It is not the current work
+queue, a percentage gate or a reason to run more browser/evidence loops. The current
+Palace direction is owned by the [roadmap](letta-parity-roadmap.md): follow the pulled
+Letta Code viewer directly, keep only necessary Mahiro security/authority adaptations
+and reopen QA only for a real defect or intentional product change.
+
+R7-01–05 describe the disconnected synthetic service. Later ABI2 source slices added
+command-time context, committed structure, identity/time-only history and the current
+immutable metadata handoff outside `lib/agent-memory/local/**`. Profile activation,
+private migration and Phase I remain separate actions; this historical page does not
+authorize them.
 
 ## 2026-10-30 ABI2 invocation-diagnostic follow-up
 

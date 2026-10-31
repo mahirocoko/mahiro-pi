@@ -1,7 +1,11 @@
 # R8 — Source/security/context-contract closeout
 
-[← Documentation](README.md) · [Canonical roadmap and scores](letta-parity-roadmap.md) ·
+[← Documentation](README.md) · [Current direct-upstream roadmap](letta-parity-roadmap.md) ·
 [Memory contract](agent-memory.md) · [Development](development.md)
+
+> Historical record: this source/security closeout and its score arithmetic are
+> retained for provenance. They are not the current planning owner or a mandatory
+> evidence ladder. Follow the roadmap for current direction.
 
 ## Mandate, mode and checkpoint
 
