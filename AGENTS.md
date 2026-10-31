@@ -26,9 +26,13 @@ dated source records, not current installation instructions.
 - Carry an authorized task through implementation and verification. Investigate
   and use available in-scope approaches rather than stopping at a plan, progress
   update, failed attempt, or checkpoint; do not require Mahiro to say continue.
-  Do not invent extra gates or repeat an approval already granted. Stop for an
-  explicit pause, a real blocker, a safety or permission boundary, or a decision
-  that changes the authorized scope; report what remains and why.
+  Do not invent extra gates or repeat an approval already granted. Decide and
+  perform low-impact, in-scope maintenance without asking again, including
+  non-destructive memory adjustments or reseeding an absent store when needed;
+  assess actual impact rather than treating the action name as a blanket gate.
+  Preserve existing knowledge and do not reset or overwrite an existing root.
+  Stop for an explicit pause, a real blocker, a safety or permission boundary, or
+  a consequential decision that changes scope; report what remains and why.
 - When an authorized reload or restart is needed, first identify the exact owner
   session and its live pane. Use the current `herdr-cli` and `direct-cli` guidance
   where applicable, preserve the session ID, and restore that same session rather
