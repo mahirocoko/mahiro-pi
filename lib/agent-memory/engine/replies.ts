@@ -2,7 +2,13 @@ import { bytes, digest, objectShape, validId } from '../../continuity/records.ts
 import { assertKnowledgeHistory } from '../knowledge-history.ts'
 import { assertPalaceStructure } from '../palace-structure.ts'
 import { assertMigrationExportPage } from '../migration-export.ts'
-import { palaceLayerFor, palaceReplyBytes, parseMemoryRead, retrievalLimits } from '../retrieval.ts'
+import {
+  memoryMissingHint,
+  palaceLayerFor,
+  palaceReplyBytes,
+  parseMemoryRead,
+  retrievalLimits,
+} from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
 import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
 import {
@@ -626,6 +632,8 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
           'directory',
           'hash',
           'missing',
+          'suggestions',
+          'hint',
           'text',
           'sources',
           'offset',
@@ -710,8 +718,22 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         }
         ensure(selected.path === selection.path)
         if (selected.missing === true) {
-          const v = shape(selected, ['path', 'hash', 'missing'])
-          ensure(v.hash === null)
+          const hinted = selected.suggestions !== undefined || selected.hint !== undefined
+          const v = shape(
+            selected,
+            hinted ? ['path', 'hash', 'missing', 'suggestions', 'hint'] : ['path', 'hash', 'missing'],
+          )
+          ensure(v.hash === null && v.missing === true)
+          if (hinted) {
+            ensure(Array.isArray(v.suggestions) && paths(v.suggestions, 5))
+            const suggestions = v.suggestions as string[]
+            ensure(
+              suggestions.length >= 1 &&
+                suggestions.every((candidate) => candidate !== v.path) &&
+                text(v.hint, 4096) &&
+                v.hint === memoryMissingHint(String(v.path), suggestions),
+            )
+          }
           return
         }
         const v = shape(

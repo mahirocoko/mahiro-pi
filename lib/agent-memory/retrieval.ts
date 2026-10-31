@@ -172,6 +172,50 @@ export function directoryPage(paths: string[], prefix: string, offset: number, l
     ...(nextOffset < all.length ? { nextOffset } : {}),
   }
 }
+const memorySuggestionLimit = 5
+
+function blockedMemoryLookup(path: string): boolean {
+  if (
+    path.length === 0 ||
+    path.length > 512 ||
+    path.startsWith('/') ||
+    /^[A-Za-z]:/.test(path) ||
+    path.includes('\\') ||
+    /[\x00-\x1f\x7f]/.test(path)
+  )
+    return true
+  return path
+    .split('/')
+    .some((segment) => segment === '' || segment === '.' || segment === '..' || segment.startsWith('.'))
+}
+
+// Hints use only the caller's already scoped paths. Appending `.md` wins when that
+// file is in scope; other matches share the basename, skip root files, and stop at five.
+export function memoryExtensionSuggestion(requested: string, authorizedPaths: readonly string[]): string[] {
+  if (blockedMemoryLookup(requested) || requested.endsWith('.md')) return []
+  const sibling = `${requested}.md`
+  return authorizedPaths.includes(sibling) ? [sibling] : []
+}
+
+export function memoryPathSuggestions(requested: string, authorizedPaths: readonly string[]): string[] {
+  const extension = memoryExtensionSuggestion(requested, authorizedPaths)
+  if (extension.length) return extension
+  if (blockedMemoryLookup(requested)) return []
+  const name = requested.slice(requested.lastIndexOf('/') + 1)
+  const found: string[] = []
+  for (const path of authorizedPaths) {
+    if (found.length >= memorySuggestionLimit) break
+    if (!path.includes('/') || path.startsWith('skills/') || path === requested) continue
+    if (path.split('/').some((segment) => segment.startsWith('.'))) continue
+    if (path.slice(path.lastIndexOf('/') + 1) === name) found.push(path)
+  }
+  return found
+}
+
+export function memoryMissingHint(requested: string, suggestions: readonly string[]): string {
+  return `No memory at ${requested}. Did you mean ${suggestions.join(' or ')}? Paths are relative to the memory directory.`
+}
+
 export function directoryIndex(files: Record<string, MemoryFile>, page: ReturnType<typeof directoryPage>) {
   const entries = page.paths.map((p) => {
     const meta = extractFrontmatterAndLinks(files[p].text)

@@ -18,6 +18,9 @@ import {
   directoryIndex,
   directoryPage,
   extractFrontmatterAndLinks,
+  memoryExtensionSuggestion,
+  memoryMissingHint,
+  memoryPathSuggestions,
   parseMemoryRead,
   retrieveMemory,
   retrievalLimits,
@@ -1717,6 +1720,12 @@ export class MemoryDataEngine {
           ? await snapshot()
           : await this.active((input as Input<'read'>).view, true)
         const paths = Object.keys(refs).sort()
+        const missingAt = (path: string, suggestions: string[]) => ({
+          path,
+          hash: null as null,
+          missing: true as const,
+          ...(suggestions.length ? { suggestions, hint: memoryMissingHint(path, suggestions) } : {}),
+        })
         const envelope = {
           revision: v.base.revision,
           baseRevision: v.base.revision,
@@ -1746,24 +1755,30 @@ export class MemoryDataEngine {
               dirFiles[p] = { text: await this.body(p, refs[p]), sources: refs[p].sources }
             result = directoryIndex(dirFiles, page)
           } else {
-            if (!allowedPath(selection.path, v.shared ? undefined : v.project))
-              throw Error('Memory path outside scope')
-            const ref = refs[selection.path]
-            const points = ref ? [...(await this.body(selection.path, ref))] : []
-            result = !ref
-              ? { path: selection.path, hash: null, missing: true }
-              : {
-                  path: selection.path,
-                  hash: ref.hash,
-                  text: points.slice(selection.offset, selection.offset + selection.limit).join(''),
-                  sources: ref.sources,
-                  offset: selection.offset,
-                  totalCharacters: points.length,
-                  truncated: selection.offset > 0 || selection.offset + selection.limit < points.length,
-                  ...(selection.offset + selection.limit < points.length
-                    ? { nextOffset: selection.offset + selection.limit }
-                    : {}),
-                }
+            const scope = v.shared ? undefined : v.project
+            if (!allowedPath(selection.path, scope)) {
+              // A missing extension can name one in-scope sibling. Other out-of-scope paths stay refused.
+              const suggestions = memoryExtensionSuggestion(selection.path, paths)
+              if (!suggestions.length) throw Error('Memory path outside scope')
+              result = missingAt(selection.path, suggestions)
+            } else {
+              const ref = refs[selection.path]
+              const points = ref ? [...(await this.body(selection.path, ref))] : []
+              result = !ref
+                ? missingAt(selection.path, memoryPathSuggestions(selection.path, paths))
+                : {
+                    path: selection.path,
+                    hash: ref.hash,
+                    text: points.slice(selection.offset, selection.offset + selection.limit).join(''),
+                    sources: ref.sources,
+                    offset: selection.offset,
+                    totalCharacters: points.length,
+                    truncated: selection.offset > 0 || selection.offset + selection.limit < points.length,
+                    ...(selection.offset + selection.limit < points.length
+                      ? { nextOffset: selection.offset + selection.limit }
+                      : {}),
+                  }
+            }
           }
         } else if (selection.mode === 'topic') {
           const files = Object.fromEntries(

@@ -2848,3 +2848,78 @@ test('Palace structure ignores worktree text and filters committed suppression w
     await f.close()
   }
 })
+
+test('scoped memory read suggests an in-map path and withholds out-of-scope names', async () => {
+  const f = fixture(0)
+  try {
+    const seed = f.store.createView('project', 120000, true)
+    const files: Record<string, string> = {
+      'reference/area/leaf.md': '# Area leaf\n',
+      'projects/project/reference/leaf.md': '# Project leaf\n',
+      'reference/new.md': '# New\n',
+      'reference/area/new.md': '# Nested new\n',
+      'deferred/other/leaf.md': 'PRIVATE_OTHER_LEAF\n',
+      'deferred/other/unique-private.md': 'PRIVATE_UNIQUE_BODY\n',
+      'global/notes.md': '# Notes\n',
+      'procedures/notes.md': '# Notes\n',
+      'projects/project/reference/notes.md': '# Notes\n',
+      'projects/project/system/notes.md': '# Notes\n',
+      'reference/area/notes.md': '# Notes\n',
+      'system/human/notes.md': '# Notes\n',
+    }
+    for (const [path, text] of Object.entries(files)) f.store.edit(seed, path, null, text)
+    f.store.integrate(seed)
+    const read = (path: string) =>
+      f.engine.request(
+        'headRead',
+        { project: 'project', shared: false, selection: { path } },
+        f.context,
+      ) as Promise<any>
+    const present = await read('reference/area/leaf.md')
+    assert.equal(present.missing, undefined)
+    assert.match(present.text, /# Area leaf/)
+    assert.equal('suggestions' in present, false)
+    const leaf = await read('reference/leaf.md')
+    assert.equal(leaf.missing, true)
+    assert.equal(leaf.hash, null)
+    assert.deepEqual(leaf.suggestions, ['projects/project/reference/leaf.md', 'reference/area/leaf.md'])
+    assert.equal(
+      leaf.hint,
+      'No memory at reference/leaf.md. Did you mean projects/project/reference/leaf.md or reference/area/leaf.md? Paths are relative to the memory directory.',
+    )
+    assert.equal(JSON.stringify(leaf).includes('PRIVATE_OTHER_LEAF'), false)
+    assert.equal(JSON.stringify(leaf).includes('deferred/other'), false)
+    const extension = await read('reference/new')
+    assert.deepEqual(extension.suggestions, ['reference/new.md'])
+    assert.match(extension.hint, /Did you mean reference\/new\.md\?/)
+    assert.equal(extension.hint.includes('reference/area/new.md'), false)
+    const rootName = await read('reference/index.md')
+    assert.equal(rootName.missing, true)
+    assert.equal('suggestions' in rootName, false)
+    assert.equal('hint' in rootName, false)
+    const notes = await read('reference/notes.md')
+    assert.deepEqual(notes.suggestions, [
+      'global/notes.md',
+      'procedures/notes.md',
+      'projects/project/reference/notes.md',
+      'projects/project/system/notes.md',
+      'reference/area/notes.md',
+    ])
+    assert.equal(notes.suggestions.includes('system/human/notes.md'), false)
+    const refused = async (path: string) => {
+      await assert.rejects(read(path), (error: unknown) => {
+        assert.ok(error instanceof Error)
+        assert.equal(error.message, 'Engine operation unavailable')
+        assert.equal(error.message.includes('Did you mean'), false)
+        assert.equal(error.message.includes('PRIVATE_'), false)
+        assert.deepEqual(memoryFailureCode(error), { reason: 'unknown' })
+        return true
+      })
+    }
+    await refused('deferred/other/leaf.md')
+    await refused('deferred/other/unique-private.md')
+    await refused('../reference/area/leaf.md')
+  } finally {
+    await f.close()
+  }
+})
