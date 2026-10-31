@@ -216,6 +216,40 @@ export function memoryMissingHint(requested: string, suggestions: readonly strin
   return `No memory at ${requested}. Did you mean ${suggestions.join(' or ')}? Paths are relative to the memory directory.`
 }
 
+const childSlug = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+// Immediate child directories in an already scoped path list. Nested files stay
+// on the descendant page; this only names the next segment.
+export function childDirectoryPaths(paths: readonly string[], directory: string): string[] {
+  const prefix = `${directory}/`
+  const found = new Set<string>()
+  for (const path of paths) {
+    if (!path.startsWith(prefix)) continue
+    const rest = path.slice(prefix.length)
+    const slash = rest.indexOf('/')
+    if (slash <= 0) continue
+    const name = rest.slice(0, slash)
+    if (!childSlug.test(name)) continue
+    found.add(`${directory}/${name}`)
+  }
+  return [...found].sort()
+}
+
+// Frontmatter description wins. Otherwise the first prose paragraph, matching
+// Letta's child-index summary: skip headings, lists, tables, code and markup.
+export function childIndexDescription(text: string): string | undefined {
+  const fromFrontmatter = extractFrontmatterAndLinks(text).description
+  if (fromFrontmatter) return fromFrontmatter
+  const body = text.replace(/^---\n[\s\S]*?\n---\n/, '')
+  for (const block of body.split(/\n\s*\n/)) {
+    const paragraph = block.trim()
+    if (!paragraph || /^(#|[-*+] |\d+\. |\||```|<)/.test(paragraph)) continue
+    const prose = paragraph.replace(/\s*\n\s*/g, ' ').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    return prose.length > 300 ? `${prose.slice(0, 297)}...` : prose
+  }
+  return undefined
+}
+
 export function directoryIndex(files: Record<string, MemoryFile>, page: ReturnType<typeof directoryPage>) {
   const entries = page.paths.map((p) => {
     const meta = extractFrontmatterAndLinks(files[p].text)

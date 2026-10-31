@@ -15,6 +15,8 @@ import {
 } from '../migration-export.ts'
 import {
   buildMemoryPalace,
+  childDirectoryPaths,
+  childIndexDescription,
   directoryIndex,
   directoryPage,
   extractFrontmatterAndLinks,
@@ -1750,10 +1752,33 @@ export class MemoryDataEngine {
             v.shared && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
           if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory)) {
             const page = directoryPage(paths, cleanDir, selection.offset, selection.limit)
+            const childPaths = childDirectoryPaths(paths, cleanDir)
+            const shownChildren = childPaths.slice(0, retrievalLimits.page)
+            const loaded = new Map<string, string>()
+            const directories: { path: string; description?: string }[] = []
+            for (const child of shownChildren) {
+              const indexPath = `${child}/index.md`
+              const indexRef = refs[indexPath]
+              if (!indexRef) {
+                directories.push({ path: child })
+                continue
+              }
+              const text = await this.body(indexPath, indexRef)
+              loaded.set(indexPath, text)
+              const description = childIndexDescription(text)
+              directories.push(description ? { path: child, description } : { path: child })
+            }
             const dirFiles: Record<string, MemoryFile> = {}
             for (const p of page.paths)
-              dirFiles[p] = { text: await this.body(p, refs[p]), sources: refs[p].sources }
-            result = directoryIndex(dirFiles, page)
+              dirFiles[p] = {
+                text: loaded.get(p) ?? (await this.body(p, refs[p])),
+                sources: refs[p].sources,
+              }
+            result = {
+              ...directoryIndex(dirFiles, page),
+              ...(directories.length ? { directories } : {}),
+              ...(childPaths.length > shownChildren.length ? { directoriesTruncated: true } : {}),
+            }
           } else {
             const scope = v.shared ? undefined : v.project
             if (!allowedPath(selection.path, scope)) {

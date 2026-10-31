@@ -644,6 +644,8 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
           'discoveryVersion',
           'topic',
           'entries',
+          'directories',
+          'directoriesTruncated',
           'total',
           'complete',
           'query',
@@ -677,7 +679,18 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         if (selected.directory !== undefined) {
           const v = shape(
             selected,
-            ['directory', 'entries', 'total', 'hash', 'offset', 'limit', 'truncated', 'nextOffset'],
+            [
+              'directory',
+              'entries',
+              'directories',
+              'directoriesTruncated',
+              'total',
+              'hash',
+              'offset',
+              'limit',
+              'truncated',
+              'nextOffset',
+            ],
             ['directory', 'entries', 'total', 'hash', 'offset', 'limit', 'truncated'],
           )
           const effectiveLimit = Math.min(selection.limit, retrievalLimits.page)
@@ -714,6 +727,26 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
               ensure(Array.isArray(e.links) && e.links.every((link) => text(link, 512)))
           }
           ensure(entryPaths.every((path, index) => index === 0 || entryPaths[index - 1] < path))
+          if (v.directories !== undefined) {
+            const childSlug = /^[a-z0-9][a-z0-9-]{0,63}$/
+            ensure(Array.isArray(v.directories) && v.directories.length <= retrievalLimits.page)
+            let previous = ''
+            for (const entry of v.directories) {
+              const directoryEntry = shape(entry, ['path', 'description'], ['path'])
+              const child = directoryEntry.path
+              ensure(typeof child === 'string' && child.startsWith(`${v.directory}/`))
+              const name = (child as string).slice((v.directory as string).length + 1)
+              ensure(childSlug.test(name) && (child as string) > previous)
+              previous = child as string
+              if (directoryEntry.description !== undefined) ensure(text(directoryEntry.description, 4096))
+            }
+          }
+          if (v.directoriesTruncated !== undefined)
+            ensure(
+              v.directoriesTruncated === true &&
+                Array.isArray(v.directories) &&
+                v.directories.length === retrievalLimits.page,
+            )
           return
         }
         ensure(selected.path === selection.path)

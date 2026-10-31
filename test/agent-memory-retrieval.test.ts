@@ -7,6 +7,7 @@ import test from 'node:test'
 import { validateReply } from '../lib/agent-memory/engine/replies.ts'
 import { createMemoryStore, type MemoryFile } from '../lib/agent-memory/store.ts'
 import {
+  childDirectoryPaths,
   directoryIndex,
   directoryPage,
   memoryReadSchema,
@@ -192,6 +193,38 @@ test('directory indexes page descendant metadata without reading beyond the sele
       ...firstIndex,
       entries: [firstIndex.entries[0], firstIndex.entries[0], ...firstIndex.entries.slice(2)],
     },
+  ])
+    assert.throws(() => validateReply('headRead', input, { ...envelope, ...forged }))
+})
+test('a truncated child-directory page is exactly one full page and shorter flags are refused', () => {
+  const paths = Array.from(
+    { length: retrievalLimits.page + 1 },
+    (_, index) => `reference/area-${index.toString().padStart(2, '0')}/note.md`,
+  )
+  const children = childDirectoryPaths(paths, 'reference')
+  assert.equal(children.length, retrievalLimits.page + 1)
+  const files = Object.fromEntries(paths.map((path) => [path, { text: '# Note\n', sources: [] }]))
+  const page = directoryIndex(files, directoryPage(paths, 'reference', 0, retrievalLimits.page))
+  const directories = children.slice(0, retrievalLimits.page).map((path) => ({ path }))
+  const revision = digest('directory-child-revision')
+  const envelope = {
+    revision,
+    baseRevision: revision,
+    currentRevision: revision,
+    basis: 'view-snapshot',
+    freshness: 'current',
+  }
+  const input = { selection: { path: 'reference' } }
+  validateReply('headRead', input, {
+    ...envelope,
+    ...page,
+    directories,
+    directoriesTruncated: true,
+  })
+  for (const forged of [
+    { ...page, directoriesTruncated: true },
+    { ...page, directories: directories.slice(0, retrievalLimits.page - 1), directoriesTruncated: true },
+    { ...page, directories, directoriesTruncated: false },
   ])
     assert.throws(() => validateReply('headRead', input, { ...envelope, ...forged }))
 })

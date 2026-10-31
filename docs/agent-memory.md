@@ -148,6 +148,12 @@ establish installed/human outcomes. Those remain R2-S/I/O/H gates.
 | `{topic: "global"}`, `"procedures"`, `"deferred/<id>"`, `"system"`, `"reference"` | A selected namespace |
 | `{query, offset?, limit?}` | Lexical AND search, limit 1–8 results |
 
+A directory page still lists authorized descendant files. It also names at most 32
+immediate child directories from that same scoped path list. A child description
+is its in-scope `index.md` frontmatter description, or that file's first prose
+paragraph when frontmatter has none. Other file text is not copied into the
+description.
+
 Queries are bounded to 256 UTF-8 bytes and 16 distinct word terms. English/Thai
 segmentation and normalization are for matching only; returned snippets and
 offsets refer to original text. Paths participate in matching. Results use sorted

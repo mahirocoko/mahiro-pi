@@ -2923,3 +2923,40 @@ test('scoped memory read suggests an in-map path and withholds out-of-scope name
     await f.close()
   }
 })
+
+test('directory read names one child level and describes it from the in-scope index only', async () => {
+  const f = fixture(0)
+  try {
+    const seed = f.store.createView('project', 120000, true)
+    const files: Record<string, string> = {
+      'reference/area/index.md': '# Area\n\nArea summary by [notes](reference/note.md).\n\nPRIVATE_LATER\n',
+      'reference/area/secret.md': 'PRIVATE_SECRET\n',
+      'reference/note.md': '# Note\n',
+      'reference/other/index.md': '---\ndescription: Public label.\n---\nPRIVATE_FRONT_BODY\n',
+      'deferred/other/index.md': 'FOREIGN_DEFERRED\n',
+    }
+    for (const [path, text] of Object.entries(files)) f.store.edit(seed, path, null, text)
+    f.store.integrate(seed)
+    const listed = (await f.engine.request(
+      'headRead',
+      { project: 'project', shared: false, selection: { path: 'reference' } },
+      f.context,
+    )) as any
+    assert.equal(listed.directory, 'reference')
+    assert.ok(listed.entries.some((entry: { path: string }) => entry.path === 'reference/area/secret.md'))
+    assert.ok(listed.entries.some((entry: { path: string }) => entry.path === 'reference/note.md'))
+    assert.deepEqual(listed.directories, [
+      { path: 'reference/area', description: 'Area summary by notes.' },
+      { path: 'reference/other', description: 'Public label.' },
+    ])
+    assert.equal(listed.directoriesTruncated, undefined)
+    const encoded = JSON.stringify(listed)
+    assert.equal(encoded.includes('PRIVATE_SECRET'), false)
+    assert.equal(encoded.includes('PRIVATE_LATER'), false)
+    assert.equal(encoded.includes('PRIVATE_FRONT_BODY'), false)
+    assert.equal(encoded.includes('FOREIGN_DEFERRED'), false)
+    assert.equal(encoded.includes('deferred/other'), false)
+  } finally {
+    await f.close()
+  }
+})
