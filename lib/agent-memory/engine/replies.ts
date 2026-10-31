@@ -646,6 +646,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
           'entries',
           'directories',
           'directoriesTruncated',
+          'index',
           'total',
           'complete',
           'query',
@@ -684,6 +685,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
               'entries',
               'directories',
               'directoriesTruncated',
+              'index',
               'total',
               'hash',
               'offset',
@@ -747,6 +749,31 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
                 Array.isArray(v.directories) &&
                 v.directories.length === retrievalLimits.page,
             )
+          if (v.index !== undefined) {
+            const index = shape(
+              v.index,
+              ['path', 'text', 'totalCharacters', 'truncated', 'nextOffset'],
+              ['path', 'text', 'totalCharacters', 'truncated'],
+            )
+            const shown = [...(index.text as string)]
+            ensure(
+              index.path === `${v.directory}/index.md` &&
+                paths([index.path], 1) &&
+                text(index.text, 16384) &&
+                shown.length <= retrievalLimits.indexPreview &&
+                integer(index.totalCharacters, limits.file) &&
+                typeof index.truncated === 'boolean' &&
+                index.truncated === (index.totalCharacters as number) > shown.length,
+            )
+            if (!index.truncated)
+              ensure(index.nextOffset === undefined && index.totalCharacters === shown.length)
+            else
+              ensure(
+                shown.length === retrievalLimits.indexPreview &&
+                  index.nextOffset === retrievalLimits.indexPreview &&
+                  (index.nextOffset as number) < (index.totalCharacters as number),
+              )
+          }
           return
         }
         ensure(selected.path === selection.path)

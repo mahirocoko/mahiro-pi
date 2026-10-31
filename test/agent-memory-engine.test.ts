@@ -2960,3 +2960,39 @@ test('directory read names one child level and describes it from the in-scope in
     await f.close()
   }
 })
+
+test('directory read returns its own index prefix and withholds other file text', async () => {
+  const f = fixture(0)
+  try {
+    const seed = f.store.createView('project', 120000, true)
+    const tail = 'PRIVATE_TAIL'
+    f.store.edit(seed, 'reference/index.md', null, `${'INDEX_HEAD'.padEnd(4096, 'a')}${tail}\n`)
+    f.store.edit(seed, 'reference/secret.md', null, 'PRIVATE_SECRET\n')
+    f.store.edit(seed, 'system/persona.md', null, 'PRIVATE_PERSONA\n')
+    f.store.edit(seed, 'deferred/other/index.md', null, 'FOREIGN_DEFERRED\n')
+    f.store.integrate(seed)
+    const read = (path: string) =>
+      f.engine.request(
+        'headRead',
+        { project: 'project', shared: false, selection: { path } },
+        f.context,
+      ) as Promise<any>
+    const listed = await read('reference')
+    assert.equal(listed.index.path, 'reference/index.md')
+    assert.equal(listed.index.text.length, 4096)
+    assert.equal(listed.index.text.startsWith('INDEX_HEAD'), true)
+    assert.equal(listed.index.truncated, true)
+    assert.equal(listed.index.nextOffset, 4096)
+    assert.equal(listed.index.totalCharacters, 4096 + tail.length + 1)
+    const encoded = JSON.stringify(listed)
+    assert.equal(encoded.includes('PRIVATE_TAIL'), false)
+    assert.equal(encoded.includes('PRIVATE_SECRET'), false)
+    assert.equal(encoded.includes('FOREIGN_DEFERRED'), false)
+    assert.equal(encoded.includes('deferred/other'), false)
+    const system = await read('system')
+    assert.equal('index' in system, false)
+    assert.equal(JSON.stringify(system).includes('PRIVATE_PERSONA'), false)
+  } finally {
+    await f.close()
+  }
+})

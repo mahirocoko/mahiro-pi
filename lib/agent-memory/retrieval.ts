@@ -14,6 +14,8 @@ export const retrievalLimits = Object.freeze({
   terms: 16,
   results: 8,
   page: 32,
+  // Same code-point page as a path read. Directory presentation uses it for index.md only.
+  indexPreview: 4096,
   snippetCharacters: 192,
   outputBytes: 32768,
   workBytes: 1024 * 1024,

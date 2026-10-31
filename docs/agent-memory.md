@@ -152,7 +152,8 @@ A directory page still lists authorized descendant files. It also names at most 
 immediate child directories from that same scoped path list. A child description
 is its in-scope `index.md` frontmatter description, or that file's first prose
 paragraph when frontmatter has none. Other file text is not copied into the
-description.
+description. When that directory's own `index.md` is in scope, the page also
+includes a bounded prefix of that file and where the remainder continues.
 
 Queries are bounded to 256 UTF-8 bytes and 16 distinct word terms. English/Thai
 segmentation and normalization are for matching only; returned snippets and

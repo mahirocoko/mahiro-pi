@@ -1755,16 +1755,26 @@ export class MemoryDataEngine {
             const childPaths = childDirectoryPaths(paths, cleanDir)
             const shownChildren = childPaths.slice(0, retrievalLimits.page)
             const loaded = new Map<string, string>()
+            const indexPath = `${cleanDir}/index.md`
+            const indexRef = refs[indexPath]
+            const indexText = indexRef ? await this.body(indexPath, indexRef) : undefined
+            if (indexText !== undefined) loaded.set(indexPath, indexText)
+            const indexPoints = indexText === undefined ? undefined : [...indexText]
+            const indexShownCount =
+              indexPoints === undefined
+                ? undefined
+                : Math.min(indexPoints.length, retrievalLimits.indexPreview)
+            const indexShown = indexPoints?.slice(0, indexShownCount).join('')
             const directories: { path: string; description?: string }[] = []
             for (const child of shownChildren) {
-              const indexPath = `${child}/index.md`
-              const indexRef = refs[indexPath]
-              if (!indexRef) {
+              const childIndexPath = `${child}/index.md`
+              const childIndex = refs[childIndexPath]
+              if (!childIndex) {
                 directories.push({ path: child })
                 continue
               }
-              const text = await this.body(indexPath, indexRef)
-              loaded.set(indexPath, text)
+              const text = await this.body(childIndexPath, childIndex)
+              loaded.set(childIndexPath, text)
               const description = childIndexDescription(text)
               directories.push(description ? { path: child, description } : { path: child })
             }
@@ -1776,6 +1786,17 @@ export class MemoryDataEngine {
               }
             result = {
               ...directoryIndex(dirFiles, page),
+              ...(indexPoints !== undefined && indexShown !== undefined && indexShownCount !== undefined
+                ? {
+                    index: {
+                      path: indexPath,
+                      text: indexShown,
+                      totalCharacters: indexPoints.length,
+                      truncated: indexPoints.length > indexShownCount,
+                      ...(indexPoints.length > indexShownCount ? { nextOffset: indexShownCount } : {}),
+                    },
+                  }
+                : {}),
               ...(directories.length ? { directories } : {}),
               ...(childPaths.length > shownChildren.length ? { directoriesTruncated: true } : {}),
             }
