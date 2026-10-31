@@ -26,12 +26,12 @@ import { buildPalaceHandoff, type PalaceHandoff } from './palace-handoff.ts'
 import { primaryDelegationDoctrine } from './prompt.ts'
 import { memoryFailure, memoryFailureCode } from './reasons.ts'
 import {
+  applyDerivedAssistantCredit,
   completeReflectionDelivery,
   createReflectionWindow,
   nextReflectionDelivery,
   openReflectionBacklog,
   openReflectionDrain,
-  recordFinalizedAssistantWork,
   reflectionBacklogLimit,
   reflectionDeliveryLimit,
   resetReflectionWindow,
@@ -1110,15 +1110,31 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             } finally {
               own.stop()
             }
-            if (integrated && requested && drainId !== undefined && reflection.drain?.id === drainId) {
+            if (
+              integrated &&
+              requested &&
+              launch &&
+              drainId !== undefined &&
+              reflection.drain?.id === drainId
+            ) {
               const next = completeReflectionDelivery(
                 reflection,
                 drainId,
                 requested,
                 episodes.map((episode) => episode.id),
               )
+              const session = episodes.find((episode) => typeof episode.session === 'string')?.session
+              if (session && reflectionLaunchLive(ctx, launch)) {
+                try {
+                  const credit = await f.request('episodeCredit', { project: f.project, session })
+                  if (reflectionLaunchLive(ctx, launch)) reflection.steps = credit.steps
+                } catch {
+                  // The ledger already excludes published ids. The next observation reads that sum.
+                }
+              }
               if (!reflection.drain) capacityDrainHeld = false
-              if (next.length && reflection.drain?.id === drainId) await launchReflection(ctx, next)
+              if (next.length && reflection.drain?.id === drainId && reflectionLaunchLive(ctx, launch))
+                await launchReflection(ctx, next, launch.fence)
             }
           }),
       }
@@ -1943,6 +1959,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           actions: own.actions,
           results: own.results,
           outcome: 'completed',
+          ...(Number.isSafeInteger(own.assistantEvents) && own.assistantEvents >= 1
+            ? { assistantSteps: own.assistantEvents }
+            : {}),
         }
         while (bytes(`${JSON.stringify(episode)}\n`) > 16384) {
           if (episode.results.length > 2) episode.results.splice(1, 1)
@@ -2001,7 +2020,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         assertCurrent(f.context)
         if (token !== epoch || own.serial !== admissionSerial) return
         capacityDrainHeld = false
-        const crossed = recordFinalizedAssistantWork(reflection, f.project, episode.id, own.assistantEvents)
+        const credit = await f.request('episodeCredit', { project: f.project, session: episode.session })
+        if (token !== epoch || own.serial !== admissionSerial) return
+        const crossed = applyDerivedAssistantCredit(reflection, f.project, episode.id, credit.steps)
         if (!settledLaunchCurrent()) return
         if (crossed && !reflection.drain && !job && !starting) {
           const serial = admissionSerial

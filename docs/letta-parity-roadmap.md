@@ -48,15 +48,17 @@ quality and must not create more work by themselves.
   private corpus.
 - Source now includes bounded automatic reflection scheduling: 25 eligible assistant
   messages trigger a frozen backlog, delivered in chunks of at most four episodes.
-  Only delivered episodes can be reviewed. Scheduling state is in memory and is not
-  recovered across runtime retirement; remaining episodes stay unreviewed. Source
-  checks do not by themselves establish installation or live behavior. A comparison
-  against Letta `59df5424838419e083de0691fa4d08524f348937` identified durable
-  step progress as a remaining difference. An experimental implementation was not
-  retained: concurrent controllers could lose credited steps, and automatic cleanup
-  of an apparently empty lock could race a live owner. Future work must preserve
-  exact-root authority and non-stealable ownership without claiming crash recovery
-  or reconstructing historical steps from lossy episodes.
+  Only delivered episodes can be reviewed. Outstanding assistant credit is the
+  sum of optional `assistantSteps` on turn episodes in the bounded episode
+  directory, excluding committed reviewed and forgotten ids. Legacy episodes
+  count as zero and compaction episodes have none. Admission is that one
+  episode file; it does not take the publication lock. A crashed publication
+  lock therefore does not block later observations. `createPrivate` can leave a
+  second hard link if cleanup does not run; readers refuse that file while two
+  links remain, and nothing deletes either name. Two controllers can both pass
+  the 255-file check and admit two more files. The directory then fails closed
+  above 256. Neither case is repaired by deleting files or taking over a lock.
+  Source checks do not by themselves establish installation or live behavior.
 - The disconnected `lib/agent-memory/local/**` Git/worktree service remains source
   experimentation. It is not silently combined with ABI2 or activated by this roadmap.
 - `/mh-memory palace`, `palace close` and `palace json` remain the public Palace

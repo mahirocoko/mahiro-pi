@@ -14,6 +14,7 @@ import test from 'node:test'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
+import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
 import type { EngineWorkerValue } from '../lib/agent-memory/experimental-contracts.ts'
 import { createMemoryStore, type Episode } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
@@ -522,6 +523,64 @@ test('a cancelled capacity writer can launch one later backlog drain without rev
         .filter((name) => name.endsWith('.json'))
         .sort(),
       before,
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+test('foreground during episode credit refresh cannot dispatch the stale continuation', async () => {
+  const original = MemoryEngineController.prototype.request
+  let release = () => {}
+  let held = false
+  let arm = false
+  MemoryEngineController.prototype.request = async function (
+    this: MemoryEngineController,
+    method,
+    input,
+    context,
+  ) {
+    const result = await original.call(this, method, input, context)
+    if (method === 'episodeCredit' && arm) {
+      held = true
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+    }
+    return result
+  } as typeof original
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    for (const name of ['one', 'two', 'three', 'four', 'five']) await f.turn(name, 5)
+    assert.equal(f.spawns.length, 1)
+    arm = true
+    const pending = f.finish('completed')
+    await until(() => held)
+    await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    release()
+    await pending
+    assert.equal(f.spawns.length, 1)
+  } finally {
+    release()
+    MemoryEngineController.prototype.request = original
+    await f.close()
+  }
+})
+
+test('retired runtime keeps credited steps below threshold and launches when a later observation crosses it', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    for (const name of ['one', 'two', 'three', 'four']) await f.turn(name, 5)
+    assert.equal(f.spawns.length, 0)
+    await f.emit('session_start')
+    assert.equal(f.spawns.length, 0)
+    await f.turn('five', 5)
+    assert.equal(f.spawns.length, 1)
+    assert.equal(
+      episodeIds(f.spawns[0]?.prompt ?? '').some((episode) => episode.id === digest('primary:user-one')),
+      true,
     )
   } finally {
     await f.close()

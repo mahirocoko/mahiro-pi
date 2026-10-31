@@ -57,6 +57,7 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
     method === 'episodes' ||
     method === 'selectEpisodes' ||
     method === 'episodeBacklog' ||
+    method === 'episodeCredit' ||
     method === 'conflicts' ||
     method === 'read' ||
     method === 'headRead' ||

@@ -1,10 +1,10 @@
-// In-memory only. Process restart and runtime retirement drop the count and the
-// frozen window. Unreviewed episode files stay on disk and are not scanned to
-// reconstruct assistant steps. A stopped drain is not retried in place. The next
-// threshold may include a new bounded backlog of still-pending ids, including
-// compaction and episodes left by a restart or a failed window. Those ids are
-// not assistant steps. The backlog is fixed when the drain opens; later episodes
-// are not appended. Unseen ids are not marked reviewed.
+// The delivery window freezes ids in memory. ABI2 outstanding assistant steps are
+// the assistantSteps values on bounded episode files that are not reviewed or
+// forgotten; this module does not scan those files. A stopped drain is not retried
+// in place. The next threshold may include a new bounded backlog of still-pending
+// ids, including compaction and episodes left by a restart or a failed window.
+// Those ids are not assistant steps. The backlog is fixed when the drain opens;
+// later episodes are not appended. Unseen ids are not marked reviewed.
 
 export const assistantReflectionSteps = 25
 export const reflectionDeliveryLimit = 4
@@ -83,6 +83,21 @@ export function openReflectionBacklog(
   if (!ids.length) return []
   window.pendingIds = window.pendingIds.filter((id) => !seen.has(id))
   return freeze(window, ids, false)
+}
+
+export function applyDerivedAssistantCredit(
+  window: ReflectionWindow,
+  project: string,
+  episodeId: string,
+  pendingSteps: number,
+): boolean {
+  if (!Number.isSafeInteger(pendingSteps) || pendingSteps < 0) return false
+  if (window.project !== null && window.project !== project) resetReflectionWindow(window)
+  window.project = project
+  window.steps = pendingSteps
+  if (tracked(window, episodeId)) return false
+  window.pendingIds.push(episodeId)
+  return window.drain === null && window.steps >= assistantReflectionSteps
 }
 
 export function recordFinalizedAssistantWork(

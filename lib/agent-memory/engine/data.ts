@@ -29,7 +29,7 @@ import {
   topicMetadata,
 } from '../retrieval.ts'
 import type { MemoryConfig, MemoryFile, View } from '../store.ts'
-import { observedEpisode } from './episodes.ts'
+import { episodeAssistantSteps, observedEpisode } from './episodes.ts'
 import {
   atomicPrivate,
   type Check,
@@ -1223,6 +1223,24 @@ export class MemoryDataEngine {
         .map((episode) => episode.id),
     }
   }
+  private async episodeCredit(project: string, session: string) {
+    const revision = await this.head()
+    const ledger = await this.ledger(revision)
+    let steps = 0
+    for (const name of await this.episodeNames()) {
+      const id = name.slice(0, -5)
+      if (
+        ledger.reviewed.includes(id) ||
+        ledger.forgottenSources.some((entry) => entry.source === id && entry.project === project)
+      )
+        continue
+      const episode = observedEpisode(JSON.parse(await this.read(join(this.root, '.episodes', name), 16384)))
+      if (episode.id !== id) throw Error('Invalid episode filename identity')
+      if (episode.project === project && episode.session === session) steps += episodeAssistantSteps(episode)
+    }
+    if ((await this.head()) !== revision) throw Error('Episode revision changed')
+    return { steps }
+  }
   private async episodeNames() {
     const folder = join(this.root, '.episodes')
     await this.gate([folder])
@@ -1689,6 +1707,10 @@ export class MemoryDataEngine {
       case 'episodeBacklog': {
         const args = input as Input<'episodeBacklog'>
         return await this.episodeBacklog(args.project, args.limit)
+      }
+      case 'episodeCredit': {
+        const args = input as Input<'episodeCredit'>
+        return await this.episodeCredit(args.project, args.session)
       }
       case 'observe':
         return await this.observe((input as Input<'observe'>).episode)

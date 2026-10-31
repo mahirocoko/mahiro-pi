@@ -3,6 +3,7 @@ import type { CompactionEpisode, Episode } from '../store.ts'
 import { idPattern } from './schema.ts'
 
 const identity = ['id', 'project', 'session', 'evidence', 'observedAt', 'entryHash']
+const turnKeys = [...identity, 'input', 'actions', 'results', 'outcome', 'assistantSteps']
 export function compactionMetadata(value: unknown): value is CompactionEpisode['compaction'] {
   return (
     objectShape(value, [
@@ -41,7 +42,16 @@ export function serializeCompactionMetadata(value: CompactionEpisode['compaction
 // One closed reader for ABI1, ABI2 requests and ABI2 replies. Legacy bytes are never rewritten.
 export function observedEpisode(value: unknown): Episode {
   if (
-    !objectShape(value, [...identity, 'kind', 'compaction', 'input', 'actions', 'results', 'outcome']) ||
+    !objectShape(value, [
+      ...identity,
+      'kind',
+      'compaction',
+      'input',
+      'actions',
+      'results',
+      'outcome',
+      'assistantSteps',
+    ]) ||
     typeof value.id !== 'string' ||
     !/^[a-f0-9]{64}$/.test(value.id) ||
     typeof value.project !== 'string' ||
@@ -64,7 +74,7 @@ export function observedEpisode(value: unknown): Episode {
       throw Error('Invalid compaction episode')
   } else {
     if (
-      !objectShape(value, [...identity, 'input', 'actions', 'results', 'outcome']) ||
+      !objectShape(value, turnKeys) ||
       value.outcome !== 'completed' ||
       !objectShape(value.input, ['text', 'source']) ||
       typeof value.input.text !== 'string' ||
@@ -93,8 +103,20 @@ export function observedEpisode(value: unknown): Episode {
         (result.text !== undefined && typeof result.text !== 'string')
       )
         throw Error('Invalid selected result')
+    if (
+      value.assistantSteps !== undefined &&
+      (!Number.isSafeInteger(value.assistantSteps) ||
+        (value.assistantSteps as number) < 0 ||
+        (value.assistantSteps as number) > 1024)
+    )
+      throw Error('Invalid observed episode; caller provenance labels are not accepted')
   }
   const raw = JSON.stringify(value)
   if (bytes(raw) > 16384 || hasSecret(raw)) throw Error('Episode rejected')
   return value as unknown as Episode
+}
+
+export function episodeAssistantSteps(episode: Episode) {
+  if ('kind' in episode) return 0
+  return episode.assistantSteps ?? 0
 }

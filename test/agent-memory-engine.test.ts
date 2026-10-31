@@ -35,6 +35,7 @@ import {
 } from '../lib/agent-memory/engine/io.ts'
 import { parseOperation, validatePlan } from '../lib/agent-memory/engine/operation.ts'
 import { encode, Frames, type Plan, transportLimits } from '../lib/agent-memory/engine/protocol.ts'
+import { observedEpisode, serializeCompactionMetadata } from '../lib/agent-memory/engine/episodes.ts'
 import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
 import { recoveryCeiling } from '../lib/agent-memory/engine/recovery.ts'
 import { validateReply } from '../lib/agent-memory/engine/replies.ts'
@@ -70,6 +71,7 @@ test('ordinary reads and offline certification are completion-driven; mutation/p
     'episodes',
     'selectEpisodes',
     'episodeBacklog',
+    'episodeCredit',
     'conflicts',
     'read',
     'headRead',
@@ -3098,6 +3100,142 @@ test('selectEpisodes returns only requested unreviewed ids and publication revie
       [episodes[1].id],
     )
   } finally {
+    await f.close()
+  }
+})
+
+test('assistant credit is the bounded episode file and is not lost across controllers', async () => {
+  const f = fixture(0)
+  const session = 'primary'
+  const episodeFor = (name: string, steps?: number): Episode => ({
+    id: digest(`primary:${name}`),
+    project: 'project',
+    session,
+    evidence: 'observed-native-unverified',
+    observedAt: '2026-08-01T00:00:00.000Z',
+    entryHash: digest(name),
+    input: { text: name, source: 'rpc' },
+    actions: [{ text: 'kept' }],
+    results: [],
+    outcome: 'completed',
+    ...(steps === undefined ? {} : { assistantSteps: steps }),
+  })
+  const credit = (engine: MemoryEngineController = f.engine) =>
+    engine.request('episodeCredit', { project: 'project', session }, f.context)
+  let other: MemoryEngineController | undefined
+  try {
+    const compaction = {
+      entryId: 'one',
+      parentId: null,
+      firstKeptEntryId: 'one',
+      tokensBefore: 1,
+      reason: 'manual' as const,
+      fromExtension: false,
+      willRetry: false,
+    }
+    const compactionEpisode = {
+      id: digest(`${session}:compact:one`),
+      project: 'project',
+      session,
+      evidence: 'observed-native-unverified' as const,
+      observedAt: '2026-08-01T00:00:00.000Z',
+      entryHash: digest(serializeCompactionMetadata(compaction)),
+      kind: 'compaction' as const,
+      compaction,
+    }
+    assert.equal(observedEpisode(compactionEpisode).id, compactionEpisode.id)
+    assert.throws(() => observedEpisode({ ...compactionEpisode, assistantSteps: 4 }))
+    const legacyParsed = observedEpisode(episodeFor('legacy'))
+    assert.equal('kind' in legacyParsed, false)
+    if (!('kind' in legacyParsed)) assert.equal(legacyParsed.assistantSteps, undefined)
+    assert.deepEqual(await credit(), { steps: 0 })
+    const left = episodeFor('left', 5)
+    const right = episodeFor('right', 7)
+    other = new MemoryEngineController(f.root, f.env)
+    await Promise.all([
+      f.engine.request('observe', { episode: left }, f.context),
+      other.request('observe', { episode: right }, f.context),
+    ])
+    assert.deepEqual(await credit(), { steps: 12 })
+    await assert.rejects(
+      other.request('observe', { episode: { ...left, assistantSteps: 9 } }, f.context),
+      engineError(),
+    )
+    assert.deepEqual(await credit(), { steps: 12 })
+    const legacy = episodeFor('legacy')
+    writeFileSync(join(f.root, '.episodes', `${legacy.id}.json`), `${JSON.stringify(legacy)}\n`, {
+      mode: 0o600,
+    })
+    writeFileSync(join(f.root, '.episodes', `${legacy.id}.json.tmp`), '{"assistantSteps":99}\n', {
+      mode: 0o600,
+    })
+    assert.deepEqual(await credit(), { steps: 12 })
+    const { view } = await f.engine.request('create', { project: 'project' }, f.context)
+    await f.engine.request('ready', { view }, f.context)
+    const prepared = await f.engine.request('prepare', { view, reviewed: [left.id] }, f.context)
+    assert.ok('plan' in prepared)
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    assert.deepEqual(await credit(), { steps: 7 })
+    const revision = f.store.snapshot().revision
+    const forgotten = await f.engine.request(
+      'manage',
+      { action: 'forget', project: 'project', revision, paths: [], sources: [right.id] },
+      f.context,
+    )
+    assert.ok('plan' in forgotten)
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(forgotten.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    assert.deepEqual(await credit(), { steps: 0 })
+    const snapshot = f.store.snapshot()
+    assert.equal(snapshot.reviewed.includes(right.id), false)
+    assert.equal(
+      snapshot.forgottenSources.some((entry) => entry.project === 'project' && entry.source === right.id),
+      true,
+    )
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+  } finally {
+    if (other) assert.equal((await other.close()).code, 0)
+    await f.close()
+  }
+})
+
+test('reopened engine reads assistant credit persisted by the closed engine', async () => {
+  const f = fixture(0)
+  const episode: Episode = {
+    id: digest('primary:reopen'),
+    project: 'project',
+    session: 'primary',
+    evidence: 'observed-native-unverified',
+    observedAt: '2026-08-02T00:00:00.000Z',
+    entryHash: digest('reopen'),
+    input: { text: 'reopen', source: 'rpc' },
+    actions: [{ text: 'kept' }],
+    results: [],
+    outcome: 'completed',
+    assistantSteps: 8,
+  }
+  let reopened: MemoryEngineController | undefined
+  try {
+    assert.deepEqual(await f.engine.request('observe', { episode }, f.context), { recorded: true })
+    assert.deepEqual(
+      await f.engine.request('episodeCredit', { project: 'project', session: 'primary' }, f.context),
+      { steps: 8 },
+    )
+    const pid = f.engine.pid
+    assert.equal((await f.engine.close()).code, 0)
+    if (pid) assert.throws(() => process.kill(pid, 0), /ESRCH/)
+    reopened = new MemoryEngineController(f.root, f.env)
+    assert.deepEqual(
+      await reopened.request('episodeCredit', { project: 'project', session: 'primary' }, f.context),
+      { steps: 8 },
+    )
+  } finally {
+    if (reopened) assert.equal((await reopened.close()).code, 0)
     await f.close()
   }
 })

@@ -76,6 +76,8 @@ export interface TurnEpisode extends EpisodeIdentity {
   actions: { text?: string; tools?: string[] }[]
   results: { tool: string; error: boolean; text?: string }[]
   outcome: 'completed'
+  /** Absent on legacy episodes. Never inferred from the truncated action list. */
+  assistantSteps?: number
 }
 export interface CompactionEpisode extends EpisodeIdentity {
   kind: 'compaction'

@@ -445,6 +445,11 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       }
       return
     }
+    case 'episodeCredit': {
+      const credit = shape(value, ['steps'])
+      ensure(integer(credit.steps, 256 * 1024))
+      return
+    }
     case 'capacityDiagnostic': {
       const v = shape(value, [
         'version',

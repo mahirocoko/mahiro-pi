@@ -350,9 +350,18 @@ user entry is not authenticated human identity. Failed or cancelled attempts do
 not establish successful learning or integration.
 
 While automatic policy is on, this runtime counts eligible finalized assistant
-messages in memory: one per message admitted into an observed episode, including
-messages the stored action list later drops. Turns, compaction, aborted work,
-and episodes already on disk do not count as those steps. At 25 it freezes the
+messages in an observed episode, including messages the stored action list later
+drops. The count is the optional `assistantSteps` field on that turn episode.
+Legacy episodes omit it and count as zero. Compaction episodes have none.
+Outstanding credit is the sum of those fields on the bounded episode directory
+for the same project and session, excluding ids already reviewed or forgotten
+in the committed ledger. The scan does not read transcripts, does not infer a
+count from truncated actions, and does not take the publication lock. Two
+controllers admit different episode files; an existing id is not rewritten.
+A continuation after publication keeps the launch fence captured for that writer
+and does not dispatch if a foreground start advances the fence while the
+outstanding sum is read. Turns, aborted work, and reviewed or forgotten ids do
+not count. At 25 it freezes the
 new episode ids plus one bounded oldest page of still-pending ids, including
 compaction and episodes left by a restart or a failed window. That page is not
 extended while the drain runs. The writer receives at most four ids at a time.
@@ -368,9 +377,9 @@ foreground start advances only the automatic launch fence, before that turn
 awaits. Settled work captures that fence before its first await and does not
 freeze or dispatch if a later foreground start advances it. The input that
 already opened the pending turn still settles. Compaction keeps its own serial. A later window is left in place. Restart or
-runtime retirement drops the count and the freeze.
-Unreviewed episode files stay, and old files are not scanned to invent a step
-count. `automatic: false` does not start this schedule. An explicit reflect
+runtime retirement drops the in-memory freeze. The next observation reads the
+outstanding sum from the episode files again. Files without `assistantSteps`
+stay zero. `automatic: false` does not start this schedule. An explicit reflect
 still runs immediately and still reads the oldest unreviewed episodes.
 
 Curation should refine an existing subject and its reason, not append incident

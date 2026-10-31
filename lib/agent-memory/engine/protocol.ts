@@ -1,4 +1,4 @@
-import { objectShape } from '../../continuity/records.ts'
+import { objectShape, validId } from '../../continuity/records.ts'
 import { reflectionBacklogLimit } from '../reflection-schedule.ts'
 import { migrationExportPageLimit, migrationExportSections } from '../migration-export.ts'
 import type { MemoryFailureCode } from '../reasons.ts'
@@ -142,6 +142,7 @@ export interface Operations {
   episodes: { input: { project: string }; output: Episode[] }
   selectEpisodes: { input: { project: string; ids: string[] }; output: Episode[] }
   episodeBacklog: { input: { project: string; limit: number }; output: { ids: string[] } }
+  episodeCredit: { input: { project: string; session: string }; output: { steps: number } }
   observe: { input: { episode: Episode }; output: { recorded: true } }
   manage: {
     input: {
@@ -248,6 +249,7 @@ export const methods: Method[] = [
   'episodes',
   'selectEpisodes',
   'episodeBacklog',
+  'episodeCredit',
   'observe',
   'manage',
   'conflicts',
@@ -280,6 +282,7 @@ export function validateInput(method: Method, input: unknown) {
     episodes: ['project'],
     selectEpisodes: ['project', 'ids'],
     episodeBacklog: ['project', 'limit'],
+    episodeCredit: ['project', 'session'],
     observe: ['episode'],
     manage: ['action', 'project', 'revision', 'paths', 'sources', 'target', 'section', 'offset', 'limit'],
     conflicts: ['project', 'target', 'path', 'offset', 'limit'],
@@ -391,6 +394,11 @@ export function validateInput(method: Method, input: unknown) {
     )
       throw Error('Invalid episode backlog')
   }
+  if (
+    method === 'episodeCredit' &&
+    (typeof input.project !== 'string' || !idPattern.test(input.project) || !validId(input.session))
+  )
+    throw Error('Invalid episode credit')
   if (
     method === 'offlineCertify' &&
     (typeof input.revision !== 'string' || !revisionPattern.test(input.revision))
