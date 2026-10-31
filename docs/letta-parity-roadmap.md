@@ -43,6 +43,20 @@ Reference: Letta Code **v0.34.31**, commit
 `5dea67021b99810707ff753db35e4534f70ff1fd`. Most MemFS v2, reflection and Palace
 architecture predates the latest pin. The material latest-source deltas are
 config-root isolation/security consistency and Git child/helper termination.
+
+Palace visual authority is the current pulled Letta memory-viewer stylesheet,
+minimally adapted, not a competing visual system. For this visual correction the
+clean reference checkout was updated and verified with `git pull --ff-only` at
+`8f72222dec142dfc2316692d68ada3ab2e439d46` / **v0.34.36**. Its
+`src/web/memory-viewer-template.txt` has no diff from the audited v0.34.31 pin above;
+this is not a new full-product parity audit. Before each new reference review,
+verify cleanliness and pull fast-forward-only; stop/report unsafe or diverged
+state without resetting. The installed ABI2 subset preserves Mahiro's security,
+data, authority and transport contracts, excludes Letta brand assets and remote
+fonts/scripts, and uses CSS dark-mode tokens with system font fallbacks.
+[The R7 boundary](letta-parity-r7.md#html-and-transport-boundary) records the
+adaptation. QA stays bounded to source fidelity, semantics and security, not
+broad taste-driven review. No parity score or acceptance gate changes for style.
 Executable source wins over source-guide contradictions, including failed
 reflection integration cleanup.
 

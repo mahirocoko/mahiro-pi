@@ -147,6 +147,15 @@ dated source records, not current installation instructions.
   legacy structural diagnostic. Context/history/HTML checkpoint commands may
   remain hidden compatibility aliases but must not be advertised as separate
   product surfaces.
+  Palace visual authority is the current pulled Letta Code memory-viewer stylesheet
+  (`src/web/memory-viewer-template.txt`), minimally adapted to Mahiro's markup, not
+  a competing visual system. Before every new Letta Code reference review, verify
+  the reference checkout is clean and run `git pull --ff-only`; if unsafe or not
+  fast-forwardable, stop and report, never reset. Record the exact commit/version.
+  Preserve Mahiro's security, data, authority and transport boundaries; never copy
+  Letta brand assets. Use bounded source/semantic/security QA, not broad taste-driven
+  QA. Keep exact inspected commit/version and comparison evidence in the owning parity
+  guide or third-party notice rather than treating an old reference identity as current.
   Browser opening, profile activation/reload, replay registries, Phase I and human
   acceptance remain separate scopes.
 - `agents/` owns memory-reflector, managed-memory-writer and git-commit.

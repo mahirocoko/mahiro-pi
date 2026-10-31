@@ -112,6 +112,18 @@ Every metadata string is escaped. Semantic headings, landmarks, definition lists
 and tables remain keyboard-scrollable at narrow widths. This is not visual parity
 with the disconnected four-view Palace and is not Mahiro acceptance.
 
+The visual authority correction uses the current pulled Letta Code
+`src/web/memory-viewer-template.txt` stylesheet directly, with minimal static
+markup mappings rather than a custom hero or competing palette. The clean
+reference checkout was updated and verified with `git pull --ff-only` at
+`8f72222dec142dfc2316692d68ada3ab2e439d46` / `v0.34.36`; the template has no diff
+from audited `a8900b882446d7aa99fedf2845d400743affd1b6` / `v0.34.31`.
+No brand assets are copied. CSP excludes remote fonts/scripts, so upstream font
+stacks use system fallbacks and exact dark tokens follow `prefers-color-scheme`.
+QA is bounded to source fidelity, semantics and security regressions, not broad
+taste-driven or screenshot loops. This style correction changes no parity scores,
+acceptance gates, data authority or transport contract.
+
 The new transport binds only `127.0.0.1:0` and generates one 32-byte base64url
 capability path. It requires exact Host/path, accepts only GET/HEAD without a body,
 refuses foreign Origin/cross-site Fetch Metadata, and grants no CORS or cookies.

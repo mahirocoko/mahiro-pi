@@ -1,10 +1,48 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { request } from 'node:http'
 import test from 'node:test'
 import { abi2PalaceStyle } from '../lib/palace-render/abi2-page.ts'
 import { startImmutablePalaceServer } from '../lib/palace-render/immutable-server.ts'
 
 const html = `<!doctype html><html><head><style>${abi2PalaceStyle}</style></head><body>Frozen</body></html>`
+
+test('ABI2 stylesheet preserves pulled Letta shell grammar without brands or asset dependencies', () => {
+  // Hash of these unmodified declaration blocks from memory-viewer-template.txt
+  // at v0.34.36 / 8f72222 (also unchanged from audited v0.34.31 / a8900b8).
+  // The public source test needs no sibling reference checkout.
+  const selectors = ['body', '.app-shell', '.header', '.tabs', '.tab', '.main', '.panel']
+  const declarations = selectors.map((selector) => {
+    const block = abi2PalaceStyle.match(
+      new RegExp(`^${selector.replaceAll('.', '\\.')}\\s*\\{([^}]+)\\}`, 'm'),
+    )
+    assert.ok(block, selector)
+    return block[1]
+  })
+  const digest = createHash('sha256').update(declarations.join('').replace(/\s/g, '')).digest('hex')
+  assert.equal(digest, 'd39ffe56592ee7295d5a91cbfeadb3da09e8a4ac047d9966ded4b35d8dcf4589')
+  assert.match(abi2PalaceStyle, /--accent: hsl\(240, 93%, 35%\)/)
+  assert.match(abi2PalaceStyle, /@media \(prefers-color-scheme: dark\)/)
+  assert.match(abi2PalaceStyle, /--accent: hsl\(240, 80%, 68%\)/)
+  assert.match(abi2PalaceStyle, /--mono: 'Fira Code', Menlo, Courier, monospace/)
+  assert.match(abi2PalaceStyle, /--sans: 'Manrope', -apple-system/)
+  assert.match(abi2PalaceStyle, /th, td \{ border: 1px solid #ddd; padding: 6px 10px; \}/)
+  assert.match(abi2PalaceStyle, /h2, caption \{[^}]+color: var\(--text-muted\)/s)
+  assert.match(abi2PalaceStyle, /footer \{[^}]+color: var\(--text-muted\)/s)
+  assert.doesNotMatch(abi2PalaceStyle, /@import|url\(|@font-face|radial-gradient|\.hero|header-brand/i)
+  const source = readFileSync(new URL('../lib/palace-render/abi2-page.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /from ['"][^'"]*local\//)
+  assert.doesNotMatch(source, /<svg|<script|<img|<link/i)
+  const notices = readFileSync(new URL('../THIRD_PARTY_NOTICES.md', import.meta.url), 'utf8')
+  for (const text of [
+    'lib/palace-render/abi2-page.ts',
+    '8f72222dec142dfc2316692d68ada3ab2e439d46',
+    'v0.34.36',
+  ]) {
+    assert.ok(notices.includes(text))
+  }
+})
 
 function fetch(
   url: string,
@@ -69,7 +107,8 @@ test('immutable Palace server serves only the exact capability after current val
     assert.equal(validations, 2)
     assert.match(String(first.headers['content-security-policy']), /default-src 'none'/)
     assert.match(String(first.headers['content-security-policy']), /script-src 'none'/)
-    assert.match(String(first.headers['content-security-policy']), /style-src 'sha256-/)
+    const styleHash = createHash('sha256').update(abi2PalaceStyle).digest('base64')
+    assert.ok(String(first.headers['content-security-policy']).includes(`style-src 'sha256-${styleHash}'`))
     assert.equal(first.headers['cache-control'], 'no-store')
     assert.equal(first.headers['referrer-policy'], 'no-referrer')
     assert.equal(first.headers['x-content-type-options'], 'nosniff')

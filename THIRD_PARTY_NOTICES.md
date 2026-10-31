@@ -62,10 +62,15 @@ The upstream license lines that wrap with a trailing space are unchanged.
 
 ## Letta Code memory viewer stylesheet
 
-The Palace preview stylesheet in `lib/agent-memory/local/palace-page.ts` adapts
-the public Letta Code template
-[`src/web/memory-viewer-template.txt`](https://github.com/letta-ai/letta-code/blob/5dea67021b99810707ff753db35e4534f70ff1fd/src/web/memory-viewer-template.txt)
-at commit `5dea67021b99810707ff753db35e4534f70ff1fd`.
+The local Palace preview stylesheet in `lib/agent-memory/local/palace-page.ts`
+and the installed ABI2 stylesheet in `lib/palace-render/abi2-page.ts` adapt the
+public Letta Code template
+[`src/web/memory-viewer-template.txt`](https://github.com/letta-ai/letta-code/blob/8f72222dec142dfc2316692d68ada3ab2e439d46/src/web/memory-viewer-template.txt).
+The clean reference checkout was updated and verified with `git pull --ff-only` at
+commit
+`8f72222dec142dfc2316692d68ada3ab2e439d46` / `v0.34.36`. The template has no diff
+from audited `a8900b882446d7aa99fedf2845d400743affd1b6` / `v0.34.31`.
+Its SHA-256 is `cc3139670046d3849437f63ab1036af8b6ba2fa9e2a2a39801f88f06d29677d7`.
 
 Copyright 2025, Letta authors.
 
@@ -79,4 +84,10 @@ Mahiro modified that viewer source. The adaptation removes Letta branding,
 name, logo, and private payload. It binds Mahiro's existing snapshot,
 document, corpus, and history data, and changes authority labeling, security
 headers, and responsive behavior. The Mahiro preview script, font files, and
-capability routes are not copied from that template.
+capability routes are not copied from that template. No Letta brand assets are
+included. The installed ABI2 adaptation retains only a static stylesheet subset
+and semantic metadata markup: remote font imports and scripts are omitted, system
+font fallbacks use the upstream Manrope/Fira Code stacks, and exact upstream dark
+tokens follow `prefers-color-scheme` rather than a JavaScript theme toggle. Static
+anchor navigation, definition lists, table captions and keyboard focus receive
+minimal mappings; no document callbacks, font files or routes are added.

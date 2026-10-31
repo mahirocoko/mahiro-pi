@@ -2,51 +2,163 @@ import { bytes } from '../continuity/records.ts'
 import type { PalaceHandoff } from '../agent-memory/palace-handoff.ts'
 
 export const abi2PalaceStyle = `
+/* Letta Code src/web/memory-viewer-template.txt, Apache-2.0.
+ * v0.34.36 / 8f72222dec142dfc2316692d68ada3ab2e439d46.
+ * Unchanged from audited v0.34.31 / a8900b882446d7aa99fedf2845d400743affd1b6.
+ * See THIRD_PARTY_NOTICES.md. No branding, remote fonts, scripts or asset routes.
+ */
 :root {
-  color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0a0a0c;
-  color: #f4f1ff;
+  color-scheme: light dark;
+  --accent: hsl(240, 93%, 35%);
+  --accent-light: hsl(240, 67%, 98%);
+  --accent-light-border: hsl(240, 62%, 94%);
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --border: hsl(210, 10%, 92.2%);
+  --text: hsl(0, 0%, 8%);
+  --text-muted: hsl(210, 3%, 28%);
+  --text-dim: hsl(210, 3%, 66%);
+  --mono: 'Fira Code', Menlo, Courier, monospace;
+  --sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  --radius: 6px;
+  --max-w: 1180px;
+  --surface: hsl(0, 0%, 98%);
+  --surface-2: hsl(0, 0%, 96%);
+  --hover: hsl(0, 0%, 96%);
+  --hover-accent: hsl(240, 67%, 98%);
 }
-* { box-sizing: border-box; }
-html { min-inline-size: 20rem; background: #0a0a0c; }
-body { margin: 0; min-block-size: 100vh; background: radial-gradient(circle at 85% 0%, #241a3a 0, transparent 34rem), #0a0a0c; }
-a { color: #c8b5ff; text-underline-offset: 0.18em; }
-a:hover { color: #e7deff; }
-a:focus-visible { outline: 3px solid #c8b5ff; outline-offset: 3px; border-radius: 0.2rem; }
-code, time, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--mono);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.55;
+  font-weight: 400;
+  font-size: 13px;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.app-shell {
+  max-width: var(--max-w);
+  margin: 22px auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 16px rgba(0, 0, 0, 0.04);
+}
+.header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+/* Upstream agent-name typography replaces the hidden h1/brand SVG. */
+.header h1 {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.tab {
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  user-select: none;
+}
+.tab:hover { color: var(--text); }
+.main { padding: 16px; }
+.panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--panel);
+}
+table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #ddd; padding: 6px 10px; }
+th { background: var(--surface); text-align: left; }
+.status {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-light);
+  border: 1px solid var(--accent-light-border);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+footer {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+/* Minimal mappings for static anchors, metadata dl, captions and focusable regions.
+ * Spacing/type values reuse upstream main, file-meta, meta-row and tree-desc rules.
+ */
+nav ul { flex-wrap: wrap; list-style: none; }
+.tab { display: block; }
+section { margin-bottom: 16px; }
+h2, caption {
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  text-align: left;
+}
+.lede, .notice, .meta { padding: 10px 14px; color: var(--text-muted); }
+.notice { border-bottom: 1px solid var(--border); background: var(--surface); }
+.meta { display: flex; flex-wrap: wrap; gap: 10px; }
+.meta div { min-width: 0; max-width: 100%; }
+dt { font-size: 12px; }
+dd { color: var(--text); overflow-wrap: anywhere; }
+code, time { font-family: var(--mono); }
 code { overflow-wrap: anywhere; }
-.shell { inline-size: min(100% - 2rem, 76rem); margin-inline: auto; padding-block: clamp(1.5rem, 4vw, 4rem); }
-.hero { display: grid; gap: 1rem; padding: clamp(1.25rem, 3vw, 2.5rem); border: 1px solid #342a48; border-radius: 1.5rem; background: rgba(18, 15, 24, 0.92); box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.32); }
-.eyebrow { margin: 0; color: #b5a3d8; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-h1 { margin: 0; max-inline-size: 18ch; font-size: clamp(2rem, 7vw, 4.75rem); line-height: 0.95; letter-spacing: -0.055em; }
-.lede { margin: 0; max-inline-size: 70ch; color: #c9c2d5; line-height: 1.65; }
-.notice { margin: 0; padding: 0.9rem 1rem; border-inline-start: 0.25rem solid #9d7cff; background: #171220; color: #ddd4eb; }
-nav ul { display: flex; flex-wrap: wrap; gap: 0.55rem; margin: 0; padding: 0; list-style: none; }
-nav a { display: inline-flex; min-block-size: 2.75rem; align-items: center; padding-inline: 0.9rem; border: 1px solid #44365d; border-radius: 999px; background: #141019; text-decoration: none; }
-main { display: grid; gap: 1rem; margin-block-start: 1rem; }
-section { scroll-margin-block-start: 1rem; padding: clamp(1.1rem, 2.5vw, 2rem); border: 1px solid #2d2638; border-radius: 1.25rem; background: rgba(16, 14, 20, 0.94); }
-h2 { margin-block: 0 1rem; font-size: clamp(1.35rem, 3vw, 2rem); letter-spacing: -0.025em; }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 0.75rem; margin: 0; }
-.meta div { min-inline-size: 0; padding: 0.9rem; border: 1px solid #2f283b; border-radius: 0.85rem; background: #0d0b10; }
-dt { color: #a99eba; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-dd { margin: 0.45rem 0 0; color: #f3effa; overflow-wrap: anywhere; }
-.table-region { max-inline-size: 100%; overflow: auto; border: 1px solid #31283e; border-radius: 0.85rem; container-type: inline-size; }
-.table-region:focus-visible { outline: 3px solid #c8b5ff; outline-offset: 3px; }
-table { inline-size: 100%; min-inline-size: 42rem; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
-caption { padding: 0.85rem 1rem; color: #bdb2cb; text-align: start; }
-th, td { padding: 0.75rem 0.85rem; border-block-start: 1px solid #292231; text-align: start; vertical-align: top; }
-thead th { position: sticky; inset-block-start: 0; z-index: 1; border-block-start: 0; background: #191320; color: #d9cfff; }
-tbody th { position: sticky; inset-inline-start: 0; background: #100d14; }
-tbody tr:nth-child(even) td, tbody tr:nth-child(even) th { background: #131018; }
-.status { display: inline-flex; align-items: center; min-block-size: 1.75rem; padding-inline: 0.55rem; border-radius: 999px; background: #282033; color: #d8c8ff; font-size: 0.78rem; font-weight: 700; }
-footer { padding: 1.25rem 0.25rem 0; color: #948a9f; font-size: 0.85rem; line-height: 1.6; }
-@container (width < 38rem) {
-  table { min-inline-size: 36rem; font-size: 0.82rem; }
-  th, td { padding: 0.65rem; }
+.table-region { max-width: 100%; overflow: auto; }
+table { min-width: 42rem; }
+td, th { vertical-align: top; }
+a:focus-visible, .table-region:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* No JS theme toggle: exact upstream dark tokens/overrides follow OS preference. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: hsl(240, 80%, 68%);
+    --accent-light: hsl(240, 20%, 18%);
+    --accent-light-border: hsl(240, 15%, 25%);
+    --bg: hsl(0, 0%, 11%);
+    --panel: hsl(0, 0%, 13%);
+    --surface: hsl(0, 0%, 15%);
+    --surface-2: hsl(0, 0%, 18%);
+    --hover: hsl(0, 0%, 18%);
+    --hover-accent: hsl(240, 15%, 20%);
+    --border: hsl(210, 3%, 20%);
+    --text: hsl(210, 7%, 84%);
+    --text-muted: hsl(210, 3%, 60%);
+    --text-dim: hsl(210, 3%, 42%);
+  }
+  .app-shell { box-shadow: 0 1px 3px rgba(0,0,0,0.2), 0 6px 16px rgba(0,0,0,0.3); }
+  .tabs { background: var(--surface-2); }
+  .status { background: var(--surface); border-color: var(--border); }
+  th { background: var(--surface); color: var(--text); }
+  th, td { border-color: var(--border); }
 }
-@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
-@media (forced-colors: active) { section, .hero, .table-region, .meta div, nav a { border: 1px solid CanvasText; } }
+@media (forced-colors: active) { .panel, .app-shell { border: 1px solid CanvasText; } }
 `
 
 export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
@@ -88,25 +200,24 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light dark">
 <title>Committed memory metadata | Mahiro Palace</title>
 <style>${abi2PalaceStyle}</style>
 </head>
 <body>
-<div class="shell">
-<header class="hero">
-<p class="eyebrow">Mahiro Palace · ABI2 metadata handoff</p>
-<h1>Committed memory, frozen for review.</h1>
+<div class="app-shell">
+<header class="header">
+<h1>Mahiro Palace · ABI2 metadata handoff</h1>
+</header>
 <p class="lede">This immutable page combines one owner-certified committed structure, one observed invocation association and the latest bounded first-parent history page. It contains metadata only.</p>
 <p class="notice"><strong>Non-atomic capture.</strong> Invocation association is observed, not a provider-consumption receipt. Replay, lifecycle history, document bodies, diffs and mutation controls are unavailable.</p>
-<nav aria-label="Page sections"><ul>
-<li><a href="#invocation">Invocation</a></li>
-<li><a href="#structure">Committed structure</a></li>
-<li><a href="#history">Knowledge history</a></li>
+<nav aria-label="Page sections"><ul class="tabs">
+<li><a class="tab" href="#invocation">Invocation</a></li>
+<li><a class="tab" href="#structure">Committed structure</a></li>
+<li><a class="tab" href="#history">Knowledge history</a></li>
 </ul></nav>
-</header>
-<main id="content">
-<section id="invocation" aria-labelledby="invocation-heading">
+<main id="content" class="main">
+<section class="panel" id="invocation" aria-labelledby="invocation-heading">
 <h2 id="invocation-heading">Invocation</h2>
 <dl class="meta">
 <div><dt>Captured</dt><dd><time datetime="${escape(context.capturedAt)}">${escape(context.capturedAt)}</time></dd></div>
@@ -121,7 +232,7 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 <div><dt>Category token accounting</dt><dd><span class="status">Unavailable</span></dd></div>
 </dl>
 </section>
-<section id="structure" aria-labelledby="structure-heading">
+<section class="panel" id="structure" aria-labelledby="structure-heading">
 <h2 id="structure-heading">Committed structure</h2>
 <dl class="meta">
 <div><dt>Project</dt><dd><code>${escape(structure.project)}</code></dd></div>
@@ -139,7 +250,7 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 </table>
 </div>
 </section>
-<section id="history" aria-labelledby="history-heading">
+<section class="panel" id="history" aria-labelledby="history-heading">
 <h2 id="history-heading">Knowledge history</h2>
 <p class="lede">Latest up to 8 first-parent commits from the bounded 128-entry observation window. This page does not expose authors, subjects, paths, counts, diffs or document bodies.</p>
 <dl class="meta">
