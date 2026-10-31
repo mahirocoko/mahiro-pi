@@ -401,16 +401,33 @@ outstanding sum from the episode files again. Files without `assistantSteps`
 stay zero. `automatic: false` does not start this schedule. An explicit reflect
 still runs immediately and still reads the oldest unreviewed episodes.
 
-Letta can persist `off`, `step-count`, or `compaction-event`, and a positive
-integer step count, in global, project, and per-agent settings. This root does
-not. `config.json` stays the seven-key version-1 object, and policy evidence
-stays the eleven-field identity whose only switch is `automatic`. Absent any
-new field, `automatic: false` is off and `automatic: true` is the fixed 25-step
-schedule. A paired `session_before_compact` / `session_compact` boundary can
-admit one compaction episode while that policy is on. That admission does not
-launch a writer. A compaction-event launch, or a step count other than 25,
-needs a new exact-root field inside the same locked policy CAS. Adding it would
-change both ABI parsers and make an in-flight policy record fail closed.
+Letta persists `off`, `step-count`, or `compaction-event`, plus a positive
+step count. A version-1 config stays the seven-key `automatic` record: false
+is off and true is the 25-step schedule. An explicit primary policy selection
+writes version 2, with `reflectionTrigger`, `reflectionStepCount`, and
+`automatic` bound to that trigger (`off` is false; the other two are true).
+The step count is an integer from 1 through 100000. Version-2 policy evidence
+carries those fields and its own digest. A version-1 policy record stays the
+eleven-field identity and is not read as a trigger. Toggling only `automatic`
+on a version-2 root keeps the step count; false selects off, and true keeps
+`step-count` or `compaction-event` when that was already selected. ABI2
+`step-count` launches from assistant credit at the configured count and does
+not launch from compaction alone. A full episode directory can still open one
+bounded drain on that step-count path, including a version-1 automatic root.
+That drain is the same pending-plus-backlog capture used after a paired
+compaction: tracked assistant episodes are not skipped, and only ids the writer
+delivered can be reviewed. Nothing is deleted to make room. `compaction-event`
+launches only after a paired compaction admission, on the fence captured for
+that event. That launch includes the bounded pending
+assistant episodes and the backlog, without duplicates, and reviews only ids
+the writer actually delivered. It does not launch from the step count or from
+an ordinary observe capacity failure. If the paired compaction itself cannot
+be stored because the episode directory is full, the same captured fence still
+opens one bounded drain of the episodes already stored. The unwritten
+compaction id is not delivered or reviewed. An explicit reflect still runs
+immediately.
+ABI1 still follows `automatic` only. It does not apply the ABI2 step-count or
+compaction-event dispatch.
 
 Curation should refine an existing subject and its reason, not append incident
 logs. Preserve useful provenance, current owners and uncertainty. An ambiguous

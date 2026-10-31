@@ -202,12 +202,10 @@ when it appears in real use.
   parity work, mandatory evidence ladders and speculative proof loops are retired.
 - 2026-10-31: Reflection scheduling follows the upstream step-count direction within
   ABI2's bounded episode and authority model; it does not claim durable transcript parity.
-- 2026-10-31: Letta's selectable reflection modes were traced at `59df542` and not
-  added. Fresh settings resolve to step-count 25; `automatic: true` already does
-  that, and `automatic: false` is off. `compaction-event` and a configurable step
-  count have no field in the seven-key config or the eleven-field policy identity.
-  A paired compaction boundary still only admits an episode. It does not launch a
-  writer, and this lane does not change that.
+- 2026-10-31: Letta reflection modes at `59df542` are selectable on ABI2 through
+  version-2 config and policy evidence. Version-1 records stay automatic-only:
+  false is off and true is step-count 25. ABI1 still follows `automatic` and
+  does not dispatch step-count or compaction-event.
 - 2026-10-31: ABI2 session checks keep an operation-local leaf anchor and walk at
   most 8192 appended parent links, 64 per yield. A leaf change during a yielded
   chunk refuses that check. They do not call `getBranch` or freeze older

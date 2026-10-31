@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { memoryFailure } from '../reasons.ts'
 import { bytes, hasSecret, objectShape, validId } from '../../continuity/records.ts'
 import type { MemoryConfig, MemoryFile } from '../store.ts'
+import { configRecordVersion, reflectionSelectionValid } from '../reflection-config.ts'
 
 // Deliberately data-only. No store factory, SDK, loader or resource discovery.
 export const limits = Object.freeze({
@@ -247,19 +248,11 @@ export function assertLosslessRetention(
 }
 export function parseConfig(raw: string): MemoryConfig {
   const c = JSON.parse(raw)
+  const version = c && typeof c === 'object' ? configRecordVersion(c) : undefined
   if (
-    !objectShape(c, [
-      'automatic',
-      'coreBytes',
-      'fileBytes',
-      'indexBytes',
-      'projects',
-      'totalBytes',
-      'version',
-    ]) ||
-    Object.keys(c).length !== 7 ||
-    c.version !== 1 ||
+    !version ||
     typeof c.automatic !== 'boolean' ||
+    (version === 2 && !reflectionSelectionValid(c)) ||
     !Array.isArray(c.projects) ||
     !c.projects.length ||
     c.projects.length > 128

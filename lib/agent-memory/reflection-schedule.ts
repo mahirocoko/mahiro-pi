@@ -47,8 +47,9 @@ export function nextReflectionDelivery(window: ReflectionWindow): readonly strin
 export function openReflectionDrain(
   window: ReflectionWindow,
   backlogIds: readonly string[] = [],
+  threshold = assistantReflectionSteps,
 ): readonly string[] {
-  if (window.drain || window.steps < assistantReflectionSteps || window.pendingIds.length === 0) return []
+  if (window.drain || window.steps < threshold || window.pendingIds.length === 0) return []
   const ids: string[] = []
   const seen = new Set<string>()
   const take = (id: string, capped: boolean) => {
@@ -61,6 +62,38 @@ export function openReflectionDrain(
   for (const id of window.pendingIds) take(id, false)
   window.pendingIds = []
   return freeze(window, ids, true)
+}
+
+// Compaction-event selection. Pending assistant episodes are included with the
+// backlog, then capped and deduped. This does not consume step credit.
+export function openReflectionCapture(
+  window: ReflectionWindow,
+  project: string,
+  backlogIds: readonly string[],
+): readonly string[] {
+  if (window.drain) return []
+  if (window.project !== null && window.project !== project) return []
+  window.project = project
+  const ids: string[] = []
+  const seen = new Set<string>()
+  const take = (id: string) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    ids.push(id)
+  }
+  for (const id of window.pendingIds) {
+    take(id)
+    if (ids.length === reflectionBacklogLimit) break
+  }
+  if (ids.length < reflectionBacklogLimit) {
+    for (const id of backlogIds) {
+      take(id)
+      if (ids.length === reflectionBacklogLimit) break
+    }
+  }
+  if (!ids.length) return []
+  window.pendingIds = window.pendingIds.filter((id) => !seen.has(id))
+  return freeze(window, ids, false)
 }
 
 // Capacity recovery only. These ids are not assistant steps and do not extend an open drain.
@@ -90,6 +123,7 @@ export function applyDerivedAssistantCredit(
   project: string,
   episodeId: string,
   pendingSteps: number,
+  threshold = assistantReflectionSteps,
 ): boolean {
   if (!Number.isSafeInteger(pendingSteps) || pendingSteps < 0) return false
   if (window.project !== null && window.project !== project) resetReflectionWindow(window)
@@ -97,7 +131,7 @@ export function applyDerivedAssistantCredit(
   window.steps = pendingSteps
   if (tracked(window, episodeId)) return false
   window.pendingIds.push(episodeId)
-  return window.drain === null && window.steps >= assistantReflectionSteps
+  return window.drain === null && window.steps >= threshold
 }
 
 export function recordFinalizedAssistantWork(
@@ -105,6 +139,7 @@ export function recordFinalizedAssistantWork(
   project: string,
   episodeId: string,
   assistantEvents: number,
+  threshold = assistantReflectionSteps,
 ): boolean {
   if (!Number.isSafeInteger(assistantEvents) || assistantEvents < 1) return false
   if (window.project !== null && window.project !== project) resetReflectionWindow(window)
@@ -112,7 +147,7 @@ export function recordFinalizedAssistantWork(
   if (tracked(window, episodeId)) return false
   window.steps += assistantEvents
   window.pendingIds.push(episodeId)
-  return window.drain === null && window.steps >= assistantReflectionSteps
+  return window.drain === null && window.steps >= threshold
 }
 
 export function completeReflectionDelivery(

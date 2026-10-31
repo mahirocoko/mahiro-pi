@@ -25,6 +25,12 @@ import { buildPalaceHandoff, type PalaceHandoff } from './palace-handoff.ts'
 import { primaryDelegationDoctrine } from './prompt.ts'
 import { memoryFailure, memoryFailureCode } from './reasons.ts'
 import {
+  reflectionPolicy,
+  validReflectionStepCount,
+  validReflectionTrigger,
+  type ReflectionTrigger,
+} from './reflection-config.ts'
+import {
   appendedSuffix,
   appendedSuffixSync,
   sameSessionAnchor,
@@ -38,6 +44,7 @@ import {
   createReflectionWindow,
   nextReflectionDelivery,
   openReflectionBacklog,
+  openReflectionCapture,
   openReflectionDrain,
   reflectionBacklogLimit,
   reflectionDeliveryLimit,
@@ -1354,6 +1361,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           'core',
           'projectId',
           'automatic',
+          'reflectionTrigger',
+          'reflectionStepCount',
           'offset',
           'limit',
         ])
@@ -1500,12 +1509,27 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         return await reconcileMemoryPolicy(f.engine, policyContext(), args.target, args.revision)
       }
       if (args.action === 'policy') {
+        const reflectionRequested =
+          Object.hasOwn(args, 'reflectionTrigger') || Object.hasOwn(args, 'reflectionStepCount')
         if (
           !f.abi.isPrimarySession(ctx) ||
           typeof args.revision !== 'string' ||
           typeof args.configHash !== 'string' ||
           typeof args.automatic !== 'boolean' ||
-          Object.keys(args).some((key) => !['action', 'revision', 'configHash', 'automatic'].includes(key))
+          Object.keys(args).some(
+            (key) =>
+              ![
+                'action',
+                'revision',
+                'configHash',
+                'automatic',
+                'reflectionTrigger',
+                'reflectionStepCount',
+              ].includes(key),
+          ) ||
+          (reflectionRequested &&
+            (!validReflectionTrigger(args.reflectionTrigger) ||
+              !validReflectionStepCount(args.reflectionStepCount)))
         )
           throw Error('Explicit primary policy revision/configHash/automatic required')
         admissionSerial++
@@ -1515,12 +1539,19 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         pending = undefined
         job?.cancel()
         draft = undefined // retained proposal, never silently reset or published
+        const selection = reflectionRequested
+          ? {
+              trigger: args.reflectionTrigger as ReflectionTrigger,
+              stepCount: args.reflectionStepCount as number,
+            }
+          : undefined
         return await setMemoryAutomatic(
           f.engine,
           policyContext(),
           args.revision,
           args.configHash,
           args.automatic,
+          selection,
         )
       }
       if (args.action === 'reconcile') {
@@ -1735,10 +1766,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       ? `reason=${event.reason}; summary=${summaryText.replace(/\s+/g, ' ').slice(0, 320)}`
       : `reason=${event.reason}; completed=true`
     // Owner-local bound before the first await; retirement joins this work. Do not
-    // enqueue an unbounded tail, reactivate a retired owner, or start a writer here.
+    // enqueue an unbounded tail or reactivate a retired owner. A writer starts
+    // only after a paired compaction admission while the explicit mode is
+    // compaction-event, and only on the fence captured here.
     if (compactionObserving || !active || !boundary) return
     compactionObserving = true
     const serial = compactionSerial
+    const token = epoch
+    const fence = launchFence
+    const admission = admissionSerial
     return lifetime.track(async () => {
       try {
         const observation = compactionObservation(event, ctx, boundary)
@@ -1753,7 +1789,57 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           !(await f.barrier()).config.automatic
         )
           return
-        await f.request('observe', { episode: observation.episode(f.project) })
+        const episode = observation.episode(f.project)
+        let admitted = false
+        try {
+          await f.request('observe', { episode })
+          admitted = true
+        } catch (error) {
+          // A full directory still has older unreviewed episodes. The unwritten
+          // compaction record is not part of that backlog.
+          if (memoryFailureCode(error).reason !== 'capacity') throw error
+        }
+        if (
+          token !== epoch ||
+          fence !== launchFence ||
+          admission !== admissionSerial ||
+          serial !== compactionSerial ||
+          !observation.current() ||
+          job ||
+          starting ||
+          reflection.drain
+        )
+          return
+        const mode = reflectionPolicy((await f.barrier()).config)
+        if (
+          mode.trigger !== 'compaction-event' ||
+          token !== epoch ||
+          fence !== launchFence ||
+          serial !== compactionSerial ||
+          !observation.current()
+        )
+          return
+        const backlog = await f.request('episodeBacklog', {
+          project: f.project,
+          limit: reflectionBacklogLimit,
+        })
+        if (token !== epoch || fence !== launchFence || serial !== compactionSerial || !observation.current())
+          return
+        const backlogIds = admitted ? backlog.ids : backlog.ids.filter((id) => id !== episode.id)
+        const opened = openReflectionCapture(reflection, f.project, backlogIds)
+        const drain = currentReflectionDrain()
+        if (!opened.length || !drain || fence !== launchFence) return
+        reflectionFence = {
+          token,
+          serial: admission,
+          generation: f.node.generation,
+          configHash: f.configHash,
+          project: f.project,
+          node: f.node,
+          manager: ctx.sessionManager,
+          drainId: drain.id,
+        }
+        await launchReflection(ctx, opened, fence)
       } catch {
         // Evidence admission is best-effort. It never grants authority or blocks compaction.
       } finally {
@@ -1944,10 +2030,12 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         try {
           await f.request('observe', { episode })
         } catch (error) {
+          const mode = settledLaunchCurrent() ? reflectionPolicy((await f.barrier()).config) : undefined
           if (
             token === epoch &&
             own.serial === admissionSerial &&
             memoryFailureCode(error).reason === 'capacity' &&
+            mode?.trigger === 'step-count' &&
             !job &&
             !starting &&
             settledLaunchCurrent()
@@ -1959,7 +2047,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
                 limit: reflectionBacklogLimit,
               })
               if (settledLaunchCurrent() && serial === admissionSerial && !reflection.drain) {
-                const opened = openReflectionBacklog(reflection, f.project, backlog.ids)
+                const opened = openReflectionCapture(reflection, f.project, backlog.ids)
                 const drain = currentReflectionDrain()
                 if (opened.length && drain && settledLaunchCurrent()) {
                   capacityDrainHeld = true
@@ -1995,9 +2083,17 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         capacityDrainHeld = false
         const credit = await f.request('episodeCredit', { project: f.project, session: episode.session })
         if (token !== epoch || own.serial !== admissionSerial) return
-        const crossed = applyDerivedAssistantCredit(reflection, f.project, episode.id, credit.steps)
+        const mode = reflectionPolicy((await f.barrier()).config)
         if (!settledLaunchCurrent()) return
-        if (crossed && !reflection.drain && !job && !starting) {
+        const crossed = applyDerivedAssistantCredit(
+          reflection,
+          f.project,
+          episode.id,
+          credit.steps,
+          mode.stepCount,
+        )
+        if (!settledLaunchCurrent()) return
+        if (mode.trigger === 'step-count' && crossed && !reflection.drain && !job && !starting) {
           const serial = admissionSerial
           let backlogIds: string[] = []
           try {
@@ -2008,7 +2104,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             backlogIds = []
           }
           if (!settledLaunchCurrent() || serial !== admissionSerial || reflection.drain) return
-          const opened = openReflectionDrain(reflection, backlogIds)
+          const opened = openReflectionDrain(reflection, backlogIds, mode.stepCount)
           const drain = currentReflectionDrain()
           if (opened.length && drain && settledLaunchCurrent()) {
             reflectionFence = {

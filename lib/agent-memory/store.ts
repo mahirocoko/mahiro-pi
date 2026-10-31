@@ -23,6 +23,7 @@ import {
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, hasSecret, objectShape, validId } from '../continuity/records.ts'
+import { configRecordVersion, reflectionSelectionValid } from './reflection-config.ts'
 import { assertPrivatePath } from '../continuity/store.ts'
 import {
   type EditModeOptions,
@@ -55,13 +56,15 @@ import { observedEpisode } from './engine/episodes.ts'
 export { allowedPath, type EditModeOptions }
 
 export interface MemoryConfig {
-  version: 1
+  version: 1 | 2
   projects: { cwd: string; id: string }[]
   coreBytes: number
   indexBytes: number
   fileBytes: number
   totalBytes: number
   automatic: boolean
+  reflectionTrigger?: 'off' | 'step-count' | 'compaction-event'
+  reflectionStepCount?: number
 }
 interface EpisodeIdentity {
   id: string
@@ -167,11 +170,12 @@ const atomic = (path: string, value: string) => {
 }
 export function parseConfig(raw: string): MemoryConfig {
   const c = JSON.parse(raw)
+  const version = c && typeof c === 'object' ? configRecordVersion(c) : undefined
   if (
     !c ||
-    Object.keys(c).sort().join() !== 'automatic,coreBytes,fileBytes,indexBytes,projects,totalBytes,version' ||
-    c.version !== 1 ||
+    !version ||
     typeof c.automatic !== 'boolean' ||
+    (version === 2 && !reflectionSelectionValid(c)) ||
     !Array.isArray(c.projects) ||
     !c.projects.length ||
     c.projects.length > 128

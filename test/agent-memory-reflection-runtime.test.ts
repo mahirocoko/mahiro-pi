@@ -627,3 +627,250 @@ test('reflection observes one new turn after more than 8193 historical entries',
     await f.close()
   }
 })
+
+const selectReflection = async (
+  f: ReturnType<typeof fixture>,
+  trigger: 'off' | 'step-count' | 'compaction-event',
+  stepCount: number,
+  automatic: boolean,
+) => {
+  const revision = f.store.snapshot().revision
+  const configHash = digest(JSON.stringify(f.store.config()))
+  await f.runtime.run(
+    'agent_memory_manage',
+    {
+      action: 'policy',
+      revision,
+      configHash,
+      automatic,
+      reflectionTrigger: trigger,
+      reflectionStepCount: stepCount,
+    },
+    f.ctx,
+  )
+}
+
+test('compaction-event launches from a paired compaction and not from assistant steps', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'compaction-event', 25, true)
+    await f.turn('alpha', 5)
+    assert.equal(f.spawns.length, 0)
+    await f.emit('session_before_compact', {
+      reason: 'manual',
+      willRetry: false,
+      signal: new AbortController().signal,
+      preparation: { tokensBefore: 10 },
+    })
+    assert.equal(f.spawns.length, 0)
+    await f.compact()
+    await until(() => f.spawns.length === 1)
+    const delivered = episodeIds(f.spawns[0]?.prompt ?? '').map((episode) => episode.id)
+    const turnId = digest('primary:user-alpha')
+    const compactId = digest('primary:compact:compact-one')
+    assert.ok(delivered.includes(turnId))
+    assert.ok(delivered.includes(compactId))
+    await f.finish('completed')
+    const reviewed = new Set(f.store.snapshot().reviewed)
+    assert.equal(
+      delivered.every((id) => reviewed.has(id)),
+      true,
+    )
+    assert.equal(
+      [...reviewed].every((id) => delivered.includes(id)),
+      true,
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+test('compaction-event does not open the ordinary capacity drain', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'compaction-event', 25, true)
+    const seeded: Episode[] = Array.from({ length: 256 }, (_, index) => ({
+      id: digest(`capacity-event-${index}`),
+      project: 'project',
+      session: 'synthetic-session',
+      evidence: 'observed-native-unverified',
+      observedAt: `2026-01-01T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+      entryHash: digest(`capacity-event-entry-${index}`),
+      input: { text: `Settled note ${index}`, source: 'rpc' },
+      actions: [{ text: 'Verified outcome' }],
+      results: [],
+      outcome: 'completed',
+    }))
+    for (const episode of seeded) f.store.recordEpisode(episode.id, episode)
+    await f.turn('blocked', 1)
+    assert.equal(f.spawns.length, 0)
+  } finally {
+    await f.close()
+  }
+})
+
+test('paired compaction at capacity delivers the stored backlog and not the unwritten compaction', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'compaction-event', 25, true)
+    const seeded: Episode[] = Array.from({ length: 256 }, (_, index) => ({
+      id: digest(`capacity-compact-${index}`),
+      project: 'project',
+      session: 'synthetic-session',
+      evidence: 'observed-native-unverified',
+      observedAt: `2026-03-01T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+      entryHash: digest(`capacity-compact-entry-${index}`),
+      input: { text: `Settled note ${index}`, source: 'rpc' },
+      actions: [{ text: 'Verified outcome' }],
+      results: [],
+      outcome: 'completed',
+    }))
+    for (const episode of seeded) f.store.recordEpisode(episode.id, episode)
+    await f.turn('blocked', 1)
+    assert.equal(f.spawns.length, 0)
+    await f.compact()
+    await until(() => f.spawns.length === 1)
+    const delivered = episodeIds(f.spawns[0]?.prompt ?? '').map((episode) => episode.id)
+    const compactId = digest('primary:compact:compact-one')
+    assert.deepEqual(
+      delivered,
+      seeded.slice(0, 4).map((episode) => episode.id),
+    )
+    assert.equal(delivered.includes(compactId), false)
+    assert.equal(readdirSync(join(f.root, '.episodes')).includes(`${compactId}.json`), false)
+    assert.deepEqual(f.store.snapshot().reviewed, [])
+    await f.finish('completed')
+    assert.deepEqual(f.store.snapshot().reviewed.slice().sort(), delivered.slice().sort())
+  } finally {
+    await f.close()
+  }
+})
+
+test('a launch fence change after compaction capacity does not dispatch that backlog', async () => {
+  const original = MemoryEngineController.prototype.request
+  let release = () => {}
+  let held = false
+  MemoryEngineController.prototype.request = async function (
+    this: MemoryEngineController,
+    method,
+    input,
+    context,
+  ) {
+    if (method === 'episodeBacklog' && !held) {
+      held = true
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+    }
+    return original.call(this, method, input, context)
+  } as typeof original
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'compaction-event', 25, true)
+    for (const episode of Array.from({ length: 256 }, (_, index) => ({
+      id: digest(`capacity-fence-${index}`),
+      project: 'project',
+      session: 'synthetic-session',
+      evidence: 'observed-native-unverified' as const,
+      observedAt: `2026-04-01T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+      entryHash: digest(`capacity-fence-entry-${index}`),
+      input: { text: `Settled note ${index}`, source: 'rpc' },
+      actions: [{ text: 'Verified outcome' }],
+      results: [] as [],
+      outcome: 'completed' as const,
+    })))
+      f.store.recordEpisode(episode.id, episode)
+    const pending = f.compact()
+    await until(() => held)
+    await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    release()
+    await pending
+    await f.runtime.drain()
+    assert.equal(f.spawns.length, 0)
+    assert.equal(f.store.snapshot().reviewed.length, 0)
+    assert.equal(
+      readdirSync(join(f.root, '.episodes')).includes(`${digest('primary:compact:compact-one')}.json`),
+      false,
+    )
+  } finally {
+    release()
+    MemoryEngineController.prototype.request = original
+    await f.close()
+  }
+})
+
+test('configured step-count launches at that positive threshold', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'step-count', 1, true)
+    await f.turn('one', 1)
+    await until(() => f.spawns.length === 1)
+    assert.equal(f.spawns.length, 1)
+  } finally {
+    await f.close()
+  }
+})
+
+test('cancellation during compaction-event admission does not launch', async () => {
+  const f = fixture()
+  let release: () => void = () => undefined
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'compaction-event', 25, true)
+    const start = f.authorizations()
+    release = f.holdAuthorizations(0)
+    const pending = f.compact()
+    await until(() => f.authorizations() > start)
+    const cancel = f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
+    await until(() => f.authorizations() > start + 1)
+    release()
+    await pending
+    await cancel
+    await f.runtime.drain()
+    assert.equal(f.spawns.length, 0)
+  } finally {
+    release()
+    await f.close()
+  }
+})
+
+test('a high step threshold recovers tracked episodes after the directory fills', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'step-count', 1000, true)
+    const ids: string[] = []
+    for (let index = 0; index < 256; index++) {
+      const name = `n${index}`
+      await f.turn(name, 1)
+      ids.push(digest(`primary:user-${name}`))
+    }
+    assert.equal(f.spawns.length, 0)
+    await f.turn('blocked', 1)
+    assert.equal(f.spawns.length, 1)
+    const delivered = episodeIds(f.spawns[0]?.prompt ?? '').map((episode) => episode.id)
+    assert.deepEqual(delivered, ids.slice(0, 4))
+    assert.deepEqual(f.store.snapshot().reviewed, [])
+    await f.emit('input', { source: 'rpc', text: 'cancel the capacity writer' })
+    await f.runtime.drain()
+    await f.turn('later', 1)
+    assert.equal(f.spawns.length, 2)
+    const recovered = episodeIds(f.spawns[1]?.prompt ?? '').map((episode) => episode.id)
+    // The first capture freezes pending ids 0..31. Cancellation retires that drain
+    // without reviewing them, so the next capture continues at the following pending ids.
+    assert.deepEqual(recovered, ids.slice(32, 36))
+    assert.deepEqual(f.store.snapshot().reviewed, [])
+    const files = readdirSync(join(f.root, '.episodes')).filter((name) => name.endsWith('.json'))
+    assert.equal(files.length, 256)
+    await f.finish('completed')
+    assert.deepEqual(f.store.snapshot().reviewed.slice().sort(), recovered.slice().sort())
+    assert.equal(readdirSync(join(f.root, '.episodes')).filter((name) => name.endsWith('.json')).length, 256)
+  } finally {
+    await f.close()
+  }
+})

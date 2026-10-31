@@ -24,6 +24,7 @@ import {
   reconcileMemoryPolicy,
   setMemoryAutomatic,
 } from '../lib/agent-memory/engine/policy.ts'
+import { parseConfig } from '../lib/agent-memory/engine/schema.ts'
 import { createMemoryStore, type MemoryConfig } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
 
@@ -93,7 +94,11 @@ function fixture() {
 
 // Pause only via the existing caller-owned branch barrier. No production selector,
 // injected filesystem or caller-supplied drain boolean exists.
-async function paused(f: ReturnType<typeof fixture>, boundary: number) {
+async function paused(
+  f: ReturnType<typeof fixture>,
+  boundary: number,
+  reflection?: { trigger: 'off' | 'step-count' | 'compaction-event'; stepCount: number },
+) {
   let calls = 0,
     allowed = true,
     holds = 0
@@ -121,7 +126,7 @@ async function paused(f: ReturnType<typeof fixture>, boundary: number) {
       }
     },
   }
-  const completion = setMemoryAutomatic(f.engine, context, f.revision, f.configHash, true).then(
+  const completion = setMemoryAutomatic(f.engine, context, f.revision, f.configHash, true, reflection).then(
     (value) => ({ value, error: undefined }),
     (error: Error) => ({ error, value: undefined }),
   )
@@ -434,6 +439,95 @@ test('restart has durable evidence but no actual ref; same-process source replac
       p.record.identity.operation,
       p.record.identity.digest,
     )
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+  } finally {
+    await f.close()
+  }
+})
+
+test('version-1 policy stays automatic-only and version-2 selection uses exact CAS', async () => {
+  const f = fixture()
+  try {
+    const on = await setMemoryAutomatic(f.engine, f.current, f.revision, f.configHash, true)
+    const v1 = JSON.parse(readFileSync(f.path, 'utf8'))
+    assert.equal(v1.version, 1)
+    assert.equal(Object.hasOwn(v1, 'reflectionTrigger'), false)
+    const selected = await setMemoryAutomatic(f.engine, f.current, f.revision, on.configHash, true, {
+      trigger: 'compaction-event',
+      stepCount: 25,
+    })
+    const v2 = JSON.parse(readFileSync(f.path, 'utf8'))
+    assert.equal(v2.version, 2)
+    assert.equal(v2.reflectionTrigger, 'compaction-event')
+    assert.equal(v2.reflectionStepCount, 25)
+    assert.equal(v2.automatic, true)
+    await assert.rejects(
+      setMemoryAutomatic(f.engine, f.current, f.revision, on.configHash, true, {
+        trigger: 'step-count',
+        stepCount: 1,
+      }),
+      /CAS conflict/,
+    )
+    assert.equal(JSON.parse(readFileSync(f.path, 'utf8')).reflectionTrigger, 'compaction-event')
+    await assert.rejects(
+      setMemoryAutomatic(f.engine, f.current, f.revision, selected.configHash, false, {
+        trigger: 'compaction-event',
+        stepCount: 25,
+      }),
+      /disagree/,
+    )
+    const off = await setMemoryAutomatic(f.engine, f.current, f.revision, selected.configHash, false)
+    const stored = JSON.parse(readFileSync(f.path, 'utf8'))
+    assert.equal(stored.version, 2)
+    assert.equal(stored.automatic, false)
+    assert.equal(stored.reflectionTrigger, 'off')
+    assert.equal(stored.reflectionStepCount, 25)
+    assert.equal(off.automatic, false)
+    assert.throws(() =>
+      parseConfig(JSON.stringify({ ...v1, reflectionTrigger: 'compaction-event', reflectionStepCount: 25 })),
+    )
+    const abort = new AbortController()
+    abort.abort()
+    await assert.rejects(
+      setMemoryAutomatic(f.engine, { ...f.current, signal: abort.signal }, f.revision, off.configHash, true, {
+        trigger: 'step-count',
+        stepCount: 1,
+      }),
+      /abort|Current parent authority/,
+    )
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+    assert.equal(JSON.parse(readFileSync(f.path, 'utf8')).reflectionTrigger, 'off')
+  } finally {
+    await f.close()
+  }
+})
+
+test('version-2 policy revoke after rename keeps the selected trigger and reconciles the owned lock', async () => {
+  const f = fixture()
+  try {
+    const p = await paused(f, 5, { trigger: 'compaction-event', stepCount: 25 })
+    assert.equal(p.record.version, 2)
+    assert.equal(p.record.identity.reflectionTrigger, 'compaction-event')
+    assert.equal(JSON.parse(readFileSync(f.path, 'utf8')).reflectionTrigger, 'compaction-event')
+    p.revoke()
+    p.resume()
+    const result = await p.completion
+    assert.ok(result.error)
+    const fresh = f.engine
+    const status = await memoryPolicyStatus(fresh, f.current)
+    assert.equal(status.state, 'retained+recoverable')
+    assert.equal(status.outcome, 'intended')
+    const recovered = await reconcileMemoryPolicy(
+      fresh,
+      f.current,
+      p.record.identity.operation,
+      p.record.identity.digest,
+    )
+    assert.equal(recovered.configChanged, false)
+    const stored = JSON.parse(readFileSync(f.path, 'utf8'))
+    assert.equal(stored.version, 2)
+    assert.equal(stored.reflectionTrigger, 'compaction-event')
+    assert.equal(stored.automatic, true)
     assert.equal(existsSync(join(f.root, '.lock')), false)
   } finally {
     await f.close()

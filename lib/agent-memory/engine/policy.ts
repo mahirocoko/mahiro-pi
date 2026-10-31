@@ -6,6 +6,13 @@ import { lstat, open, realpath, rename, unlink } from 'node:fs/promises'
 import { isDeepStrictEqual } from 'node:util'
 import { digest, objectShape } from '../../continuity/records.ts'
 import { parseConfig, revisionPattern, uuidPattern } from './schema.ts'
+import type { MemoryConfig } from '../store.ts'
+import {
+  automaticForTrigger,
+  type ReflectionTrigger,
+  validReflectionStepCount,
+  validReflectionTrigger,
+} from '../reflection-config.ts'
 import { privateDirectory, readPrivate, safePath } from './io.ts'
 import { acquireOperationLock, releaseOperationLock, verifyOperationLock } from './owned-lock.ts'
 import { parseLockOwner, type LockOwner } from './operation.ts'
@@ -27,10 +34,12 @@ interface PolicyIdentity {
   originalBytes: string
   intendedBytes: string
   automatic: boolean
+  reflectionTrigger?: ReflectionTrigger
+  reflectionStepCount?: number
   digest: string
 }
 interface PolicyRecord {
-  version: 1
+  version: 1 | 2
   kind: 'policy'
   identity: PolicyIdentity
   owner: LockOwner
@@ -43,27 +52,33 @@ const stagePath = (root: string) => join(root, '.lock/config.next')
 const check = (context: OperationContext, ...physical: string[]) =>
   assertCurrent(context, { physical, logical: [], kind: 'data' })
 
+const policyIdentityKeys = [
+  'root',
+  'rootIdentity',
+  'operation',
+  'nonce',
+  'revision',
+  'originalHash',
+  'intendedHash',
+  'originalBytes',
+  'intendedBytes',
+  'automatic',
+  'digest',
+]
 function parsePolicy(raw: Buffer): PolicyRecord {
   const value = JSON.parse(raw.toString('utf8'))
+  const version = value?.version
+  const identityKeys =
+    version === 2
+      ? [...policyIdentityKeys.slice(0, -1), 'reflectionTrigger', 'reflectionStepCount', 'digest']
+      : policyIdentityKeys
   if (
     !objectShape(value, ['version', 'kind', 'identity', 'owner']) ||
     Object.keys(value).length !== 4 ||
-    value.version !== 1 ||
+    (version !== 1 && version !== 2) ||
     value.kind !== 'policy' ||
-    !objectShape(value.identity, [
-      'root',
-      'rootIdentity',
-      'operation',
-      'nonce',
-      'revision',
-      'originalHash',
-      'intendedHash',
-      'originalBytes',
-      'intendedBytes',
-      'automatic',
-      'digest',
-    ]) ||
-    Object.keys(value.identity).length !== 11
+    !objectShape(value.identity, identityKeys) ||
+    Object.keys(value.identity).length !== identityKeys.length
   )
     throw Error('Unknown policy evidence')
   const i = value.identity
@@ -80,6 +95,10 @@ function parsePolicy(raw: Buffer): PolicyRecord {
     !revisionPattern.test(i.revision) ||
     ![i.originalHash, i.intendedHash, i.originalBytes, i.intendedBytes, expected].every(hash) ||
     typeof i.automatic !== 'boolean' ||
+    (version === 2 &&
+      (!validReflectionTrigger(i.reflectionTrigger) ||
+        !validReflectionStepCount(i.reflectionStepCount) ||
+        i.automatic !== automaticForTrigger(i.reflectionTrigger))) ||
     digest(JSON.stringify(binding)) !== expected
   )
     throw Error('Unknown policy binding')
@@ -338,12 +357,56 @@ export async function reconcileMemoryPolicy(
 
 // Explicit primary action only. The ignored config owns automatic admission;
 // same root lock and HEAD/config CAS, no Git/corpus publication or grants.
+function nextPolicyConfig(
+  config: MemoryConfig,
+  automatic: boolean,
+  reflection?: { trigger: ReflectionTrigger; stepCount: number },
+): MemoryConfig {
+  if (reflection) {
+    if (!validReflectionTrigger(reflection.trigger) || !validReflectionStepCount(reflection.stepCount))
+      throw Error('Explicit reflection trigger and positive step count required')
+    if (automatic !== automaticForTrigger(reflection.trigger))
+      throw Error('Reflection trigger and automatic policy disagree')
+    return {
+      version: 2,
+      projects: config.projects,
+      coreBytes: config.coreBytes,
+      indexBytes: config.indexBytes,
+      fileBytes: config.fileBytes,
+      totalBytes: config.totalBytes,
+      automatic,
+      reflectionTrigger: reflection.trigger,
+      reflectionStepCount: reflection.stepCount,
+    }
+  }
+  if (config.version === 2 && config.reflectionTrigger && config.reflectionStepCount) {
+    const trigger: ReflectionTrigger = automatic
+      ? config.reflectionTrigger === 'off'
+        ? 'step-count'
+        : config.reflectionTrigger
+      : 'off'
+    return {
+      version: 2,
+      projects: config.projects,
+      coreBytes: config.coreBytes,
+      indexBytes: config.indexBytes,
+      fileBytes: config.fileBytes,
+      totalBytes: config.totalBytes,
+      automatic,
+      reflectionTrigger: trigger,
+      reflectionStepCount: config.reflectionStepCount,
+    }
+  }
+  return { ...config, automatic }
+}
+
 export async function setMemoryAutomatic(
   engine: MemoryEngineController,
   context: OperationContext,
   revision: string,
   configHash: string,
   automatic: boolean,
+  reflection?: { trigger: ReflectionTrigger; stepCount: number },
 ) {
   if (!revisionPattern.test(revision) || !hash(configHash) || typeof automatic !== 'boolean')
     throw Error('Current memory revision/configHash and explicit automatic policy required')
@@ -357,7 +420,7 @@ export async function setMemoryAutomatic(
     const original = await readPrivate(path, 65536)
     const config = parseConfig(original.toString('utf8'))
     if (digest(JSON.stringify(config)) !== configHash) throw Error('Memory policy CAS conflict')
-    const next = { ...config, automatic }
+    const next = nextPolicyConfig(config, automatic, reflection)
     const text = `${JSON.stringify(next)}\n`
     const binding = {
       root,
@@ -370,6 +433,9 @@ export async function setMemoryAutomatic(
       originalBytes: bytesHash(original),
       intendedBytes: digest(text),
       automatic,
+      ...(next.version === 2
+        ? { reflectionTrigger: next.reflectionTrigger, reflectionStepCount: next.reflectionStepCount }
+        : {}),
     }
     const identity = Object.freeze({ ...binding, digest: digest(JSON.stringify(binding)) })
     // Registration precedes the first async acquisition; missing/incomplete owner remains unknown.
@@ -388,7 +454,7 @@ export async function setMemoryAutomatic(
             context,
           )
           update(owner, staging)
-          record = { version: 1, kind: 'policy', identity, owner }
+          record = { version: next.version === 2 ? 2 : 1, kind: 'policy', identity, owner }
           await writeRecord(root, record, context)
           await context.barrier?.()
           const status = await engine.request('status', {}, context)
