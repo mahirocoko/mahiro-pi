@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { open } from 'node:fs/promises'
 import {
   chmodSync,
   existsSync,
@@ -10,44 +9,45 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import { parseOperation, validatePlan } from '../lib/agent-memory/engine/operation.ts'
 import {
   engineRequestDeadline,
   MemoryEngineController,
   type OperationContext,
 } from '../lib/agent-memory/engine/controller.ts'
+import { MemoryDataEngine } from '../lib/agent-memory/engine/data.ts'
 import {
+  type Check,
   engineEnvironment,
   gitBlobBatches,
   gitBlobLimits,
   parseGitBlobs,
-  type Check,
 } from '../lib/agent-memory/engine/io.ts'
-import { MemoryDataEngine } from '../lib/agent-memory/engine/data.ts'
-import { encode, Frames, transportLimits, type Plan } from '../lib/agent-memory/engine/protocol.ts'
+import { parseOperation, validatePlan } from '../lib/agent-memory/engine/operation.ts'
+import { encode, Frames, type Plan, transportLimits } from '../lib/agent-memory/engine/protocol.ts'
 import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
-import { validateReply } from '../lib/agent-memory/engine/replies.ts'
 import { recoveryCeiling } from '../lib/agent-memory/engine/recovery.ts'
+import { validateReply } from '../lib/agent-memory/engine/replies.ts'
 import {
-  allowedPath as newPath,
   limits,
   parseConfig as newConfig,
+  allowedPath as newPath,
 } from '../lib/agent-memory/engine/schema.ts'
-import { allowedPath, createMemoryStore, parseConfig, type MemoryConfig } from '../lib/agent-memory/store.ts'
-import { digest } from '../lib/continuity/records.ts'
-import type { Episode } from '../lib/agent-memory/store.ts'
+import { type MemoryFailureCode, memoryFailureCode } from '../lib/agent-memory/reasons.ts'
 import { parseMemoryRead, retrieveMemory } from '../lib/agent-memory/retrieval.ts'
-import { memoryFailureCode, type MemoryFailureCode } from '../lib/agent-memory/reasons.ts'
+import type { Episode } from '../lib/agent-memory/store.ts'
+import { allowedPath, createMemoryStore, type MemoryConfig, parseConfig } from '../lib/agent-memory/store.ts'
+import { digest } from '../lib/continuity/records.ts'
 
 // Real child replies carry closed metadata, not the child's private exception text.
 // Each caller still supplies the forbidden operation/tamper and checks its storage outcome.
@@ -68,6 +68,8 @@ test('ordinary reads and offline certification are completion-driven; mutation/p
     'capacityDiagnostic',
     'status',
     'episodes',
+    'selectEpisodes',
+    'episodeBacklog',
     'conflicts',
     'read',
     'headRead',
@@ -680,7 +682,7 @@ test('cold read final config, HEAD and current-authority barriers remain effecti
   try {
     for (const mutation of ['config', 'HEAD', 'authority']) {
       const engine = new MemoryDataEngine(f.root, f.env)
-      let batches = new Set<string>()
+      const batches = new Set<string>()
       let selected = false
       let changed = false
       const configPath = join(f.root, 'config.json')
@@ -2992,6 +2994,109 @@ test('directory read returns its own index prefix and withholds other file text'
     const system = await read('system')
     assert.equal('index' in system, false)
     assert.equal(JSON.stringify(system).includes('PRIVATE_PERSONA'), false)
+  } finally {
+    await f.close()
+  }
+})
+
+test('selectEpisodes returns only requested unreviewed ids and publication reviews that subset', async () => {
+  const f = fixture(0)
+  try {
+    const episodes: Episode[] = Array.from({ length: 6 }, (_, i) => ({
+      id: digest(`select-episode-${i}`),
+      project: 'project',
+      session: 'synthetic-session',
+      evidence: 'observed-native-unverified',
+      observedAt: `2026-01-01T00:00:0${i}.000Z`,
+      entryHash: digest(`select-entry-${i}`),
+      input: { text: 'One settled assistant turn.', source: 'rpc' },
+      actions: [{ text: 'Verified outcome', tools: ['bash'] }],
+      results: [{ tool: 'bash', error: false, text: 'ok' }],
+      outcome: 'completed',
+    }))
+    const other: Episode = { ...episodes[0], id: digest('select-other-project'), project: 'other' }
+    for (const episode of [...episodes, other])
+      assert.deepEqual(await f.engine.request('observe', { episode }, f.context), { recorded: true })
+    await assert.rejects(
+      f.engine.request(
+        'selectEpisodes',
+        { project: 'project', ids: episodes.map((episode) => episode.id) },
+        f.context,
+      ),
+      /Invalid episode selection/,
+    )
+    const oldest = await f.engine.request('episodes', { project: 'project' }, f.context)
+    assert.deepEqual(
+      oldest.map((episode) => episode.id),
+      episodes.slice(0, 4).map((episode) => episode.id),
+    )
+    const requested = episodes.slice(2).map((episode) => episode.id)
+    assert.deepEqual(
+      (await f.engine.request('selectEpisodes', { project: 'project', ids: requested }, f.context)).map(
+        (episode) => episode.id,
+      ),
+      requested,
+    )
+    const missing = digest('select-missing-episode')
+    assert.deepEqual(
+      (
+        await f.engine.request(
+          'selectEpisodes',
+          { project: 'project', ids: [episodes[5].id, missing, episodes[0].id] },
+          f.context,
+        )
+      ).map((episode) => episode.id),
+      [episodes[5].id, episodes[0].id],
+    )
+    assert.deepEqual(
+      await f.engine.request('selectEpisodes', { project: 'project', ids: [other.id] }, f.context),
+      [],
+    )
+    assert.throws(() =>
+      validateReply('selectEpisodes', { project: 'project', ids: [episodes[5].id] }, [
+        episodes[4],
+        episodes[5],
+      ]),
+    )
+    const backlog = await f.engine.request('episodeBacklog', { project: 'project', limit: 32 }, f.context)
+    assert.deepEqual(
+      backlog.ids,
+      episodes.map((episode) => episode.id),
+    )
+    assert.equal(JSON.stringify(backlog).includes('Verified outcome'), false)
+    await assert.rejects(
+      f.engine.request('episodeBacklog', { project: 'project', limit: 33 }, f.context),
+      /Invalid episode backlog/,
+    )
+    const delivered = [episodes[4].id, episodes[5].id]
+    const knowledgeBefore = f.store.snapshot().files
+    const { view } = await f.engine.request('create', { project: 'project' }, f.context)
+    await f.engine.request('ready', { view }, f.context)
+    const prepared = await f.engine.request('prepare', { view, reviewed: delivered }, f.context)
+    assert.ok('plan' in prepared)
+    assert.deepEqual(
+      prepared.plan.changes.map((change) => change.path),
+      ['.memory.json'],
+    )
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    assert.deepEqual(f.store.snapshot().files, knowledgeBefore)
+    assert.deepEqual(
+      (await f.engine.request('episodes', { project: 'project' }, f.context)).map((episode) => episode.id),
+      episodes.slice(0, 4).map((episode) => episode.id),
+    )
+    assert.deepEqual(
+      (
+        await f.engine.request(
+          'selectEpisodes',
+          { project: 'project', ids: [...delivered, episodes[1].id] },
+          f.context,
+        )
+      ).map((episode) => episode.id),
+      [episodes[1].id],
+    )
   } finally {
     await f.close()
   }

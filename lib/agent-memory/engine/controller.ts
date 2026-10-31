@@ -1,25 +1,25 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { decodeMemoryFailure, memoryFailure } from '../reasons.ts'
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { objectShape } from '../../continuity/records.ts'
 import { recordMemoryDiagnostic } from '../../guards/memory-fixture.mjs'
-import { contained, engineEnvironment } from './io.ts'
+import { decodeMemoryFailure, memoryFailure } from '../reasons.ts'
 import { executorDrained } from './executor.ts'
-import { validatePlan, validateReceipt, parseLockOwner } from './operation.ts'
-import { validateReply } from './replies.ts'
+import { contained, engineEnvironment } from './io.ts'
+import { parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
 import {
+  type Checkpoint,
   encode,
   Frames,
-  protocolVersion,
-  transportLimits,
-  validateInput,
-  type Checkpoint,
   type Input,
   type Method,
   type Output,
   type Plan,
+  protocolVersion,
+  transportLimits,
+  validateInput,
 } from './protocol.ts'
+import { validateReply } from './replies.ts'
 
 export interface OperationContext {
   // Must close over actual runtime/Root/context/lease, never a deserialized verdict.
@@ -55,6 +55,8 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
     method === 'capacityDiagnostic' ||
     method === 'status' ||
     method === 'episodes' ||
+    method === 'selectEpisodes' ||
+    method === 'episodeBacklog' ||
     method === 'conflicts' ||
     method === 'read' ||
     method === 'headRead' ||

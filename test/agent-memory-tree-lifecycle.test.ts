@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setImmediate as yieldTurn } from 'node:timers/promises'
 import test from 'node:test'
+import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
@@ -553,7 +553,7 @@ test('ABI2 Palace HTML serves one frozen page and revokes on authority or new wo
     const response = await fetch(opened.url)
     assert.equal(response.status, 200)
     const html = await response.text()
-    assert.match(html, /Committed memory, frozen for review/)
+    assert.match(html, /Mahiro Palace · ABI2 metadata handoff/)
     assert.doesNotMatch(html, /SYNTHETIC_TREE_CORE|Synthetic effective prompt|memory-tree-/)
     assert.equal(f.runtime.status().palaceViewer, 'open')
 
@@ -770,5 +770,20 @@ test('lazy rebind checks exact manager/session/node/ABI/generation/root and curr
     } finally {
       await f.close()
     }
+  }
+})
+
+test('automatic off stays off and explicit reflect does not wait for assistant steps', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    assert.deepEqual(await f.runtime.startWriter(f.ctx), { skipped: 'automatic-off' })
+    await assert.rejects(f.runtime.startWriter(f.ctx, 'Keep the synthetic tree note'), (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.doesNotMatch(error.message, /automatic-off|assistant step|reflection/)
+      return true
+    })
+  } finally {
+    await f.close()
   }
 })

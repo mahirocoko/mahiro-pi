@@ -1,33 +1,45 @@
 import { realpath } from 'node:fs/promises'
-import { memoryFailure } from './reasons.ts'
-import { resolveAgentDir } from '../setup.ts'
-import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 import { join } from 'node:path'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
-import { MemoryEngineController, assertCurrent, type OperationContext } from './engine/controller.ts'
-import { MemoryPublisher } from './engine/publisher.ts'
-import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from './engine/policy.ts'
-import { MemoryLifetime } from './engine/lifetime.ts'
-import { offlineMaintenance, type MaintenanceRequest } from './engine/offline-maintenance.ts'
-import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
-import { createAttempt, type AttemptOutcome } from './engine/attempt.ts'
-import type { Input, Method, Output } from './engine/protocol.ts'
-import type { MemoryABIV2, EngineWorkerValue } from './experimental-contracts.ts'
-import type { MemoryNode } from './runtime.ts'
-import { memoryCurationDoctrine } from './guidance.ts'
-import { isOfflineMaintenanceSession } from './offline-bootstrap.ts'
-import { primaryDelegationDoctrine } from './prompt.ts'
-import type { TurnEpisode } from './store.ts'
-import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
+import { abi2PalaceStyle, renderAbi2PalacePage } from '../palace-render/abi2-page.ts'
+import { type ImmutablePalaceServer, startImmutablePalaceServer } from '../palace-render/immutable-server.ts'
+import { resolveAgentDir } from '../setup.ts'
+import { compactionBoundary, compactionObservation } from './compaction.ts'
+import { type AttemptOutcome, createAttempt } from './engine/attempt.ts'
+import { assertCurrent, MemoryEngineController, type OperationContext } from './engine/controller.ts'
+import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
+import { MemoryLifetime } from './engine/lifetime.ts'
+import { type MaintenanceRequest, offlineMaintenance } from './engine/offline-maintenance.ts'
+import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from './engine/policy.ts'
+import type { Input, Method, Output } from './engine/protocol.ts'
+import { MemoryPublisher } from './engine/publisher.ts'
+import type { EngineWorkerValue, MemoryABIV2 } from './experimental-contracts.ts'
+import { memoryCurationDoctrine } from './guidance.ts'
 import { buildMemoryInvocationContext, type MemoryProjectionReceipt } from './invocation-context.ts'
+import type { KnowledgeHistory } from './knowledge-history.ts'
+import { isOfflineMaintenanceSession } from './offline-bootstrap.ts'
 import { buildPalaceDiagnostic, type PalaceDiagnostic } from './palace-diagnostic.ts'
 import { buildPalaceHandoff, type PalaceHandoff } from './palace-handoff.ts'
-import type { KnowledgeHistory } from './knowledge-history.ts'
-import { abi2PalaceStyle, renderAbi2PalacePage } from '../palace-render/abi2-page.ts'
-import { startImmutablePalaceServer, type ImmutablePalaceServer } from '../palace-render/immutable-server.ts'
+import { primaryDelegationDoctrine } from './prompt.ts'
+import { memoryFailure, memoryFailureCode } from './reasons.ts'
+import {
+  completeReflectionDelivery,
+  createReflectionWindow,
+  nextReflectionDelivery,
+  openReflectionBacklog,
+  openReflectionDrain,
+  recordFinalizedAssistantWork,
+  reflectionBacklogLimit,
+  reflectionDeliveryLimit,
+  resetReflectionWindow,
+  stopReflectionDrain,
+} from './reflection-schedule.ts'
+import type { MemoryNode } from './runtime.ts'
+import type { TurnEpisode } from './store.ts'
+import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 
 interface RuntimeBinding {
   manager: ExtensionContext['sessionManager']
@@ -86,6 +98,7 @@ interface PendingEpisode {
   actions: TurnEpisode['actions']
   results: TurnEpisode['results']
   toolCalls: Set<string>
+  assistantEvents: number
 }
 const registry = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
 const palaceViewerTtlMs = 10 * 60 * 1000
@@ -139,6 +152,103 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
     | undefined
   let pending: PendingEpisode | undefined
+  const reflection = createReflectionWindow()
+  let reflectionFence:
+    | {
+        token: number
+        serial: number
+        generation: unknown
+        configHash: string
+        project: string
+        node: MemoryNode
+        manager: ExtensionContext['sessionManager']
+        drainId: number
+      }
+    | undefined
+  let reflectionLaunching = false
+  let capacityDrainHeld = false
+  let launchFence = 0
+  interface ReflectionLaunch {
+    token: number
+    serial: number
+    fence: number
+    node: MemoryNode | undefined
+    generation: unknown
+    manager: ExtensionContext['sessionManager']
+    drainId: number
+  }
+  const reflectionLaunchLive = (ctx: ExtensionContext, launch: ReflectionLaunch) =>
+    active &&
+    launch.token === epoch &&
+    launch.serial === admissionSerial &&
+    launch.fence === launchFence &&
+    launch.node !== undefined &&
+    pinned === launch.node &&
+    launch.node.generation === launch.generation &&
+    launch.node.managedMemory?.generation === launch.generation &&
+    nodes()?.get(ctx.sessionManager.getSessionId()) === launch.node &&
+    ctx.sessionManager === launch.manager &&
+    reflection.drain?.id === launch.drainId &&
+    reflectionFence?.drainId === launch.drainId &&
+    reflectionFence?.serial === launch.serial &&
+    reflectionFence?.token === launch.token
+  const currentReflectionDrain = () => reflection.drain
+  const reflectionForegroundMatches = (ctx: ExtensionContext) => {
+    const fence = reflectionFence
+    const drain = reflection.drain
+    const node = fence?.node
+    return (
+      active &&
+      fence !== undefined &&
+      drain !== null &&
+      node !== undefined &&
+      fence.drainId === drain.id &&
+      fence.token === epoch &&
+      pinned === node &&
+      node.generation === fence.generation &&
+      node.managedMemory?.generation === fence.generation &&
+      nodes()?.get(ctx.sessionManager.getSessionId()) === node &&
+      ctx.sessionManager === fence.manager &&
+      node.managedMemory?.isPrimarySession(ctx) === true
+    )
+  }
+  // A cancelled admission must not dispatch its old ticket. The frozen ids stay
+  // unreviewed, and the next settled launch on the same foreground adopts the
+  // current admission before it builds a new ticket.
+  const adoptReflectionAdmission = (ctx: ExtensionContext) => {
+    const fence = reflectionFence
+    if (!reflectionForegroundMatches(ctx) || !fence) return false
+    if (fence.serial !== admissionSerial) reflectionFence = { ...fence, serial: admissionSerial }
+    return true
+  }
+  // Primary foreground begins before any await. This fence cancels an automatic
+  // launch already awaiting work. It does not change the admission captured by
+  // the input that precedes an ordinary before_agent_start. Compaction keeps
+  // its own serial, and an explicit reflect does not use this fence.
+  const invalidateForegroundLaunch = (ctx: ExtensionContext) => {
+    if (!active || !binding || ctx.sessionManager !== binding.manager) return
+    if (pinned?.managedMemory?.isPrimarySession(ctx) !== true) return
+    if (
+      !ctx.hasUI &&
+      ctx.sessionManager.getSessionFile() === undefined &&
+      isOfflineMaintenanceSession(ctx.sessionManager.getSessionId())
+    )
+      return
+    launchFence++
+    job?.cancel()
+  }
+  const retireDrain = (drainId: number | undefined) => {
+    if (drainId === undefined || !stopReflectionDrain(reflection, drainId)) return
+    if (reflectionFence?.drainId === drainId) reflectionFence = undefined
+    // The next settled capacity failure may open one new bounded drain.
+    // This return does not launch that writer.
+    capacityDrainHeld = false
+  }
+  let launchReflection: (
+    ctx: ExtensionContext,
+    ids: readonly string[],
+    boundFence?: number,
+  ) => Promise<void> = async () => {}
   let outcome: string | undefined
   let compactionCheckpoint: string | undefined
   let compacting: ReturnType<typeof compactionBoundary> | undefined
@@ -196,6 +306,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     const viewerDrain = closeViewer()
     epoch++
     admissionSerial++
+    launchFence++
     active = false
     draft = undefined
     pending = undefined
@@ -207,6 +318,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     const own = job
     job = undefined
     own?.cancel()
+    resetReflectionWindow(reflection)
+    reflectionFence = undefined
+    capacityDrainHeld = false
     const engine = primaryEngine
     primaryEngine = undefined
     pinned = undefined
@@ -824,15 +938,27 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       opening.finish()
     }
   }
-  const startWriter = async (ctx: ExtensionContext, assignment?: string) => {
+  const startWriter = async (
+    ctx: ExtensionContext,
+    assignment?: string,
+    delivery?: readonly string[],
+    launch?: ReflectionLaunch,
+  ) => {
+    const token = launch?.token ?? epoch
+    const serial = launch?.serial ?? admissionSerial
+    const stale = () =>
+      token !== epoch ||
+      serial !== admissionSerial ||
+      (launch !== undefined && !reflectionLaunchLive(ctx, launch))
+    if (stale()) return { skipped: 'stale-launch' as const }
     await closeViewer()
+    if (stale()) return { skipped: 'stale-launch' as const }
     if (starting || job) throw Error('Managed memory writer already active')
     if (assignment !== undefined && !bounded(assignment, 4096))
       throw Error('Bounded explicit memory assignment required')
     starting = true
-    const token = epoch
-    const serial = admissionSerial
     try {
+      if (stale()) return { skipped: 'stale-launch' as const }
       const f = await resolve(ctx, 'agent_memory_reflect', 'write')
       const current = f.context.current
       f.context.current = (targets) => serial === admissionSerial && current(targets)
@@ -841,8 +967,17 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         throw Error('Primary writer launch required')
       const { config } = await f.barrier()
       if (assignment === undefined && !config.automatic) return { skipped: 'automatic-off' }
-      const episodes = await f.request('episodes', { project: f.project })
-      if (assignment === undefined && !episodes.length) return { skipped: 'no-unreviewed-episodes' }
+      if (delivery && (delivery.length < 1 || delivery.length > reflectionDeliveryLimit))
+        throw Error('Invalid episode delivery')
+      const episodes = delivery
+        ? await f.request('selectEpisodes', { project: f.project, ids: [...delivery] })
+        : await f.request('episodes', { project: f.project })
+      if (delivery && !episodes.length) return { skipped: 'selection-empty' }
+      if (assignment === undefined && !delivery && !episodes.length)
+        return { skipped: 'no-unreviewed-episodes' }
+      const requested = delivery ? [...delivery] : undefined
+      const drainId = launch?.drainId
+      if (stale()) return { skipped: 'stale-launch' as const }
       const service = f.abi.parentService()
       const role = service?.getAgentType('managed-memory-writer')
       if (!service || service.supportsInitialOutcomeClaim !== true || !role)
@@ -933,6 +1068,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           if (job === own) job = undefined
         },
         cancel(result = 'cancelled') {
+          if (requested) retireDrain(drainId)
           attempt.finish(result)
           const id = own.id
           own.stop()
@@ -944,6 +1080,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             const record = service.getRecord(own.id)
             if (!record || ['queued', 'running'].includes(record.status)) return
             own.phase = 'integrating' // reserve adoption synchronously before any await
+            let integrated = false
             try {
               if (record.status !== 'completed' || !value.ready) {
                 attempt.finish(record.status !== 'completed' ? 'native-unsuccessful' : 'not-ready')
@@ -964,15 +1101,28 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
                 throw Error('Native integration unavailable; proposal retained')
               assertCurrent(jobContext)
               attempt.finish('integrated')
+              integrated = true
               if (token === epoch) lastError = undefined
             } catch {
+              if (requested) retireDrain(drainId)
               attempt.finish('integration-unavailable')
               if (token === epoch && job === own) lastError = 'worker-integration-unavailable'
             } finally {
               own.stop()
             }
+            if (integrated && requested && drainId !== undefined && reflection.drain?.id === drainId) {
+              const next = completeReflectionDelivery(
+                reflection,
+                drainId,
+                requested,
+                episodes.map((episode) => episode.id),
+              )
+              if (!reflection.drain) capacityDrainHeld = false
+              if (next.length && reflection.drain?.id === drainId) await launchReflection(ctx, next)
+            }
           }),
       }
+      if (stale()) return { skipped: 'stale-launch' as const }
       job = own
       const wake = (event: unknown) => {
         if (
@@ -996,6 +1146,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }, 120000)
       timer.unref()
       try {
+        if (stale()) {
+          own.stop()
+          return { skipped: 'stale-launch' as const }
+        }
         assertCurrent(f.context)
         // No await between final installed/loaded-role/physical-route validation
         // and public synchronous spawn. Explicit options survive queue delays.
@@ -1042,6 +1196,78 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
     } finally {
       if (token === epoch) starting = false
+    }
+  }
+  launchReflection = async (ctx, ids, boundFence = launchFence) => {
+    if (!ids.length || reflectionLaunching || starting || job || !reflection.drain || !reflectionFence) return
+    if (boundFence !== launchFence || !adoptReflectionAdmission(ctx)) return
+    const launch: ReflectionLaunch = {
+      token: epoch,
+      serial: admissionSerial,
+      fence: boundFence,
+      node: pinned,
+      generation: pinned?.generation,
+      manager: ctx.sessionManager,
+      drainId: reflection.drain.id,
+    }
+    if (!reflectionLaunchLive(ctx, launch)) return
+    reflectionLaunching = true
+    try {
+      let batch = ids
+      for (let jobs = 0; batch.length && jobs < 64; jobs++) {
+        if (!reflectionLaunchLive(ctx, launch)) return
+        let resolved: Awaited<ReturnType<typeof resolve>>
+        let automatic = false
+        try {
+          resolved = await resolve(ctx, 'agent_memory_reflect', 'write')
+          automatic = (await resolved.barrier()).config.automatic
+        } catch {
+          if (reflectionLaunchLive(ctx, launch)) {
+            retireDrain(launch.drainId)
+            if (launch.token === epoch) lastError = 'episode-or-writer-unavailable'
+          }
+          return
+        }
+        if (!reflectionLaunchLive(ctx, launch)) return
+        if (
+          !automatic ||
+          resolved.configHash !== reflectionFence.configHash ||
+          resolved.project !== reflectionFence.project ||
+          resolved.node !== reflectionFence.node ||
+          resolved.node.generation !== launch.generation ||
+          resolved.abi.generation !== launch.generation ||
+          resolved.node.managedMemory !== resolved.abi ||
+          resolved.access.kind !== 'primary' ||
+          !resolved.abi.isPrimarySession(ctx)
+        ) {
+          if (reflectionLaunchLive(ctx, launch)) retireDrain(launch.drainId)
+          return
+        }
+        try {
+          const result = await startWriter(ctx, undefined, batch, launch)
+          if (!reflectionLaunchLive(ctx, launch)) return
+          if (result && 'skipped' in result && result.skipped === 'stale-launch') return
+          if (result && 'skipped' in result && result.skipped === 'selection-empty') {
+            batch = completeReflectionDelivery(reflection, launch.drainId, batch, [])
+            continue
+          }
+          if (result && 'skipped' in result) {
+            retireDrain(launch.drainId)
+            return
+          }
+          return
+        } catch (error) {
+          if (error instanceof Error && error.message === 'Managed memory writer already active') return
+          if (reflectionLaunchLive(ctx, launch)) {
+            retireDrain(launch.drainId)
+            if (launch.token === epoch) lastError = 'episode-or-writer-unavailable'
+          }
+          return
+        }
+      }
+      if (batch.length && reflectionLaunchLive(ctx, launch)) retireDrain(launch.drainId)
+    } finally {
+      reflectionLaunching = false
     }
   }
   const run = async (name: string, args: unknown, ctx: ExtensionContext, signal?: AbortSignal) => {
@@ -1294,6 +1520,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         )
           throw Error('Explicit primary policy revision/configHash/automatic required')
         admissionSerial++
+        launchFence++
         compactionSerial++
         compacting = undefined
         pending = undefined
@@ -1326,6 +1553,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         })
       if (args.action === 'cancel') {
         admissionSerial++
+        launchFence++
         compactionSerial++
         compacting = undefined
         pending = undefined
@@ -1544,14 +1772,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
     })
   })
-  pi.on('before_agent_start', (event, ctx) =>
-    lifetime.track(async () => {
+  pi.on('before_agent_start', (event, ctx) => {
+    const workerMarker = event.systemPrompt.includes('<active_agent name="managed-memory-writer"/>')
+    if (!workerMarker) invalidateForegroundLaunch(ctx)
+    return lifetime.track(async () => {
       await closeViewer()
       const base = event.systemPrompt.replace(
         /\n<mahiro-managed-memory>[\s\S]*?<\/mahiro-managed-memory>/g,
         '',
       )
-      const workerMarker = event.systemPrompt.includes('<active_agent name="managed-memory-writer"/>')
       if (
         !ctx.hasUI &&
         ctx.sessionManager.getSessionFile() === undefined &&
@@ -1568,7 +1797,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           }
         }
         projectionReceipt = undefined
-        job?.cancel()
         const projection = await f.request('projection', { project: f.project, shared: true })
         const checkpointNote = compactionCheckpoint
           ? `\nCompaction continuity checkpoint (unverified summary context): ${compactionCheckpoint}`
@@ -1597,12 +1825,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           }
         return base === event.systemPrompt ? undefined : { systemPrompt: base }
       }
-    }),
-  )
+    })
+  })
   pi.on('input', (event, ctx) =>
     admit(ctx, async () => {
       await closeViewer()
       const serial = ++admissionSerial
+      launchFence++
       job?.cancel()
       pending = undefined
       const token = epoch
@@ -1622,6 +1851,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           actions: [],
           results: [],
           toolCalls: new Set(),
+          assistantEvents: 0,
         }
       } catch {
         /* No authority: no capture or fallback. */
@@ -1643,8 +1873,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             .filter((n) => typeof n === 'string' && /^[a-z_]{1,64}$/.test(n) && !hasSecret(n))
             .slice(0, 8)
         : []
-      if (text || tools.length)
+      if (text || tools.length) {
+        pending.assistantEvents += 1
         retain(pending.actions, { ...(text ? { text } : {}), ...(tools.length ? { tools } : {}) })
+      }
     } catch {
       pending = undefined
     }
@@ -1680,6 +1912,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
       outcome = undefined
       const token = epoch
+      const boundFence = launchFence
+      const settledLaunchCurrent = () =>
+        token === epoch && own.serial === admissionSerial && launchFence === boundFence
       try {
         const f = await resolve(ctx, 'agent_memory_reflect', 'write')
         const current = f.context.current
@@ -1714,9 +1949,90 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           else if (episode.actions.length > 2) episode.actions.splice(1, 1)
           else return
         }
-        await f.request('observe', { episode })
+        try {
+          await f.request('observe', { episode })
+        } catch (error) {
+          if (
+            token === epoch &&
+            own.serial === admissionSerial &&
+            memoryFailureCode(error).reason === 'capacity' &&
+            !job &&
+            !starting &&
+            settledLaunchCurrent()
+          ) {
+            if (!reflection.drain && !capacityDrainHeld) {
+              const serial = admissionSerial
+              const backlog = await f.request('episodeBacklog', {
+                project: f.project,
+                limit: reflectionBacklogLimit,
+              })
+              if (settledLaunchCurrent() && serial === admissionSerial && !reflection.drain) {
+                const opened = openReflectionBacklog(reflection, f.project, backlog.ids)
+                const drain = currentReflectionDrain()
+                if (opened.length && drain && settledLaunchCurrent()) {
+                  capacityDrainHeld = true
+                  reflectionFence = {
+                    token,
+                    serial,
+                    generation: f.node.generation,
+                    configHash: f.configHash,
+                    project: f.project,
+                    node: f.node,
+                    manager: ctx.sessionManager,
+                    drainId: drain.id,
+                  }
+                  await launchReflection(ctx, opened, boundFence)
+                }
+              }
+            } else if (
+              reflection.drain &&
+              reflectionFence?.drainId === reflection.drain.id &&
+              settledLaunchCurrent()
+            ) {
+              if (reflectionFence.serial !== admissionSerial || reflectionFence.token !== epoch)
+                reflectionFence = { ...reflectionFence, serial: admissionSerial, token: epoch }
+              const batch = nextReflectionDelivery(reflection)
+              if (batch.length && settledLaunchCurrent()) await launchReflection(ctx, batch, boundFence)
+            }
+          }
+          if (token === epoch) lastError = 'episode-or-writer-unavailable'
+          return
+        }
         assertCurrent(f.context)
-        if (token === epoch && (await f.barrier()).config.automatic) await startWriter(ctx)
+        if (token !== epoch || own.serial !== admissionSerial) return
+        capacityDrainHeld = false
+        const crossed = recordFinalizedAssistantWork(reflection, f.project, episode.id, own.assistantEvents)
+        if (!settledLaunchCurrent()) return
+        if (crossed && !reflection.drain && !job && !starting) {
+          const serial = admissionSerial
+          let backlogIds: string[] = []
+          try {
+            backlogIds = (
+              await f.request('episodeBacklog', { project: f.project, limit: reflectionBacklogLimit })
+            ).ids
+          } catch {
+            backlogIds = []
+          }
+          if (!settledLaunchCurrent() || serial !== admissionSerial || reflection.drain) return
+          const opened = openReflectionDrain(reflection, backlogIds)
+          const drain = currentReflectionDrain()
+          if (opened.length && drain && settledLaunchCurrent()) {
+            reflectionFence = {
+              token,
+              serial,
+              generation: f.node.generation,
+              configHash: f.configHash,
+              project: f.project,
+              node: f.node,
+              manager: ctx.sessionManager,
+              drainId: drain.id,
+            }
+            await launchReflection(ctx, opened, boundFence)
+          }
+          return
+        }
+        const batch = !job && !starting ? nextReflectionDelivery(reflection) : []
+        if (batch.length && settledLaunchCurrent()) await launchReflection(ctx, batch, boundFence)
       } catch {
         if (token === epoch) lastError = 'episode-or-writer-unavailable'
       }
@@ -1739,7 +2055,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         }
       }),
     cancel: retire,
-    startWriter: (...args: Parameters<typeof startWriter>) => admit(args[0], () => startWriter(...args)),
+    startWriter: (ctx: ExtensionContext, assignment?: string) =>
+      admit(ctx, () => startWriter(ctx, assignment)),
     openPalaceViewer: (ctx: ExtensionContext) => admit(ctx, () => openPalaceViewer(ctx)),
     closePalaceViewer: async () => ({
       version: 1 as const,

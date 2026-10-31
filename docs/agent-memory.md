@@ -349,6 +349,30 @@ tool arguments, arbitrary read/recall payloads and imported transcripts. A nativ
 user entry is not authenticated human identity. Failed or cancelled attempts do
 not establish successful learning or integration.
 
+While automatic policy is on, this runtime counts eligible finalized assistant
+messages in memory: one per message admitted into an observed episode, including
+messages the stored action list later drops. Turns, compaction, aborted work,
+and episodes already on disk do not count as those steps. At 25 it freezes the
+new episode ids plus one bounded oldest page of still-pending ids, including
+compaction and episodes left by a restart or a failed window. That page is not
+extended while the drain runs. The writer receives at most four ids at a time.
+Successful publication reviews only the ids that publication delivered. A full
+unreviewed episode directory can open one bounded backlog drain without adding
+assistant steps; a failed or cancelled drain does not start another writer in
+that same failure. The next settled turn that still cannot record may open one
+new bounded backlog drain. A policy, authority, identity, or generation change
+drops only that drain.
+An admission change before dispatch keeps the frozen ids; the next settled
+launch on the same foreground adopts the current admission. A primary
+foreground start advances only the automatic launch fence, before that turn
+awaits. Settled work captures that fence before its first await and does not
+freeze or dispatch if a later foreground start advances it. The input that
+already opened the pending turn still settles. Compaction keeps its own serial. A later window is left in place. Restart or
+runtime retirement drops the count and the freeze.
+Unreviewed episode files stay, and old files are not scanned to invent a step
+count. `automatic: false` does not start this schedule. An explicit reflect
+still runs immediately and still reads the oldest unreviewed episodes.
+
 Curation should refine an existing subject and its reason, not append incident
 logs. Preserve useful provenance, current owners and uncertainty. An ambiguous
 one-off is not an enduring preference. Structural screening and prompt delivery

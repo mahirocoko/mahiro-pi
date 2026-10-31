@@ -1,7 +1,7 @@
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
 import { assertKnowledgeHistory } from '../knowledge-history.ts'
-import { assertPalaceStructure } from '../palace-structure.ts'
 import { assertMigrationExportPage } from '../migration-export.ts'
+import { assertPalaceStructure } from '../palace-structure.ts'
 import {
   memoryMissingHint,
   palaceLayerFor,
@@ -10,7 +10,9 @@ import {
   retrievalLimits,
 } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
+import { reflectionBacklogLimit } from '../reflection-schedule.ts'
 import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
+import type { Method } from './protocol.ts'
 import {
   allowedPath,
   idPattern,
@@ -22,7 +24,6 @@ import {
   revisionPattern,
   uuidPattern,
 } from './schema.ts'
-import type { Method } from './protocol.ts'
 
 const hash = (v: unknown) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v)
 const revision = (v: unknown) => typeof v === 'string' && revisionPattern.test(v)
@@ -415,6 +416,35 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       ensure(Array.isArray(value) && value.length <= 4)
       for (const e of value) ensure(observedEpisode(e).project === input.project)
       return
+    case 'selectEpisodes': {
+      const ids = input.ids
+      ensure(Array.isArray(ids) && ids.length <= 4 && Array.isArray(value) && value.length <= ids.length)
+      const seen = new Set<string>()
+      for (const episode of value) {
+        const parsed = observedEpisode(episode)
+        ensure(ids.includes(parsed.id) && !seen.has(parsed.id) && parsed.project === input.project)
+        seen.add(parsed.id)
+      }
+      return
+    }
+    case 'episodeBacklog': {
+      const page = shape(value, ['ids'])
+      const limit = input.limit
+      ensure(
+        typeof limit === 'number' &&
+          Number.isSafeInteger(limit) &&
+          limit >= 1 &&
+          limit <= reflectionBacklogLimit &&
+          Array.isArray(page.ids) &&
+          page.ids.length <= limit,
+      )
+      const seen = new Set<string>()
+      for (const id of page.ids) {
+        ensure(hash(id) && !seen.has(id))
+        seen.add(id)
+      }
+      return
+    }
     case 'capacityDiagnostic': {
       const v = shape(value, [
         'version',

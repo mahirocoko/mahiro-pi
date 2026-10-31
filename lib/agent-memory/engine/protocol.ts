@@ -1,9 +1,10 @@
-import type { Episode, MemoryConfig } from '../store.ts'
 import { objectShape } from '../../continuity/records.ts'
+import { reflectionBacklogLimit } from '../reflection-schedule.ts'
 import { migrationExportPageLimit, migrationExportSections } from '../migration-export.ts'
-import { idPattern, revisionPattern, uuidPattern } from './schema.ts'
-import type { LockOwner } from './operation.ts'
 import type { MemoryFailureCode } from '../reasons.ts'
+import type { Episode, MemoryConfig } from '../store.ts'
+import type { LockOwner } from './operation.ts'
+import { idPattern, revisionPattern, uuidPattern } from './schema.ts'
 
 export const protocolVersion = 2
 export const transportLimits = Object.freeze({
@@ -139,6 +140,8 @@ export interface Operations {
   }
   offlineCertify: { input: { revision: string }; output: { revision: string } }
   episodes: { input: { project: string }; output: Episode[] }
+  selectEpisodes: { input: { project: string; ids: string[] }; output: Episode[] }
+  episodeBacklog: { input: { project: string; limit: number }; output: { ids: string[] } }
   observe: { input: { episode: Episode }; output: { recorded: true } }
   manage: {
     input: {
@@ -243,6 +246,8 @@ export const methods: Method[] = [
   'status',
   'offlineCertify',
   'episodes',
+  'selectEpisodes',
+  'episodeBacklog',
   'observe',
   'manage',
   'conflicts',
@@ -273,6 +278,8 @@ export function validateInput(method: Method, input: unknown) {
     status: [],
     offlineCertify: ['revision'],
     episodes: ['project'],
+    selectEpisodes: ['project', 'ids'],
+    episodeBacklog: ['project', 'limit'],
     observe: ['episode'],
     manage: ['action', 'project', 'revision', 'paths', 'sources', 'target', 'section', 'offset', 'limit'],
     conflicts: ['project', 'target', 'path', 'offset', 'limit'],
@@ -361,6 +368,29 @@ export function validateInput(method: Method, input: unknown) {
     throw Error('Invalid edit')
   if (method === 'episodes' && (typeof input.project !== 'string' || !idPattern.test(input.project)))
     throw Error('Invalid episode scope')
+  if (method === 'selectEpisodes') {
+    const ids = input.ids
+    if (
+      typeof input.project !== 'string' ||
+      !idPattern.test(input.project) ||
+      !Array.isArray(ids) ||
+      ids.length < 1 ||
+      ids.length > 4 ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id))
+    )
+      throw Error('Invalid episode selection')
+  }
+  if (method === 'episodeBacklog') {
+    if (
+      typeof input.project !== 'string' ||
+      !idPattern.test(input.project) ||
+      !Number.isSafeInteger(input.limit) ||
+      (input.limit as number) < 1 ||
+      (input.limit as number) > reflectionBacklogLimit
+    )
+      throw Error('Invalid episode backlog')
+  }
   if (
     method === 'offlineCertify' &&
     (typeof input.revision !== 'string' || !revisionPattern.test(input.revision))

@@ -1,18 +1,17 @@
-import { parseHistoryRows, assertKnowledgeHistory, type KnowledgeHistory } from '../knowledge-history.ts'
 import { createHash, randomUUID } from 'node:crypto'
-import { memoryFailure } from '../reasons.ts'
-import { snapshotDigest, structureDigest, type PalaceStructure } from '../palace-structure.ts'
-import { palaceLayerFor } from '../retrieval.ts'
 import { lstat, mkdir, opendir, readdir, rmdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
+import { assertKnowledgeHistory, type KnowledgeHistory, parseHistoryRows } from '../knowledge-history.ts'
 import {
   canonicalLedgerDigest,
   migrationExportPageLimit,
   migrationSourceIndex,
   pageMigrationExport,
 } from '../migration-export.ts'
+import { type PalaceStructure, snapshotDigest, structureDigest } from '../palace-structure.ts'
+import { memoryFailure } from '../reasons.ts'
 import {
   buildMemoryPalace,
   childDirectoryPaths,
@@ -23,34 +22,35 @@ import {
   memoryExtensionSuggestion,
   memoryMissingHint,
   memoryPathSuggestions,
+  palaceLayerFor,
   parseMemoryRead,
-  retrieveMemory,
   retrievalLimits,
+  retrieveMemory,
   topicMetadata,
 } from '../retrieval.ts'
 import type { MemoryConfig, MemoryFile, View } from '../store.ts'
-import { legacyView, recoveryCeiling, validateFiles } from './recovery.ts'
 import { observedEpisode } from './episodes.ts'
 import {
-  operationLimit,
-  parseLockOwner,
-  parseOperation,
-  validateReceipt,
-  type OperationRecord,
-  type LockOwner,
-} from './operation.ts'
-import {
   atomicPrivate,
+  type Check,
   createPrivate,
-  gitSafety,
   gitBlobBatches,
+  gitSafety,
   parseGitBlobs,
   privateDirectory,
   readPrivate,
   runGit,
   safePath,
-  type Check,
 } from './io.ts'
+import { type Base, type Draft, type Overlay, parseDraft, type Ref } from './manifest.ts'
+import {
+  type LockOwner,
+  type OperationRecord,
+  operationLimit,
+  parseLockOwner,
+  parseOperation,
+  validateReceipt,
+} from './operation.ts'
 import type {
   CapacityDiagnostic,
   CapacityNamespace,
@@ -63,6 +63,7 @@ import type {
   Receipt,
   Stage,
 } from './protocol.ts'
+import { legacyView, recoveryCeiling, validateFiles } from './recovery.ts'
 import {
   allowedPath,
   applySurgicalEdit,
@@ -72,6 +73,7 @@ import {
   idPattern,
   isAlwaysLoadedTieredPath,
   isProtectedRetentionPath,
+  type Ledger,
   legacyV1Migration,
   limits,
   parseConfig,
@@ -81,10 +83,8 @@ import {
   uuidPattern,
   validateFile,
   withMigrationFrontmatter,
-  type Ledger,
 } from './schema.ts'
 
-import { parseDraft, type Ref, type Overlay, type Base, type Draft } from './manifest.ts'
 interface Prepared {
   plan: Plan
   next: Record<string, Ref | Overlay>
@@ -562,7 +562,7 @@ export class MemoryDataEngine {
     if (args.revision !== undefined && now.revision !== args.revision)
       throw memoryFailure('CAS', 'Stale memory revision')
     let ledger = structuredClone(now.ledger)
-    let next = { ...now.refs }
+    const next = { ...now.refs }
     const writeNewOverlay = async (v: Draft, path: string, text: string, sources: string[]) => {
       validateFileText(path, text, sources, config)
       const blob = randomUUID()
@@ -1174,6 +1174,55 @@ export class MemoryDataEngine {
       .sort((a, b) => a.observedAt.localeCompare(b.observedAt) || a.id.localeCompare(b.id))
       .slice(0, 4)
   }
+  private async selectEpisodes(project: string, ids: readonly string[]) {
+    const revision = await this.head()
+    const ledger = await this.ledger(revision)
+    const folder = join(this.root, '.episodes')
+    const selected = []
+    for (const id of ids) {
+      let raw: string
+      try {
+        raw = await this.read(join(folder, `${id}.json`), 16384)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw error
+      }
+      const episode = observedEpisode(JSON.parse(raw))
+      if (episode.id !== id) throw Error('Invalid episode filename identity')
+      if (
+        ledger.reviewed.includes(id) ||
+        ledger.forgottenSources.some((entry) => entry.source === id && entry.project === project) ||
+        episode.project !== project
+      )
+        continue
+      selected.push(episode)
+    }
+    if ((await this.head()) !== revision) throw Error('Episode revision changed')
+    return selected
+  }
+  private async episodeBacklog(project: string, limit: number) {
+    const revision = await this.head()
+    const ledger = await this.ledger(revision)
+    const pending = []
+    for (const name of await this.episodeNames()) {
+      const id = name.slice(0, -5)
+      if (
+        ledger.reviewed.includes(id) ||
+        ledger.forgottenSources.some((entry) => entry.source === id && entry.project === project)
+      )
+        continue
+      const episode = observedEpisode(JSON.parse(await this.read(join(this.root, '.episodes', name), 16384)))
+      if (episode.id !== id) throw Error('Invalid episode filename identity')
+      if (episode.project === project) pending.push(episode)
+    }
+    if ((await this.head()) !== revision) throw Error('Episode revision changed')
+    return {
+      ids: pending
+        .sort((a, b) => a.observedAt.localeCompare(b.observedAt) || a.id.localeCompare(b.id))
+        .slice(0, limit)
+        .map((episode) => episode.id),
+    }
+  }
   private async episodeNames() {
     const folder = join(this.root, '.episodes')
     await this.gate([folder])
@@ -1633,6 +1682,14 @@ export class MemoryDataEngine {
       }
       case 'episodes':
         return await this.episodes((input as Input<'episodes'>).project)
+      case 'selectEpisodes': {
+        const args = input as Input<'selectEpisodes'>
+        return await this.selectEpisodes(args.project, args.ids)
+      }
+      case 'episodeBacklog': {
+        const args = input as Input<'episodeBacklog'>
+        return await this.episodeBacklog(args.project, args.limit)
+      }
       case 'observe':
         return await this.observe((input as Input<'observe'>).episode)
       case 'manage':

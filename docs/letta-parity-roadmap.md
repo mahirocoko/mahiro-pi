@@ -46,6 +46,11 @@ quality and must not create more work by themselves.
 
 - ABI2 remains the live maintained-memory authority and preserves the existing
   private corpus.
+- Source now includes bounded automatic reflection scheduling: 25 eligible assistant
+  messages trigger a frozen backlog, delivered in chunks of at most four episodes.
+  Only delivered episodes can be reviewed. Scheduling state is in memory and is not
+  recovered across runtime retirement; remaining episodes stay unreviewed. Source
+  checks do not by themselves establish installation or live behavior.
 - The disconnected `lib/agent-memory/local/**` Git/worktree service remains source
   experimentation. It is not silently combined with ABI2 or activated by this roadmap.
 - `/mh-memory palace`, `palace close` and `palace json` remain the public Palace
@@ -187,6 +192,8 @@ when it appears in real use.
   activated.
 - 2026-10-31: Letta Code becomes the direct implementation baseline. Percentage-driven
   parity work, mandatory evidence ladders and speculative proof loops are retired.
+- 2026-10-31: Reflection scheduling follows the upstream step-count direction within
+  ABI2's bounded episode and authority model; it does not claim durable transcript parity.
 - Open questions should be resolved when they block a concrete implementation, not
   expanded into a standalone audit phase.
 
