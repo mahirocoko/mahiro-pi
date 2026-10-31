@@ -21,6 +21,20 @@ dated source records, not current installation instructions.
 - Do not commit, push, publish, change profiles/auth/models/permissions, reload
   sessions or run live probes without explicit authorization.
 
+## Execution and session continuity
+
+- Carry an authorized task through implementation and verification. Investigate
+  and use available in-scope approaches rather than stopping at a plan, progress
+  update, failed attempt, or checkpoint; do not require Mahiro to say continue.
+  Do not invent extra gates or repeat an approval already granted. Stop for an
+  explicit pause, a real blocker, a safety or permission boundary, or a decision
+  that changes the authorized scope; report what remains and why.
+- When an authorized reload or restart is needed, first identify the exact owner
+  session and its live pane. Use the current `herdr-cli` and `direct-cli` guidance
+  where applicable, preserve the session ID, and restore that same session rather
+  than silently starting a replacement. Verify the resulting session and operation;
+  do not treat a submitted command as proof of completion.
+
 ## Protected contracts
 
 - Preserve the manifest's 13-entry order: the existing bootstrap (TypeScript,
