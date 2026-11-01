@@ -13,9 +13,15 @@ Source availability does not activate it in an already-running session.
 
 The advisory distinguishes intermediate checkpoints from completion, asks for
 already-authorized investigation/implementation/verification rather than repeated
-promises or permission questions, and preserves questions, plan/research-only
-requests, explicit stops, actual blockers and required approvals. It grants no
-extra scope, Goal, commit, publish, installation or automatic continuation.
+promises or permission questions. It asks the model to assess actual actions and
+evidence, investigate uncertainty safely within scope rather than invent a blocker
+or approval gate, and preserve questions, plan/research-only requests, explicit
+stops, actual blockers, safety boundaries and required approvals. Uncertainty is
+not permission to bypass a boundary. Reporting focuses on the outcome, work done
+and decision-relevant limitations or risks, including partial completion, blockers,
+important boundaries and actual side effects. Unrelated non-actions need not be
+listed unless asked for or needed for understanding. It grants no extra scope,
+Goal, commit, publish, installation or automatic continuation.
 It does not execute tools, inspect responses, enqueue follow-ups or retry runs.
 
 Owner: `lib/terra-persistence.ts`, registered by the existing
@@ -32,7 +38,8 @@ section preservation, a memory-style prompt replacement followed by the real
 session-step owner, and no forced continuation after a partial response. Memory
 composition here is a fixture of its public hook pattern, not live private-memory
 or provider acceptance. Prompt text assertions for scan/partial-edit/test and
-question/stop/blocker/approval cases do not prove Terra follows them. A small live
+question/stop/blocker/approval and uncertainty cases do not prove Terra follows
+them. A small live
 baseline/pilot comparison with synthetic primary identity observed both variants
 complete and respect the tested boundaries; it did not establish an advantage.
 No follow-up reduction, latency/cost benefit or behavioral resolution is claimed.

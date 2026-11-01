@@ -106,6 +106,13 @@ test('advisory encodes checkpoint positives and question/stop/approval negatives
     'promising to start',
     'recommending that same work',
     'permission already granted',
+    'hypothetical worst case',
+    'non-destructive, in-scope inspection or checks',
+    'uncertainty alone as a proven blocker',
+    'Do not infer permission from lack of evidence',
+    'bypass a required safety boundary',
+    'consequential uncertainty changes the next action',
+    'cannot be resolved safely within scope',
     'investigation, implementation and verification',
     'intermediate checkpoint',
     'scan, plan, partial edit or test',
@@ -119,6 +126,9 @@ test('advisory encodes checkpoint positives and question/stop/approval negatives
     'Do not manufacture extra work',
     'commit, push, publish',
     'profile change or automatic continuation',
+    'limitations or risks that matter to the decision',
+    'partial completion, blockers, important boundaries and actual side effects',
+    'Do not list unrelated things not done unless asked or necessary for understanding',
     'unrun checks or human acceptance',
   ])
     assert.ok(guidance.includes(phrase), phrase)
