@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -7,6 +15,7 @@ import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
 import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
+import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
 import { memoryFailureCode } from '../lib/agent-memory/reasons.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
@@ -1173,6 +1182,220 @@ test('lazy rebind checks exact manager/session/node/ABI/generation/root and curr
     } finally {
       await f.close()
     }
+  }
+})
+
+function draftManifest(id: string, revision: string, state: string, dirty = false) {
+  const hash = 'a'.repeat(64)
+  return JSON.stringify({
+    version: 2,
+    id,
+    project: 'synthetic',
+    shared: false,
+    configHash: hash,
+    base: {
+      revision,
+      refs: {
+        'Core.md': { oid: revision, hash, size: 1, sources: [] },
+        'index.md': { oid: revision, hash, size: 1, sources: [] },
+      },
+      ledger: {
+        forgottenPaths: [],
+        forgottenSources: [],
+        reviewed: [],
+        sources: { 'Core.md': [], 'index.md': [] },
+        version: 2,
+      },
+    },
+    overlay: dirty
+      ? {
+          'global/notes.md': {
+            blob: '00000000-0000-4000-8000-000000000099',
+            hash,
+            size: 1,
+            sources: [],
+            identity: '1:1',
+          },
+        }
+      : {},
+    state,
+    deadline: 0,
+  })
+}
+
+function referencingJournal(root: string, revision: string, view: string) {
+  const record = JSON.parse(terminalJournal(root, revision))
+  const { digest: _previous, ...metadata } = { ...record.immutable.plan, view }
+  record.immutable.plan = { ...metadata, digest: digest(JSON.stringify(metadata)) }
+  record.immutableHash = digest(JSON.stringify(record.immutable))
+  return JSON.stringify(record)
+}
+
+test('retained draft preview reports terminal manifests and never archives them', async () => {
+  const f = fixture(true)
+  try {
+    const revision = f.store.snapshot().revision
+    const root = realpathSync(f.root)
+    const drafts = join(root, '.views/.engine-v2/drafts')
+    const journal = join(root, '.views/.engine-v2/journal')
+    mkdirSync(drafts, { recursive: true, mode: 0o700 })
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    const ids = {
+      cancelled: journalId(1),
+      committed: journalId(2),
+      referenced: journalId(3),
+      open: journalId(4),
+      ready: journalId(5),
+      conflict: journalId(6),
+      dirty: journalId(7),
+      unknown: journalId(8),
+    }
+    const bodies = new Map<string, string>([
+      [ids.cancelled, draftManifest(ids.cancelled, revision, 'cancelled')],
+      [ids.committed, draftManifest(ids.committed, revision, 'committed')],
+      [ids.referenced, draftManifest(ids.referenced, revision, 'cancelled')],
+      [ids.open, draftManifest(ids.open, revision, 'open')],
+      [ids.ready, draftManifest(ids.ready, revision, 'ready')],
+      [ids.conflict, draftManifest(ids.conflict, revision, 'conflict')],
+      [ids.dirty, draftManifest(ids.dirty, revision, 'cancelled', true)],
+      [ids.unknown, '{'],
+    ])
+    for (const [id, body] of bodies) writeFileSync(join(drafts, `${id}.json`), body, { mode: 0o600 })
+    writeFileSync(join(journal, `${journalId(9)}.json`), referencingJournal(root, revision, ids.referenced), {
+      mode: 0o600,
+    })
+    const before = new Map([...bodies].map(([id]) => [id, readFileSync(join(drafts, `${id}.json`))]))
+    await f.emit('session_start')
+    const viewsBefore = readdirSync(join(root, '.views')).sort()
+    const command = f.commands.get('mh-memory')
+    assert.ok(command)
+    await command.handler('retained-preview extra', f.ctx)
+    assert.match(f.notifications.at(-1)!, /Usage: \/mh-memory retained-preview/)
+    await command.handler('retained-preview', f.ctx)
+    const preview = JSON.parse(f.notifications.at(-1)!)
+    assert.equal(preview.kind, 'abi2-retained-draft-preview')
+    assert.equal(preview.safeCandidates, 0)
+    assert.equal(preview.quiescence, 'unproven')
+    assert.equal(preview.mutation, 'not-performed')
+    assert.equal(preview.reason, 'cross-controller-exclusion-unproven')
+    assert.equal(preview.corpusReturned, false)
+    assert.equal(preview.observed.exact, true)
+    assert.equal(preview.observed.terminal, 2)
+    assert.equal(preview.observed.open, 1)
+    assert.equal(preview.observed.ready, 1)
+    assert.equal(preview.observed.conflict, 1)
+    assert.equal(preview.observed.dirty, 1)
+    assert.equal(preview.observed.journalReferenced, 1)
+    assert.equal(preview.observed.unknown, 1)
+    assert.equal(preview.observed.locallyActive, 0)
+    assert.equal(preview.observed.unstable, 0)
+    assert.equal(Object.hasOwn(preview, 'hypothetical'), false)
+    assert.equal(readdirSync(drafts).length, 8)
+    assert.deepEqual(readdirSync(join(root, '.views')).sort(), viewsBefore)
+    for (const [id, body] of before) assert.deepEqual(readFileSync(join(drafts, `${id}.json`)), body)
+    assert.doesNotMatch(JSON.stringify(preview), /SYNTHETIC_TREE_CORE|memory-tree-|\.views|global\/notes/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('an unreadable journal keeps every terminal draft uncertain and still writes nothing', async () => {
+  const f = fixture(true)
+  try {
+    const revision = f.store.snapshot().revision
+    const root = realpathSync(f.root)
+    const drafts = join(root, '.views/.engine-v2/drafts')
+    const journal = join(root, '.views/.engine-v2/journal')
+    mkdirSync(drafts, { recursive: true, mode: 0o700 })
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    const id = journalId(1)
+    const body = draftManifest(id, revision, 'cancelled')
+    writeFileSync(join(drafts, `${id}.json`), body, { mode: 0o600 })
+    writeFileSync(join(journal, `${journalId(2)}.json`), '{', { mode: 0o600 })
+    await f.emit('session_start')
+    const viewsBefore = readdirSync(join(root, '.views')).sort()
+    const preview = await f.runtime.run('agent_memory_manage', { action: 'retained-preview' }, f.ctx)
+    assert.equal(preview.safeCandidates, 0)
+    assert.equal(preview.mutation, 'not-performed')
+    assert.equal(preview.observed.exact, false)
+    assert.equal(preview.observed.terminal, 0)
+    assert.equal(preview.observed.unknown, 1)
+    assert.equal(readFileSync(join(drafts, `${id}.json`), 'utf8'), body)
+    assert.deepEqual(readdirSync(join(root, '.views')).sort(), viewsBefore)
+  } finally {
+    await f.close()
+  }
+})
+
+test('retained draft preview interruption and a concurrent writer leave the original bytes in place', async () => {
+  const f = fixture(true)
+  const other = new MemoryEngineController(realpathSync(f.root), engineEnvironment(process.env))
+  const original = MemoryEngineController.prototype.request
+  try {
+    const revision = f.store.snapshot().revision
+    const root = realpathSync(f.root)
+    const drafts = join(root, '.views/.engine-v2/drafts')
+    mkdirSync(drafts, { recursive: true, mode: 0o700 })
+    const id = journalId(1)
+    const body = draftManifest(id, revision, 'cancelled')
+    writeFileSync(join(drafts, `${id}.json`), body, { mode: 0o600 })
+    await f.emit('session_start')
+    const viewsBefore = readdirSync(join(root, '.views')).sort()
+    await assert.rejects(
+      f.runtime.run('agent_memory_manage', { action: 'retained-preview' }, f.ctx, AbortSignal.abort()),
+      (error: unknown) => {
+        assert.equal(error instanceof Error && error.name, 'AbortError')
+        return true
+      },
+    )
+    assert.equal(readFileSync(join(drafts, `${id}.json`), 'utf8'), body)
+    const controller = new AbortController()
+    MemoryEngineController.prototype.request = async function (this: MemoryEngineController, ...args) {
+      if (args[0] === 'retainedDraftPreview') controller.abort()
+      return original.apply(this, args)
+    }
+    await assert.rejects(f.runtime.retainedDraftPreview(f.ctx, controller.signal), (error: unknown) => {
+      assert.equal(error instanceof Error && error.name, 'AbortError')
+      return true
+    })
+    assert.equal(readFileSync(join(drafts, `${id}.json`), 'utf8'), body)
+    assert.deepEqual(readdirSync(join(root, '.views')).sort(), viewsBefore)
+    MemoryEngineController.prototype.request = async function (this: MemoryEngineController, ...args) {
+      if (args[0] === 'retainedDraftPreview')
+        await original.call(other, 'create', { project: 'synthetic' }, { current: () => true })
+      return original.apply(this, args)
+    }
+    const preview = await f.runtime.run('agent_memory_manage', { action: 'retained-preview' }, f.ctx)
+    assert.equal(preview.safeCandidates, 0)
+    assert.equal(preview.mutation, 'not-performed')
+    assert.equal(preview.quiescence, 'unproven')
+    assert.equal(readFileSync(join(drafts, `${id}.json`), 'utf8'), body)
+    const names = readdirSync(drafts)
+    assert.equal(names.length, 2)
+    assert.ok(names.includes(`${id}.json`))
+    assert.deepEqual(readdirSync(join(root, '.views')).sort(), viewsBefore)
+  } finally {
+    MemoryEngineController.prototype.request = original
+    await other.close()
+    await f.close()
+  }
+})
+
+test('a denied retained draft preview leaves the Palace viewer open', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await f.emit('before_agent_start', { systemPrompt: 'Base' })
+    const opened = await f.runtime.openPalaceViewer(f.ctx)
+    assert.equal(f.runtime.status().palaceViewer, 'open')
+    f.setGranted(false)
+    await assert.rejects(f.runtime.run('agent_memory_manage', { action: 'retained-preview' }, f.ctx))
+    assert.equal(f.runtime.status().palaceViewer, 'open')
+    f.setGranted(true)
+    const response = await fetch(opened.url)
+    assert.equal(response.status, 200)
+  } finally {
+    await f.close()
   }
 })
 

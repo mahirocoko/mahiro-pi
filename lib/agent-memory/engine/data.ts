@@ -43,6 +43,7 @@ import {
   safePath,
 } from './io.ts'
 import { type Base, type Draft, type Overlay, parseDraft, type Ref } from './manifest.ts'
+import { classifyRetainedManifest, type RetainedDraftPreview } from './retained-preview.ts'
 import {
   type LockOwner,
   type OperationRecord,
@@ -864,6 +865,144 @@ export class MemoryDataEngine {
       corpusReturned: false,
     }
   }
+  private async retainedDraftPreview(): Promise<RetainedDraftPreview> {
+    const { configHash } = await this.config()
+    const revision = await this.head()
+    const referenced = new Set<string>()
+    let journalExact = true
+    const journal = join(this.folder, 'journal')
+    await this.gate([journal], [], 'view')
+    await safePath(journal)
+    try {
+      await privateDirectory(journal)
+      const directory = await opendir(journal)
+      const names: string[] = []
+      let seen = 0
+      try {
+        for await (const entry of directory) {
+          await this.gate([journal], [], 'view')
+          this.signal?.throwIfAborted()
+          seen++
+          if (seen > 8192) {
+            journalExact = false
+            break
+          }
+          if (!/^[a-f0-9-]{36}\.json$/.test(entry.name)) {
+            journalExact = false
+            continue
+          }
+          names.push(entry.name)
+        }
+      } finally {
+        await directory.close().catch(() => {})
+      }
+      for (const name of names) {
+        let text: string
+        try {
+          text = await this.read(join(journal, name), operationLimit)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          journalExact = false
+          continue
+        }
+        try {
+          referenced.add(parseOperation(text).immutable.plan.view)
+        } catch {
+          journalExact = false
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const observed = {
+      examined: 0,
+      exact: true,
+      terminal: 0,
+      open: 0,
+      ready: 0,
+      conflict: 0,
+      unknown: 0,
+      dirty: 0,
+      journalReferenced: 0,
+      locallyActive: 0,
+      unstable: 0,
+    }
+    const folder = join(this.folder, 'drafts')
+    await this.gate([folder], [], 'view')
+    await safePath(folder)
+    try {
+      await privateDirectory(folder)
+      const directory = await opendir(folder)
+      const names: string[] = []
+      let seen = 0
+      try {
+        for await (const entry of directory) {
+          await this.gate([folder], [], 'view')
+          this.signal?.throwIfAborted()
+          seen++
+          if (seen > 8192) {
+            observed.exact = false
+            break
+          }
+          observed.examined++
+          if (!/^[a-f0-9-]{36}\.json$/.test(entry.name)) {
+            observed.exact = false
+            continue
+          }
+          names.push(entry.name)
+        }
+      } finally {
+        await directory.close().catch(() => {})
+      }
+      for (const name of names) {
+        const id = name.slice(0, -5)
+        const path = join(folder, name)
+        let first: string
+        let second: string
+        try {
+          first = await this.read(path, 2 * 1024 * 1024)
+          second = await this.read(path, 2 * 1024 * 1024)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          observed.unstable++
+          observed.exact = false
+          continue
+        }
+        const kind = classifyRetainedManifest({
+          id,
+          first,
+          second,
+          referenced: referenced.has(id),
+          locallyActive: this.drafts.has(id),
+        })
+        if (kind === 'unstable') observed.exact = false
+        observed[kind]++
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    if (!journalExact || !observed.exact) {
+      observed.unknown += observed.terminal
+      observed.terminal = 0
+      observed.exact = false
+    }
+    if ((await this.config()).configHash !== configHash || (await this.head()) !== revision)
+      throw memoryFailure('CAS', 'Retained draft preview changed')
+    return {
+      version: 1,
+      kind: 'abi2-retained-draft-preview',
+      revision,
+      configHash,
+      scanLimit: 8192,
+      association: 'sequential-non-atomic',
+      quiescence: 'unproven',
+      mutation: 'not-performed',
+      safeCandidates: 0,
+      reason: 'cross-controller-exclusion-unproven',
+      observed,
+      corpusReturned: false,
+    }
+  }
   private async names(folder: string, pattern: RegExp) {
     await this.gate([folder], [], 'view')
     await safePath(folder)
@@ -1672,6 +1811,8 @@ export class MemoryDataEngine {
         return await this.config()
       case 'capacityDiagnostic':
         return await this.capacityDiagnostic()
+      case 'retainedDraftPreview':
+        return await this.retainedDraftPreview()
       case 'status': {
         const { config, configHash } = await this.config()
         const base = await this.certify(config, configHash)

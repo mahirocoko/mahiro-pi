@@ -130,6 +130,10 @@ export interface Operations {
   }
   config: { input: Record<string, never>; output: { config: MemoryConfig; configHash: string } }
   capacityDiagnostic: { input: Record<string, never>; output: CapacityDiagnostic }
+  retainedDraftPreview: {
+    input: Record<string, never>
+    output: import('./retained-preview.ts').RetainedDraftPreview
+  }
   status: {
     input: Record<string, never>
     output: {
@@ -244,6 +248,7 @@ export const methods: Method[] = [
   'projection',
   'config',
   'capacityDiagnostic',
+  'retainedDraftPreview',
   'status',
   'offlineCertify',
   'episodes',
@@ -277,6 +282,7 @@ export function validateInput(method: Method, input: unknown) {
     projection: ['project', 'shared'],
     config: [],
     capacityDiagnostic: [],
+    retainedDraftPreview: [],
     status: [],
     offlineCertify: ['revision'],
     episodes: ['project'],

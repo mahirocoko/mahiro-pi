@@ -123,7 +123,9 @@ const viewerReadActions = new Set([
   'palace',
   'migration-export',
   'offline-inspect',
+  'offline-draft-inspect',
   'capacity',
+  'retained-preview',
 ])
 
 interface PalaceViewerCapture {
@@ -579,6 +581,36 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     // session branch. The child still rechecks config/HEAD and every private
     // metadata target under current authority.
     const result = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assertCurrent(f.context)
+    return result
+  }
+  const retainedDraftPreview = async (ctx: ExtensionContext, signal?: AbortSignal) => {
+    signal?.throwIfAborted()
+    ctx.signal?.throwIfAborted()
+    if (!ctx.isIdle() || starting || job || draft)
+      throw Error('Idle ABI2 primary retained draft preview required')
+    const leaf = ctx.sessionManager.getLeafId()
+    const f = owner(ctx, 'agent_memory_manage', 'read', signal ?? ctx.signal)
+    const current = f.context.current
+    f.context.current = (targets) => {
+      signal?.throwIfAborted()
+      ctx.signal?.throwIfAborted()
+      return (
+        ctx.isIdle() &&
+        !starting &&
+        !job &&
+        !draft &&
+        ctx.sessionManager.getLeafId() === leaf &&
+        current(targets)
+      )
+    }
+    assertCurrent(f.context)
+    await f.abi.authorize(f.tool, ctx, f.root, 'read')
+    assertCurrent(f.context)
+    if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx))
+      throw Error('Primary retained draft preview required')
+    // Classification only. It does not archive, unlink, or prove another controller is idle.
+    const result = await f.engine.request('retainedDraftPreview', {}, f.context)
     assertCurrent(f.context)
     return result
   }
@@ -1310,6 +1342,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       return await capacityDiagnostic(ctx, signal)
     if (
       name === 'agent_memory_manage' &&
+      objectShape(args, ['action']) &&
+      args.action === 'retained-preview' &&
+      Object.keys(args).length === 1
+    )
+      return await retainedDraftPreview(ctx, signal)
+    if (
+      name === 'agent_memory_manage' &&
       objectShape(args, ['action', 'core', 'projectId', 'automatic']) &&
       args.action === 'initialize'
     ) {
@@ -1338,9 +1377,23 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (
       name === 'agent_memory_manage' &&
       objectShape(args, ['action', 'target', 'revision', 'offline']) &&
-      ['offline-inspect', 'offline-adopt', 'offline-resume'].includes(args.action as string)
+      [
+        'offline-inspect',
+        'offline-adopt',
+        'offline-resume',
+        'offline-draft-inspect',
+        'offline-draft-archive',
+        'offline-draft-resume',
+        'offline-draft-rollback',
+      ].includes(args.action as string)
     ) {
-      const f = owner(ctx, name, args.action === 'offline-inspect' ? 'read' : 'write', signal, true)
+      const f = owner(
+        ctx,
+        name,
+        args.action === 'offline-inspect' || args.action === 'offline-draft-inspect' ? 'read' : 'write',
+        signal,
+        true,
+      )
       if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || starting || job || draft)
         throw Error('Idle ephemeral primary maintenance owner required')
       // No ordinary config/data barrier, cached recovered plan or manufactured current verdict.
@@ -2182,6 +2235,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }),
     capacityDiagnostic: (ctx: ExtensionContext, signal?: AbortSignal) =>
       admit(ctx, () => capacityDiagnostic(ctx, signal)),
+    retainedDraftPreview: (ctx: ExtensionContext, signal?: AbortSignal) =>
+      admit(ctx, () => retainedDraftPreview(ctx, signal)),
     captureInvocation: (ctx: ExtensionContext) =>
       admit(
         ctx,

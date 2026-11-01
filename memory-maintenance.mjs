@@ -18,6 +18,8 @@ try {
         '--inspect',
         '--apply',
         '--resume',
+        '--rollback',
+        '--drafts',
         '--offline',
         '--expect',
         '--target',
@@ -25,15 +27,18 @@ try {
       Object.hasOwn(options, flag)
     )
       throw Error('Unknown or duplicate operator option')
-    if (['--inspect', '--apply', '--resume', '--offline'].includes(flag)) options[flag] = true
+    if (['--inspect', '--apply', '--resume', '--rollback', '--drafts', '--offline'].includes(flag))
+      options[flag] = true
     else {
       const value = args[++i]
       if (!value || value.startsWith('--')) throw Error('Missing operator option value')
       options[flag] = value
     }
   }
-  if (['--inspect', '--apply', '--resume'].filter((key) => options[key]).length !== 1)
-    throw Error('Select exactly --inspect, --apply or --resume')
+  if (['--inspect', '--apply', '--resume', '--rollback'].filter((key) => options[key]).length !== 1)
+    throw Error('Select exactly --inspect, --apply, --resume or --rollback')
+  if (options['--rollback'] && !options['--drafts'])
+    throw Error('Rollback belongs to the terminal-draft archive operator')
   const canonical = (path) => {
     if (
       typeof path !== 'string' ||
@@ -67,23 +72,33 @@ try {
   ]
   if (!Array.isArray(settings.packages) || packages.some((path) => !settings.packages.includes(path)))
     throw Error('Required canonical public owners must already be installed; installer is separate')
-  const action = options['--inspect']
-    ? 'offline-inspect'
-    : options['--apply']
-      ? 'offline-adopt'
-      : 'offline-resume'
+  const action = options['--drafts']
+    ? options['--inspect']
+      ? 'offline-draft-inspect'
+      : options['--apply']
+        ? 'offline-draft-archive'
+        : options['--rollback']
+          ? 'offline-draft-rollback'
+          : 'offline-draft-resume'
+    : options['--inspect']
+      ? 'offline-inspect'
+      : options['--apply']
+        ? 'offline-adopt'
+        : 'offline-resume'
+  const inspection = action === 'offline-inspect' || action === 'offline-draft-inspect'
+  const targetPattern = action === 'offline-draft-archive' ? /^[a-f0-9]{64}$/ : /^[a-f0-9-]{36}$/
   if (
-    action !== 'offline-inspect' &&
+    !inspection &&
     (!options['--offline'] ||
       !/^[a-f0-9]{64}$/.test(options['--expect'] ?? '') ||
-      !/^[a-f0-9-]{36}$/.test(options['--target'] ?? ''))
+      !targetPattern.test(options['--target'] ?? ''))
   )
-    throw Error('Apply/resume requires --offline, --target and exact reviewed --expect')
-  if (action === 'offline-inspect' && (options['--offline'] || options['--expect'] || options['--target']))
+    throw Error('Apply/resume/rollback requires --offline, --target and exact reviewed --expect')
+  if (inspection && (options['--offline'] || options['--expect'] || options['--target']))
     throw Error('Inspection takes no adoption arguments')
   const operation = {
     action,
-    ...(action === 'offline-inspect'
+    ...(inspection
       ? {}
       : {
           target: options['--target'],

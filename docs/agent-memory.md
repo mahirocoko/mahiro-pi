@@ -235,7 +235,17 @@ throughout the attempt. It returns no names, paths, record bodies, corpus text o
 cleanup handle. Missing diagnostics remain unknown. `/mh-memory capacity` requests that same
 count-only diagnostic while the session is idle, including after status
 succeeded. A model tool turn is not idle, so the registered `capacity` action is
-not a substitute for that command. A reported
+not a substitute for that command. `/mh-memory retained-preview` is a separate
+idle-primary read of draft manifest metadata. It classifies only demonstrably
+terminal cancelled or committed manifests, and it leaves open, ready, conflict,
+unknown, dirty, journal-referenced, unstable and locally active drafts out of
+that count. A manifest that changes between reads makes the scan inexact and
+clears the terminal count.
+It does not establish cross-controller quiescence, so its safe candidate count
+stays zero and it does not archive, unlink, rename, or change overlay bytes,
+inodes, the ledger, Git, or episodes. The scan counts every directory entry up to
+8,192 and stops; it does not report a hypothetical archive count. Recovery of
+those manifests is the explicit offline `--drafts` operator below, not this preview. A model tool turn is not idle. A reported
 blocker does not authorize deletion, discard, adoption, restart, policy change or
 profile activation; remediation requires a separately reviewed owner workflow.
 A 2026-10-30 current-profile read-only observation at source commit `68def01`
@@ -746,6 +756,69 @@ automatically; any later owner-authorized snapshot cleanup is a separate destruc
 operation after HEAD, Git cleanliness and doctor health are reverified. Receipts
 are source-operation evidence, not semantic recovery, installed activation or
 human acceptance.
+
+### Terminal draft archive
+
+A separate opt-in on the same operator, `memory-maintenance.mjs --drafts`,
+archives retained ABI2 draft manifests that are strictly `cancelled` or
+`committed`, have an empty overlay, and are not referenced by a parsed journal.
+Open, ready, conflict, dirty, malformed, journal-referenced and unstable
+manifests stay in the active draft directory. If any journal record or draft
+manifest is unreadable or changes between reads, the candidate set is empty and
+nothing is moved. This does not use the interrupted-publication plan or its
+ready-proposal finish. Existing `--inspect`, `--apply` and `--resume` behavior
+without `--drafts` is unchanged. `--rollback` requires `--drafts`.
+
+Inspect binds one fingerprint of HEAD, root identity, config, ledger hash,
+journal hashes and every current draft manifest hash, plus the candidate-set
+fingerprint. Apply requires that exact pair, `--offline`, and the same
+cooperative `lsof` holder check. The fixed system `lsof` plus the operator's
+known-profile-closed assurance is accepted cooperative exclusion. It is not a
+guarantee against a dormant same-user process, a hostile process, or a holder
+that is not visible as a Root-tree file descriptor or cwd. Holder inspection
+exempts only this operator process and the data-controller child it actually
+holds (`engine.pid`). Another session's data child is not exempt. The
+known-profile-closed and no-new-writers statement is the operator's cooperative
+assurance, not a sensor. Same-process archive, resume and rollback also take
+one in-process root-inode map entry from load through marker release. A second
+operation in that process fails while the entry is held. The map is not a
+cross-process lock and is not recovered after the process exits.
+
+The snapshot copies only those candidate manifest bytes, streamed and fsynced,
+not the corpus, overlay blobs, ledger, journals, Git objects or earlier
+maintenance archives. The marker is hardlinked into place only after its full
+bytes are written and fsynced in one `maintenance-marker-<uuid>.partial` file.
+An interruption before that link leaves no marker. If the process stops after
+the link and before unlinking that temp, the marker inode has two names and
+ordinary path protection refuses it. Read-only `--drafts --inspect` validates
+that pair and returns the checkpoint without unlinking either name. A write
+resume or rollback unlinks only that temp after the in-process owner is held,
+authority passes, holder inspection passes, and the reviewed target and
+fingerprint match. The temp must be a regular private file, the same device
+and inode as the marker, link count exactly two, and both names must carry the
+same bytes of the immutable `{ version: 1, id }` marker. Any other shape,
+count, or hash keeps both names. An unstable manifest, including one read that
+changes beside a stable terminal manifest, makes the inventory inexact and the
+candidate set empty. A completed resume rechecks holders, root
+identity, config, ledger, journal readability, HEAD, plan identity and snapshot
+bytes before it releases the marker. The marker is created only after that
+snapshot verifies. Public Node does not expose `RENAME_NOREPLACE` or
+`renamex_np`. Each candidate move uses `COPYFILE_EXCL`, which fails when the
+destination exists, then unlinks the source only after the copy hash matches.
+That is not an atomic rename. A crash after the copy and before the source
+unlink leaves both names. Resume keeps the marker and does not delete or
+replace either name; removing one is a separate operator recovery, not an
+automatic guess. Identity, authority, `lsof` and HEAD are rechecked before
+the moves. An unknown result keeps the marker. There is no automatic replay.
+
+After a finished exclusive copy, explicit `--resume` continues only when each
+candidate is in exactly one of the original path or the quarantine and the
+bytes match the snapshot. Explicit `--rollback` copies a candidate back only
+when its original path is absent; `COPYFILE_EXCL` fails if that path exists.
+Both or neither, or bytes that differ, keep the marker. The snapshot remains
+as the rollback proof. Same-root restoration puts the manifest back at its
+original draft path for the existing owner. It does not activate a proposal or
+change HEAD.
 
 ## Experimental local Git/worktree service
 

@@ -49,12 +49,32 @@ test('registered manage tool accepts bounded reflection fields and rejects the r
       arguments: { action: 'capacity' },
     })
     assert.equal(capacity.action, 'capacity')
+    const preview = validateToolCall([manage], {
+      type: 'toolCall',
+      id: 'retained-preview-action',
+      name: 'agent_memory_manage',
+      arguments: { action: 'retained-preview' },
+    })
+    assert.equal(preview.action, 'retained-preview')
+    const draftArchive = validateToolCall([manage], {
+      type: 'toolCall',
+      id: 'offline-draft-archive-action',
+      name: 'agent_memory_manage',
+      arguments: {
+        action: 'offline-draft-archive',
+        target: 'a'.repeat(64),
+        revision: 'b'.repeat(64),
+        offline: 'known-profile-closed-no-cooperative-writers-start',
+      },
+    })
+    assert.equal(draftArchive.action, 'offline-draft-archive')
     const rejected: { [key: string]: string | number | boolean }[] = [
       { action: 'policy', automatic: true, reflectionTrigger: 'weekly', reflectionStepCount: 1 },
       { action: 'policy', automatic: true, reflectionTrigger: 'step-count', reflectionStepCount: 0 },
       { action: 'policy', automatic: true, reflectionTrigger: 'step-count', reflectionStepCount: 100001 },
       { action: 'policy', automatic: true, reflectionMode: 'step-count' },
       { action: 'capacity', reflectionMode: 'status' },
+      { action: 'retained-preview', reflectionMode: 'status' },
     ]
     for (const arguments_ of rejected)
       assert.throws(

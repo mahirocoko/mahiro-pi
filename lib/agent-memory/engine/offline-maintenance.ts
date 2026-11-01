@@ -2,21 +2,22 @@ import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, readdir, rename, rmdir, unlink } from 'node:fs/promises'
-import { dirname, join, relative } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { assertCurrent, type MemoryEngineController, type OperationContext } from './controller.ts'
-import { engineEnvironment, privateDirectory, readPrivate, runGit, safePath } from './io.ts'
+import { engineEnvironment, privateDirectory, runGit, safePath } from './io.ts'
 import { operationLimit, parseLockOwner, parseOperation, type LockOwner } from './operation.ts'
 import { parseDraft } from './manifest.ts'
 import { limits, parseConfig, parseLedger, uuidPattern } from './schema.ts'
+import { draftArchiveMaintenance } from './offline-draft-archive.ts'
 
 // Explicit cooperative offline adoption only. This is NOT executor drain or normal reconciliation.
 export const maintenanceMarker = '.views/.maintenance-active.json'
 export const offlineAssurance = 'known-profile-closed-no-cooperative-writers-start'
-const container = '.views/.maintenance'
+export const container = '.views/.maintenance'
 const journal = '.views/.engine-v2/journal'
 const bounds = Object.freeze({ entries: 131072, bytes: 8 * 1024 * 1024 * 1024, file: 256 * 1024 * 1024 })
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
-interface Entry {
+export interface Entry {
   path: string
   kind: 'file' | 'directory'
   identity: string
@@ -46,14 +47,21 @@ interface State {
   disposition: 'manually-adopted-prior-outcome-unknown' | 'manually-recovered-not-committed-dirty'
 }
 export interface MaintenanceRequest {
-  action: 'offline-inspect' | 'offline-adopt' | 'offline-resume'
+  action:
+    | 'offline-inspect'
+    | 'offline-adopt'
+    | 'offline-resume'
+    | 'offline-draft-inspect'
+    | 'offline-draft-archive'
+    | 'offline-draft-resume'
+    | 'offline-draft-rollback'
   target?: string
   revision?: string
   offline?: string
 }
 const identity = (s: { dev: number; ino: number }) => `${s.dev}:${s.ino}`
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
-async function present(path: string, context: OperationContext) {
+export async function present(path: string, context: OperationContext) {
   await gate(context, [path])
   try {
     await lstat(path)
@@ -69,23 +77,37 @@ const validPath = (path: unknown): path is string =>
   path.length <= 4096 &&
   (path === '.' ||
     (path.split('/').every((p) => p !== '' && p !== '.' && p !== '..') && !path.includes('\0')))
-async function gate(context: OperationContext, paths: string[]) {
+export async function gate(context: OperationContext, paths: string[]) {
   for (let start = 0; start < Math.max(paths.length, 1); start += 32)
     assertCurrent(context, { physical: paths.slice(start, start + 32), logical: [], kind: 'data' })
 }
-async function syncDirectory(path: string, context: OperationContext) {
+export async function syncDirectory(path: string, context: OperationContext) {
   await gate(context, [path])
   const fd = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  let failed = false
   try {
+    await gate(context, [path])
     await fd.sync()
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await fd.close()
+    try {
+      await fd.close()
+    } catch (error) {
+      if (!failed) throw error
+    }
   }
 }
-async function fileHash(path: string, context: OperationContext): Promise<{ hash: string; size: number }> {
+export async function fileHash(
+  path: string,
+  context: OperationContext,
+): Promise<{ hash: string; size: number }> {
   await gate(context, [path])
   const fd = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  let failed = false
   try {
+    await gate(context, [path])
     const before = await fd.stat()
     if (!before.isFile() || before.nlink !== 1 || before.size > bounds.file)
       throw Error('Offline inventory unsafe file or resource bound')
@@ -100,6 +122,7 @@ async function fileHash(path: string, context: OperationContext): Promise<{ hash
       if (size > bounds.file) throw Error('Offline inventory file bound')
       digest.update(buffer.subarray(0, bytesRead))
     }
+    await gate(context, [path])
     const after = await fd.stat()
     if (
       identity(before) !== identity(after) ||
@@ -110,8 +133,15 @@ async function fileHash(path: string, context: OperationContext): Promise<{ hash
     )
       throw Error('Offline file changed during hashing')
     return { hash: digest.digest('hex'), size }
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await fd.close()
+    try {
+      await fd.close()
+    } catch (error) {
+      if (!failed) throw error
+    }
   }
 }
 async function inventory(root: string, context: OperationContext, excluded: string[] = []): Promise<Entry[]> {
@@ -152,11 +182,59 @@ async function inventory(root: string, context: OperationContext, excluded: stri
   }
   return entries.sort((a, b) => a.path.localeCompare(b.path, 'en'))
 }
-async function read(root: string, path: string, max: number, context: OperationContext) {
-  await gate(context, [join(root, path)])
-  return (await readPrivate(join(root, path), max)).toString('utf8')
+export function relativeToRoot(root: string, absolute: string) {
+  if (!isAbsolute(root) || resolve(root) !== root || !isAbsolute(absolute) || resolve(absolute) !== absolute)
+    throw Error('Canonical absolute path required')
+  const path = relative(root, absolute)
+  if (path === '' || join(root, path) !== absolute) throw Error('Canonical absolute path required')
+  return path
 }
-async function git(root: string, args: string[], context: OperationContext) {
+export async function read(root: string, path: string, max: number, context: OperationContext) {
+  const physical = join(root, path)
+  if (
+    !isAbsolute(root) ||
+    resolve(root) !== root ||
+    !isAbsolute(physical) ||
+    resolve(physical) !== physical ||
+    (physical !== root && !physical.startsWith(`${root}/`))
+  )
+    throw Error('Canonical absolute path required')
+  // External ancestors are link-checked without kernel authority. In-root lstat stays behind gate.
+  await safePath(dirname(root))
+  let cursor = root
+  await gate(context, [cursor])
+  const rootStat = await lstat(cursor)
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw Error('Linked path refused')
+  for (const part of physical.slice(root.length).split('/').filter(Boolean)) {
+    cursor = join(cursor, part)
+    await gate(context, [cursor])
+    const stat = await lstat(cursor)
+    if (stat.isSymbolicLink() || (stat.isFile() && stat.nlink !== 1)) throw Error('Linked path refused')
+  }
+  await gate(context, [physical])
+  const fd = await open(physical, constants.O_RDONLY | constants.O_NOFOLLOW)
+  let failed = false
+  try {
+    await gate(context, [physical])
+    const stat = await fd.stat()
+    if (!stat.isFile() || stat.nlink !== 1 || stat.mode & 0o077 || stat.size > max)
+      throw Error('Private file unavailable')
+    await gate(context, [physical])
+    const data = await fd.readFile()
+    if (data.length > max) throw Error('Private file bound exceeded')
+    return data.toString('utf8')
+  } catch (error) {
+    failed = true
+    throw error
+  } finally {
+    try {
+      await fd.close()
+    } catch (error) {
+      if (!failed) throw error
+    }
+  }
+}
+export async function git(root: string, args: string[], context: OperationContext) {
   await gate(context, [root, join(root, '.git'), join(root, '.git/index')])
   return await runGit(root, args, engineEnvironment(), context.signal)
 }
@@ -342,7 +420,11 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
 
 // Fixed public system tool; no PATH/env/caller-selected helper, PID-death or quiet-time fallback.
 // +D selects kernel-reported TREE file descriptors AND cwd, including .git and detached holders.
-async function inspectHolders(root: string, engine: MemoryEngineController, context: OperationContext) {
+export async function inspectHolders(
+  root: string,
+  engine: MemoryEngineController,
+  context: OperationContext,
+) {
   await gate(context, [root, join(root, '.git')])
   const executable =
     process.platform === 'darwin'
@@ -432,10 +514,10 @@ async function replacePrivate(
   await rename(temp, path)
   await syncDirectory(dirname(path), context)
 }
-async function durableJSON(path: string, value: unknown, context: OperationContext) {
+export async function durableJSON(path: string, value: unknown, context: OperationContext) {
   await replacePrivate(path, `${JSON.stringify(value)}\n`, context)
 }
-async function makeDirectory(path: string, context: OperationContext): Promise<void> {
+export async function makeDirectory(path: string, context: OperationContext): Promise<void> {
   await gate(context, [path, dirname(path)])
   await safePath(path)
   if (await present(path, context)) {
@@ -448,7 +530,7 @@ async function makeDirectory(path: string, context: OperationContext): Promise<v
   await syncDirectory(path, context)
   await syncDirectory(dirname(path), context)
 }
-async function copyFile(
+export async function copyFile(
   source: string,
   destination: string,
   work: string,
@@ -466,10 +548,13 @@ async function copyFile(
   await gate(context, [source, temp])
   const input = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW)
   let output
+  let failed = false
   try {
+    await gate(context, [source, temp])
     const s = await input.stat()
     if (!s.isFile() || s.nlink !== 1 || identity(s) !== expected.identity || s.size !== expected.size)
       throw Error('Archive source identity changed')
+    await gate(context, [temp])
     output = await open(
       temp,
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
@@ -487,15 +572,29 @@ async function copyFile(
       const data = buffer.subarray(0, bytesRead)
       digest.update(data)
       let offset = 0
-      while (offset < data.length)
+      while (offset < data.length) {
+        await gate(context, [source, temp])
         offset += (await output.write(data, offset, data.length - offset)).bytesWritten
+      }
     }
     if (size !== expected.size || digest.digest('hex') !== expected.hash)
       throw Error('Archive source bytes changed')
+    await gate(context, [source, temp])
     await output.sync()
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await input.close()
-    await output?.close()
+    try {
+      await input.close()
+    } catch (error) {
+      if (!failed) throw error
+    }
+    try {
+      await output?.close()
+    } catch (error) {
+      if (!failed) throw error
+    }
   }
   await gate(context, [temp, destination])
   await rename(temp, destination)
@@ -568,7 +667,12 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
 }
 async function conflictBytes(plan: Plan, work: string, context: OperationContext) {
   if (!plan.draft) return undefined
-  const original = await read(join(work, 'snapshot'), plan.draft, 2 * 1024 * 1024, context)
+  const original = await read(
+    plan.root,
+    relativeToRoot(plan.root, join(work, 'snapshot', plan.draft)),
+    2 * 1024 * 1024,
+    context,
+  )
   const draft = parseDraft(original)
   return `${JSON.stringify({ ...draft, state: 'conflict' })}\n`
 }
@@ -723,11 +827,11 @@ async function loadTransaction(root: string, context: OperationContext) {
   )
     throw Error('Offline maintenance marker unavailable')
   const work = join(root, container, marker.id)
-  const raw = await read(work, 'plan.json', 64 * 1024 * 1024, context)
+  const raw = await read(root, relativeToRoot(root, join(work, 'plan.json')), 64 * 1024 * 1024, context)
   const plan = JSON.parse(raw) as Plan
   if (!Object.hasOwn(plan, 'worktree')) plan.worktree = []
   if (!Object.hasOwn(plan, 'outcome')) plan.outcome = 'unknown'
-  const stateRaw = await read(work, 'state.json', 2048, context)
+  const stateRaw = await read(root, relativeToRoot(root, join(work, 'state.json')), 2048, context)
   const state = JSON.parse(stateRaw) as State
   if (
     plan.version !== 1 ||
@@ -903,6 +1007,8 @@ export async function offlineMaintenance(
   context: OperationContext,
   request: MaintenanceRequest,
 ) {
+  const drafted = await draftArchiveMaintenance(engine, context, request)
+  if (drafted) return drafted
   const root = engine.root
   await gate(context, [root, join(root, maintenanceMarker)])
   if (await present(join(root, maintenanceMarker), context)) {

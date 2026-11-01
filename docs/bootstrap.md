@@ -103,13 +103,29 @@ pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
   --target <reviewed-operation-UUID> --expect <exact-inspection-SHA256>
 ```
 
+Terminal draft saturation uses the same operator with `--drafts`. It archives
+only strict cancelled or committed empty-overlay manifests that no journal
+references. `--rollback` is available only for that draft archive. The `lsof`
+check and `--offline` assurance are cooperative exclusion, not a dormant
+same-user or hostile-process proof. Inspect again after any byte change.
+
+```sh
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --drafts --inspect
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --drafts --apply --offline \
+  --target <candidate-set-SHA256> --expect <exact-inventory-SHA256>
+```
+
 The target must already have the three canonical public owners installed, a
 private standard ABI2 selection, and current exact DATA/tool authority. This CLI
 writes no settings or grants and does not call installation. It starts one genuine
 ephemeral headless public SDK primary with deterministic Faux transport and zero
 external inference; ordinary persistent primaries and native children cannot
-adopt. A live Main's data child is an **unexpected** Root holder to this new
-operator and causes refusal. `--offline` is operator assurance, never permission,
+adopt. Holder inspection exempts only that operator process and the
+data-controller child it actually holds. A live Main session's data child is a
+different process and is an **unexpected** Root holder. `--offline` is the
+cooperative known-profile-closed and no-new-writers assurance, never permission,
 PID-death evidence or an override for the fixed system `lsof` tree-FD/cwd check.
 
 Inspect returns bounded metadata/fingerprints and admission counts, not corpus or
@@ -122,7 +138,7 @@ kill holders, reset memory or remove markers to make installation pass.
 After interruption, retain the complete private archive/workspace and marker.
 Run the same `--inspect`, review its transaction/checkpoint target and digest, then
 explicitly select `--resume --offline --target <transaction-UUID> --expect <digest>`.
-There is no automatic replay, lost-executor drain inference or rollback. A malformed
+Publication recovery has no automatic replay, lost-executor drain inference or rollback. A malformed
 checkpoint remains unavailable. Even with an absent `.lock` and clean Git, a
 maintenance marker blocks the installer until supported owner completion.
 Completed receipts say prior outcome unknown; they do not claim human acceptance.

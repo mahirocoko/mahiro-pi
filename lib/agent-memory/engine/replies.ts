@@ -10,6 +10,7 @@ import {
   retrievalLimits,
 } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
+import { assertRetainedDraftPreview } from './retained-preview.ts'
 import { reflectionBacklogLimit } from '../reflection-schedule.ts'
 import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
 import type { Method } from './protocol.ts'
@@ -450,6 +451,9 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       ensure(integer(credit.steps, 256 * 1024))
       return
     }
+    case 'retainedDraftPreview':
+      assertRetainedDraftPreview(value)
+      return
     case 'capacityDiagnostic': {
       const v = shape(value, [
         'version',
