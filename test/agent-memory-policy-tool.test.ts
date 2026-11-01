@@ -68,6 +68,25 @@ test('registered manage tool accepts bounded reflection fields and rejects the r
       },
     })
     assert.equal(draftArchive.action, 'offline-draft-archive')
+    for (const action of [
+      'offline-draft-park-inspect',
+      'offline-draft-park',
+      'offline-draft-restore-inspect',
+      'offline-draft-restore',
+    ]) {
+      const validated = validateToolCall([manage], {
+        type: 'toolCall',
+        id: action,
+        name: 'agent_memory_manage',
+        arguments: {
+          action,
+          target: '00000000-0000-4000-8000-000000000001',
+          revision: 'b'.repeat(64),
+          offline: 'known-profile-closed-no-cooperative-writers-start',
+        },
+      })
+      assert.equal(validated.action, action)
+    }
     const rejected: { [key: string]: string | number | boolean }[] = [
       { action: 'policy', automatic: true, reflectionTrigger: 'weekly', reflectionStepCount: 1 },
       { action: 'policy', automatic: true, reflectionTrigger: 'step-count', reflectionStepCount: 0 },

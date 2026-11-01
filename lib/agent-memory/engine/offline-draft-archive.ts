@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { copyFile as copyFileExclusive, link, lstat, open, opendir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
+import { parseDraft } from './manifest.ts'
 import type { MemoryEngineController, OperationContext } from './controller.ts'
 import {
   container,
@@ -23,7 +25,7 @@ import {
 } from './offline-maintenance.ts'
 import { parseOperation } from './operation.ts'
 import { classifyRetainedManifest } from './retained-preview.ts'
-import { limits, parseConfig, parseLedger, uuidPattern } from './schema.ts'
+import { allowedPath, limits, parseConfig, parseLedger, uuidPattern } from './schema.ts'
 
 const drafts = '.views/.engine-v2/drafts'
 const journal = '.views/.engine-v2/journal'
@@ -35,6 +37,10 @@ const draftActions = new Set<MaintenanceRequest['action']>([
   'offline-draft-archive',
   'offline-draft-resume',
   'offline-draft-rollback',
+  'offline-draft-park-inspect',
+  'offline-draft-park',
+  'offline-draft-restore-inspect',
+  'offline-draft-restore',
 ])
 interface Row {
   id: string
@@ -57,7 +63,7 @@ interface Reviewed {
 }
 interface DraftPlan {
   version: 1
-  kind: 'terminal-draft-archive'
+  kind: 'terminal-draft-archive' | 'clean-open-draft-parking' | 'clean-open-draft-restore'
   id: string
   root: string
   rootIdentity: string
@@ -66,13 +72,19 @@ interface DraftPlan {
   ledgerHash: string
   journalHash: string
   rows: Row[]
+  restoreOf?: { id: string; planHash: string; stateHash: string }
 }
 interface DraftState {
   version: 1
   phase: 'snapshotted' | 'moving' | 'completed' | 'rolling-back'
   planHash: string
-  disposition: 'terminal-drafts-archived'
+  disposition: 'terminal-drafts-archived' | 'clean-open-drafts-parked' | 'clean-open-drafts-restored'
+  restoreTransaction?: string
 }
+const resultKind = (plan: DraftPlan) =>
+  plan.kind !== 'terminal-draft-archive'
+    ? ('abi2-clean-open-draft-parking' as const)
+    : ('abi2-terminal-draft-archive' as const)
 const candidateTarget = (rows: Row[]) =>
   hash(
     rows
@@ -147,7 +159,7 @@ async function withExecutionOwner<T>(root: string, context: OperationContext, bo
 // when the destination exists, so this does not replace it. It is not an atomic rename:
 // a crash after the copy and before unlinking the source leaves both names, and resume
 // keeps the marker instead of choosing one.
-async function moveExclusive(source: string, destination: string, context: OperationContext) {
+async function copyExclusive(source: string, destination: string, context: OperationContext) {
   await gate(context, [source, destination])
   try {
     await copyFileExclusive(source, destination, constants.COPYFILE_EXCL)
@@ -176,6 +188,9 @@ async function moveExclusive(source: string, destination: string, context: Opera
       if (!failed) throw error
     }
   }
+}
+async function moveExclusive(source: string, destination: string, context: OperationContext) {
+  await copyExclusive(source, destination, context)
   await gate(context, [source, destination])
   await unlink(source)
 }
@@ -186,7 +201,67 @@ async function fileIdentity(path: string, context: OperationContext) {
     throw Error('Offline draft archive refuses links or special files')
   return { identity: `${stat.dev}:${stat.ino}`, mode: stat.mode & 0o777 }
 }
-async function reviewDrafts(root: string, context: OperationContext): Promise<Reviewed> {
+// No new retention owner: only a base reachable from canonical HEAD is parkable.
+// Normal append-only publication keeps that commit and its tree reachable. History
+// rewriting/GC or external Git changes are not repaired here; restore fails closed.
+async function verifyBase(root: string, raw: string, context: OperationContext) {
+  const draft = parseDraft(raw)
+  if (draft.state !== 'open' || Object.keys(draft.overlay).length)
+    throw Error('Offline parking requires a clean open draft')
+  // Match the offline owner's standalone/complete-object requirement; ancestry
+  // through an external object store or rewritten graft is not retained recovery.
+  for (const path of [
+    '.git/commondir',
+    '.git/objects/info/alternates',
+    '.git/objects/info/http-alternates',
+    '.git/info/grafts',
+    '.git/shallow',
+    '.git/worktrees',
+    '.git/modules',
+  ]) {
+    if (await present(join(root, path), context))
+      throw Error('Offline parking requires standalone complete retained history')
+  }
+  const revision = draft.base.revision
+  await git(root, ['--no-replace-objects', 'merge-base', '--is-ancestor', revision, 'HEAD'], context)
+  const ledger = parseLedger(
+    (await git(root, ['--no-replace-objects', 'show', `${revision}:.memory.json`], context)).toString('utf8'),
+  )
+  if (!isDeepStrictEqual(ledger, draft.base.ledger)) throw Error('Offline parking base ledger differs')
+  const paths = Object.keys(ledger.sources).filter((path) =>
+    allowedPath(path, draft.shared ? undefined : draft.project),
+  )
+  if (!isDeepStrictEqual(paths.sort(), Object.keys(draft.base.refs).sort()))
+    throw Error('Offline parking base layout differs')
+  for (const [path, ref] of Object.entries(draft.base.refs)) {
+    const oid = (
+      await git(root, ['--no-replace-objects', 'rev-parse', '--verify', `${revision}:${path}`], context)
+    )
+      .toString()
+      .trim()
+    if (oid !== ref.oid) throw Error('Offline parking base object differs')
+    const body = await git(root, ['--no-replace-objects', 'cat-file', 'blob', oid], context)
+    if (body.length !== ref.size || hash(body) !== ref.hash)
+      throw Error('Offline parking base bytes unavailable')
+  }
+}
+async function verifyParkedBases(plan: DraftPlan, work: string, context: OperationContext) {
+  if (plan.kind === 'terminal-draft-archive') return
+  for (const row of plan.rows) {
+    if (row.role !== 'candidate') continue
+    await verifyBase(
+      plan.root,
+      await read(
+        plan.root,
+        relativeToRoot(plan.root, join(work, 'snapshot', sourcePath(row.id))),
+        2 * 1024 * 1024,
+        context,
+      ),
+      context,
+    )
+  }
+}
+async function reviewDrafts(root: string, context: OperationContext, parking = false): Promise<Reviewed> {
   await gate(context, [root])
   const rootStat = await lstat(root)
   if (!rootStat.isDirectory()) throw Error('Offline draft archive requires the memory root')
@@ -245,10 +320,13 @@ async function reviewDrafts(root: string, context: OperationContext): Promise<Re
       const first = await read(root, `${drafts}/${name}`, 2 * 1024 * 1024, context)
       const second = await read(root, `${drafts}/${name}`, 2 * 1024 * 1024, context)
       const hashed = await fileHash(path, context)
+      const after = await fileIdentity(path, context)
+      const stable =
+        hash(first) === hashed.hash && identity.identity === after.identity && identity.mode === after.mode
       const kind = classifyRetainedManifest({
         id,
         first,
-        second,
+        second: stable ? second : `${second}\n`,
         referenced: referenced.has(id),
         locallyActive: false,
       })
@@ -256,11 +334,12 @@ async function reviewDrafts(root: string, context: OperationContext): Promise<Re
         unstable++
         exact = false
       } else if (kind === 'journalReferenced') journalReferenced++
-      else if (kind === 'terminal') {
+      else if (kind === (parking ? 'open' : 'terminal')) {
+        if (parking) await verifyBase(root, first, context)
         terminal++
         role = 'candidate'
       }
-      if (kind !== 'terminal' || !exact) role = 'retain'
+      if (kind !== (parking ? 'open' : 'terminal') || !exact) role = 'retain'
       rows.push({ id, ...identity, size: hashed.size, hash: hashed.hash, role })
     } catch {
       exact = false
@@ -285,10 +364,10 @@ async function reviewDrafts(root: string, context: OperationContext): Promise<Re
     },
   }
 }
-function receipt(reviewed: Reviewed) {
+function receipt(reviewed: Reviewed, parking = false) {
   const candidates = reviewed.counts.candidates
   return {
-    kind: 'abi2-terminal-draft-archive' as const,
+    kind: parking ? ('abi2-clean-open-draft-parking' as const) : ('abi2-terminal-draft-archive' as const),
     target: candidateTarget(reviewed.rows),
     revision: fingerprint(reviewed),
     head: reviewed.head,
@@ -318,7 +397,12 @@ async function markerKind(root: string, context: OperationContext) {
       0,
       256,
     )
-    if (prefix.includes('"kind":"terminal-draft-archive"')) return 'terminal-draft-archive' as const
+    if (
+      prefix.includes('"kind":"terminal-draft-archive"') ||
+      prefix.includes('"kind":"clean-open-draft-parking"') ||
+      prefix.includes('"kind":"clean-open-draft-restore"')
+    )
+      return 'terminal-draft-archive' as const
     return 'publication' as const
   } catch (error) {
     if (
@@ -343,14 +427,19 @@ async function locate(root: string, work: string, row: Row, context: OperationCo
   const atSource = await present(source, context)
   const atSaved = await present(saved, context)
   if (atSource === atSaved) throw Error('Terminal draft relocation uncertain; marker retained')
-  const actual = await fileHash(atSource ? source : saved, context)
-  if (actual.hash !== row.hash || actual.size !== row.size)
+  const path = atSource ? source : saved
+  const actual = await fileHash(path, context)
+  const identity = await fileIdentity(path, context)
+  if (actual.hash !== row.hash || actual.size !== row.size || identity.mode !== row.mode)
     throw Error('Terminal draft bytes uncertain; marker retained')
   return atSource ? 'source' : 'quarantine'
 }
 async function assertIdentity(
   root: string,
-  plan: Pick<DraftPlan, 'rootIdentity' | 'head' | 'configSemantic' | 'ledgerHash' | 'journalHash' | 'rows'>,
+  plan: Pick<
+    DraftPlan,
+    'rootIdentity' | 'head' | 'configSemantic' | 'ledgerHash' | 'journalHash' | 'rows' | 'kind'
+  >,
   context: OperationContext,
 ) {
   const head = (await git(root, ['rev-parse', '--verify', 'HEAD'], context)).toString().trim()
@@ -360,6 +449,21 @@ async function assertIdentity(
   const ledger = await fileHash(join(root, '.memory.json'), context)
   const reviewed = await reviewDrafts(root, context)
   if (!reviewed.exact) throw Error('Terminal draft journal or inventory uncertain; marker retained')
+  if (
+    plan.kind === 'clean-open-draft-restore' &&
+    reviewed.rows.some(
+      (actual) =>
+        !plan.rows.some(
+          (row) =>
+            row.id === actual.id &&
+            row.hash === actual.hash &&
+            row.size === actual.size &&
+            row.mode === actual.mode &&
+            (row.role === 'candidate' || row.identity === actual.identity),
+        ),
+    )
+  )
+    throw Error('Offline restore inventory changed; marker retained')
   if (
     `${stat.dev}:${stat.ino}` !== plan.rootIdentity ||
     head !== plan.head ||
@@ -647,6 +751,7 @@ async function releaseMarker(
   await inspectHolders(plan.root, engine, context)
   await assertIdentity(plan.root, plan, context)
   await verifySnapshots(plan, work, context)
+  await verifyParkedBases(plan, work, context)
   const head = (await git(plan.root, ['rev-parse', '--verify', 'HEAD'], context)).toString().trim()
   if (head !== plan.head) throw Error('Offline HEAD changed; marker retained')
   await gate(context, [plan.root])
@@ -670,6 +775,8 @@ async function finishMoves(
   }
   await inspectHolders(plan.root, engine, context)
   await assertIdentity(plan.root, plan, context)
+  await verifySnapshots(plan, work, context)
+  await verifyParkedBases(plan, work, context)
   if (state.phase === 'snapshotted') await save('moving')
   for (const row of plan.rows) {
     if (row.role !== 'candidate') continue
@@ -689,7 +796,7 @@ async function finishMoves(
   await save('completed')
   await releaseMarker(plan, engine, work, context)
   return {
-    kind: 'abi2-terminal-draft-archive' as const,
+    kind: resultKind(plan),
     target: plan.id,
     archived: plan.rows.filter((row) => row.role === 'candidate').length,
     headUnchanged: true,
@@ -706,10 +813,22 @@ async function rollback(
   engine: MemoryEngineController,
   context: OperationContext,
 ) {
-  state = { ...state, phase: 'rolling-back' }
-  await durableJSON(join(work, 'state.json'), state, context)
   await inspectHolders(plan.root, engine, context)
   await assertIdentity(plan.root, plan, context)
+  await verifySnapshots(plan, work, context)
+  await verifyParkedBases(plan, work, context)
+  if (plan.kind !== 'terminal-draft-archive') {
+    const active = await reviewDrafts(plan.root, context)
+    let absent = 0
+    for (const row of plan.rows) {
+      if (row.role === 'candidate' && (await locate(plan.root, work, row, context)) === 'quarantine') absent++
+    }
+    if (!active.exact || active.draftEntries + absent > limits.views)
+      throw Error('Offline parking restore requires available draft capacity; marker retained')
+  }
+  if (plan.restoreOf) await claimRestoreOrigin(plan, context)
+  state = { ...state, phase: 'rolling-back' }
+  await durableJSON(join(work, 'state.json'), state, context)
   for (const row of plan.rows) {
     if (row.role !== 'candidate') continue
     const source = join(plan.root, sourcePath(row.id))
@@ -731,13 +850,17 @@ async function rollback(
     await syncDirectory(join(plan.root, drafts), context)
     await syncDirectory(join(work, 'quarantine', drafts), context)
     const restored = await fileHash(source, context)
-    if (restored.hash !== row.hash || restored.size !== row.size)
-      throw Error('Terminal draft restoration bytes uncertain; marker retained')
+    if (
+      restored.hash !== row.hash ||
+      restored.size !== row.size ||
+      (await fileIdentity(source, context)).mode !== row.mode
+    )
+      throw Error('Terminal draft restoration bytes or mode uncertain; marker retained')
   }
   await assertIdentity(plan.root, plan, context)
   await releaseMarker(plan, engine, work, context)
   return {
-    kind: 'abi2-terminal-draft-archive' as const,
+    kind: resultKind(plan),
     target: plan.id,
     restored: plan.rows.filter((row) => row.role === 'candidate').length,
     headUnchanged: true,
@@ -747,11 +870,17 @@ async function rollback(
     corpusReturned: false as const,
   }
 }
-async function load(root: string, context: OperationContext) {
-  const linked = await validatedMarker(root, context)
-  if (!linked) throw Error('Offline terminal-draft marker unavailable')
-  const markerRaw = linked.raw
-  const marker = { version: 1, id: linked.id }
+async function load(
+  root: string,
+  context: OperationContext,
+  archivedId?: string,
+  restoreTransaction?: string,
+) {
+  const linked = archivedId ? undefined : await validatedMarker(root, context)
+  if (!linked && !archivedId) throw Error('Offline terminal-draft marker unavailable')
+  if (archivedId && !uuidPattern.test(archivedId)) throw Error('Offline parking target unavailable')
+  const markerRaw = linked?.raw ?? ''
+  const marker = { version: 1, id: linked?.id ?? archivedId! }
   const work = join(root, container, marker.id)
   const raw = await read(root, relativeToRoot(root, join(work, 'plan.json')), 1024 * 1024, context)
   const plan = JSON.parse(raw) as DraftPlan
@@ -761,7 +890,7 @@ async function load(root: string, context: OperationContext) {
   const candidates = plan.rows?.filter((row) => row.role === 'candidate') ?? []
   if (
     plan.version !== 1 ||
-    plan.kind !== 'terminal-draft-archive' ||
+    !['terminal-draft-archive', 'clean-open-draft-parking', 'clean-open-draft-restore'].includes(plan.kind) ||
     plan.id !== marker.id ||
     plan.root !== root ||
     !/^\d+:\d+$/.test(plan.rootIdentity) ||
@@ -771,10 +900,25 @@ async function load(root: string, context: OperationContext) {
     !/^[a-f0-9]{64}$/.test(plan.journalHash) ||
     !Array.isArray(plan.rows) ||
     plan.rows.length > scanLimit ||
+    new Set(plan.rows.map((row) => row?.id)).size !== plan.rows.length ||
     candidates.length < 1 ||
     state.version !== 1 ||
     state.planHash !== hash(raw) ||
-    state.disposition !== 'terminal-drafts-archived' ||
+    state.disposition !==
+      (plan.kind === 'clean-open-draft-restore'
+        ? 'clean-open-drafts-restored'
+        : plan.kind === 'clean-open-draft-parking'
+          ? 'clean-open-drafts-parked'
+          : 'terminal-drafts-archived') ||
+    (state.restoreTransaction !== undefined && !uuidPattern.test(state.restoreTransaction)) ||
+    (plan.kind === 'clean-open-draft-restore'
+      ? !plan.restoreOf ||
+        !uuidPattern.test(plan.restoreOf.id) ||
+        plan.restoreOf.id === plan.id ||
+        !/^[a-f0-9]{64}$/.test(plan.restoreOf.planHash) ||
+        !/^[a-f0-9]{64}$/.test(plan.restoreOf.stateHash) ||
+        state.phase !== 'rolling-back'
+      : plan.restoreOf !== undefined) ||
     !['snapshotted', 'moving', 'completed', 'rolling-back'].includes(state.phase) ||
     plan.rows.some(
       (row) =>
@@ -790,6 +934,13 @@ async function load(root: string, context: OperationContext) {
     )
   )
     throw Error('Offline terminal-draft checkpoint unavailable')
+  if (
+    archivedId &&
+    (plan.kind !== 'clean-open-draft-parking' ||
+      state.phase !== 'completed' ||
+      (state.restoreTransaction && state.restoreTransaction !== restoreTransaction))
+  )
+    throw Error('Only completed clean-open parking can be explicitly restored')
   const active = await reviewDrafts(root, context)
   const digest = hash(
     JSON.stringify({
@@ -799,7 +950,140 @@ async function load(root: string, context: OperationContext) {
       active: fingerprint(active),
     }),
   )
-  return { plan, state, work, digest }
+  return { plan, state, work, digest, active, planHash: hash(raw) }
+}
+// A completed parking checkpoint is immutable evidence, not a fence on future
+// publication. A new restore plan owns fresh fences and its own recovery copies.
+async function claimRestoreOrigin(plan: DraftPlan, context: OperationContext) {
+  const origin = plan.restoreOf
+  if (!origin) throw Error('Offline restore origin unavailable; marker retained')
+  const source = await load(plan.root, context, origin.id, plan.id)
+  const { restoreTransaction, ...unclaimed } = source.state
+  const expected = source.plan.rows.filter((row) => row.role === 'candidate')
+  const restoring = plan.rows.filter((row) => row.role === 'candidate')
+  if (
+    source.planHash !== origin.planHash ||
+    hash(JSON.stringify(unclaimed)) !== origin.stateHash ||
+    source.plan.rootIdentity !== plan.rootIdentity ||
+    expected.length !== restoring.length ||
+    restoring.some(
+      (row) =>
+        !expected.some(
+          (saved) =>
+            saved.id === row.id &&
+            saved.hash === row.hash &&
+            saved.size === row.size &&
+            saved.mode === row.mode,
+        ),
+    )
+  )
+    throw Error('Offline restore origin changed; marker retained')
+  if (restoreTransaction === plan.id) return
+  await durableJSON(
+    join(source.work, 'state.json'),
+    { ...source.state, restoreTransaction: plan.id },
+    context,
+  )
+}
+async function restoreCompleted(
+  engine: MemoryEngineController,
+  context: OperationContext,
+  request: MaintenanceRequest,
+) {
+  if (!request.target) throw Error('Explicit completed parking target required')
+  const root = engine.root
+  const source = await load(root, context, request.target)
+  await inspectHolders(root, engine, context)
+  const current = source.active
+  const candidates = source.plan.rows.filter((row) => row.role === 'candidate')
+  const validate = async () => {
+    await verifySnapshots(source.plan, source.work, context)
+    await verifyParkedBases(source.plan, source.work, context)
+    const active = await reviewDrafts(root, context)
+    if (!active.exact || active.rootIdentity !== source.plan.rootIdentity)
+      throw Error('Offline parking restore root or inventory uncertain')
+    if (active.draftEntries + candidates.length > limits.views)
+      throw Error('Offline parking restore requires available draft capacity')
+    for (const row of candidates) {
+      if ((await locate(root, source.work, row, context)) !== 'quarantine')
+        throw Error('Offline parking restore requires absent destinations')
+    }
+    if (fingerprint(active) !== fingerprint(current))
+      throw Error('Offline parking restore inventory changed; inspect again')
+  }
+  await validate()
+  if (request.action === 'offline-draft-restore-inspect')
+    return {
+      kind: 'abi2-clean-open-draft-parking' as const,
+      target: source.plan.id,
+      revision: source.digest,
+      candidates: candidates.length,
+      next: 'explicit-reviewed-offline-draft-restore' as const,
+      hostileProcessGuarantee: false as const,
+      corpusReturned: false as const,
+    }
+  if (request.revision !== source.digest || request.offline !== offlineAssurance)
+    throw Error('Exact reviewed parking restore fingerprint and operator assurance required')
+  const rows: Row[] = current.rows.map((row) => ({ ...row, role: 'retain' }))
+  for (const row of candidates) {
+    const identity = await fileIdentity(quarantined(source.work, row.id), context)
+    rows.push({ ...row, identity: identity.identity })
+  }
+  const plan: DraftPlan = {
+    version: 1,
+    kind: 'clean-open-draft-restore',
+    id: randomUUID(),
+    root,
+    rootIdentity: current.rootIdentity,
+    head: current.head,
+    configSemantic: current.configSemantic,
+    ledgerHash: current.ledgerHash,
+    journalHash: current.journalHash,
+    rows,
+    restoreOf: {
+      id: source.plan.id,
+      planHash: source.planHash,
+      stateHash: hash(JSON.stringify(source.state)),
+    },
+  }
+  const work = join(root, container, plan.id)
+  await makeDirectory(work, context)
+  await durableJSON(join(work, 'plan.json'), plan, context)
+  const stored = await read(root, relativeToRoot(root, join(work, 'plan.json')), 1024 * 1024, context)
+  await makeDirectory(join(work, 'quarantine', drafts), context)
+  for (const row of rows) {
+    if (row.role !== 'candidate') continue
+    const expected: Entry = { path: sourcePath(row.id), kind: 'file', ...row }
+    // Preserve the original parking evidence; only this restore's own copy moves.
+    await copyFile(
+      quarantined(source.work, row.id),
+      join(work, 'snapshot', sourcePath(row.id)),
+      work,
+      expected,
+      context,
+    )
+    await copyExclusive(quarantined(source.work, row.id), quarantined(work, row.id), context)
+  }
+  await syncDirectory(join(work, 'quarantine', drafts), context)
+  await inspectHolders(root, engine, context)
+  await validate()
+  const unchanged = await load(root, context, source.plan.id)
+  if (unchanged.digest !== source.digest)
+    throw Error('Offline parking restore source or inventory changed; inspect again')
+  await assertIdentity(root, plan, context)
+  await verifySnapshots(plan, work, context)
+  await verifyParkedBases(plan, work, context)
+  const state: DraftState = {
+    version: 1,
+    phase: 'rolling-back',
+    planHash: hash(stored),
+    disposition: 'clean-open-drafts-restored',
+  }
+  await durableJSON(join(work, 'state.json'), state, context)
+  await createMarker(root, plan.id, context)
+  for (const path of [maintenanceMarker, `${container}/${plan.id}`])
+    await git(root, ['check-ignore', '--quiet', '--', path], context)
+  return await rollback(plan, state, work, engine, context)
 }
 async function archive(
   engine: MemoryEngineController,
@@ -808,22 +1092,24 @@ async function archive(
   reviewed: Reviewed,
 ) {
   const root = engine.root
-  const preview = receipt(reviewed)
+  const parking = request.action === 'offline-draft-park'
+  const preview = receipt(reviewed, parking)
   if (!preview.archiveAvailable)
     throw Error('No safe terminal draft candidates; unresolved and uncertain drafts stay in place')
   if (
-    request.action !== 'offline-draft-archive' ||
+    (request.action !== 'offline-draft-archive' && request.action !== 'offline-draft-park') ||
     request.target !== preview.target ||
     request.revision !== preview.revision ||
     request.offline !== offlineAssurance
   )
     throw Error('Exact reviewed terminal-draft fingerprint and operator assurance required')
   await inspectHolders(root, engine, context)
-  const again = await reviewDrafts(root, context)
-  if (fingerprint(again) !== preview.revision) throw Error('Terminal draft inventory changed before archive')
+  const again = await reviewDrafts(root, context, parking)
+  if (!again.exact || fingerprint(again) !== preview.revision)
+    throw Error('Terminal draft inventory changed before archive')
   const plan: DraftPlan = {
     version: 1,
-    kind: 'terminal-draft-archive',
+    kind: parking ? 'clean-open-draft-parking' : 'terminal-draft-archive',
     id: randomUUID(),
     root,
     rootIdentity: again.rootIdentity,
@@ -838,13 +1124,14 @@ async function archive(
   await durableJSON(join(work, 'plan.json'), plan, context)
   const stored = await read(root, relativeToRoot(root, join(work, 'plan.json')), 1024 * 1024, context)
   await snapshot(plan, work, context)
+  if (parking) await verifyParkedBases(plan, work, context)
   await inspectHolders(root, engine, context)
   await assertIdentity(root, plan, context)
   const state: DraftState = {
     version: 1,
     phase: 'snapshotted',
     planHash: hash(stored),
-    disposition: 'terminal-drafts-archived',
+    disposition: parking ? 'clean-open-drafts-parked' : 'terminal-drafts-archived',
   }
   await durableJSON(join(work, 'state.json'), state, context)
   await createMarker(root, plan.id, context)
@@ -878,9 +1165,13 @@ export async function draftArchiveMaintenance(
       throw Error('Offline terminal-draft marker absent; no replay')
     if (markerNow && kindNow === 'terminal-draft-archive') {
       const tx = await load(root, context)
-      if (request.action === 'offline-draft-inspect' || request.action === 'offline-inspect')
+      if (
+        request.action === 'offline-draft-inspect' ||
+        request.action === 'offline-draft-park-inspect' ||
+        request.action === 'offline-inspect'
+      )
         return {
-          kind: 'abi2-terminal-draft-archive' as const,
+          kind: resultKind(tx.plan),
           target: tx.plan.id,
           revision: tx.digest,
           head: tx.plan.head,
@@ -914,7 +1205,7 @@ export async function draftArchiveMaintenance(
         }
         await releaseMarker(tx.plan, engine, tx.work, context)
         return {
-          kind: 'abi2-terminal-draft-archive' as const,
+          kind: resultKind(tx.plan),
           target: tx.plan.id,
           archived: tx.plan.rows.filter((row) => row.role === 'candidate').length,
           headUnchanged: true,
@@ -926,10 +1217,17 @@ export async function draftArchiveMaintenance(
       }
       return await finishMoves(tx.plan, tx.state, tx.work, engine, context)
     }
-    const reviewed = await reviewDrafts(root, context)
-    if (request.action === 'offline-draft-inspect') {
+    if (
+      !markerNow &&
+      (request.action === 'offline-draft-restore-inspect' || request.action === 'offline-draft-restore')
+    ) {
+      return await restoreCompleted(engine, context, request)
+    }
+    const parking = request.action === 'offline-draft-park-inspect' || request.action === 'offline-draft-park'
+    const reviewed = await reviewDrafts(root, context, parking)
+    if (request.action === 'offline-draft-inspect' || request.action === 'offline-draft-park-inspect') {
       await inspectHolders(root, engine, context)
-      return receipt(reviewed)
+      return receipt(reviewed, parking)
     }
     return await archive(engine, context, request, reviewed)
   })

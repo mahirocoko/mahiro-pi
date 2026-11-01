@@ -20,6 +20,8 @@ try {
         '--resume',
         '--rollback',
         '--drafts',
+        '--park-open',
+        '--restore',
         '--offline',
         '--expect',
         '--target',
@@ -27,7 +29,18 @@ try {
       Object.hasOwn(options, flag)
     )
       throw Error('Unknown or duplicate operator option')
-    if (['--inspect', '--apply', '--resume', '--rollback', '--drafts', '--offline'].includes(flag))
+    if (
+      [
+        '--inspect',
+        '--apply',
+        '--resume',
+        '--rollback',
+        '--drafts',
+        '--park-open',
+        '--restore',
+        '--offline',
+      ].includes(flag)
+    )
       options[flag] = true
     else {
       const value = args[++i]
@@ -39,6 +52,11 @@ try {
     throw Error('Select exactly --inspect, --apply, --resume or --rollback')
   if (options['--rollback'] && !options['--drafts'])
     throw Error('Rollback belongs to the terminal-draft archive operator')
+  if ((options['--park-open'] || options['--restore']) && !options['--drafts'])
+    throw Error('Parking/restore belongs to the draft operator')
+  if (options['--park-open'] && options['--restore']) throw Error('Select parking or restore')
+  if ((options['--park-open'] || options['--restore']) && (options['--resume'] || options['--rollback']))
+    throw Error('Checkpoint recovery uses --drafts without parking/restore selectors')
   const canonical = (path) => {
     if (
       typeof path !== 'string' ||
@@ -72,21 +90,34 @@ try {
   ]
   if (!Array.isArray(settings.packages) || packages.some((path) => !settings.packages.includes(path)))
     throw Error('Required canonical public owners must already be installed; installer is separate')
-  const action = options['--drafts']
+  const action = options['--park-open']
     ? options['--inspect']
-      ? 'offline-draft-inspect'
-      : options['--apply']
-        ? 'offline-draft-archive'
-        : options['--rollback']
-          ? 'offline-draft-rollback'
-          : 'offline-draft-resume'
-    : options['--inspect']
-      ? 'offline-inspect'
-      : options['--apply']
-        ? 'offline-adopt'
-        : 'offline-resume'
-  const inspection = action === 'offline-inspect' || action === 'offline-draft-inspect'
-  const targetPattern = action === 'offline-draft-archive' ? /^[a-f0-9]{64}$/ : /^[a-f0-9-]{36}$/
+      ? 'offline-draft-park-inspect'
+      : 'offline-draft-park'
+    : options['--restore']
+      ? options['--inspect']
+        ? 'offline-draft-restore-inspect'
+        : 'offline-draft-restore'
+      : options['--drafts']
+        ? options['--inspect']
+          ? 'offline-draft-inspect'
+          : options['--apply']
+            ? 'offline-draft-archive'
+            : options['--rollback']
+              ? 'offline-draft-rollback'
+              : 'offline-draft-resume'
+        : options['--inspect']
+          ? 'offline-inspect'
+          : options['--apply']
+            ? 'offline-adopt'
+            : 'offline-resume'
+  const inspection = action.endsWith('inspect')
+  const restoreInspection = action === 'offline-draft-restore-inspect'
+  if (restoreInspection && !/^[a-f0-9-]{36}$/.test(options['--target'] ?? ''))
+    throw Error('Restore inspection requires the completed parking target')
+  const targetPattern = ['offline-draft-archive', 'offline-draft-park'].includes(action)
+    ? /^[a-f0-9]{64}$/
+    : /^[a-f0-9-]{36}$/
   if (
     !inspection &&
     (!options['--offline'] ||
@@ -94,12 +125,17 @@ try {
       !targetPattern.test(options['--target'] ?? ''))
   )
     throw Error('Apply/resume/rollback requires --offline, --target and exact reviewed --expect')
-  if (inspection && (options['--offline'] || options['--expect'] || options['--target']))
+  if (
+    inspection &&
+    (options['--offline'] || options['--expect'] || (!restoreInspection && options['--target']))
+  )
     throw Error('Inspection takes no adoption arguments')
   const operation = {
     action,
     ...(inspection
-      ? {}
+      ? restoreInspection
+        ? { target: options['--target'] }
+        : {}
       : {
           target: options['--target'],
           revision: options['--expect'],

@@ -56,6 +56,9 @@ import type { MemoryNode } from './runtime.ts'
 import type { TurnEpisode } from './store.ts'
 import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 
+const writerLifetimeMs = 120000
+const publicationReserveMs = 30000
+
 interface RuntimeBinding {
   manager: ExtensionContext['sessionManager']
   sessionId: string
@@ -124,6 +127,8 @@ const viewerReadActions = new Set([
   'migration-export',
   'offline-inspect',
   'offline-draft-inspect',
+  'offline-draft-park-inspect',
+  'offline-draft-restore-inspect',
   'capacity',
   'retained-preview',
 ])
@@ -1030,7 +1035,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       const approved = installedWriter(resolveAgentDir(), role)
       preflightWriterRoute(ctx, approved)
       const prefix = await branch(ctx)
-      const created = await f.request('create', { project: f.project })
+      const startedAt = Date.now()
+      const created = await f.request('create', {
+        project: f.project,
+        ttlMs: writerLifetimeMs + publicationReserveMs,
+      })
       const value: EngineWorkerValue = {
         version: 2,
         engine: f.engine,
@@ -1039,7 +1048,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         view: created.view,
         base: created.base,
         configHash: f.configHash,
-        deadline: Date.now() + 120000,
+        deadline: startedAt + writerLifetimeMs,
         ready: false,
         dataBarrier: async () => {
           throw Error('Unbound native data barrier')
@@ -1058,6 +1067,20 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
       let revoke: (() => void) | undefined
       let timer: NodeJS.Timeout | undefined
+      let publicationDeadline: number | undefined
+      const armDeadline = (deadline: number) => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(
+          () => {
+            if (job === own) {
+              lastError = 'worker-deadline'
+              own.cancel('deadline')
+            }
+          },
+          Math.max(0, deadline - Date.now()),
+        )
+        timer.unref()
+      }
       const disposers: (() => void)[] = []
       const identityLive = () =>
         active &&
@@ -1072,7 +1095,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         typeof own.id === 'string' &&
         value.engine === f.engine &&
         value.view === created.view &&
-        Date.now() < value.deadline &&
+        Date.now() < (publicationDeadline ?? value.deadline) &&
         !ctx.signal?.aborted
       const jobContext: OperationContext = {
         hold: (identity) => f.abi.hold(identity),
@@ -1125,7 +1148,17 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             if (job !== own || own.phase !== 'running' || !own.id) return
             const record = service.getRecord(own.id)
             if (!record || ['queued', 'running'].includes(record.status)) return
+            // Admission still uses the original worker deadline. Never revive an expired job.
+            if (!identityLive()) {
+              own.cancel('deadline')
+              return
+            }
             own.phase = 'integrating' // reserve adoption synchronously before any await
+            publicationDeadline = Math.min(
+              value.deadline + publicationReserveMs,
+              Date.now() + publicationReserveMs,
+            )
+            armDeadline(publicationDeadline)
             let integrated = false
             try {
               if (record.status !== 'completed' || !value.ready) {
@@ -1200,13 +1233,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           wake({ id: event.id, type: event.type })
       }
       disposers.push(pi.events.on('subagents:completed', onWake), pi.events.on('subagents:failed', onWake))
-      timer = setTimeout(() => {
-        if (job === own) {
-          lastError = 'worker-deadline'
-          own.cancel('deadline')
-        }
-      }, 120000)
-      timer.unref()
+      armDeadline(value.deadline)
       try {
         if (stale()) {
           own.stop()
@@ -1385,12 +1412,16 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         'offline-draft-archive',
         'offline-draft-resume',
         'offline-draft-rollback',
+        'offline-draft-park-inspect',
+        'offline-draft-park',
+        'offline-draft-restore-inspect',
+        'offline-draft-restore',
       ].includes(args.action as string)
     ) {
       const f = owner(
         ctx,
         name,
-        args.action === 'offline-inspect' || args.action === 'offline-draft-inspect' ? 'read' : 'write',
+        viewerReadActions.has(args.action as string) ? 'read' : 'write',
         signal,
         true,
       )

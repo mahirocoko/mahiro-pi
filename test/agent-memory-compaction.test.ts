@@ -984,6 +984,46 @@ test('ABI1: capacity cleanup validates all bodies and filename identities before
   }
 })
 
+test('ABI2: capacity cleanup validates the whole backlog before deleting reviewed records', async () => {
+  const f = fixture()
+  const engine = new MemoryEngineController(f.root, engineEnvironment(process.env))
+  try {
+    const compact = compactionObservation(f.event, f.ctx).episode('synthetic')
+    const folder = join(f.root, '.episodes')
+    mkdirSync(folder, { mode: 0o700 })
+    const values = Array.from({ length: 256 }, (_, index) =>
+      withMetadata(compact, { entryId: `abi2-corrupt-capacity-${index}` }),
+    ).sort((a, b) => a.id.localeCompare(b.id))
+    for (const value of values)
+      writeFileSync(join(folder, `${value.id}.json`), `${JSON.stringify(value)}\n`, { mode: 0o600 })
+    const selected = values[0]
+    const view = f.store.createView('synthetic')
+    f.store.integrate(view, [selected.id])
+    const incoming = nativeEpisode(f, 'abi2-corrupt-capacity-incoming')
+    const last = values.at(-1)!
+    for (const raw of [
+      '{malformed',
+      JSON.stringify(selected),
+      JSON.stringify({ ...last, entryHash: digest('malicious') }),
+    ]) {
+      const path = join(folder, `${last.id}.json`)
+      writeFileSync(path, raw, { mode: 0o600 })
+      await assert.rejects(engine.request('observe', { episode: incoming }, { current: () => true }))
+      assert.equal(f.files().length, 256)
+      assert.ok(existsSync(join(folder, `${selected.id}.json`)), 'earlier reviewed record remains')
+      assert.ok(!existsSync(join(folder, `${incoming.id}.json`)))
+      writeFileSync(path, `${JSON.stringify(last)}\n`, { mode: 0o600 })
+    }
+    await engine.request('observe', { episode: incoming }, { current: () => true })
+    assert.equal(f.files().length, 256)
+    assert.ok(!existsSync(join(folder, `${selected.id}.json`)))
+    assert.ok(existsSync(join(folder, `${incoming.id}.json`)))
+  } finally {
+    await engine.close()
+    await f.close()
+  }
+})
+
 test('revocation after publication rejects completion but does not roll back already-published bytes', async () => {
   const f = fixture()
   const engine = new MemoryEngineController(f.root, engineEnvironment(process.env))

@@ -105,7 +105,7 @@ pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
 
 Terminal draft saturation uses the same operator with `--drafts`. It archives
 only strict cancelled or committed empty-overlay manifests that no journal
-references. `--rollback` is available only for that draft archive. The `lsof`
+references. `--rollback` is available only for draft checkpoint recovery. The `lsof`
 check and `--offline` assurance are cooperative exclusion, not a dormant
 same-user or hostile-process proof. Inspect again after any byte change.
 
@@ -116,6 +116,31 @@ pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
   --project /absolute/canonical/project --drafts --apply --offline \
   --target <candidate-set-SHA256> --expect <exact-inventory-SHA256>
 ```
+
+Clean unreferenced open drafts have a separate explicit reversible parking selector,
+`--drafts --park-open --inspect` / `--drafts --park-open --apply --offline`, using
+the reviewed candidate-set target and inventory fingerprint. This is never normal
+admission cleanup. It requires a certified base reachable from retained HEAD and
+preserves the exact open manifest. Post-completion restore is separately reviewed:
+
+```sh
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --drafts --restore --inspect \
+  --target <completed-parking-UUID>
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --drafts --restore --apply --offline \
+  --target <completed-parking-UUID> --expect <restore-inspection-SHA256>
+```
+
+Restore requires absent destinations, available capacity, recoverable original bases,
+the original root identity and a freshly inspected current inventory. Later successful
+publication/adoption is preserved. Apply creates a separate restore checkpoint bound
+to that current state; interrupted recovery retains those fences and never activates a
+handle. Use only
+`--drafts --inspect` and reviewed `--resume`/`--rollback` for an active checkpoint,
+without `--park-open` or `--restore`. See [clean-open parking](agent-memory.md#explicit-reversible-clean-open-parking)
+for failure/recovery limits. Neither selector authorizes opening a live profile or
+invoking maintenance on a real store without its own operator approval.
 
 The target must already have the three canonical public owners installed, a
 private standard ABI2 selection, and current exact DATA/tool authority. This CLI

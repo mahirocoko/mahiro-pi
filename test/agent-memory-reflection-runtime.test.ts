@@ -300,12 +300,97 @@ const episodeIds = (prompt: string) =>
   (JSON.parse(prompt) as { episodes: { id: string; kind?: string; actions?: unknown[] }[] }).episodes
 
 async function until(ready: () => boolean) {
-  const started = Date.now()
+  const started = performance.now()
   while (!ready()) {
-    if (Date.now() - started > 5000) assert.equal(ready(), true)
+    if (performance.now() - started > 5000) assert.equal(ready(), true)
     await yieldTurn()
   }
 }
+
+for (const scenario of [
+  'ample',
+  'near-expiry',
+  'reserve-expired',
+  'cancel',
+  'revoke',
+  'generation',
+] as const) {
+  test(`ready writer publication timing: ${scenario}`, async (t) => {
+    const elapsed = scenario === 'ample' ? 10000 : 118000
+    const f = fixture()
+    let release: (() => void) | undefined
+    try {
+      await f.emit('session_start')
+      await f.turn('publication timing', 25)
+      const binding = f.binding()
+      assert.ok(binding)
+      // Only the parent clock moves: the real engine runs against a fresh synthetic root.
+      const started = binding.value.deadline - 120000
+      let now = started + elapsed
+      t.mock.method(Date, 'now', () => now)
+      await binding.value.engine.request('ready', { view: binding.value.view }, { current: () => true })
+      binding.value.ready = true
+      const record = f.records.get(binding.id)
+      assert.ok(record)
+      record.status = 'completed'
+      let entered = false
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const request = binding.value.engine.request.bind(binding.value.engine)
+      const delayed: typeof binding.value.engine.request = async (method, input, context) => {
+        if (method === 'config' && !entered) {
+          entered = true
+          await gate
+        }
+        return request(method, input, context)
+      }
+      t.mock.method(binding.value.engine, 'request', delayed)
+      f.nativeEvent('subagents:completed', { id: binding.id, type: 'managed-memory-writer' })
+      await until(() => entered)
+      now += scenario === 'reserve-expired' ? 31000 : 3000
+      const cancelling = scenario === 'cancel' ? f.runtime.cancel() : undefined
+      if (scenario === 'revoke') f.revoke()
+      if (scenario === 'generation') {
+        const nodes = (globalThis as unknown as Record<symbol, Map<string, { generation: unknown }>>)[
+          registry
+        ]!
+        nodes.get('primary')!.generation = {}
+      }
+      release!()
+      await cancelling
+      await f.runtime.drain()
+      const expected = ['ample', 'near-expiry'].includes(scenario)
+        ? episodeIds(f.spawns[0]!.prompt).map((e) => e.id)
+        : []
+      assert.deepEqual(f.store.snapshot().reviewed, expected)
+      assert.equal(f.runtime.status().worker, false)
+      assert.equal(f.spawns.length, 1, 'publication never retries or revives the writer')
+    } finally {
+      release?.()
+      t.mock.restoreAll()
+      await f.close()
+    }
+  })
+}
+
+test('ready writer completed after its original deadline is not revived', async (t) => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await f.turn('expired completion', 25)
+    const binding = f.binding()
+    assert.ok(binding)
+    t.mock.method(Date, 'now', () => binding.value.deadline + 1)
+    await f.finish('completed')
+    assert.deepEqual(f.store.snapshot().reviewed, [])
+    assert.equal(f.runtime.status().worker, false)
+    assert.equal(f.spawns.length, 1)
+  } finally {
+    t.mock.restoreAll()
+    await f.close()
+  }
+})
 
 test('automatic runtime counts assistant messages, chains bounded chunks, and stops after failure', async () => {
   const f = fixture()

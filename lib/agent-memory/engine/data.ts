@@ -1415,15 +1415,17 @@ export class MemoryDataEngine {
       return { recorded: true }
     }
     if (names.length >= 256) {
+      const reclaim: string[] = []
       for (const name of names) {
         const id = name.slice(0, -5)
         const path = join(folder, name)
         const old = observedEpisode(JSON.parse(await this.read(path, 16384)))
         if (old.id !== id) throw Error('Invalid episode filename identity')
-        if (ledger.reviewed.includes(id) || forgotten(id, old.project)) {
-          await this.gate([path])
-          await unlink(path)
-        }
+        if (ledger.reviewed.includes(id) || forgotten(id, old.project)) reclaim.push(path)
+      }
+      for (const path of reclaim) {
+        await this.gate([path])
+        await unlink(path)
       }
       if ((await this.episodeNames()).length >= 256)
         throw memoryFailure('capacity', 'Unreviewed episode capacity exceeded')

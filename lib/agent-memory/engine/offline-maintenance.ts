@@ -55,6 +55,10 @@ export interface MaintenanceRequest {
     | 'offline-draft-archive'
     | 'offline-draft-resume'
     | 'offline-draft-rollback'
+    | 'offline-draft-park-inspect'
+    | 'offline-draft-park'
+    | 'offline-draft-restore-inspect'
+    | 'offline-draft-restore'
   target?: string
   revision?: string
   offline?: string

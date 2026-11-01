@@ -24,6 +24,8 @@ import { memoryFailureCode } from '../lib/agent-memory/reasons.ts'
 import { MemoryEngineController, type OperationContext } from '../lib/agent-memory/engine/controller.ts'
 import { offlineAssurance, offlineMaintenance, read } from '../lib/agent-memory/engine/offline-maintenance.ts'
 import { parseOperation } from '../lib/agent-memory/engine/operation.ts'
+import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
+import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
 
 const kernelAvailable =
@@ -392,7 +394,11 @@ test('a dormant second controller is not treated as a hostile-process proof', {
   }
 })
 
-function interrupt(root: string, preview: { target?: string; revision?: string }) {
+function interrupt(
+  root: string,
+  preview: { target?: string; revision?: string },
+  action: 'offline-draft-archive' | 'offline-draft-park' | 'offline-draft-restore' = 'offline-draft-archive',
+) {
   const moduleURL = new URL('../lib/agent-memory/engine/offline-maintenance.ts', import.meta.url).href
   const controllerURL = new URL('../lib/agent-memory/engine/controller.ts', import.meta.url).href
   return spawnSync(
@@ -421,7 +427,7 @@ function interrupt(root: string, preview: { target?: string; revision?: string }
       };
       const context = { current() { if (existsSync(join(root, '.views/.maintenance-active.json')) && stable()) process.exit(73); return true; } };
       await offlineMaintenance(new MemoryEngineController(root), context, {
-        action: 'offline-draft-archive',
+        action: ${JSON.stringify(action)},
         target: ${JSON.stringify(preview.target)},
         revision: ${JSON.stringify(preview.revision)},
         offline: offlineAssurance,
@@ -770,6 +776,7 @@ function publishSeam(
   root: string,
   preview: { target?: string; revision?: string },
   seam: 'link' | 'sync' | 'revoke',
+  action: 'offline-draft-archive' | 'offline-draft-restore' = 'offline-draft-archive',
 ) {
   const moduleURL = new URL('../lib/agent-memory/engine/offline-maintenance.ts', import.meta.url).href
   const controllerURL = new URL('../lib/agent-memory/engine/controller.ts', import.meta.url).href
@@ -798,7 +805,7 @@ function publishSeam(
         return true;
       } };
       await offlineMaintenance(new MemoryEngineController(root), context, {
-        action: 'offline-draft-archive',
+        action: ${JSON.stringify(action)},
         target: ${JSON.stringify(preview.target)},
         revision: ${JSON.stringify(preview.revision)},
         offline: offlineAssurance,
@@ -1771,6 +1778,634 @@ test('revoking during a held file stat prevents the next read and create', {
     proto.stat = originalStat
     proto.read = originalRead
     proto.readFile = originalReadFile
+    await f.close()
+  }
+})
+
+async function openFixture(count: number) {
+  const f = await fixture({ candidates: 0 })
+  const created = await f.engine.request('create', { project: 'fixture', shared: true }, f.context)
+  const id = String(created.view)
+  const template = JSON.parse(readFileSync(join(f.draftDir, `${id}.json`), 'utf8'))
+  await f.engine.close()
+  const ids = [id, ...Array.from({ length: count - 1 }, (_, index) => journalId(index))]
+  const bodies = new Map<string, Buffer>()
+  for (const id of ids) {
+    const body = Buffer.from(`${JSON.stringify({ ...template, id }, null, 2)}\n`)
+    writeFileSync(join(f.draftDir, `${id}.json`), body, { mode: 0o600 })
+    bodies.set(id, body)
+  }
+  return { ...f, ids, bodies }
+}
+const binding = (value: { target?: unknown; revision?: unknown }) => ({
+  target: String(value.target ?? ''),
+  revision: String(value.revision ?? ''),
+  offline: offlineAssurance,
+})
+
+test('explicit parking relieves 64 entries, preserves non-open/evidence, and restores exact open bytes', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await openFixture(64)
+  const engine = new MemoryEngineController(f.root)
+  try {
+    const excluded = f.ids.slice(0, 6)
+    for (const [index, id] of excluded.entries()) {
+      const draft = JSON.parse(f.bodies.get(id)!.toString())
+      if (index < 3) draft.state = ['ready', 'conflict', 'cancelled'][index]
+      if (index === 3) draft.overlay = { 'global/notes.md': null }
+      if (index === 5) draft.base.revision = 'f'.repeat(40)
+      const body = Buffer.from(JSON.stringify(draft))
+      writeFileSync(join(f.draftDir, `${id}.json`), body, { mode: 0o600 })
+      f.bodies.set(id, body)
+    }
+    // The invalid base is not a parkable draft. Keep it syntactically valid but
+    // unreachable: any uncertainty must prevent all relocation, not guess by age.
+    let preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+    assert.equal('exact' in preview && preview.exact, false)
+    assert.equal('archiveAvailable' in preview && preview.archiveAvailable, false)
+    const unavailable = excluded[5]!
+    const valid = JSON.parse(f.bodies.get(f.ids[6]!)!.toString())
+    valid.id = unavailable
+    const validBody = Buffer.from(JSON.stringify(valid))
+    writeFileSync(join(f.draftDir, `${unavailable}.json`), validBody, { mode: 0o600 })
+    f.bodies.set(unavailable, validBody)
+    const journalPath = join(f.root, '.views/.engine-v2/journal', `${journalId(900)}.json`)
+    const journalBody = referencingJournal(f.root, f.head.trim(), excluded[4]!)
+    writeFileSync(journalPath, journalBody, { mode: 0o600 })
+    preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+    assert.equal('candidates' in preview && preview.candidates, 59)
+    assert.equal('journalReferenced' in preview && preview.journalReferenced, 1)
+    assert.equal('admissionRoom' in preview && preview.admissionRoom, 59)
+    assert.doesNotMatch(JSON.stringify(preview), /Preserved core|\.views|"open"/)
+    const refsBefore = execFileSync('git', ['show-ref'], { cwd: f.root, encoding: 'utf8' })
+    const result = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-park',
+      ...binding(preview),
+    })
+    assert.equal('kind' in result && result.kind, 'abi2-clean-open-draft-parking')
+    assert.equal('archived' in result && result.archived, 59)
+    assert.equal(readdirSync(f.draftDir).length, 5)
+    for (const id of excluded.slice(0, 5))
+      assert.deepEqual(readFileSync(join(f.draftDir, `${id}.json`)), f.bodies.get(id))
+    const restore = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore-inspect',
+      target: result.target,
+    })
+    await assert.rejects(
+      offlineMaintenance(
+        engine,
+        { current: () => false },
+        {
+          action: 'offline-draft-restore',
+          ...binding(restore),
+        },
+      ),
+      /Current parent authority required/,
+    )
+    assert.equal(readdirSync(f.draftDir).length, 5)
+    const restored = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore',
+      ...binding(restore),
+    })
+    assert.equal('restored' in restored && restored.restored, 59)
+    for (const [id, body] of f.bodies) {
+      assert.deepEqual(readFileSync(join(f.draftDir, `${id}.json`)), body)
+      assert.equal(lstatSync(join(f.draftDir, `${id}.json`)).mode & 0o777, 0o600)
+    }
+    assert.equal(readFileSync(journalPath, 'utf8'), journalBody)
+    assert.deepEqual(readFileSync(join(f.root, '.memory.json')), f.ledger)
+    assert.deepEqual(readFileSync(join(f.root, 'Core.md')), f.core)
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }), f.head)
+    assert.equal(execFileSync('git', ['show-ref'], { cwd: f.root, encoding: 'utf8' }), refsBefore)
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore-inspect',
+        target: result.target,
+      }),
+      /Only completed/,
+    )
+    // Restoring disk metadata never registers a usable view in the new controller.
+    await assert.rejects(engine.request('read', { view: f.ids[6]!, selection: 'Core.md' }, f.context))
+  } finally {
+    await engine.close()
+    await f.close()
+  }
+})
+
+test('parking and post-completion restore refuse drift, present destinations and unavailable capacity', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await openFixture(2)
+  const engine = new MemoryEngineController(f.root)
+  try {
+    const preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+    const changed = f.ids[0]!
+    const dirty = JSON.parse(f.bodies.get(changed)!.toString())
+    dirty.state = 'ready'
+    writeFileSync(join(f.draftDir, `${changed}.json`), JSON.stringify(dirty), { mode: 0o600 })
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-park',
+        ...binding(preview),
+      }),
+      /fingerprint|inventory changed/,
+    )
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    writeFileSync(join(f.draftDir, `${changed}.json`), f.bodies.get(changed)!)
+    const again = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+    const result = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-park',
+      ...binding(again),
+    })
+    const restore = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore-inspect',
+      target: result.target,
+    })
+    const alternate = join(f.root, '.git/objects/info/alternates')
+    writeFileSync(alternate, '', { mode: 0o600 })
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore',
+        ...binding(restore),
+      }),
+      /standalone complete retained history/,
+    )
+    rmSync(alternate) // exact synthetic empty marker created by this test
+    const saved = filesUnder(join(f.root, '.views/.maintenance', result.target)).find(
+      (path) => path.includes('/quarantine/') && path.endsWith(`${changed}.json`),
+    )
+    assert.ok(saved)
+    chmodSync(saved, 0o400)
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore',
+        ...binding(restore),
+      }),
+      /bytes uncertain/,
+    )
+    chmodSync(saved, 0o600)
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    writeFileSync(join(f.draftDir, `${changed}.json`), f.bodies.get(changed)!, { mode: 0o600 })
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore',
+        ...binding(restore),
+      }),
+      /uncertain|absent destinations/,
+    )
+    rmSync(join(f.draftDir, `${changed}.json`)) // exact synthetic duplicate, not evidence cleanup
+    for (let i = 100; i < 163; i++) {
+      const id = journalId(i)
+      const draft = JSON.parse(f.bodies.get(changed)!.toString())
+      draft.id = id
+      writeFileSync(join(f.draftDir, `${id}.json`), JSON.stringify(draft), { mode: 0o600 })
+    }
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore-inspect',
+        target: result.target,
+      }),
+      /available draft capacity/,
+    )
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    assert.deepEqual(readFileSync(join(f.root, '.memory.json')), f.ledger)
+    assert.equal(
+      filesUnder(join(f.root, '.views/.maintenance')).filter((p) => p.includes('/snapshot/')).length,
+      2,
+    )
+  } finally {
+    await engine.close()
+    await f.close()
+  }
+})
+
+test('clean-open parking crash resumes or rolls back with exact base and manifest preservation', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const action of ['offline-draft-resume', 'offline-draft-rollback'] as const) {
+    const f = await openFixture(2)
+    let engine = new MemoryEngineController(f.root)
+    try {
+      const preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+      await engine.close()
+      const child = interrupt(f.root, preview, 'offline-draft-park')
+      assert.equal(child.status, 73, child.stderr)
+      engine = new MemoryEngineController(f.root)
+      const checkpoint = await offlineMaintenance(engine, f.context, { action: 'offline-draft-inspect' })
+      assert.equal('kind' in checkpoint && checkpoint.kind, 'abi2-clean-open-draft-parking')
+      await offlineMaintenance(engine, f.context, { action, ...binding(checkpoint) })
+      if (action === 'offline-draft-resume') {
+        assert.equal(readdirSync(f.draftDir).length, 0)
+        const restore = await offlineMaintenance(engine, f.context, {
+          action: 'offline-draft-restore-inspect',
+          target: checkpoint.target,
+        })
+        await offlineMaintenance(engine, f.context, { action: 'offline-draft-restore', ...binding(restore) })
+      }
+      for (const [id, body] of f.bodies) assert.deepEqual(readFileSync(join(f.draftDir, `${id}.json`)), body)
+      assert.deepEqual(readFileSync(join(f.root, '.memory.json')), f.ledger)
+      assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    } finally {
+      await engine.close()
+      await f.close()
+    }
+  }
+})
+
+test('post-completion restoration crash retains the barrier and explicitly rolls back to exact open state', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await openFixture(2)
+  let engine = new MemoryEngineController(f.root)
+  try {
+    // A retained ancestor, not only current HEAD, is a valid recoverable base.
+    execFileSync('git', ['commit', '--allow-empty', '-m', 'synthetic retained successor'], { cwd: f.root })
+    const preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+    const parked = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-park',
+      ...binding(preview),
+    })
+    const restore = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore-inspect',
+      target: parked.target,
+    })
+    await engine.close()
+    const child = interrupt(f.root, restore, 'offline-draft-restore')
+    assert.equal(child.status, 73, child.stderr)
+    assert.equal(readdirSync(f.draftDir).length, 1)
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), true)
+    engine = new MemoryEngineController(f.root)
+    const checkpoint = await offlineMaintenance(engine, f.context, { action: 'offline-draft-inspect' })
+    assert.equal('phase' in checkpoint && checkpoint.phase, 'rolling-back')
+    assert.notEqual(checkpoint.target, parked.target)
+    const sourceState = JSON.parse(
+      readFileSync(join(f.root, '.views/.maintenance', parked.target, 'state.json'), 'utf8'),
+    )
+    assert.equal(sourceState.restoreTransaction, checkpoint.target)
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-resume',
+        ...binding(checkpoint),
+      }),
+      /rollback required/,
+    )
+    await assert.rejects(
+      offlineMaintenance(
+        engine,
+        { current: () => false },
+        {
+          action: 'offline-draft-rollback',
+          ...binding(checkpoint),
+        },
+      ),
+      /Current parent authority required/,
+    )
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), true)
+    await offlineMaintenance(engine, f.context, { action: 'offline-draft-rollback', ...binding(checkpoint) })
+    for (const [id, body] of f.bodies) assert.deepEqual(readFileSync(join(f.draftDir, `${id}.json`)), body)
+    assert.deepEqual(readFileSync(join(f.root, '.memory.json')), f.ledger)
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+  } finally {
+    await engine.close()
+    await f.close()
+  }
+})
+
+test('completed parking restores against a fresh inventory after successful subsequent publication', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await openFixture(2)
+  let engine = new MemoryEngineController(f.root)
+  try {
+    const preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+    const parked = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-park',
+      ...binding(preview),
+    })
+    const beforePublication = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore-inspect',
+      target: parked.target,
+    })
+    const parkingPlanPath = join(f.root, '.views/.maintenance', parked.target, 'plan.json')
+    const parkingPlan = readFileSync(parkingPlanPath)
+    const { view } = await engine.request('create', { project: 'fixture', shared: true }, f.context)
+    const core = await engine.request('read', { view, selection: { path: 'Core.md' } }, f.context)
+    assert.ok(typeof core.hash === 'string')
+    await engine.request(
+      'edit',
+      {
+        view,
+        path: 'Core.md',
+        expectedHash: core.hash,
+        text: '# Fixture\nPreserved core.\n\nLater published knowledge stays canonical.\n',
+        sources: ['later-publication'],
+      },
+      f.context,
+    )
+    await engine.request('ready', { view }, f.context)
+    const prepared = await engine.request('prepare', { view, reviewed: [] }, f.context)
+    assert.ok('plan' in prepared)
+    const publication = await new MemoryPublisher(engine, {
+      ...engineEnvironment(),
+      GIT_AUTHOR_NAME: 'Fixture',
+      GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Fixture',
+      GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    }).publish(prepared.plan, f.context)
+    assert.equal(publication.stage, 'reconciled_committed')
+    // A subsequent open draft is retained too, without activation by restore.
+    const later = await engine.request('create', { project: 'fixture', shared: true }, f.context)
+    await engine.close()
+    engine = new MemoryEngineController(f.root)
+    const laterHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' })
+    assert.notEqual(laterHead, f.head)
+    const laterCore = readFileSync(join(f.root, 'Core.md'))
+    const laterLedger = readFileSync(join(f.root, '.memory.json'))
+    assert.notDeepEqual(laterLedger, f.ledger)
+    const laterConfig = readFileSync(join(f.root, 'config.json'))
+    const laterIndex = readFileSync(join(f.root, '.git/index'))
+    const retained = new Map(
+      readdirSync(f.draftDir).map((name) => [name, readFileSync(join(f.draftDir, name))]),
+    )
+    const journalDir = join(f.root, '.views/.engine-v2/journal')
+    const journals = new Map(
+      readdirSync(journalDir).map((name) => [name, readFileSync(join(journalDir, name))]),
+    )
+    assert.ok(journals.size > 0)
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore',
+        ...binding(beforePublication),
+      }),
+      /fingerprint and operator assurance/,
+    )
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    const restore = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore-inspect',
+      target: parked.target,
+    })
+    assert.notEqual(binding(restore).revision, binding(beforePublication).revision)
+    const originalWork = join(f.root, '.views/.maintenance', parked.target)
+    const laterPath = join(f.draftDir, `${later.view}.json`)
+    const laterBody = readFileSync(laterPath)
+    let changedDuringPreparation = false
+    await assert.rejects(
+      offlineMaintenance(
+        engine,
+        {
+          current(targets) {
+            for (const path of targets?.physical ?? []) {
+              if (
+                !changedDuringPreparation &&
+                path.includes('/quarantine/') &&
+                !path.startsWith(`${originalWork}/`) &&
+                path.endsWith('.json') &&
+                existsSync(path)
+              ) {
+                changedDuringPreparation = true
+                writeFileSync(laterPath, Buffer.concat([laterBody, Buffer.from('\n')]))
+              }
+            }
+            return true
+          },
+        },
+        { action: 'offline-draft-restore', ...binding(restore) },
+      ),
+      /inventory changed|identity changed/,
+    )
+    assert.equal(changedDuringPreparation, true)
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    assert.equal(
+      JSON.parse(readFileSync(join(originalWork, 'state.json'), 'utf8')).restoreTransaction,
+      undefined,
+    )
+    writeFileSync(laterPath, laterBody)
+    const freshlyReviewed = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore-inspect',
+      target: parked.target,
+    })
+    const result = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore',
+      ...binding(freshlyReviewed),
+    })
+    assert.equal('restored' in result && result.restored, 2)
+    assert.notEqual(result.target, parked.target)
+    for (const [id, body] of f.bodies) {
+      assert.deepEqual(readFileSync(join(f.draftDir, `${id}.json`)), body)
+      assert.deepEqual(
+        readFileSync(
+          join(
+            f.root,
+            '.views/.maintenance',
+            parked.target,
+            'quarantine/.views/.engine-v2/drafts',
+            `${id}.json`,
+          ),
+        ),
+        body,
+      )
+    }
+    for (const [name, body] of retained) assert.deepEqual(readFileSync(join(f.draftDir, name)), body)
+    assert.equal(readdirSync(f.draftDir).length, retained.size + 2)
+    assert.deepEqual(readdirSync(journalDir).sort(), [...journals.keys()].sort())
+    for (const [name, body] of journals) assert.deepEqual(readFileSync(join(journalDir, name)), body)
+    assert.deepEqual(readFileSync(parkingPlanPath), parkingPlan)
+    assert.deepEqual(readFileSync(join(f.root, 'Core.md')), laterCore)
+    assert.deepEqual(readFileSync(join(f.root, '.memory.json')), laterLedger)
+    assert.deepEqual(readFileSync(join(f.root, 'config.json')), laterConfig)
+    assert.deepEqual(readFileSync(join(f.root, '.git/index')), laterIndex)
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }), laterHead)
+    assert.ok(retained.has(`${later.view}.json`))
+    assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+    await assert.rejects(
+      offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore-inspect',
+        target: parked.target,
+      }),
+      /Only completed/,
+    )
+  } finally {
+    await engine.close()
+    await f.close()
+  }
+})
+
+test('restore checkpoint published before source claim recovers with fresh fences and refuses later drift', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const drift of [false, true]) {
+    const f = await openFixture(2)
+    let engine = new MemoryEngineController(f.root)
+    try {
+      const preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+      const parked = await offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-park',
+        ...binding(preview),
+      })
+      const restore = await offlineMaintenance(engine, f.context, {
+        action: 'offline-draft-restore-inspect',
+        target: parked.target,
+      })
+      await engine.close()
+      const child = publishSeam(f.root, restore, 'link', 'offline-draft-restore')
+      assert.equal(child.status, 76, child.stderr)
+      const sourceStatePath = join(f.root, '.views/.maintenance', parked.target, 'state.json')
+      assert.equal(JSON.parse(readFileSync(sourceStatePath, 'utf8')).restoreTransaction, undefined)
+      engine = new MemoryEngineController(f.root)
+      if (drift)
+        execFileSync('git', ['commit', '--allow-empty', '-m', 'synthetic forbidden checkpoint drift'], {
+          cwd: f.root,
+        })
+      const checkpoint = await offlineMaintenance(engine, f.context, { action: 'offline-draft-inspect' })
+      assert.notEqual(checkpoint.target, parked.target)
+      assert.equal('phase' in checkpoint && checkpoint.phase, 'rolling-back')
+      if (drift) {
+        await assert.rejects(
+          offlineMaintenance(engine, f.context, {
+            action: 'offline-draft-rollback',
+            ...binding(checkpoint),
+          }),
+          /identity changed|marker retained/,
+        )
+        assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), true)
+        assert.equal(readdirSync(f.draftDir).length, 0)
+        assert.equal(JSON.parse(readFileSync(sourceStatePath, 'utf8')).restoreTransaction, undefined)
+      } else {
+        await offlineMaintenance(engine, f.context, {
+          action: 'offline-draft-rollback',
+          ...binding(checkpoint),
+        })
+        assert.equal(JSON.parse(readFileSync(sourceStatePath, 'utf8')).restoreTransaction, checkpoint.target)
+        for (const [id, body] of f.bodies)
+          assert.deepEqual(readFileSync(join(f.draftDir, `${id}.json`)), body)
+        assert.equal(existsSync(join(f.root, '.views/.maintenance-active.json')), false)
+      }
+      assert.deepEqual(readFileSync(join(f.root, '.memory.json')), f.ledger)
+    } finally {
+      await engine.close()
+      await f.close()
+    }
+  }
+})
+
+test('crash after the final restore move recovers by releasing the marker without rewriting restored state', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await openFixture(2)
+  let engine = new MemoryEngineController(f.root)
+  try {
+    const preview = await offlineMaintenance(engine, f.context, { action: 'offline-draft-park-inspect' })
+    const parked = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-park',
+      ...binding(preview),
+    })
+    const restore = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-restore-inspect',
+      target: parked.target,
+    })
+    await engine.close()
+    const moduleURL = new URL('../lib/agent-memory/engine/offline-maintenance.ts', import.meta.url).href
+    const controllerURL = new URL('../lib/agent-memory/engine/controller.ts', import.meta.url).href
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--experimental-strip-types',
+        '--input-type=module',
+        '-e',
+        `
+      import { existsSync, readFileSync } from 'node:fs';
+      import { join } from 'node:path';
+      import { offlineMaintenance, offlineAssurance } from ${JSON.stringify(moduleURL)};
+      import { MemoryEngineController } from ${JSON.stringify(controllerURL)};
+      const root = ${JSON.stringify(f.root)};
+      const ids = ${JSON.stringify(f.ids)};
+      const marker = join(root, '.views/.maintenance-active.json');
+      const context = { current() {
+        if (!existsSync(marker)) return true;
+        const { id } = JSON.parse(readFileSync(marker, 'utf8'));
+        const work = join(root, '.views/.maintenance', id);
+        const plan = JSON.parse(readFileSync(join(work, 'plan.json'), 'utf8'));
+        if (plan.kind === 'clean-open-draft-restore' && ids.every((draft) =>
+          existsSync(join(root, '.views/.engine-v2/drafts', draft + '.json')) &&
+          !existsSync(join(work, 'quarantine/.views/.engine-v2/drafts', draft + '.json'))))
+          process.exit(79);
+        return true;
+      } };
+      await offlineMaintenance(new MemoryEngineController(root), context, {
+        action: 'offline-draft-restore',
+        target: ${JSON.stringify(restore.target)},
+        revision: ${JSON.stringify(binding(restore).revision)},
+        offline: offlineAssurance,
+      });
+    `,
+      ],
+      { cwd: '/', env: process.env, encoding: 'utf8', timeout: 30000 },
+    )
+    assert.equal(child.status, 79, child.stderr)
+    const markerPath = join(f.root, '.views/.maintenance-active.json')
+    assert.equal(existsSync(markerPath), true)
+    const { id } = JSON.parse(readFileSync(markerPath, 'utf8'))
+    assert.notEqual(id, parked.target)
+    const sourceStatePath = join(f.root, '.views/.maintenance', parked.target, 'state.json')
+    const sourceClaim = readFileSync(sourceStatePath)
+    assert.equal(JSON.parse(sourceClaim.toString()).restoreTransaction, id)
+    const restoredIdentities = new Map(
+      f.ids.map((draft) => {
+        const stat = lstatSync(join(f.draftDir, `${draft}.json`))
+        return [draft, `${stat.dev}:${stat.ino}:${stat.mode}`]
+      }),
+    )
+    for (const [draft, body] of f.bodies) {
+      assert.deepEqual(readFileSync(join(f.draftDir, `${draft}.json`)), body)
+      assert.equal(
+        existsSync(
+          join(f.root, '.views/.maintenance', id, 'quarantine/.views/.engine-v2/drafts', `${draft}.json`),
+        ),
+        false,
+      )
+    }
+    const canonical = new Map(
+      ['Core.md', 'index.md', '.memory.json', 'config.json', '.git/index'].map((path) => [
+        path,
+        readFileSync(join(f.root, path)),
+      ]),
+    )
+    engine = new MemoryEngineController(f.root)
+    const checkpoint = await offlineMaintenance(engine, f.context, { action: 'offline-draft-inspect' })
+    assert.equal(checkpoint.target, id)
+    assert.equal('phase' in checkpoint && checkpoint.phase, 'rolling-back')
+    const recovered = await offlineMaintenance(engine, f.context, {
+      action: 'offline-draft-rollback',
+      ...binding(checkpoint),
+    })
+    assert.equal('restored' in recovered && recovered.restored, 2)
+    assert.equal(existsSync(markerPath), false)
+    assert.deepEqual(readFileSync(sourceStatePath), sourceClaim)
+    for (const [draft, body] of f.bodies) {
+      const path = join(f.draftDir, `${draft}.json`)
+      assert.deepEqual(readFileSync(path), body)
+      const stat = lstatSync(path)
+      assert.equal(`${stat.dev}:${stat.ino}:${stat.mode}`, restoredIdentities.get(draft))
+      assert.deepEqual(
+        readFileSync(
+          join(
+            f.root,
+            '.views/.maintenance',
+            parked.target,
+            'quarantine/.views/.engine-v2/drafts',
+            `${draft}.json`,
+          ),
+        ),
+        body,
+      )
+    }
+    for (const [path, body] of canonical) assert.deepEqual(readFileSync(join(f.root, path)), body)
+    assert.deepEqual(readFileSync(join(f.root, '.memory.json')), f.ledger)
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }), f.head)
+  } finally {
+    await engine.close()
     await f.close()
   }
 })

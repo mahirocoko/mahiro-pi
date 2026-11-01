@@ -372,7 +372,10 @@ body or max-turn fields: the runtime checks the exposed fields, replaces the wor
 prompt from canonical installed source, and passes an explicit eight-turn native
 budget plus a 120-second lease deadline. A project body/budget override does not
 replace those runtime controls. Its commit marks the view ready; a healthy parent
-integrates only after successful native completion.
+integrates only after successful native completion. A completion admitted before
+that deadline receives a bounded parent-only publication reserve of up to 30 seconds,
+capped at 150 seconds from draft admission. It does not revive a late writer or
+extend child access. Authority and publication fences remain in effect.
 
 Automatic writing depends on private `automatic` policy and bounded eligible,
 settled interactive/RPC observed episodes, not every turn. Standard installation
@@ -819,6 +822,55 @@ Both or neither, or bytes that differ, keep the marker. The snapshot remains
 as the rollback proof. Same-root restoration puts the manifest back at its
 original draft path for the existing owner. It does not activate a proposal or
 change HEAD.
+
+### Explicit reversible clean-open parking
+
+`memory-maintenance.mjs --drafts --park-open` is a distinct offline opt-in, not
+terminal archival and never admission-time cleanup. Inspect/apply accepts only
+freshly stable, parsed `open` manifests with an empty overlay and no journal
+reference. Ready, conflict, dirty, terminal, referenced and unknown records stay
+in place. Age/deadline is not eligibility. The same reviewed inventory, current
+exact-root authority, cooperative exclusion, snapshot/quarantine and recovery
+marker described above apply. Manifest bytes, mode, `open` state, base and deadline
+are preserved; nothing is cancelled, committed, or registered as a live handle.
+
+Each candidate must have a base reachable from canonical HEAD. Parking certifies
+its committed ledger, scoped reference set, object IDs and blob hashes/sizes.
+There are no new Git refs, object copies, retention owners or ledger edits. Normal
+append-only history keeps that base reachable. External history rewriting, object
+loss or a base that cannot be certified fails closed rather than repairing Git.
+Snapshots retain the manifest, not an independent Git backup.
+
+After successful completion and marker release, explicitly inspect the opaque
+parking transaction with `--drafts --restore --inspect --target <parking-UUID>`.
+Apply uses `--drafts --restore --apply --offline`, that UUID, and the newly reviewed
+`--expect` fingerprint. Restoration requires every original destination absent,
+verified snapshot/quarantine bytes and base, and enough room for the entire set
+within the 64-draft limit. The original root identity and parking evidence must
+still match, but later successful publication/adoption does not pin restoration
+to the old HEAD, ledger, journal or retained rows. A fresh inspection binds the
+current inventory. Apply revalidates it after preparing a separate restore
+transaction with current HEAD/config/ledger/journal and retained-row fences,
+verified candidate snapshots and private recovery copies. It restores the exact
+old manifests without merging/rebasing their bases or changing subsequent state.
+Changed inventory invalidates the reviewed receipt. Inspection and failed
+preflight leave no new marker; incomplete preparatory copies remain evidence.
+
+Interrupted parking retains its original transaction fences and uses
+`--drafts --inspect`, then reviewed `--resume` or `--rollback` as above. A restore
+transaction persists `rolling-back` before publishing its own marker. Read-only
+inspection returns that new checkpoint UUID; recovery requires reviewed
+`--rollback` and the restore transaction's fresh fences, not permission to follow
+later changes during interruption. Before active restoration, the original
+parking state records the restore transaction's claim. Recovery validates or
+completes that same claim after a crash, including a crash just after marker
+publication. The original parking plan, snapshot and quarantine remain intact;
+only the restore transaction's own copies move. The source claim prevents repeat
+restoration. Both-name copy interruptions remain blocked without guessing or
+evidence deletion. Completed restoration retains evidence, never activates the
+restored handles, and changes no draft terminal state.
+No real-store invocation, profile activation, install or reload follows from these
+source capabilities or synthetic tests.
 
 ## Experimental local Git/worktree service
 
