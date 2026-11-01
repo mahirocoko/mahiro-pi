@@ -6,6 +6,10 @@ import type { MemoryConfig, MemoryFile } from '../store.ts'
 import { configRecordVersion, reflectionSelectionValid } from '../reflection-config.ts'
 
 // Deliberately data-only. No store factory, SDK, loader or resource discovery.
+// Additive ABI2 namespace; never raise the old views or shared journal ceiling.
+export const overflowDraftLimit = 32
+export const overflowJournalCutoff = 32
+export const retainedViewLimit = 64 + overflowDraftLimit
 export const limits = Object.freeze({
   files: 1024,
   changes: 2049,

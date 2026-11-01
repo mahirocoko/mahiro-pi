@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 
-export type MemoryReason = 'capacity' | 'deadline' | 'branch' | 'CAS' | 'retention' | 'unknown'
+export type MemoryReason = 'capacity' | 'deadline' | 'branch' | 'CAS' | 'retention' | 'draft' | 'unknown'
 export interface MemoryFailureCode {
   reason: MemoryReason
   readInvalidation?: 'forgetting' | 'revision'
@@ -27,6 +27,8 @@ export function publicMemoryError(error: unknown, read = false): Error {
     branch: 'current branch changed; retained proposal preserved',
     CAS: 'revision or hash conflict; retained proposal preserved',
     retention: 'lossless retention guard refused the proposal; published knowledge not replaced',
+    draft:
+      'primary draft expired, scope/configuration changed, or creation pending; proposal preserved; explicit owner review required',
     unknown: 'valid arguments, scope, CAS, separate permission and healthy native binding required',
   }
   return new Error(`Managed memory unavailable: ${text[code.reason]} (reason: ${code.reason})`)
@@ -47,7 +49,7 @@ export function decodeMemoryFailure(value: unknown): Error {
   const reason = descriptors.reason.value as unknown
   const readInvalidation = descriptors.readInvalidation?.value as unknown
   if (
-    !['capacity', 'deadline', 'branch', 'CAS', 'retention', 'unknown'].includes(reason as string) ||
+    !['capacity', 'deadline', 'branch', 'CAS', 'retention', 'draft', 'unknown'].includes(reason as string) ||
     (readInvalidation !== undefined &&
       !(
         (readInvalidation === 'forgetting' && reason === 'unknown') ||

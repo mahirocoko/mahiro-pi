@@ -15,9 +15,10 @@ import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
 import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
+import { MemoryDataEngine } from '../lib/agent-memory/engine/data.ts'
 import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
-import { memoryFailureCode } from '../lib/agent-memory/reasons.ts'
+import { memoryFailureCode, publicMemoryError } from '../lib/agent-memory/reasons.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
 
@@ -191,6 +192,157 @@ function fixture(commandSurface = false) {
     },
   }
 }
+
+for (const expired of [false, true]) {
+  test(`primary draft survives ordinary next turn without rollover (expired=${expired})`, async () => {
+    const f = fixture(true)
+    const now = Date.now
+    try {
+      await f.emit('session_start')
+      const args = {
+        path: 'global/retained.md',
+        expectedHash: null,
+        text: '# Synthetic retained proposal\nNot published.\n',
+        sources: [],
+      }
+      await f.runtime.run('agent_memory_edit', args, f.ctx)
+      const draftDirectory = join(f.root, '.views/.engine-v2/drafts')
+      const retained = new Map(
+        readdirSync(draftDirectory).map((name) => [name, readFileSync(join(draftDirectory, name))]),
+      )
+      assert.equal(retained.size, 1)
+      const revision = f.store.snapshot().revision
+      if (expired) Date.now = () => now() + 600001
+      await f.emit('input', { text: 'Continue the synthetic task', source: 'interactive' })
+      await f.emit('before_agent_start', { systemPrompt: 'Synthetic next turn' })
+      const read = () => f.runtime.run('agent_memory_read', { path: args.path }, f.ctx)
+      if (expired) {
+        for (const operation of [read, () => f.runtime.run('agent_memory_edit', args, f.ctx)])
+          await assert.rejects(operation(), (error: unknown) => {
+            assert.equal(memoryFailureCode(error).reason, 'draft')
+            assert.match(publicMemoryError(error).message, /primary draft expired.*proposal preserved/)
+            return true
+          })
+        Date.now = now
+        assert.equal((await read()).text, args.text, 'the retained pointer still selects the original work')
+      } else {
+        assert.equal((await read()).text, args.text)
+        await f.runtime.run('agent_memory_edit', { ...args, expectedHash: digest(args.text) }, f.ctx)
+      }
+      assert.equal(f.store.snapshot().revision, revision)
+      assert.deepEqual(readdirSync(draftDirectory), [...retained.keys()])
+      if (expired)
+        for (const [name, bytes] of retained)
+          assert.deepEqual(readFileSync(join(draftDirectory, name)), bytes)
+      if (expired) {
+        Date.now = () => now() + 600001
+        await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
+        for (const [name, bytes] of retained)
+          assert.deepEqual(JSON.parse(readFileSync(join(draftDirectory, name), 'utf8')), {
+            ...JSON.parse(bytes.toString()),
+            state: 'cancelled',
+          })
+        await f.runtime.run('agent_memory_edit', args, f.ctx)
+        assert.equal((await read()).text, args.text)
+        assert.equal(f.store.snapshot().revision, revision)
+      }
+    } finally {
+      Date.now = now
+      await f.close()
+    }
+  })
+}
+
+for (const changed of ['project', 'config']) {
+  test(`primary draft ${changed} mismatch is diagnostic, never a replacement`, async () => {
+    const f = fixture(true)
+    try {
+      const configPath = join(f.root, 'config.json')
+      const config = JSON.parse(readFileSync(configPath, 'utf8'))
+      const other = join(f.root, '../other-project')
+      mkdirSync(other)
+      config.projects.push({ cwd: other, id: 'other' })
+      writeFileSync(configPath, JSON.stringify(config))
+      await f.emit('session_start')
+      const args = { path: 'global/retained.md', expectedHash: null, text: '# Retained\n', sources: [] }
+      await f.runtime.run('agent_memory_edit', args, f.ctx)
+      const directory = join(f.root, '.views/.engine-v2/drafts')
+      const before = readdirSync(directory).map(
+        (name) => [name, readFileSync(join(directory, name))] as const,
+      )
+      if (changed === 'project') f.ctx.cwd = other
+      else writeFileSync(configPath, JSON.stringify({ ...config, automatic: true }))
+      for (const name of ['agent_memory_read', 'agent_memory_edit'])
+        await assert.rejects(
+          f.runtime.run(name, name === 'agent_memory_read' ? { path: args.path } : args, f.ctx),
+          (error: unknown) => memoryFailureCode(error).reason === 'draft',
+        )
+      assert.deepEqual(
+        readdirSync(directory),
+        before.map(([name]) => name),
+      )
+      for (const [name, bytes] of before) assert.deepEqual(readFileSync(join(directory, name)), bytes)
+      if (changed === 'config') {
+        const revision = f.store.snapshot().revision
+        await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
+        for (const [name, bytes] of before)
+          assert.deepEqual(JSON.parse(readFileSync(join(directory, name), 'utf8')), {
+            ...JSON.parse(bytes.toString()),
+            state: 'cancelled',
+          })
+        await f.runtime.run('agent_memory_edit', args, f.ctx)
+        assert.equal((await f.runtime.run('agent_memory_read', { path: args.path }, f.ctx)).text, args.text)
+        assert.equal(f.store.snapshot().revision, revision)
+      }
+    } finally {
+      await f.close()
+    }
+  })
+}
+
+test('concurrent primary first edits cannot replace the pending draft pointer', async () => {
+  const f = fixture(true)
+  const original = MemoryEngineController.prototype.request
+  const entered = deferred()
+  const release = deferred()
+  let creates = 0
+  MemoryEngineController.prototype.request = async function (this: MemoryEngineController, ...args) {
+    if (args[0] === 'create') {
+      creates++
+      entered.resolve()
+      await release.promise
+    }
+    return original.apply(this, args)
+  }
+  let first: Promise<unknown> | undefined
+  try {
+    await f.emit('session_start')
+    const edit = (path: string) =>
+      f.runtime.run(
+        'agent_memory_edit',
+        { path, expectedHash: null, text: '# Synthetic proposal\n', sources: [] },
+        f.ctx,
+      )
+    first = edit('global/first.md')
+    await entered.promise
+    await assert.rejects(
+      edit('global/second.md'),
+      (error: unknown) => memoryFailureCode(error).reason === 'draft',
+    )
+    release.resolve()
+    await first
+    assert.equal(creates, 1)
+    assert.equal(
+      (await f.runtime.run('agent_memory_read', { path: 'global/first.md' }, f.ctx)).text,
+      '# Synthetic proposal\n',
+    )
+  } finally {
+    release.resolve()
+    await first?.catch(() => {})
+    MemoryEngineController.prototype.request = original
+    await f.close()
+  }
+})
 
 test('tree retires old engine; completed tree and cancelled idle read/input each bind fresh', async () => {
   const f = fixture()
@@ -493,8 +645,9 @@ function terminalJournal(root: string, revision: string) {
   })
 }
 
-test('64 terminal journals or drafts leave status Ready while explicit reflect hits capacity before spawn', async () => {
-  for (const kind of ['journal', 'drafts'] as const) {
+test('terminal journal limit and overflow cutoff/full slots leave status Ready but block reflect before spawn', async () => {
+  for (const cutoff of ['journal', 'overflow-journal', 'overflow-slots'] as const) {
+    const kind = cutoff === 'journal' ? 'journal' : 'drafts'
     const f = fixture(true)
     const spawns: string[] = []
     try {
@@ -536,10 +689,48 @@ test('64 terminal journals or drafts leave status Ready while explicit reflect h
       })
       const folder = join(f.root, '.views/.engine-v2', kind)
       mkdirSync(folder, { recursive: true, mode: 0o700 })
-      const body =
-        kind === 'journal' ? terminalJournal(realpathSync(f.root), f.store.snapshot().revision) : '{}'
-      for (let index = 0; index < 64; index++)
-        writeFileSync(join(folder, `${journalId(index)}.json`), body, { mode: 0o600 })
+      if (kind === 'journal') {
+        const body = terminalJournal(realpathSync(f.root), f.store.snapshot().revision)
+        for (let index = 0; index < 64; index++)
+          writeFileSync(join(folder, `${journalId(index)}.json`), body, { mode: 0o600 })
+      } else {
+        const seed = new MemoryDataEngine(realpathSync(f.root), engineEnvironment(process.env))
+        const created = await seed.execute(
+          'create',
+          { project: 'synthetic', shared: true },
+          async () => {},
+          new AbortController().signal,
+        )
+        const template = JSON.parse(readFileSync(join(folder, `${created.view}.json`), 'utf8'))
+        rmSync(join(folder, `${created.view}.json`))
+        for (let index = 0; index < 64; index++) {
+          const id = journalId(index)
+          writeFileSync(join(folder, `${id}.json`), JSON.stringify({ ...template, id, state: 'cancelled' }), {
+            mode: 0o600,
+          })
+        }
+        const available = await seed.execute(
+          'capacityDiagnostic',
+          {},
+          async () => {},
+          new AbortController().signal,
+        )
+        assert.equal(available.namespaces.drafts.admission, 'available')
+        if (cutoff === 'overflow-journal') {
+          const journal = join(f.root, '.views/.engine-v2/journal')
+          mkdirSync(journal, { recursive: true, mode: 0o700 })
+          for (let index = 0; index < 32; index++)
+            writeFileSync(
+              join(journal, `${journalId(index)}.json`),
+              terminalJournal(realpathSync(f.root), f.store.snapshot().revision),
+              { mode: 0o600 },
+            )
+        } else {
+          const slots = join(f.root, '.views/.engine-v2/overflow-drafts/slots')
+          for (let index = 0; index < 32; index++)
+            mkdirSync(join(slots, String(index).padStart(2, '0')), { recursive: true, mode: 0o700 })
+        }
+      }
       await f.emit('session_start')
       const command = f.commands.get('mh-memory')
       assert.ok(command)

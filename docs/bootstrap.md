@@ -117,6 +117,28 @@ pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
   --target <candidate-set-SHA256> --expect <exact-inventory-SHA256>
 ```
 
+Episode admission has a separate `--episodes` selector, not a publication/draft recovery
+option. Close all cooperating writer sessions/controllers first; `--offline` is the
+same affirmative closure/no-new-writers assurance, never a PID/age or `lsof`-alone claim.
+Inspect and apply use the returned SHA-256 target/fingerprint:
+
+```sh
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --episodes --inspect
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --episodes --apply --offline \
+  --target <reviewed-target-SHA256> --expect <exact-inspection-SHA256>
+```
+
+After interruption use `--episodes --inspect` again. A complete plan requires
+`--episodes --resume --offline` with its returned target/fingerprint; an incomplete
+pre-plan checkpoint requires a newly reviewed `--apply`. Recovery preserves anonymous
+and partial lock evidence, temp bytes and acknowledged canonical episodes in a bounded
+resumable quarantine. It never steals a lock or deletes canonical episodes. See
+[episode admission and recovery](agent-memory.md#episode-admission-and-offline-recovery-abi2)
+for bounds, hardlink handling and the explicit **no mixed-version writer guarantee**.
+Do not combine `--episodes` with draft/parking/restore/rollback selectors.
+
 Clean unreferenced open drafts have a separate explicit reversible parking selector,
 `--drafts --park-open --inspect` / `--drafts --park-open --apply --offline`, using
 the reviewed candidate-set target and inventory fingerprint. This is never normal

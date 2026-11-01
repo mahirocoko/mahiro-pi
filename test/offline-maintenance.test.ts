@@ -29,7 +29,12 @@ import { parseOperation } from '../lib/agent-memory/engine/operation.ts'
 
 // Disposable source fixture only. Production current comes from the real Root-bound runtime.
 async function fixture(
-  options: { partialMutation?: boolean; terminalDirty?: boolean; largeOperation?: boolean } = {},
+  options: {
+    partialMutation?: boolean
+    terminalDirty?: boolean
+    largeOperation?: boolean
+    overflow?: boolean
+  } = {},
 ) {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'mahiro-offline-'))
   const root = join(directory, 'memory')
@@ -93,6 +98,15 @@ async function fixture(
   }
   const context: OperationContext = { current: () => true }
   const preparing = new MemoryEngineController(root)
+  if (options.overflow) {
+    const initial = await preparing.request('create', { project: 'fixture', shared: true }, context)
+    const folder = join(root, '.views/.engine-v2/drafts')
+    const original = JSON.parse(readFileSync(join(folder, `${initial.view}.json`), 'utf8'))
+    for (let index = 1; index < 64; index++) {
+      const draft = { ...original, id: randomUUID(), state: 'cancelled' }
+      writeFileSync(join(folder, `${draft.id}.json`), `${JSON.stringify(draft)}\n`, { mode: 0o600 })
+    }
+  }
   const view = await preparing.request('create', { project: 'fixture', shared: true }, context)
   await preparing.request(
     'edit',
@@ -252,6 +266,137 @@ test('offline adoption archives ALL original bytes, quarantines typed blockers, 
     )
   } finally {
     await f.close()
+  }
+})
+
+test('offline overflow adoption resolves actual reserved proposal, archives all evidence and resumes without freeing slots', {
+  skip: !kernelAvailable,
+}, async () => {
+  const f = await fixture({ partialMutation: true, overflow: true })
+  try {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root }).toString()
+    const preview = await f.inspect()
+    assert.equal('adoptionAvailable' in preview && preview.adoptionAvailable, true)
+    const view = 'operation' in preview ? preview.operation!.view : ''
+    const draft = `.views/.engine-v2/overflow-drafts/${view}.json`
+    const slots = join(f.root, '.views/.engine-v2/overflow-drafts/slots')
+    const slotOwner = readFileSync(join(slots, '00/owner'))
+    let interrupted = false
+    await assert.rejects(
+      f.apply(preview, {
+        current(targets) {
+          if (!interrupted && targets.physical.some((path) => path.endsWith('/quarantine/.lock'))) {
+            const marker = JSON.parse(readFileSync(join(f.root, maintenanceMarker), 'utf8'))
+            const state = JSON.parse(
+              readFileSync(join(f.root, '.views/.maintenance', marker.id, 'state.json'), 'utf8'),
+            )
+            if (state.phase === 'quarantining') {
+              interrupted = true
+              return false
+            }
+          }
+          return true
+        },
+      }),
+      /authority/,
+    )
+    assert.equal(interrupted, true)
+    assert.equal(existsSync(join(f.root, '.lock')), true)
+    const checkpoint = await f.inspect()
+    assert.equal('phase' in checkpoint && checkpoint.phase, 'quarantining')
+    const result = await offlineMaintenance(f.engine, f.context, {
+      action: 'offline-resume',
+      target: checkpoint.target,
+      revision: checkpoint.revision,
+      offline: offlineAssurance,
+    })
+    assert.equal('disposition' in result && result.disposition, 'manually-adopted-prior-outcome-unknown')
+    const work = join(f.root, '.views/.maintenance', result.target!)
+    for (const [path, bytes] of f.original)
+      assert.deepEqual(readFileSync(join(work, 'snapshot', path)), bytes, path)
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root }).toString(), head)
+    assert.equal(JSON.parse(readFileSync(join(f.root, draft), 'utf8')).state, 'conflict')
+    assert.equal(readdirSync(slots).length, 1)
+    assert.deepEqual(readFileSync(join(slots, '00/owner')), slotOwner)
+    assert.equal(readdirSync(join(f.root, '.views/.engine-v2/drafts')).length, 64)
+    assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+    assert.equal(execFileSync('git', ['status', '--porcelain=v1', '-z'], { cwd: f.root }).length, 0)
+    const created = await f.engine.request('create', { project: 'fixture', shared: true }, f.context)
+    assert.ok(existsSync(join(f.root, '.views/.engine-v2/overflow-drafts', `${created.view}.json`)))
+    assert.equal(readdirSync(slots).length, 2)
+  } finally {
+    await f.close()
+  }
+})
+
+test('offline overflow inspection refuses duplicate, unreserved, changed-hash, root-binding and authority evidence', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const scenario of ['duplicate', 'unreserved', 'proposal-hash', 'root', 'authority']) {
+    const f = await fixture({ overflow: true })
+    try {
+      const record = parseOperation(readFileSync(f.path, 'utf8'))
+      const view = record.immutable.plan.view
+      const proposal = join(f.root, '.views/.engine-v2/overflow-drafts', `${view}.json`)
+      if (scenario === 'duplicate')
+        writeFileSync(join(f.root, '.views/.engine-v2/drafts', `${view}.json`), readFileSync(proposal), {
+          mode: 0o600,
+        })
+      if (scenario === 'unreserved') rmSync(join(f.root, '.views/.engine-v2/overflow-drafts/slots/00/owner'))
+      if (scenario === 'proposal-hash')
+        writeFileSync(proposal, `${readFileSync(proposal, 'utf8')}\n`, { mode: 0o600 })
+      if (scenario === 'root') {
+        record.immutable.root = f.directory
+        record.immutableHash = createHash('sha256').update(JSON.stringify(record.immutable)).digest('hex')
+        writeFileSync(f.path, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+      }
+      const selected =
+        scenario === 'authority'
+          ? {
+              current: (targets: { physical: string[] }) =>
+                !targets.physical.some((path) => path.endsWith('/slots/00/owner')),
+            }
+          : f.context
+      await assert.rejects(offlineMaintenance(f.engine, selected, { action: 'offline-inspect' }))
+      assert.equal(existsSync(join(f.root, '.lock')), true, scenario)
+      assert.equal(existsSync(f.path), true, scenario)
+      assert.equal(existsSync(proposal), true, scenario)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false, scenario)
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('offline overflow terminal-dirty recovery and exhausted-slot HOLD retain typed evidence', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const exhausted of [false, true]) {
+    const f = await fixture({ terminalDirty: true, overflow: true })
+    try {
+      const slots = join(f.root, '.views/.engine-v2/overflow-drafts/slots')
+      if (exhausted)
+        for (let index = 1; index < 32; index++)
+          mkdirSync(join(slots, String(index).padStart(2, '0')), { mode: 0o700 })
+      const preview = await f.inspect()
+      assert.equal('priorOutcome' in preview && preview.priorOutcome, 'not_committed_dirty')
+      assert.equal('adoptionAvailable' in preview && preview.adoptionAvailable, !exhausted)
+      if (exhausted) {
+        await assert.rejects(f.apply(preview), /capacity/)
+        assert.equal(existsSync(f.path), true)
+        assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+        assert.equal(readdirSync(slots).length, 32)
+      } else {
+        const result = await f.apply(preview)
+        assert.equal('disposition' in result && result.disposition, 'manually-recovered-not-committed-dirty')
+        assert.equal(existsSync(f.path), false)
+        assert.equal(readdirSync(slots).length, 1)
+        assert.equal(execFileSync('git', ['status', '--porcelain=v1', '-z'], { cwd: f.root }).length, 0)
+      }
+    } finally {
+      await f.close()
+    }
   }
 })
 

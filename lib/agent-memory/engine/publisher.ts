@@ -32,6 +32,7 @@ export class MemoryPublisher {
     if (this.busy) throw Error('Publication already in progress')
     if (!this.engine.ownsPlan(plan)) throw Error('Parent-owned prepared plan required')
     assertCurrent(context)
+    this.engine.claimPlan(plan)
     const executor = reserveExecutor(this.engine.root, plan)
     const release = context.hold?.({ publisher: this, plan })
     this.busy = true // reserve before the first await

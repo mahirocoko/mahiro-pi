@@ -132,7 +132,7 @@ async function names(root: string, path: string, context: OperationContext) {
     return { listed: [] as string[], exact: true as const }
   }
 }
-async function withExecutionOwner<T>(root: string, context: OperationContext, body: () => Promise<T>) {
+export async function withExecutionOwner<T>(root: string, context: OperationContext, body: () => Promise<T>) {
   if (executionOwners.has(root)) throw Error('Offline maintenance execution owner held')
   const token = Symbol(root)
   executionOwners.set(root, token)

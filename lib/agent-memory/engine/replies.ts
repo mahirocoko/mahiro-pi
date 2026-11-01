@@ -21,8 +21,11 @@ import {
   isCriticalLinkSource,
   isProtectedRetentionPath,
   limits,
+  overflowDraftLimit,
+  overflowJournalCutoff,
   parseConfig,
   revisionPattern,
+  retainedViewLimit,
   uuidPattern,
 } from './schema.ts'
 
@@ -158,8 +161,8 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
             integer(doctor.totalBytesCeiling, limits.total) &&
             integer(doctor.alwaysLoadedBytes, limits.total) &&
             integer(doctor.episodes) &&
-            integer(doctor.views, limits.views) &&
-            integer(doctor.conflicts, limits.views) &&
+            integer(doctor.views, retainedViewLimit) &&
+            integer(doctor.conflicts, retainedViewLimit) &&
             paths(doctor.missingDescriptions) &&
             paths(doctor.unmigratedV1Paths) &&
             (doctor.unmigratedV1Paths as string[]).every(
@@ -316,11 +319,11 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         )
         const views = shape(palace.views, ['total', 'open', 'conflict', 'committed', 'cancelled'])
         ensure(
-          integer(views.total, limits.views) &&
-            integer(views.open, limits.views) &&
-            integer(views.conflict, limits.views) &&
-            integer(views.committed, limits.views) &&
-            integer(views.cancelled, limits.views) &&
+          integer(views.total, retainedViewLimit) &&
+            integer(views.open, retainedViewLimit) &&
+            integer(views.conflict, retainedViewLimit) &&
+            integer(views.committed, retainedViewLimit) &&
+            integer(views.cancelled, retainedViewLimit) &&
             (views.open as number) +
               (views.conflict as number) +
               (views.committed as number) +
@@ -469,7 +472,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         'corpusReturned',
       ])
       ensure(
-        v.version === 1 &&
+        (v.version === 1 || v.version === 2) &&
           v.kind === 'abi2-capacity-diagnostic' &&
           revision(v.revision) &&
           hash(v.configHash) &&
@@ -477,7 +480,13 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
           v.association === 'sequential-non-atomic' &&
           v.corpusReturned === false,
       )
-      const namespaceNames = ['journal', 'legacyViews', 'drafts', 'episodes']
+      const namespaceNames = [
+        'journal',
+        'legacyViews',
+        'drafts',
+        'episodes',
+        ...(v.version === 2 ? ['overflowDrafts', 'overflowSlots'] : []),
+      ]
       const namespaces = shape(v.namespaces, namespaceNames)
       const namespaceRows: Record<string, Record<string, unknown>> = {}
       const states = ['available', 'blocked', 'unknown', 'not-applicable']
@@ -505,6 +514,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         const entries = entry.entries as number
         const matching = entry.matching as number
         const exact = entry.exact as boolean
+        if (name === 'overflowSlots') ensure(matching <= overflowDraftLimit)
         const expected =
           name === 'journal'
             ? {
@@ -522,14 +532,48 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
                 ? {
                     status: 'not-applicable',
                     doctor: boundedState(matching > limits.views, exact),
-                    admission: boundedState(entries >= limits.views, exact),
-                  }
-                : {
-                    status: 'not-applicable',
-                    doctor: boundedState(matching > 256, exact),
                     admission:
-                      matching > 256 ? 'blocked' : matching === 256 || !exact ? 'unknown' : 'available',
+                      v.version === 1
+                        ? boundedState(entries >= limits.views, exact)
+                        : entries > limits.views
+                          ? 'blocked'
+                          : !exact
+                            ? 'unknown'
+                            : entries < limits.views
+                              ? 'available'
+                              : (() => {
+                                  const journal = shape(namespaces.journal, [
+                                    'entries',
+                                    'matching',
+                                    'exact',
+                                    'status',
+                                    'doctor',
+                                    'admission',
+                                  ])
+                                  const slots = shape(namespaces.overflowSlots, [
+                                    'entries',
+                                    'matching',
+                                    'exact',
+                                    'status',
+                                    'doctor',
+                                    'admission',
+                                  ])
+                                  return (journal.entries as number) >= overflowJournalCutoff ||
+                                    (slots.matching as number) >= overflowDraftLimit
+                                    ? 'blocked'
+                                    : journal.exact === true && slots.exact === true
+                                      ? 'available'
+                                      : 'unknown'
+                                })(),
                   }
+                : name === 'overflowDrafts' || name === 'overflowSlots'
+                  ? { status: 'not-applicable', doctor: 'not-applicable', admission: 'not-applicable' }
+                  : {
+                      status: 'not-applicable',
+                      doctor: boundedState(matching > 256, exact),
+                      admission:
+                        matching > 256 ? 'blocked' : matching === 256 || !exact ? 'unknown' : 'available',
+                    }
         ensure(
           entry.status === expected.status &&
             entry.doctor === expected.doctor &&
@@ -905,7 +949,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
     case 'conflicts': {
       if (input.target === undefined) {
         const v = shape(value, ['conflicts', 'total'])
-        ensure(integer(v.total, 64) && Array.isArray(v.conflicts) && v.conflicts.length <= 8)
+        ensure(integer(v.total, retainedViewLimit) && Array.isArray(v.conflicts) && v.conflicts.length <= 8)
         for (const entry of v.conflicts) {
           const e = shape(entry, ['id', 'baseRevision', 'fileCount'])
           ensure(uuid(e.id) && revision(e.baseRevision) && integer(e.fileCount, limits.files))

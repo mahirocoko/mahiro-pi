@@ -7,14 +7,25 @@ import { assertCurrent, type MemoryEngineController, type OperationContext } fro
 import { engineEnvironment, privateDirectory, runGit, safePath } from './io.ts'
 import { operationLimit, parseLockOwner, parseOperation, type LockOwner } from './operation.ts'
 import { parseDraft } from './manifest.ts'
-import { limits, parseConfig, parseLedger, uuidPattern } from './schema.ts'
+import {
+  limits,
+  overflowDraftLimit,
+  overflowJournalCutoff,
+  parseConfig,
+  parseLedger,
+  uuidPattern,
+} from './schema.ts'
 import { draftArchiveMaintenance } from './offline-draft-archive.ts'
+import { episodeRecoveryMaintenance } from './offline-episode-recovery.ts'
 
 // Explicit cooperative offline adoption only. This is NOT executor drain or normal reconciliation.
 export const maintenanceMarker = '.views/.maintenance-active.json'
 export const offlineAssurance = 'known-profile-closed-no-cooperative-writers-start'
 export const container = '.views/.maintenance'
 const journal = '.views/.engine-v2/journal'
+const drafts = '.views/.engine-v2/drafts'
+const overflowDrafts = '.views/.engine-v2/overflow-drafts'
+const overflowSlots = `${overflowDrafts}/slots`
 const bounds = Object.freeze({ entries: 131072, bytes: 8 * 1024 * 1024 * 1024, file: 256 * 1024 * 1024 })
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
 export interface Entry {
@@ -40,6 +51,58 @@ interface Plan {
   draft: string | null
   counts: { journal: number; drafts: number; legacyViews: number; staging: number; unknownAdmission: number }
 }
+// Uses the complete authority-checked inventory, not a guessed proposal path. Slots remain
+// admission evidence: adoption never moves, frees or adopts a reservation.
+async function proposalPath(root: string, entries: Entry[], view: string, context: OperationContext) {
+  if (!uuidPattern.test(view)) throw Error('Offline proposal identity unavailable')
+  const children = (path: string) => entries.filter((entry) => dirname(entry.path) === path)
+  const slots = children(overflowSlots)
+  const overflow = children(overflowDrafts)
+  if (slots.length > overflowDraftLimit || overflow.length > overflowDraftLimit * 3 + 1)
+    throw Error('Offline overflow inventory capacity exceeded')
+  const owners = new Set<string>()
+  for (const slot of slots) {
+    if (slot.kind !== 'directory' || !/^(?:[0-2][0-9]|3[01])$/.test(relative(overflowSlots, slot.path)))
+      throw Error('Offline overflow reservation unavailable')
+    const owner = entries.find((entry) => entry.path === `${slot.path}/owner`)
+    if (!owner) continue // crashed reservation is retained and remains consumed
+    if (owner.kind !== 'file') throw Error('Offline overflow owner unavailable')
+    const id = await read(root, owner.path, 64, context)
+    if (!uuidPattern.test(id) || owners.has(id)) throw Error('Offline overflow owner ambiguous')
+    owners.add(id)
+  }
+  const manifests = overflow.filter((entry) => {
+    const name = relative(overflowDrafts, entry.path)
+    if (name === 'slots') {
+      if (entry.kind !== 'directory') throw Error('Offline overflow slots unavailable')
+      return false
+    }
+    if (/^[a-f0-9-]{36}\.json\.[a-f0-9-]{36}\.tmp$/.test(name)) return false
+    const id = name.slice(0, -5)
+    if (entry.kind !== 'file' || !name.endsWith('.json') || !uuidPattern.test(id) || !owners.has(id))
+      throw Error('Offline unreserved overflow proposal')
+    if (entries.some((candidate) => candidate.path === `${drafts}/${id}.json`))
+      throw Error('Offline ambiguous proposal identity')
+    return true
+  })
+  if (manifests.length > overflowDraftLimit) throw Error('Offline overflow manifest capacity exceeded')
+  const candidates = [`${drafts}/${view}.json`, `${overflowDrafts}/${view}.json`].filter((path) =>
+    entries.some((entry) => entry.path === path && entry.kind === 'file'),
+  )
+  if (candidates.length !== 1) throw Error('Offline proposal path unavailable or ambiguous')
+  return candidates[0]
+}
+function admissionAvailable(entries: Entry[], journalRemaining: number, draft: string | null) {
+  const count = (path: string) => entries.filter((entry) => dirname(entry.path) === path).length
+  const original = count(drafts)
+  if (original < limits.views) return journalRemaining < limits.views
+  return (
+    draft?.startsWith(`${overflowDrafts}/`) === true &&
+    original === limits.views &&
+    count(overflowSlots) < overflowDraftLimit &&
+    journalRemaining < overflowJournalCutoff
+  )
+}
 interface State {
   version: 1
   phase: 'prepared' | 'archived' | 'quarantining' | 'completed'
@@ -51,6 +114,9 @@ export interface MaintenanceRequest {
     | 'offline-inspect'
     | 'offline-adopt'
     | 'offline-resume'
+    | 'offline-episode-inspect'
+    | 'offline-episode-recover'
+    | 'offline-episode-resume'
     | 'offline-draft-inspect'
     | 'offline-draft-archive'
     | 'offline-draft-resume'
@@ -334,9 +400,14 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
       }
       operationRecord = record
       moves.push(journalEntry.path)
-      const path = `.views/.engine-v2/drafts/${record.immutable.plan.view}.json`
-      const proposal = parseDraft(await read(root, path, 2 * 1024 * 1024, context))
-      if (proposal.id !== record.immutable.plan.view || proposal.state !== 'ready')
+      const path = await proposalPath(root, entries, record.immutable.plan.view, context)
+      const proposalRaw = await read(root, path, 2 * 1024 * 1024, context)
+      const proposal = parseDraft(proposalRaw)
+      if (
+        proposal.id !== record.immutable.plan.view ||
+        proposal.state !== 'ready' ||
+        hash(proposalRaw) !== record.immutable.proposalHash
+      )
         throw Error('Offline adoption requires retained ready proposal')
       draft = path
     } else if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
@@ -428,6 +499,7 @@ export async function inspectHolders(
   root: string,
   engine: MemoryEngineController,
   context: OperationContext,
+  allowControllerHolder = true,
 ) {
   await gate(context, [root, join(root, '.git')])
   const executable =
@@ -479,7 +551,7 @@ export async function inspectHolders(
           if (!pid) return reject(Error('Offline holder inspection malformed'))
           found = true
           // These identities come only from this actual owner process and controller object.
-          if (pid !== process.pid && pid !== engine.pid)
+          if (pid !== process.pid && !(allowControllerHolder && pid === engine.pid))
             return reject(Error('Unexpected kernel Root holder; close it explicitly, do not kill or adopt'))
         } else return reject(Error('Offline holder inspection unknown field'))
       }
@@ -635,7 +707,9 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
   const record = parseOperation(
     await read(root, `${journal}/${owner.operation}.json`, operationLimit, context),
   )
-  const draft = parseDraft(await read(root, plan.draft!, 2 * 1024 * 1024, context))
+  const resolvedDraft = await proposalPath(root, actual, plan.operation.view, context)
+  const draftRaw = await read(root, resolvedDraft, 2 * 1024 * 1024, context)
+  const draft = parseDraft(draftRaw)
   const semantic = hash(JSON.stringify(parseConfig(await read(root, 'config.json', 131072, context))))
   parseLedger(await read(root, '.memory.json', limits.ledger, context))
   const changes = new Map(record.immutable.plan.changes.map((change) => [change.path, change]))
@@ -662,6 +736,8 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
     record.receipt.stage !== plan.outcome ||
     record.immutable.plan.current !== plan.head ||
     record.immutable.plan.view !== plan.operation.view ||
+    resolvedDraft !== plan.draft ||
+    hash(draftRaw) !== record.immutable.proposalHash ||
     draft.id !== plan.operation.view ||
     draft.state !== 'ready' ||
     semantic !== plan.configSemantic ||
@@ -882,7 +958,8 @@ async function loadTransaction(root: string, context: OperationContext) {
     !Number.isSafeInteger(plan.operation.sequence) ||
     plan.operation.sequence < 0 ||
     !uuidPattern.test(plan.operation.view) ||
-    plan.draft !== `.views/.engine-v2/drafts/${plan.operation.view}.json` ||
+    (plan.draft !== `${drafts}/${plan.operation.view}.json` &&
+      plan.draft !== `${overflowDrafts}/${plan.operation.view}.json`) ||
     !['unknown', 'not_committed_dirty'].includes(plan.outcome) ||
     (plan.outcome === 'unknown' ? !plan.moves.includes('.lock') : plan.moves.includes('.lock')) ||
     (plan.outcome === 'unknown') !== (state.disposition === 'manually-adopted-prior-outcome-unknown') ||
@@ -978,8 +1055,8 @@ async function finish(
     if (status) throw Error('Offline active tracked/index state not clean')
     const active = await inventory(plan.root, context, [maintenanceMarker, relative(plan.root, work)])
     const remainingJournal = active.filter((e) => dirname(e.path) === journal)
-    const remainingDrafts = active.filter((e) => dirname(e.path) === '.views/.engine-v2/drafts')
-    if (remainingJournal.length >= 64 || remainingDrafts.length >= 64)
+    await proposalPath(plan.root, active, plan.operation.view, context)
+    if (!admissionAvailable(active, remainingJournal.length, plan.draft))
       throw Error('Offline adoption HOLD: active namespace capacity blocks ordinary admission')
     for (const entry of remainingJournal) {
       if (entry.kind !== 'file' || !/^[a-f0-9-]{36}\.json$/.test(relative(journal, entry.path)))
@@ -1011,6 +1088,8 @@ export async function offlineMaintenance(
   context: OperationContext,
   request: MaintenanceRequest,
 ) {
+  const episode = await episodeRecoveryMaintenance(engine, context, request)
+  if (episode) return episode
   const drafted = await draftArchiveMaintenance(engine, context, request)
   if (drafted) return drafted
   const root = engine.root
@@ -1054,9 +1133,11 @@ export async function offlineMaintenance(
       artifacts: reviewed.moves,
       counts: reviewed.counts,
       remainingJournal: reviewed.counts.journal - reviewed.moves.filter((p) => dirname(p) === journal).length,
-      adoptionAvailable:
-        reviewed.counts.drafts < 64 &&
-        reviewed.counts.journal - reviewed.moves.filter((p) => dirname(p) === journal).length < 64,
+      adoptionAvailable: admissionAvailable(
+        reviewed.entries,
+        reviewed.counts.journal - reviewed.moves.filter((p) => dirname(p) === journal).length,
+        reviewed.draft,
+      ),
       archiveRequired: true,
       corpusReturned: false,
       priorOutcome: reviewed.outcome,
@@ -1070,8 +1151,11 @@ export async function offlineMaintenance(
   )
     throw Error('Exact reviewed offline target/fingerprint and operator assurance required')
   if (
-    reviewed.counts.drafts >= 64 ||
-    reviewed.counts.journal - reviewed.moves.filter((p) => dirname(p) === journal).length >= 64
+    !admissionAvailable(
+      reviewed.entries,
+      reviewed.counts.journal - reviewed.moves.filter((p) => dirname(p) === journal).length,
+      reviewed.draft,
+    )
   )
     throw Error('Offline adoption HOLD: remaining active journal/drafts capacity blocks ordinary admission')
   await inspectHolders(root, engine, context)

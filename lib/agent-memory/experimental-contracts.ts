@@ -1,10 +1,12 @@
 import type { ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
 import type { MemoryABI } from './runtime.ts'
 import type { MemoryEngineController } from './engine/controller.ts'
+import { attemptTimingSink, type AttemptTimingSink } from './engine/attempt-timing.ts'
 
 // Opaque by-reference data only. Root never authenticates a serialized view/controller claim.
 export interface EngineWorkerValue {
   version: 2
+  [attemptTimingSink]?: () => AttemptTimingSink | undefined
   engine: MemoryEngineController
   root: string
   project: string

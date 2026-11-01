@@ -20,6 +20,7 @@ try {
         '--resume',
         '--rollback',
         '--drafts',
+        '--episodes',
         '--park-open',
         '--restore',
         '--offline',
@@ -36,6 +37,7 @@ try {
         '--resume',
         '--rollback',
         '--drafts',
+        '--episodes',
         '--park-open',
         '--restore',
         '--offline',
@@ -57,6 +59,11 @@ try {
   if (options['--park-open'] && options['--restore']) throw Error('Select parking or restore')
   if ((options['--park-open'] || options['--restore']) && (options['--resume'] || options['--rollback']))
     throw Error('Checkpoint recovery uses --drafts without parking/restore selectors')
+  if (
+    options['--episodes'] &&
+    (options['--drafts'] || options['--park-open'] || options['--restore'] || options['--rollback'])
+  )
+    throw Error('Episode recovery is separate from draft/publication recovery')
   const canonical = (path) => {
     if (
       typeof path !== 'string' ||
@@ -90,32 +97,43 @@ try {
   ]
   if (!Array.isArray(settings.packages) || packages.some((path) => !settings.packages.includes(path)))
     throw Error('Required canonical public owners must already be installed; installer is separate')
-  const action = options['--park-open']
+  const action = options['--episodes']
     ? options['--inspect']
-      ? 'offline-draft-park-inspect'
-      : 'offline-draft-park'
-    : options['--restore']
+      ? 'offline-episode-inspect'
+      : options['--apply']
+        ? 'offline-episode-recover'
+        : 'offline-episode-resume'
+    : options['--park-open']
       ? options['--inspect']
-        ? 'offline-draft-restore-inspect'
-        : 'offline-draft-restore'
-      : options['--drafts']
+        ? 'offline-draft-park-inspect'
+        : 'offline-draft-park'
+      : options['--restore']
         ? options['--inspect']
-          ? 'offline-draft-inspect'
-          : options['--apply']
-            ? 'offline-draft-archive'
-            : options['--rollback']
-              ? 'offline-draft-rollback'
-              : 'offline-draft-resume'
-        : options['--inspect']
-          ? 'offline-inspect'
-          : options['--apply']
-            ? 'offline-adopt'
-            : 'offline-resume'
+          ? 'offline-draft-restore-inspect'
+          : 'offline-draft-restore'
+        : options['--drafts']
+          ? options['--inspect']
+            ? 'offline-draft-inspect'
+            : options['--apply']
+              ? 'offline-draft-archive'
+              : options['--rollback']
+                ? 'offline-draft-rollback'
+                : 'offline-draft-resume'
+          : options['--inspect']
+            ? 'offline-inspect'
+            : options['--apply']
+              ? 'offline-adopt'
+              : 'offline-resume'
   const inspection = action.endsWith('inspect')
   const restoreInspection = action === 'offline-draft-restore-inspect'
   if (restoreInspection && !/^[a-f0-9-]{36}$/.test(options['--target'] ?? ''))
     throw Error('Restore inspection requires the completed parking target')
-  const targetPattern = ['offline-draft-archive', 'offline-draft-park'].includes(action)
+  const targetPattern = [
+    'offline-draft-archive',
+    'offline-draft-park',
+    'offline-episode-recover',
+    'offline-episode-resume',
+  ].includes(action)
     ? /^[a-f0-9]{64}$/
     : /^[a-f0-9-]{36}$/
   if (

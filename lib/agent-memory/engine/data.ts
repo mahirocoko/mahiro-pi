@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, opendir, readdir, rmdir, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, opendir, readdir, rmdir, unlink } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
 import { assertKnowledgeHistory, type KnowledgeHistory, parseHistoryRows } from '../knowledge-history.ts'
@@ -30,6 +31,7 @@ import {
 } from '../retrieval.ts'
 import type { MemoryConfig, MemoryFile, View } from '../store.ts'
 import { episodeAssistantSteps, observedEpisode } from './episodes.ts'
+import { withEpisodeAdmission } from './episode-admission.ts'
 import {
   atomicPrivate,
   type Check,
@@ -77,6 +79,8 @@ import {
   type Ledger,
   legacyV1Migration,
   limits,
+  overflowDraftLimit as overflowLimit,
+  overflowJournalCutoff,
   parseConfig,
   parseLedger,
   revisionPattern,
@@ -302,13 +306,128 @@ export class MemoryDataEngine {
     }
     return refs
   }
-  private manifest(v: Draft) {
-    return join(this.folder, 'drafts', `${v.id}.json`)
+  private overflowFolder() {
+    return join(this.folder, 'overflow-drafts')
   }
-  private async save(v: Draft) {
+  private async boundedEntries(folder: string, ceiling: number) {
+    await this.gate([folder], [], 'view')
+    await safePath(folder)
+    const entries: string[] = []
+    try {
+      await privateDirectory(folder)
+      const directory = await opendir(folder)
+      try {
+        for await (const entry of directory) {
+          entries.push(entry.name)
+          if (entries.length > ceiling) throw memoryFailure('capacity', 'Private overflow capacity exceeded')
+        }
+      } finally {
+        await directory.close().catch(() => {})
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    return entries.sort()
+  }
+  private async overflowManifests() {
+    const folder = this.overflowFolder()
+    const slots = join(folder, 'slots')
+    const owners = new Set<string>()
+    for (const name of await this.boundedEntries(slots, overflowLimit)) {
+      if (!/^(?:[0-2][0-9]|3[01])$/.test(name)) throw Error('Invalid overflow admission slot')
+      await this.gate([join(slots, name)], [], 'view')
+      await privateDirectory(join(slots, name))
+      try {
+        const id = await this.read(join(slots, name, 'owner'), 64)
+        if (!uuidPattern.test(id) || owners.has(id)) throw Error('Invalid overflow admission owner')
+        owners.add(id)
+      } catch (error) {
+        // A crash before owner publication consumes the slot; never adopt or reclaim it.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+    const manifests: { id: string; physical: string; overflow: true }[] = []
+    for (const name of await this.boundedEntries(folder, overflowLimit * 3 + 1)) {
+      if (name === 'slots' || /^[a-f0-9-]{36}\.json\.[a-f0-9-]{36}\.tmp$/.test(name)) continue
+      const id = name.slice(0, -5)
+      if (!name.endsWith('.json') || !uuidPattern.test(id) || !owners.has(id))
+        throw Error('Unreserved overflow manifest')
+      manifests.push({ id, physical: join(folder, name), overflow: true })
+    }
+    if (manifests.length > overflowLimit)
+      throw memoryFailure('capacity', 'Private overflow capacity exceeded')
+    return manifests
+  }
+  private async modernManifests() {
+    const old = (await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)).map((name) => ({
+      id: name.slice(0, -5),
+      physical: join(this.folder, 'drafts', name),
+      overflow: false,
+    }))
+    const overflow = await this.overflowManifests()
+    if (overflow.some(({ id }) => old.some((entry) => entry.id === id)))
+      throw Error('Ambiguous private manifest identity')
+    return [...old, ...overflow]
+  }
+  private async manifest(v: Pick<Draft, 'id'>) {
+    if (!uuidPattern.test(v.id)) throw Error('Invalid private manifest identity')
+    const overflow = (await this.overflowManifests()).find(({ id }) => id === v.id)
+    const old = join(this.folder, 'drafts', `${v.id}.json`)
+    if (overflow) {
+      await this.gate([old], [], 'view')
+      await safePath(old)
+      try {
+        await lstat(old)
+        throw Error('Ambiguous private manifest identity')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+    return overflow?.physical ?? old
+  }
+  private async overflowJournalFence() {
+    const names = await this.boundedEntries(join(this.folder, 'journal'), overflowJournalCutoff)
+    if (names.length >= overflowJournalCutoff)
+      throw memoryFailure('capacity', 'Overflow admission requires shared journal headroom')
+  }
+  private async reserveOverflow(id: string) {
+    await this.overflowJournalFence()
+    await this.overflowManifests()
+    const slots = join(this.overflowFolder(), 'slots')
+    await this.gate([this.overflowFolder(), slots], [], 'view')
+    await privateDirectory(this.overflowFolder(), true)
+    await privateDirectory(slots, true)
+    for (let slot = 0; slot < overflowLimit; slot++) {
+      const directory = join(slots, String(slot).padStart(2, '0'))
+      await this.gate([directory], [], 'view')
+      await safePath(directory)
+      try {
+        await mkdir(directory, { mode: 0o700 })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+        throw error
+      }
+      // Permanent exclusive reservation, including failed/crashed admissions. No stale-lock stealing.
+      await this.write(join(directory, 'owner'), id)
+      // Persist the directory chain before a manifest can become publication evidence.
+      for (const parent of [slots, this.overflowFolder(), this.folder]) {
+        await this.gate([parent], [], 'view')
+        const fd = await open(parent, constants.O_RDONLY | constants.O_NOFOLLOW)
+        try {
+          await this.gate([parent], [], 'view')
+          await fd.sync()
+        } finally {
+          await fd.close()
+        }
+      }
+      return join(this.overflowFolder(), `${id}.json`)
+    }
+    throw memoryFailure('capacity', 'Private overflow admission capacity exceeded')
+  }
+  private async save(v: Draft, initialPhysical?: string) {
     const raw = `${JSON.stringify(v)}\n`
     parseDraft(raw)
-    await this.write(this.manifest(v), raw)
+    await this.write(initialPhysical ?? (await this.manifest(v)), raw)
     this.drafts.set(v.id, { value: structuredClone(v), hash: digest(raw) })
   }
   private async active(id: string, ready = false) {
@@ -319,7 +438,7 @@ export class MemoryDataEngine {
     if (Date.now() >= v.deadline) throw memoryFailure('deadline', 'Memory view inactive')
     if (configHash !== v.configHash || (v.state !== 'open' && !(ready && v.state === 'ready')))
       throw Error('Memory view inactive')
-    if (digest(await this.read(this.manifest(v), 2 * 1024 * 1024)) !== stored.hash)
+    if (digest(await this.read(await this.manifest(v), 2 * 1024 * 1024)) !== stored.hash)
       throw Error('Private manifest changed externally')
     const refs = this.files(v)
     const paths = Object.keys(refs)
@@ -447,7 +566,7 @@ export class MemoryDataEngine {
         if (!extractFrontmatterAndLinks(descriptionTexts[p]).description) missingDescriptions.push(p)
       const episodes = (await this.episodeNames()).length
       const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
-      const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
+      const modern = await this.modernManifests()
       const conflicts = (await this.retainedConflictCandidates(scope)).length
       return {
         doctor: {
@@ -482,8 +601,8 @@ export class MemoryDataEngine {
       const fileTexts = await this.bodies(inspectPaths.map((p) => [p, now.refs[p]]))
       const episodes = (await this.episodeNames()).length
       const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
-      const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
-      if (legacy.length + modern.length > limits.views)
+      const modern = await this.modernManifests()
+      if (legacy.length + modern.filter((entry) => !entry.overflow).length > limits.views)
         throw memoryFailure('capacity', 'Private view capacity exceeded')
       const viewCounts = {
         total: legacy.length + modern.length,
@@ -516,9 +635,8 @@ export class MemoryDataEngine {
         const state = v.state === 'conflict' && (await isDiscarded(id, digest(raw))) ? 'cancelled' : v.state
         viewCounts[state]++
       }
-      for (const name of modern) {
-        const id = name.slice(0, -5)
-        const raw = await this.read(join(this.folder, 'drafts', name), 2 * 1024 * 1024)
+      for (const { id, physical } of modern) {
+        const raw = await this.read(physical, 2 * 1024 * 1024)
         const d = parseDraft(raw)
         if (d.id !== id) throw Error('Invalid persisted view metadata')
         const mapped = d.state === 'ready' ? 'open' : d.state
@@ -818,13 +936,33 @@ export class MemoryDataEngine {
       }),
       drafts: await this.capacityNamespace(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/, {
         doctor: limits.views,
-        admissionEntries: limits.views,
       }),
+      overflowDrafts: await this.capacityNamespace(this.overflowFolder(), /^[a-f0-9-]{36}\.json$/, {}),
+      overflowSlots: await this.capacityNamespace(
+        join(this.overflowFolder(), 'slots'),
+        /^(?:[0-2][0-9]|3[01])$/,
+        {},
+      ),
       episodes: await this.capacityNamespace(join(this.root, '.episodes'), /^[a-f0-9]{64}\.json$/, {
         doctor: 256,
         admissionMatchingMayPrune: 256,
       }),
     }
+    // Namespace headroom is not manifest/owner integrity certification. Never read bodies here.
+    const drafts = namespaces.drafts
+    drafts.admission =
+      drafts.entries > limits.views
+        ? 'blocked'
+        : !drafts.exact
+          ? 'unknown'
+          : drafts.entries < limits.views
+            ? 'available'
+            : namespaces.journal.entries >= overflowJournalCutoff ||
+                namespaces.overflowSlots.matching >= overflowLimit
+              ? 'blocked'
+              : namespaces.journal.exact && namespaces.overflowSlots.exact
+                ? 'available'
+                : 'unknown'
     const names = Object.keys(namespaces) as (keyof typeof namespaces)[]
     const retainedViews = {
       matching: namespaces.legacyViews.matching + namespaces.drafts.matching,
@@ -848,7 +986,7 @@ export class MemoryDataEngine {
     if ((await this.config()).configHash !== configHash || (await this.head()) !== revision)
       throw memoryFailure('CAS', 'Capacity diagnostic state changed')
     return {
-      version: 1,
+      version: 2,
       kind: 'abi2-capacity-diagnostic',
       revision,
       configHash,
@@ -981,6 +1119,29 @@ export class MemoryDataEngine {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
+    for (const { id, physical } of await this.overflowManifests()) {
+      observed.examined++
+      let first: string
+      let second: string
+      try {
+        first = await this.read(physical, 2 * 1024 * 1024)
+        second = await this.read(physical, 2 * 1024 * 1024)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        observed.unstable++
+        observed.exact = false
+        continue
+      }
+      const kind = classifyRetainedManifest({
+        id,
+        first,
+        second,
+        referenced: referenced.has(id),
+        locallyActive: this.drafts.has(id),
+      })
+      if (kind === 'unstable') observed.exact = false
+      observed[kind]++
+    }
     if (!journalExact || !observed.exact) {
       observed.unknown += observed.terminal
       observed.terminal = 0
@@ -1022,8 +1183,7 @@ export class MemoryDataEngine {
     prepared?: { raw: string; draft: Draft; physical: string },
   ): Promise<{ v: View; rawHash: string; physical: string }> {
     const physical =
-      prepared?.physical ??
-      (modern ? join(this.folder, 'drafts', `${id}.json`) : join(this.root, '.views', `${id}.json`))
+      prepared?.physical ?? (modern ? await this.manifest({ id }) : join(this.root, '.views', `${id}.json`))
     const raw = prepared?.raw ?? (await this.read(physical, modern ? 2 * 1024 * 1024 : 40 * 1024 * 1024))
     if (!modern) {
       const v = legacyView(raw, id)
@@ -1157,8 +1317,8 @@ export class MemoryDataEngine {
   }
   private async retainedConflictCandidates(project: string) {
     const legacy = await this.names(join(this.root, '.views'), /^[a-f0-9-]{36}\.json$/)
-    const modern = await this.names(join(this.folder, 'drafts'), /^[a-f0-9-]{36}\.json$/)
-    if (legacy.length + modern.length > limits.views)
+    const modern = await this.modernManifests()
+    if (legacy.length + modern.filter((entry) => !entry.overflow).length > limits.views)
       throw memoryFailure('capacity', 'Private view capacity exceeded')
     const matches: RetainedConflictCandidate[] = []
     for (const name of legacy) {
@@ -1179,9 +1339,7 @@ export class MemoryDataEngine {
         physical,
       })
     }
-    for (const name of modern) {
-      const id = name.slice(0, -5)
-      const physical = join(this.folder, 'drafts', name)
+    for (const { id, physical } of modern) {
       const raw = await this.read(physical, 2 * 1024 * 1024)
       const draft = parseDraft(raw)
       if (draft.id !== id) throw Error('Invalid persisted view metadata')
@@ -1395,6 +1553,15 @@ export class MemoryDataEngine {
     }
   }
   private async observe(value: unknown) {
+    // Acquire before fresh ledger/cleanup/count/create, not merely before per-ID publication.
+    observedEpisode(value)
+    return await withEpisodeAdmission(
+      this.root,
+      (targets) => this.gate(targets.physical, [], 'view'),
+      () => this.observeAdmitted(value),
+    )
+  }
+  private async observeAdmitted(value: unknown) {
     const e = observedEpisode(value)
     const automatic = async () => {
       if ('kind' in e && !(await this.config()).config.automatic)
@@ -1452,7 +1619,7 @@ export class MemoryDataEngine {
   private async proposalFence(p: Prepared) {
     const stored = this.drafts.get(p.plan.view)
     if (!stored) throw Error('Publication proposal unavailable')
-    const raw = await this.read(this.manifest(stored.value), 2 * 1024 * 1024)
+    const raw = await this.read(await this.manifest(stored.value), 2 * 1024 * 1024)
     const proposal = parseDraft(raw)
     if (
       stored.hash !== p.record.immutable.proposalHash ||
@@ -1528,7 +1695,7 @@ export class MemoryDataEngine {
       return false
     }
   }
-  private async outcome(record: OperationRecord, drained: boolean): Promise<Receipt> {
+  private async outcome(record: OperationRecord, drained: boolean, unpublished = false): Promise<Receipt> {
     const p = record.immutable
     const unknown = (detail: string, evidence: Partial<Receipt> = {}): Receipt => ({
       stage: 'unknown',
@@ -1539,7 +1706,7 @@ export class MemoryDataEngine {
     await this.gate([this.root], [...new Set([...Object.keys(p.next), ...p.plan.changes.map((c) => c.path)])])
     if (configHash !== p.plan.configHash) return unknown('Configuration changed')
     // Persisted proposals are recertified evidence only; never reopened or registered for chunks.
-    const raw = await this.read(join(this.folder, 'drafts', `${p.plan.view}.json`), 2 * 1024 * 1024)
+    const raw = await this.read(await this.manifest({ id: p.plan.view }), 2 * 1024 * 1024)
     const proposal = parseDraft(raw)
     const normalized =
       proposal?.state === 'committed' ? `${JSON.stringify({ ...proposal, state: 'ready' })}\n` : raw
@@ -1569,7 +1736,23 @@ export class MemoryDataEngine {
           `${revision} ${p.plan.current}`
     if ((await this.head()) !== revision || (await this.config()).configHash !== configHash)
       return unknown('State changed during reconciliation')
+    if (unpublished) {
+      // This proof is narrower than executor drain: no publication was ever admitted.
+      // Never turn an unchanged/no-op tree into evidence of a committed publication.
+      if (
+        record.owner !== null ||
+        (record.receipt.stage === 'prepared' && record.sequence !== 0) ||
+        !['prepared', 'not_committed_dirty'].includes(record.receipt.stage) ||
+        revision !== p.plan.current
+      )
+        return unknown('Never-published operation evidence changed', evidence)
+      return { stage: 'not_committed_dirty', ...evidence }
+    }
     if (exact && parent) {
+      // An unchanged no-op tree is not evidence that any publisher ran. Only an
+      // actual sealed publication executor can certify its genuine completion.
+      if (revision === p.plan.current && !drained)
+        return unknown('Unchanged HEAD has no drained publication executor', evidence)
       if (indexDirty || worktreeDirty)
         return unknown('Expected commit observed with dirty index/worktree', {
           ...evidence,
@@ -1591,16 +1774,18 @@ export class MemoryDataEngine {
     check: Check,
     signal: AbortSignal,
     drained = false,
+    unpublished = false,
   ): Promise<Operations[M]['output']> {
     this.check = check
     this.signal = signal
     // Entry serializes requests; the cast is confined to the method dispatch boundary.
-    return (await this.dispatch(method, input, drained)) as Operations[M]['output']
+    return (await this.dispatch(method, input, drained, unpublished)) as Operations[M]['output']
   }
   private async dispatch(
     method: Method,
     input: Operations[Method]['input'],
     drained = false,
+    unpublished = false,
   ): Promise<unknown> {
     switch (method) {
       case 'knowledgeHistory': {
@@ -1864,10 +2049,40 @@ export class MemoryDataEngine {
       case 'discard':
         return await this.discard(input as Input<'discard'>)
       case 'cancel': {
-        const { v, revision } = await this.active((input as Input<'cancel'>).view, true)
-        await this.final(v, revision)
-        v.state = 'cancelled' // retained/inert; never silently deleted
-        await this.save(v)
+        const id = (input as Input<'cancel'>).view
+        const stored = this.drafts.get(id)
+        if (stored?.value.shared) {
+          // Only an in-process owned primary draft may retire without a current
+          // lease/config. This changes metadata only; no hydration or publication.
+          const v = structuredClone(stored.value)
+          if (v.state !== 'open' && v.state !== 'ready') throw Error('Memory view inactive')
+          const refs = this.files(v)
+          const paths = Object.keys(refs)
+          await this.gate(
+            paths.map((path) => join(this.root, path)),
+            paths,
+          )
+          for (const [path, ref] of Object.entries(refs)) {
+            if (!('blob' in ref)) continue
+            const physical = join(this.folder, 'blobs', ref.blob)
+            await this.gate([physical], [path], 'view')
+            await safePath(physical)
+            const stat = await lstat(physical)
+            if (!stat.isFile() || stat.nlink !== 1 || stat.mode & 0o077 || stamp(stat) !== ref.identity)
+              throw Error('Overlay identity changed externally')
+          }
+          const manifest = await this.manifest(v)
+          if (digest(await this.read(manifest, 2 * 1024 * 1024)) !== stored.hash)
+            throw Error('Private manifest changed externally')
+          await this.gate([this.root, manifest], [], 'view')
+          v.state = 'cancelled'
+          await this.save(v)
+        } else {
+          const { v, revision } = await this.active(id, true)
+          await this.final(v, revision)
+          v.state = 'cancelled'
+          await this.save(v)
+        }
         return { cancelled: true }
       }
       case 'stats':
@@ -1880,8 +2095,7 @@ export class MemoryDataEngine {
         const folder = join(this.folder, 'drafts')
         await this.gate([folder], [], 'view')
         await privateDirectory(folder, true)
-        if ((await readdir(folder)).length >= limits.views)
-          throw memoryFailure('capacity', 'Private view capacity exceeded')
+        const overflow = (await this.boundedEntries(folder, limits.views)).length === limits.views
         const base = await this.certify(config, configHash)
         const refs = Object.fromEntries(
           Object.entries(base.refs).filter(([path]) =>
@@ -1903,7 +2117,8 @@ export class MemoryDataEngine {
           Object.keys(refs).map((p) => join(this.root, p)),
           Object.keys(refs),
         )
-        await this.save(v)
+        const physical = overflow ? await this.reserveOverflow(v.id) : undefined
+        await this.save(v, physical)
         await this.final(v, base.revision)
         return { view: v.id, base: base.revision }
       }
@@ -1976,11 +2191,14 @@ export class MemoryDataEngine {
             const page = directoryPage(paths, cleanDir, selection.offset, selection.limit)
             const childPaths = childDirectoryPaths(paths, cleanDir)
             const shownChildren = childPaths.slice(0, retrievalLimits.page)
-            const loaded = new Map<string, string>()
             const indexPath = `${cleanDir}/index.md`
-            const indexRef = refs[indexPath]
-            const indexText = indexRef ? await this.body(indexPath, indexRef) : undefined
-            if (indexText !== undefined) loaded.set(indexPath, indexText)
+            // Directory selection is metadata-only and has no body-dependent early stop.
+            // Preserve first-use order and load only the index, shown child indexes and page.
+            const selectedPaths = [
+              ...new Set([indexPath, ...shownChildren.map((child) => `${child}/index.md`), ...page.paths]),
+            ].filter((path) => refs[path])
+            const loaded = await this.bodies(selectedPaths.map((path) => [path, refs[path]]))
+            const indexText = loaded[indexPath]
             const indexPoints = indexText === undefined ? undefined : [...indexText]
             const indexShownCount =
               indexPoints === undefined
@@ -1995,15 +2213,14 @@ export class MemoryDataEngine {
                 directories.push({ path: child })
                 continue
               }
-              const text = await this.body(childIndexPath, childIndex)
-              loaded.set(childIndexPath, text)
+              const text = loaded[childIndexPath]
               const description = childIndexDescription(text)
               directories.push(description ? { path: child, description } : { path: child })
             }
             const dirFiles: Record<string, MemoryFile> = {}
             for (const p of page.paths)
               dirFiles[p] = {
-                text: loaded.get(p) ?? (await this.body(p, refs[p])),
+                text: loaded[p],
                 sources: refs[p].sources,
               }
             result = {
@@ -2159,6 +2376,7 @@ export class MemoryDataEngine {
         const { v, config, refs } = await this.active(args.view, true)
         if (v.state !== 'ready') throw Error('Proposal is not ready')
         await this.initializeNamespace()
+        if (dirname(await this.manifest(v)) === this.overflowFolder()) await this.overflowJournalFence()
         if (
           [...this.plans.values()].some(
             (p) => !['reconciled_committed', 'not_committed_dirty'].includes(p.receipt.stage),
@@ -2262,7 +2480,7 @@ export class MemoryDataEngine {
           ),
           ledger,
           ledgerText,
-          proposalHash: digest(await this.read(this.manifest(v), 2 * 1024 * 1024)),
+          proposalHash: digest(await this.read(await this.manifest(v), 2 * 1024 * 1024)),
           tree: [...expected.values()].sort(),
         }
         const record: OperationRecord = {
@@ -2277,6 +2495,15 @@ export class MemoryDataEngine {
         parseOperation(raw)
         const prepared: Prepared = { plan, next, ledger, ledgerText, receipt: record.receipt, record }
         await this.final(v, current.revision)
+        if (dirname(await this.manifest(v)) === this.overflowFolder()) await this.overflowJournalFence()
+        // The parent must own this exact prepare->publish interval before durability.
+        // Cancellation may lose the final reply even when the write completes.
+        await this.check({
+          physical: [this.operationPath(plan.id)],
+          logical: [],
+          kind: 'view',
+          preparing: plan,
+        })
         await this.write(this.operationPath(plan.id), raw)
         this.plans.set(plan.id, prepared)
         return { plan }
@@ -2337,13 +2564,13 @@ export class MemoryDataEngine {
         const p = this.plan(args.plan, args.digest)
         if (!(await this.exactLock(p.record.owner)))
           return { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
-        return await this.outcome(p.record, drained)
+        return await this.outcome(p.record, drained, unpublished)
       }
       case 'recover': {
         const args = input as Input<'recover'>
         const record = await this.loadOperation(args.plan, args.digest)
         const receipt: Receipt = (await this.exactLock(record.owner))
-          ? await this.outcome(record, drained)
+          ? await this.outcome(record, drained, unpublished)
           : { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
         const next = await this.updateOperation(record, receipt)
         const cached = this.plans.get(args.plan)

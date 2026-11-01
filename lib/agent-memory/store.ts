@@ -833,9 +833,21 @@ export function createMemoryStore(
       return nextText === null ? null : digest(nextText)
     },
     cancel(v: View) {
-      checkView(v)
+      if (authority === 'primary' && v.scope === 'primary') {
+        // Explicit retirement is not a read/edit/publication or a lease renewal.
+        // Keep the proposal bytes even when its deadline/config is obsolete.
+        safe()
+        if (v.state !== 'open' || !equal(readView(v.id), v)) throw memoryFailure('CAS', 'Stale memory view')
+        for (const [path, file] of Object.entries(v.files)) {
+          current(join(root, path))
+          if (read(join(root, '.views', v.id, path), memoryLimits.viewBytes) !== file.text)
+            throw new Error('Memory view changed externally')
+        }
+      } else checkView(v)
       const next = { ...v, state: 'cancelled' as const }
-      saveView(next)
+      const raw = serializeView(next)
+      current()
+      write(join(root, '.views', v.id + '.json'), raw)
       Object.assign(v, next)
     },
     integrate(v: View, reviewed: string[] = [], options?: { allowShrink?: boolean }) {

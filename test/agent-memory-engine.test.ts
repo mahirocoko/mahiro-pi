@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   chmodSync,
   existsSync,
@@ -34,7 +34,15 @@ import {
   parseGitBlobs,
 } from '../lib/agent-memory/engine/io.ts'
 import { parseOperation, validatePlan } from '../lib/agent-memory/engine/operation.ts'
-import { encode, Frames, type Plan, transportLimits } from '../lib/agent-memory/engine/protocol.ts'
+import { parseDraft } from '../lib/agent-memory/engine/manifest.ts'
+import {
+  encode,
+  Frames,
+  type Input,
+  type Method,
+  type Plan,
+  transportLimits,
+} from '../lib/agent-memory/engine/protocol.ts'
 import { observedEpisode, serializeCompactionMetadata } from '../lib/agent-memory/engine/episodes.ts'
 import { MemoryPublisher } from '../lib/agent-memory/engine/publisher.ts'
 import { recoveryCeiling } from '../lib/agent-memory/engine/recovery.ts'
@@ -45,7 +53,14 @@ import {
   allowedPath as newPath,
 } from '../lib/agent-memory/engine/schema.ts'
 import { type MemoryFailureCode, memoryFailureCode } from '../lib/agent-memory/reasons.ts'
-import { parseMemoryRead, retrieveMemory } from '../lib/agent-memory/retrieval.ts'
+import {
+  childDirectoryPaths,
+  childIndexDescription,
+  directoryIndex,
+  directoryPage,
+  parseMemoryRead,
+  retrieveMemory,
+} from '../lib/agent-memory/retrieval.ts'
 import type { Episode } from '../lib/agent-memory/store.ts'
 import { allowedPath, createMemoryStore, type MemoryConfig, parseConfig } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
@@ -744,6 +759,191 @@ test('bounded LF protocol preserves Unicode separators and rejects oversized fra
   assert.equal(env.GIT_INDEX_FILE, undefined)
 })
 
+// Synthetic old-format evidence only. This is not an installed old-binary or real-Pi acceptance test.
+async function fullOldDraftFixture(f: ReturnType<typeof fixture>, journalCount = 22) {
+  const active = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+  const seed = new MemoryDataEngine(f.root, f.env)
+  const allow = async () => {}
+  const signal = new AbortController().signal
+  const seedView = await seed.execute('create', { project: 'project', shared: true }, allow, signal)
+  await seed.execute('ready', { view: seedView.view }, allow, signal)
+  const prepared = await seed.execute('prepare', { view: seedView.view, reviewed: [] }, allow, signal)
+  assert.ok('plan' in prepared)
+  const folder = join(f.root, '.views', '.engine-v2')
+  const draftFolder = join(folder, 'drafts')
+  const template = parseDraft(readFileSync(join(draftFolder, `${active.view}.json`), 'utf8'))
+  while (readdirSync(draftFolder).length < 64) {
+    const draft = { ...template, id: randomUUID(), state: 'cancelled' }
+    writeFileSync(join(draftFolder, `${draft.id}.json`), `${JSON.stringify(draft)}\n`, { mode: 0o600 })
+  }
+  const journal = join(folder, 'journal')
+  const record = parseOperation(readFileSync(join(journal, `${prepared.plan.id}.json`), 'utf8'))
+  for (let index = 0; index < journalCount; index++) {
+    const copy = structuredClone(record)
+    if (index) {
+      const { digest: ignored, ...metadata } = copy.immutable.plan
+      metadata.id = randomUUID()
+      copy.immutable.plan = { ...metadata, digest: digest(JSON.stringify(metadata)) }
+      copy.immutableHash = digest(JSON.stringify(copy.immutable))
+    }
+    copy.receipt = { stage: 'not_committed_dirty' }
+    const raw = `${JSON.stringify(copy)}\n`
+    parseOperation(raw)
+    writeFileSync(join(journal, `${copy.immutable.plan.id}.json`), raw, { mode: 0o600 })
+  }
+  const evidence = new Map<string, Buffer>()
+  for (const directory of [draftFolder, journal])
+    for (const name of readdirSync(directory))
+      evidence.set(join(directory, name), readFileSync(join(directory, name)))
+  return { active, draftFolder, journal, folder, record, evidence }
+}
+
+test('overflow admission preserves full old-format evidence and active handle; shared publication, cutoff and authority', async () => {
+  const f = fixture(0)
+  const upgraded = new MemoryEngineController(f.root, f.env)
+  try {
+    const legacy = await fullOldDraftFixture(f)
+    const oldPid = f.engine.pid
+    const original = await read(f, legacy.active.view, 'Core.md')
+    const { view } = await upgraded.request('create', { project: 'project', shared: true }, f.context)
+    const overflow = join(legacy.folder, 'overflow-drafts')
+    assert.equal(parseDraft(readFileSync(join(overflow, `${view}.json`), 'utf8')).id, view)
+    const capacity = await upgraded.request('capacityDiagnostic', {}, f.context)
+    assert.equal(capacity.namespaces.drafts.admission, 'available')
+    assert.equal(capacity.namespaces.overflowDrafts?.matching, 1)
+    assert.equal(capacity.namespaces.overflowSlots?.matching, 1)
+    assert.equal(capacity.derived.retainedViews.matching, 64)
+    assert.deepEqual(capacity.blockers.doctor, [])
+    await upgraded.request(
+      'edit',
+      {
+        view,
+        path: 'global/overflow.md',
+        expectedHash: null,
+        text: '# Overflow\nSynthetic new knowledge.\n',
+        sources: [],
+      },
+      f.context,
+    )
+    await upgraded.request('ready', { view }, f.context)
+    const prepared = await upgraded.request('prepare', { view, reviewed: [] }, f.context)
+    assert.ok('plan' in prepared)
+    assert.equal(
+      (await new MemoryPublisher(upgraded, f.env).publish(prepared.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    assert.equal(f.git('show', 'HEAD:global/overflow.md'), '# Overflow\nSynthetic new knowledge.')
+    assert.equal((await read(f, legacy.active.view, 'Core.md')).text, original.text)
+    assert.equal(f.engine.pid, oldPid, 'existing controller was never replaced/reloaded')
+    assert.equal(readdirSync(legacy.draftFolder).length, 64)
+    for (const [path, bytes] of legacy.evidence) assert.deepEqual(readFileSync(path), bytes)
+    // The unchanged canonical durable-record parser accepts the shared journal.
+    for (const name of readdirSync(legacy.journal))
+      parseOperation(readFileSync(join(legacy.journal, name), 'utf8'))
+    const doctor = await upgraded.request('manage', { action: 'doctor', project: 'project' }, f.context)
+    assert.ok('doctor' in doctor)
+    assert.equal(doctor.doctor.views, 65)
+    const palace = await upgraded.request('manage', { action: 'palace', project: 'project' }, f.context)
+    assert.ok('palace' in palace)
+    assert.equal((palace.palace.views as { total: number }).total, 65)
+    assert.equal((await upgraded.request('retainedDraftPreview', {}, f.context)).observed.examined, 65)
+    const beforeDenied = readdirSync(join(overflow, 'slots')).length
+    await assert.rejects(
+      upgraded.request(
+        'create',
+        { project: 'project' },
+        {
+          current: (targets) => !targets.physical.some((path) => path.includes('overflow-drafts')),
+        },
+      ),
+    )
+    assert.equal(readdirSync(join(overflow, 'slots')).length, beforeDenied)
+    const allocated = await Promise.all([
+      f.engine.request('create', { project: 'project' }, f.context),
+      upgraded.request('create', { project: 'project' }, f.context),
+    ])
+    assert.notEqual(allocated[0].view, allocated[1].view)
+    assert.equal(readdirSync(join(overflow, 'slots')).length, 3)
+    assert.equal(readdirSync(overflow).filter((name) => name.endsWith('.json')).length, 3)
+    const template = parseOperation(readFileSync(join(legacy.journal, `${prepared.plan.id}.json`), 'utf8'))
+    while (readdirSync(legacy.journal).length < 32) {
+      const copy = structuredClone(template)
+      const { digest: ignored, ...metadata } = copy.immutable.plan
+      metadata.id = randomUUID()
+      copy.immutable.plan = { ...metadata, digest: digest(JSON.stringify(metadata)) }
+      copy.immutableHash = digest(JSON.stringify(copy.immutable))
+      copy.owner = null
+      const raw = `${JSON.stringify(copy)}\n`
+      parseOperation(raw)
+      writeFileSync(join(legacy.journal, `${metadata.id}.json`), raw, { mode: 0o600 })
+    }
+    await assert.rejects(
+      upgraded.request('create', { project: 'project' }, f.context),
+      engineError({ reason: 'capacity' }),
+    )
+    await upgraded.request('ready', { view: allocated[1].view }, f.context)
+    await assert.rejects(
+      upgraded.request('prepare', { view: allocated[1].view, reviewed: [] }, f.context),
+      engineError({ reason: 'capacity' }),
+    )
+    assert.equal(readdirSync(legacy.journal).length, 32)
+    assert.equal(readdirSync(join(overflow, 'slots')).length, 3)
+    assert.equal((await read(f, legacy.active.view, 'Core.md')).text, original.text)
+  } finally {
+    await upgraded.close()
+    await f.close()
+  }
+})
+
+test('overflow exclusive admission is bounded across two controllers and crash holes are never reclaimed', async () => {
+  const f = fixture(0)
+  const other = new MemoryEngineController(f.root, f.env)
+  try {
+    const legacy = await fullOldDraftFixture(f)
+    const overflow = join(legacy.folder, 'overflow-drafts')
+    const slots = join(overflow, 'slots')
+    mkdirSync(slots, { recursive: true, mode: 0o700 })
+    // A crash immediately after reservation permanently consumes one slot, with no owner or draft.
+    mkdirSync(join(slots, '00'), { mode: 0o700 })
+    const ids = new Set<string>()
+    for (let index = 0; index < 15; index++) {
+      const pair = await Promise.all([
+        f.engine.request('create', { project: 'project' }, f.context),
+        other.request('create', { project: 'project' }, f.context),
+      ])
+      for (const { view } of pair) ids.add(view)
+    }
+    const last = await Promise.allSettled([
+      f.engine.request('create', { project: 'project' }, f.context),
+      other.request('create', { project: 'project' }, f.context),
+    ])
+    assert.equal(last.filter((result) => result.status === 'fulfilled').length, 1)
+    for (const result of last) if (result.status === 'fulfilled') ids.add(result.value.view)
+    assert.equal(ids.size, 31)
+    assert.equal(readdirSync(slots).length, 32)
+    assert.equal(readdirSync(overflow).filter((name) => name.endsWith('.json')).length, 31)
+    assert.equal(existsSync(join(slots, '00', 'owner')), false)
+    const fresh = new MemoryEngineController(f.root, f.env)
+    try {
+      await assert.rejects(
+        fresh.request('create', { project: 'project' }, f.context),
+        engineError({ reason: 'capacity' }),
+      )
+      await assert.rejects(
+        fresh.request('read', { view: [...ids][0], selection: { path: 'Core.md' } }, f.context),
+        engineError(),
+      )
+    } finally {
+      await fresh.close()
+    }
+    assert.equal(readdirSync(legacy.journal).length, 22)
+    for (const [path, bytes] of legacy.evidence) assert.deepEqual(readFileSync(path), bytes)
+  } finally {
+    await other.close()
+    await f.close()
+  }
+})
+
 test('cold certification then single-file read/edit/publication does zero unchanged body I/O; old schema remains readable', async () => {
   const f = fixture(24)
   try {
@@ -807,6 +1007,34 @@ test('cold certification then single-file read/edit/publication does zero unchan
     for (const path of [join(f.root, '.views', '.engine-v2'), join(f.root, '.views', '.engine-v2', 'blobs')])
       assert.equal(lstatSync(path).mode & 0o077, 0)
   } finally {
+    await f.close()
+  }
+})
+
+test('cross-controller prepared no-op is unknown without an actual publication executor', async () => {
+  const f = fixture(0)
+  const foreign = new MemoryEngineController(f.root, f.env)
+  try {
+    const { view } = await f.engine.request('create', { project: 'project' }, f.context)
+    const plan = await ready(f, view)
+    assert.equal(plan.changes.length, 0)
+    const before = f.store.snapshot()
+    const recovered = await new MemoryPublisher(foreign, f.env).reconcileExisting(
+      plan.id,
+      plan.digest,
+      f.context,
+    )
+    assert.equal(recovered.stage, 'unknown', 'unchanged HEAD/tree does not prove no-op publication')
+    assert.equal(recovered.lockRetained, false)
+    assert.equal(foreign.ownsPlan(plan), false, 'foreign recovery never adopts the prepared handle')
+    const record = parseOperation(
+      readFileSync(join(f.root, '.views/.engine-v2/journal', `${plan.id}.json`), 'utf8'),
+    )
+    assert.equal(record.receipt.stage, 'unknown')
+    assert.deepEqual(f.store.snapshot(), before, 'inspection neither publishes nor reviews episodes')
+    assert.ok(!existsSync(join(f.root, '.lock')))
+  } finally {
+    await foreign.close()
     await f.close()
   }
 })
@@ -1191,6 +1419,60 @@ test('capacity diagnostic reports bounded namespace counts without parsing retai
     assert.equal(admissionOnly.classification, 'non-namespace-status-capacity')
     assert.deepEqual(admissionOnly.blockers.status, [])
     assert.deepEqual(admissionOnly.blockers.admission, ['journal', 'drafts'])
+
+    // Legacy diagnostic replies remain decodable, but may not claim overflow fields.
+    const legacy: any = structuredClone(admissionOnly)
+    legacy.version = 1
+    delete legacy.namespaces.overflowDrafts
+    delete legacy.namespaces.overflowSlots
+    validateReply('capacityDiagnostic', {}, legacy)
+    const wrongVersion: any = structuredClone(admissionOnly)
+    wrongVersion.version = 1
+    assert.throws(() => validateReply('capacityDiagnostic', {}, wrongVersion), /Invalid/)
+
+    for (let index = 31; index < 64; index++) rmSync(join(journal, uuid(index)))
+    const headroom = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(headroom.version, 2)
+    assert.equal(headroom.namespaces.drafts.admission, 'available')
+    assert.deepEqual(headroom.blockers.admission, [])
+    const forgedOverflow: any = structuredClone(headroom)
+    forgedOverflow.namespaces.overflowSlots.matching = 32
+    forgedOverflow.namespaces.overflowSlots.entries = 32
+    assert.throws(() => validateReply('capacityDiagnostic', {}, forgedOverflow), /Invalid/)
+    const leaked: any = structuredClone(headroom)
+    leaked.namespaces.overflowSlots.owners = ['PRIVATE_OWNER']
+    assert.throws(() => validateReply('capacityDiagnostic', {}, leaked), /Invalid/)
+    const absent: any = structuredClone(headroom)
+    delete absent.namespaces.overflowSlots
+    assert.throws(() => validateReply('capacityDiagnostic', {}, absent), /Invalid/)
+    writeFileSync(join(journal, uuid(31)), 'not-json')
+    const cutoff = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(cutoff.namespaces.drafts.admission, 'blocked')
+    assert.deepEqual(cutoff.blockers.admission, ['drafts'])
+    rmSync(join(journal, uuid(31)))
+    const slots = join(f.root, '.views/.engine-v2/overflow-drafts/slots')
+    for (let index = 0; index < 31; index++)
+      mkdirSync(join(slots, String(index).padStart(2, '0')), { recursive: true, mode: 0o700 })
+    const lastSlot = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(lastSlot.namespaces.drafts.admission, 'available')
+    assert.equal(lastSlot.namespaces.overflowSlots?.matching, 31)
+    mkdirSync(join(slots, '31'), { mode: 0o700 })
+    const full = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(full.namespaces.drafts.admission, 'blocked')
+    assert.equal(full.namespaces.overflowSlots?.matching, 32)
+    assert.deepEqual(full.blockers.admission, ['drafts'])
+    const impossibleSlots: any = structuredClone(full)
+    impossibleSlots.namespaces.overflowSlots.entries = 33
+    impossibleSlots.namespaces.overflowSlots.matching = 33
+    assert.throws(() => validateReply('capacityDiagnostic', {}, impossibleSlots), /Invalid/)
+    assert.doesNotMatch(JSON.stringify(full), /not-json|PRIVATE|\.views|overflow-drafts|memory-/)
+    rmSync(join(drafts, uuid(63)))
+    const originalRoom = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(originalRoom.namespaces.drafts.admission, 'available')
+    writeFileSync(join(drafts, uuid(63)), 'not-json')
+    writeFileSync(join(drafts, uuid(64)), 'not-json')
+    const overOriginal = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(overOriginal.namespaces.drafts.admission, 'blocked')
   } finally {
     await f.close()
   }
@@ -1220,6 +1502,20 @@ test('capacity diagnostic stops at one overflow sentinel and keeps partial count
     assert.equal(diagnostic.classification, 'non-namespace-status-capacity')
     assert.equal(diagnostic.corpusReturned, false)
     assert.doesNotMatch(JSON.stringify(diagnostic), /unknown-|private|\.views|memory-/)
+
+    const drafts = join(f.root, '.views/.engine-v2/drafts')
+    mkdirSync(drafts, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < 64; index++) writeFileSync(join(drafts, `entry-${index}`), 'private')
+    const slots = join(f.root, '.views/.engine-v2/overflow-drafts/slots')
+    mkdirSync(slots, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < 8193; index++) writeFileSync(join(slots, `unknown-${index}`), 'private')
+    const partial = await f.engine.request('capacityDiagnostic', {}, f.context)
+    assert.equal(partial.namespaces.overflowSlots?.entries, 8193)
+    assert.equal(partial.namespaces.overflowSlots?.matching, 0)
+    assert.equal(partial.namespaces.overflowSlots?.exact, false)
+    assert.equal(partial.namespaces.drafts.admission, 'unknown')
+    assert.deepEqual(partial.blockers.admission, [])
+    assert.doesNotMatch(JSON.stringify(partial), /unknown-|entry-|private|\.views|memory-/)
   } finally {
     await f.close()
   }
@@ -1846,6 +2142,46 @@ test('management forgetting and rollback match old snapshot oracle without schem
   }
 })
 
+test('expired locally owned ABI2 primary draft can retire without renewing or publishing', async () => {
+  const f = fixture(1)
+  try {
+    const view = await f.engine.request(
+      'create',
+      { project: 'project', shared: true, ttlMs: 2000 },
+      f.context,
+    )
+    const path = 'global/stale.md'
+    await f.engine.request(
+      'edit',
+      { view: view.view, path, expectedHash: null, text: '# Retained proposal\n', sources: [] },
+      f.context,
+    )
+    const manifest = join(f.root, '.views', '.engine-v2', 'drafts', `${view.view}.json`)
+    const before = JSON.parse(readFileSync(manifest, 'utf8'))
+    const revision = f.store.snapshot().revision
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, before.deadline - Date.now() + 20)))
+    await assert.rejects(read(f, view.view, path), engineError({ reason: 'deadline' }))
+    await assert.rejects(f.engine.request('cancel', { view: view.view }, { current: () => false }))
+    assert.deepEqual(JSON.parse(readFileSync(manifest, 'utf8')), before)
+    const raw = readFileSync(manifest)
+    writeFileSync(manifest, JSON.stringify({ ...before, deadline: before.deadline + 1 }))
+    await assert.rejects(f.engine.request('cancel', { view: view.view }, f.context), engineError())
+    writeFileSync(manifest, raw)
+    await f.engine.request('cancel', { view: view.view }, f.context)
+    assert.deepEqual(JSON.parse(readFileSync(manifest, 'utf8')), { ...before, state: 'cancelled' })
+    const next = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    await f.engine.request(
+      'edit',
+      { view: next.view, path, expectedHash: null, text: '# New proposal\n', sources: [] },
+      f.context,
+    )
+    assert.equal((await read(f, next.view, path)).text, '# New proposal\n')
+    assert.equal(f.store.snapshot().revision, revision)
+  } finally {
+    await f.close()
+  }
+})
+
 test('project management can forget deeply nested legacy migration archives', async () => {
   const f = fixture(1)
   const path = 'archives/legacy-v1-abcdef123456/deferred/project/overview.md'
@@ -2434,14 +2770,20 @@ for (const stop of ['commit_started', 'head_observed', 'reconciled_committed']) 
   })
 }
 
-for (const stop of ['prepared', 'index_staged', 'head_observed']) {
-  test(`separate OS parent abrupt exit at ${stop}: same-operation observation never replays`, async () => {
+for (const { stop, overflow } of [
+  { stop: 'prepared', overflow: false },
+  { stop: 'index_staged', overflow: false },
+  { stop: 'head_observed', overflow: false },
+  { stop: 'head_observed', overflow: true },
+]) {
+  test(`separate OS parent abrupt exit at ${stop}${overflow ? ' with full old drafts and overflow' : ''}: same-operation observation never replays`, async () => {
     const f = fixture(0)
     const fresh = new MemoryEngineController(f.root, f.env)
     const control = join(f.dir, 'crash-receipt.json')
     const marker = join(f.dir, 'commit-count')
     let receipt: { pid: number; engine: number; plan: string; digest: string } | undefined
     try {
+      const old = overflow ? await fullOldDraftFixture(f) : undefined
       const before = f.git('rev-parse', 'HEAD')
       writeFileSync(join(f.root, '.git/hooks/pre-commit'), `#!/bin/sh\necho invoked >> '${marker}'\n`, {
         mode: 0o700,
@@ -2479,6 +2821,13 @@ for (const stop of ['prepared', 'index_staged', 'head_observed']) {
       receipt = JSON.parse(readFileSync(control, 'utf8'))
       assert.equal(receipt!.pid, child.pid)
       assert.ok(diagnosticBytes < 65536)
+      if (old) {
+        for (const [path, bytes] of old.evidence) assert.deepEqual(readFileSync(path), bytes)
+        assert.equal(readdirSync(old.draftFolder).length, 64)
+        const operation = parseOperation(readFileSync(join(old.journal, `${receipt!.plan}.json`), 'utf8'))
+        const proposal = join(old.folder, 'overflow-drafts', `${operation.immutable.plan.view}.json`)
+        assert.equal(parseDraft(readFileSync(proposal, 'utf8')).id, operation.immutable.plan.view)
+      }
       // The owned data child sees EOF and exits naturally. Never kill a Git/hook to claim cancellation.
       for (let i = 0; i < 200; i++) {
         try {
@@ -2924,6 +3273,200 @@ test('scoped memory read suggests an in-map path and withholds out-of-scope name
     await refused('deferred/other/leaf.md')
     await refused('deferred/other/unique-private.md')
     await refused('../reference/area/leaf.md')
+  } finally {
+    await f.close()
+  }
+})
+
+test('directory batches exactly selected bodies with identical pagination and fewer Git calls', async () => {
+  const f = fixture(0)
+  try {
+    const seed = f.store.createView('project', 120000, true)
+    const files: Record<string, { text: string; sources: string[] }> = Object.fromEntries([
+      ['reference/index.md', { text: '# Reference\n', sources: [] }],
+      ...Array.from({ length: 40 }, (_, i) => [
+        `reference/area-${String(i).padStart(2, '0')}/index.md`,
+        { text: `---\ndescription: Area ${i}\n---\nPRIVATE_BODY\n`, sources: [] },
+      ]),
+      ['reference/unselected.md', { text: 'PRIVATE_UNSELECTED\n', sources: [] }],
+    ])
+    for (const [path, file] of Object.entries(files)) f.store.edit(seed, path, null, file.text)
+    f.store.integrate(seed)
+    const engine = new MemoryDataEngine(f.root, f.env)
+    const signal = new AbortController().signal
+    const execute = <M extends Method>(method: M, input: Input<M>, check: Check = async () => {}) =>
+      engine.execute(method, input, check, signal)
+    await execute('headRead', { project: 'project', shared: false, selection: {} })
+    for (const offset of [0, 10, 40, 100]) {
+      const page = directoryPage(Object.keys(files), 'reference', offset, 10)
+      const children = childDirectoryPaths(Object.keys(files), 'reference').slice(0, 32)
+      const selected = [
+        ...new Set(['reference/index.md', ...children.map((child) => `${child}/index.md`), ...page.paths]),
+      ]
+      const before = await execute('stats', {})
+      const batches: string[][] = []
+      const result = (await execute(
+        'headRead',
+        {
+          project: 'project',
+          shared: false,
+          selection: { path: 'reference', offset, limit: 10 },
+        },
+        async ({ kind, logical }) => {
+          if (
+            kind === 'git' &&
+            logical.some((path) => selected.includes(path)) &&
+            !batches.some((b) => b.join() === logical.join())
+          )
+            batches.push(logical)
+        },
+      )) as any
+      const after = await execute('stats', {})
+      const { revision, baseRevision, currentRevision, basis, freshness, ...output } = result
+      assert.deepEqual(output, {
+        ...directoryIndex(files, page),
+        index: { path: 'reference/index.md', text: '# Reference\n', totalCharacters: 12, truncated: false },
+        directories: children.map((path) => ({
+          path,
+          description: childIndexDescription(files[`${path}/index.md`].text),
+        })),
+        directoriesTruncated: true,
+      })
+      assert.deepEqual(batches.flat(), selected)
+      for (const path of Object.keys(files))
+        assert.equal(
+          (after.blobReads[path] ?? 0) - (before.blobReads[path] ?? 0),
+          selected.includes(path) ? 1 : 0,
+        )
+      assert.ok(
+        after.gitCalls - before.gitCalls < selected.length,
+        'less than one Git call per body including fences',
+      )
+      assert.equal(JSON.stringify(output).includes('PRIVATE_'), false)
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+test('directory batches refuse member revocation and final config, HEAD or authority drift', async () => {
+  const f = fixture(0)
+  try {
+    const seed = f.store.createView('project', 120000, true)
+    for (const path of ['reference/index.md', 'reference/area/index.md', 'reference/note.md'])
+      f.store.edit(seed, path, null, 'PRIVATE_DIRECTORY_BODY\n')
+    f.store.integrate(seed)
+    for (const mutation of ['member', 'config', 'HEAD', 'authority']) {
+      const engine = new MemoryDataEngine(f.root, f.env)
+      const signal = new AbortController().signal
+      const input = { project: 'project', shared: false, selection: { path: 'reference', limit: 10 } }
+      await engine.execute('headRead', { ...input, selection: {} }, async () => {}, signal)
+      const configPath = join(f.root, 'config.json')
+      const original = readFileSync(configPath, 'utf8')
+      let selected = false
+      let changed = false
+      const before = await engine.execute('stats', {}, async () => {}, signal)
+      try {
+        await assert.rejects(
+          engine.execute(
+            'headRead',
+            input,
+            async ({ kind, logical }) => {
+              if (kind === 'git' && logical.includes('reference/note.md')) {
+                selected = true
+                if (mutation === 'member') {
+                  changed = true
+                  throw Error('Synthetic directory member revocation')
+                }
+              }
+              if (selected && !changed && kind === 'data') {
+                changed = true
+                if (mutation === 'config')
+                  writeFileSync(configPath, JSON.stringify({ ...JSON.parse(original), automatic: true }))
+                else if (mutation === 'HEAD')
+                  f.git('commit', '--allow-empty', '-m', 'Synthetic directory drift')
+              }
+              if (
+                selected &&
+                mutation === 'authority' &&
+                kind === 'data' &&
+                logical.includes('reference/note.md')
+              )
+                throw Error('Synthetic directory final authority revocation')
+            },
+            signal,
+          ),
+          /directory.*revocation|current revision changed/,
+        )
+        assert.equal(changed, true)
+        if (mutation === 'member') {
+          const after = await engine.execute('stats', {}, async () => {}, signal)
+          assert.deepEqual(after.blobReads, before.blobReads, 'denied member prevents batch body load')
+        }
+      } finally {
+        writeFileSync(configPath, original)
+      }
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+test('directory batches retain draft overlays, identity checks and current forgetting fences', async () => {
+  const f = fixture(0)
+  try {
+    const seed = f.store.createView('project', 120000, true)
+    f.store.edit(seed, 'reference/index.md', null, '# Committed\n', ['directory-source'])
+    f.store.edit(seed, 'reference/area/index.md', null, '# Area\n\nCommitted description.\n')
+    f.store.integrate(seed)
+    const { view } = await f.engine.request('create', { project: 'project' }, f.context)
+    await f.engine.request(
+      'edit',
+      {
+        view,
+        path: 'reference/index.md',
+        expectedHash: digest('# Committed\n'),
+        text: '# Draft index\n',
+        sources: ['directory-source'],
+      },
+      f.context,
+    )
+    const readDirectory = () =>
+      f.engine.request(
+        'read',
+        {
+          view,
+          selection: { path: 'reference' },
+        },
+        f.context,
+      )
+    const result = (await readDirectory()) as any
+    assert.equal(result.index.text, '# Draft index\n')
+    assert.equal(result.basis, 'private-draft')
+    assert.deepEqual(result.directories, [{ path: 'reference/area', description: 'Committed description.' }])
+    const stats = await f.engine.request('stats', {}, f.context)
+    assert.ok(stats.overlayReads['reference/index.md'] > 0)
+    assert.ok(stats.blobReads['reference/area/index.md'] > 0)
+    const blobs = join(f.root, '.views', '.engine-v2', 'blobs')
+    const blob = join(blobs, readdirSync(blobs)[0])
+    // Same bytes still cannot authorize a replacement physical overlay identity.
+    const text = readFileSync(blob)
+    rmSync(blob)
+    writeFileSync(blob, text, { mode: 0o600 })
+    await assert.rejects(readDirectory(), engineError())
+    const fresh = await f.engine.request('create', { project: 'project' }, f.context)
+    f.store.forget(f.store.snapshot().revision, [], ['directory-source'], 'project')
+    await assert.rejects(
+      f.engine.request(
+        'read',
+        {
+          view: fresh.view,
+          selection: { path: 'reference' },
+        },
+        f.context,
+      ),
+      engineError({ reason: 'unknown', readInvalidation: 'forgetting' }),
+    )
   } finally {
     await f.close()
   }

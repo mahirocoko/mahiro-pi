@@ -1,4 +1,5 @@
 import { objectShape } from '../../continuity/records.ts'
+import { createAttemptTiming } from './attempt-timing.ts'
 
 export type AttemptOutcome =
   | 'pending'
@@ -17,13 +18,18 @@ export function createAttempt(selectedEpisodeCount: number, deadlineAt: number) 
   let dispatchedAt: number | null = null
   let outcome: AttemptOutcome = 'pending'
   let read: (() => unknown) | undefined
+  const timing = createAttemptTiming()
   return {
+    timing,
     bind(observe: () => unknown) {
       read = observe
       dispatchedAt = time()
     },
     finish(result: AttemptOutcome) {
-      if (outcome === 'pending') outcome = result
+      if (outcome === 'pending') {
+        timing.freeze()
+        outcome = result
+      }
     },
     snapshot() {
       let record: unknown
@@ -45,6 +51,7 @@ export function createAttempt(selectedEpisodeCount: number, deadlineAt: number) 
       const budget = value?.turnBudget
       const b = objectShape(budget, ['used', 'maxTurns', 'phase']) ? budget : undefined
       const phase = b?.phase
+      const observedTiming = timing.snapshot()
       return {
         phase:
           nativeStatus === 'queued' || nativeStatus === 'running'
@@ -58,7 +65,8 @@ export function createAttempt(selectedEpisodeCount: number, deadlineAt: number) 
         observedAt: time(),
         deadlineAt,
         selectedEpisodeCount,
-        latestToolEnd: null, // no native tool-end observation installed in ABI2; never fabricated
+        latestToolEnd: null, // timing does not retain tool identities or results
+        ...(observedTiming ? { timing: observedTiming } : {}),
         progress: {
           toolUses: count(value?.toolUses),
           turnBudget: {

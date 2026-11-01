@@ -45,7 +45,18 @@ function cancel(id: string) {
 }
 const frames = new Frames(transportLimits.request, (message) => {
   if (
-    !objectShape(message, ['v', 'epoch', 'id', 'method', 'input', 'cancel', 'check', 'allow', 'drained']) ||
+    !objectShape(message, [
+      'v',
+      'epoch',
+      'id',
+      'method',
+      'input',
+      'cancel',
+      'check',
+      'allow',
+      'drained',
+      'unpublished',
+    ]) ||
     message.v !== protocolVersion ||
     message.epoch !== epoch ||
     typeof message.id !== 'string' ||
@@ -71,8 +82,8 @@ const frames = new Frames(transportLimits.request, (message) => {
   }
   const observation = ['reconcile', 'recover'].includes(message.method as string)
   if (
-    Object.keys(message).length !== (observation ? 6 : 5) ||
-    (observation && typeof message.drained !== 'boolean') ||
+    Object.keys(message).length !== (observation ? 7 : 5) ||
+    (observation && (typeof message.drained !== 'boolean' || typeof message.unpublished !== 'boolean')) ||
     !methods.includes(message.method as Method) ||
     active
   )
@@ -89,6 +100,7 @@ const frames = new Frames(transportLimits.request, (message) => {
         (targets) => checkpoint(id, targets),
         abort.signal,
         observation && message.drained === true,
+        observation && message.unpublished === true,
       )
       abort.signal.throwIfAborted()
       await send({ id, result })

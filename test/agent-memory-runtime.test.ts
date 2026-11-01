@@ -348,6 +348,7 @@ test('safe memory reasons sanitize registered tools and every command including 
       memoryFailure('branch', privateText),
       memoryFailure('CAS', privateText),
       memoryFailure('retention', privateText),
+      memoryFailure('draft', privateText),
     ]
     for (const [index, failure] of failures.entries()) {
       f.abi.assertAccess = () => {
@@ -482,6 +483,76 @@ test('writer preflight forbids fallback and pins explicit reviewed options befor
     f.close()
   }
 })
+
+for (const expired of [false, true]) {
+  test(`ABI1 primary draft survives next turn without rollover (expired=${expired})`, async () => {
+    const f = fixture()
+    const now = Date.now
+    try {
+      await f.emit('session_start')
+      const args = { path: 'global/retained.md', expectedHash: null, text: '# Retained\n', sources: [] }
+      await f.runtime.run('agent_memory_edit', args, f.ctx)
+      if (expired) Date.now = () => now() + 600001
+      await f.emit('input', { text: 'Continue synthetic work', source: 'interactive' })
+      await f.emit('before_agent_start', { systemPrompt: 'Synthetic next turn' })
+      const read = () => f.runtime.run('agent_memory_read', { path: args.path }, f.ctx)
+      if (expired) {
+        await assert.rejects(read(), (error: unknown) => memoryFailureCode(error).reason === 'draft')
+        await assert.rejects(
+          f.runtime.run('agent_memory_edit', args, f.ctx),
+          (error: unknown) => memoryFailureCode(error).reason === 'draft',
+        )
+        Date.now = now
+      }
+      assert.equal((await read()).text, args.text)
+      assert.equal(f.runtime.status().draft, 'open')
+    } finally {
+      Date.now = now
+      f.close()
+    }
+  })
+}
+
+for (const stale of ['expiry', 'config']) {
+  test(`ABI1 explicit cancel retires ${stale} primary draft without publishing`, async () => {
+    const f = fixture()
+    const now = Date.now
+    try {
+      await f.emit('session_start')
+      const args = { path: 'global/stale.md', expectedHash: null, text: '# Retained proposal\n', sources: [] }
+      await f.runtime.run('agent_memory_edit', args, f.ctx)
+      const directory = join(f.root, '.views')
+      const name = readdirSync(directory).find((name) => name.endsWith('.json'))!
+      const before = JSON.parse(readFileSync(join(directory, name), 'utf8'))
+      const revision = f.store.snapshot().revision
+      if (stale === 'expiry') Date.now = () => now() + 600001
+      else {
+        const path = join(f.root, 'config.json')
+        const config = JSON.parse(readFileSync(path, 'utf8'))
+        writeFileSync(path, JSON.stringify({ ...config, automatic: !config.automatic }))
+      }
+      await assert.rejects(f.runtime.run('agent_memory_edit', args, f.ctx))
+      f.setGranted(false)
+      await assert.rejects(f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx))
+      assert.deepEqual(JSON.parse(readFileSync(join(directory, name), 'utf8')), before)
+      f.setGranted(true)
+      assert.deepEqual(await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx), {
+        cancelled: true,
+      })
+      assert.deepEqual(JSON.parse(readFileSync(join(directory, name), 'utf8')), {
+        ...before,
+        state: 'cancelled',
+      })
+      assert.equal(f.store.snapshot().revision, revision)
+      await f.runtime.run('agent_memory_edit', args, f.ctx)
+      assert.equal((await f.runtime.run('agent_memory_read', { path: args.path }, f.ctx)).text, args.text)
+      assert.equal(f.store.snapshot().revision, revision)
+    } finally {
+      Date.now = now
+      f.close()
+    }
+  })
+}
 
 test('registered query/topic and legacy paths describe the same private draft and reject old-view current forgetting', async () => {
   const f = fixture(true)

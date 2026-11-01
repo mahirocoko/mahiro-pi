@@ -9,6 +9,7 @@ import { type ImmutablePalaceServer, startImmutablePalaceServer } from '../palac
 import { resolveAgentDir } from '../setup.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { type AttemptOutcome, createAttempt } from './engine/attempt.ts'
+import { attemptTimingSink, type AttemptTimingEvent } from './engine/attempt-timing.ts'
 import { assertCurrent, MemoryEngineController, type OperationContext } from './engine/controller.ts'
 import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
 import { MemoryLifetime } from './engine/lifetime.ts'
@@ -56,7 +57,7 @@ import type { MemoryNode } from './runtime.ts'
 import type { TurnEpisode } from './store.ts'
 import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 
-const writerLifetimeMs = 120000
+const writerLifetimeMs = 240000
 const publicationReserveMs = 30000
 
 interface RuntimeBinding {
@@ -126,6 +127,7 @@ const viewerReadActions = new Set([
   'palace',
   'migration-export',
   'offline-inspect',
+  'offline-episode-inspect',
   'offline-draft-inspect',
   'offline-draft-park-inspect',
   'offline-draft-restore-inspect',
@@ -171,6 +173,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   let binding: RuntimeBinding | undefined
   let primaryEngine: MemoryEngineController | undefined
   let draft: Draft | undefined
+  let creatingPrimaryDraft = false
   let starting = false
   let job: Job | undefined
   let lastError: string | undefined
@@ -1010,6 +1013,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     try {
       if (stale()) return { skipped: 'stale-launch' as const }
       const f = await resolve(ctx, 'agent_memory_reflect', 'write')
+      const writerBinding = binding
       const current = f.context.current
       f.context.current = (targets) => serial === admissionSerial && current(targets)
       assertCurrent(f.context)
@@ -1124,6 +1128,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         assertCurrent(jobContext)
       }
       value.dataBarrier = dataBarrier
+      value[attemptTimingSink] = () => {
+        assertCurrent(jobContext)
+        return (event, id) => {
+          assertCurrent(jobContext)
+          attempt.timing.observe(event, id)
+        }
+      }
       jobContext.barrier = dataBarrier
       own = {
         id: undefined,
@@ -1153,6 +1164,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
               own.cancel('deadline')
               return
             }
+            attempt.timing.freeze()
             own.phase = 'integrating' // reserve adoption synchronously before any await
             publicationDeadline = Math.min(
               value.deadline + publicationReserveMs,
@@ -1186,6 +1198,26 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
               if (requested) retireDrain(drainId)
               attempt.finish('integration-unavailable')
               if (token === epoch && job === own) lastError = 'worker-integration-unavailable'
+              // Foreground cancellation revokes job authority, not permission to adopt an
+              // uncertain operation. Only this controller's pre-write owner can prove a
+              // never-published prepare drained. Obtain fresh primary authority, fenced to
+              // the original runtime/root/generation; retirement never performs cleanup.
+              try {
+                if (active && token === epoch && binding === writerBinding) {
+                  const cleanup = await resolve(ctx, 'agent_memory_manage', 'write')
+                  const cleanupCurrent = cleanup.context.current
+                  cleanup.context.current = (targets) =>
+                    token === epoch &&
+                    binding === writerBinding &&
+                    cleanup.engine === f.engine &&
+                    cleanup.access.kind === 'primary' &&
+                    cleanupCurrent(targets)
+                  assertCurrent(cleanup.context)
+                  await f.engine.retireUnpublished(value.view, cleanup.context)
+                }
+              } catch {
+                // Lost authority/CAS/channel/operation evidence remains unknown, never replayed.
+              }
             } finally {
               own.stop()
             }
@@ -1408,6 +1440,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         'offline-inspect',
         'offline-adopt',
         'offline-resume',
+        'offline-episode-inspect',
+        'offline-episode-recover',
+        'offline-episode-resume',
         'offline-draft-inspect',
         'offline-draft-archive',
         'offline-draft-resume',
@@ -1731,13 +1766,26 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       selected = { ...f.access.value }
     } else {
       if (
-        !draft ||
-        draft.project !== f.project ||
-        draft.configHash !== f.configHash ||
-        Date.now() >= draft.deadline
-      ) {
-        const created = await f.request('create', { project: f.project, shared: true, ttlMs: 600000 })
-        draft = { ...created, project: f.project, configHash: f.configHash, deadline: Date.now() + 600000 }
+        draft &&
+        (draft.project !== f.project || draft.configHash !== f.configHash || Date.now() >= draft.deadline)
+      )
+        throw memoryFailure('draft', 'Existing primary draft selection invalid; proposal preserved')
+      if (!draft) {
+        // Fail closed while creation yields: a second caller must not replace the first pointer.
+        if (creatingPrimaryDraft)
+          throw memoryFailure('draft', 'Primary draft creation pending; proposal preserved')
+        creatingPrimaryDraft = true
+        const token = epoch
+        const serial = admissionSerial
+        try {
+          const created = await f.request('create', { project: f.project, shared: true, ttlMs: 600000 })
+          assertCurrent(f.context)
+          if (token !== epoch || serial !== admissionSerial)
+            throw memoryFailure('draft', 'Primary draft admission changed; proposal preserved')
+          draft = { ...created, project: f.project, configHash: f.configHash, deadline: Date.now() + 600000 }
+        } finally {
+          creatingPrimaryDraft = false
+        }
       }
       selected = draft
     }
@@ -1781,10 +1829,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (
       name !== 'agent_memory_commit' ||
       !objectShape(args, ['revision', 'allowShrink']) ||
-      args.revision !== selected.base ||
+      typeof args.revision !== 'string' ||
       (args.allowShrink !== undefined && typeof args.allowShrink !== 'boolean')
     )
       throw Error('Expected base revision')
+    if (args.revision !== selected.base) throw memoryFailure('CAS', 'Expected base revision')
     await f.request('ready', { view: selected.view })
     if (f.access.kind === 'worker') {
       assertCurrent(f.context)
@@ -1974,6 +2023,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         if (f.access.kind === 'worker') {
           const source = installedWriter(resolveAgentDir()).text
           await f.barrier()
+          observeAttemptTiming(ctx, 'start')
           return {
             systemPrompt: `${source.replace(/^---\n[\s\S]*?\n---\n/, '')}\n${memoryCurationDoctrine}\nPrivate project scope: ${f.access.value.project}. Read only your leased memory view. No primary transcript, bootstrap or corpus is inherited.`,
           }
@@ -2063,13 +2113,28 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       pending = undefined
     }
   })
-  pi.on('tool_execution_start', (event) => {
+  const observeAttemptTiming = (ctx: ExtensionContext, event: AttemptTimingEvent, id?: unknown) => {
+    try {
+      const f = owner(ctx, 'agent_memory_read', 'read')
+      if (f.access.kind !== 'worker') return
+      const value = f.access.value
+      assertCurrent(f.context)
+      const publish = value[attemptTimingSink]?.()
+      assertCurrent(f.context)
+      publish?.(event, id)
+    } catch {
+      // Diagnostics never change execution, authority, readiness or publication.
+    }
+  }
+  pi.on('tool_execution_start', (event, ctx) => {
+    observeAttemptTiming(ctx, 'tool-start', event.toolCallId)
     if (!pending || pending.toolCalls.size >= 64 || event.toolName !== 'bash') return
     const selected = selectedVerification(event.args?.command)
     if (!selected || typeof event.toolCallId !== 'string' || !event.toolCallId) return
     pending.toolCalls.set(event.toolCallId, selected.kind === 'pair' ? { command: selected.command } : {})
   })
-  pi.on('tool_execution_end', (event) => {
+  pi.on('tool_execution_end', (event, ctx) => {
+    observeAttemptTiming(ctx, 'tool-end', event.toolCallId)
     const tracked = pending?.toolCalls.get(event.toolCallId)
     if (!pending?.toolCalls.delete(event.toolCallId) || event.toolName !== 'bash' || !tracked) return
     if (typeof event.isError !== 'boolean') return

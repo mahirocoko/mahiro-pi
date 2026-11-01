@@ -40,6 +40,14 @@ interface Pending {
   reject: (error: Error) => void
   abort: () => void
   cancelled: boolean
+  preparation?: {
+    plan: Plan
+    drained: boolean
+    published: boolean
+    retired: boolean
+    joined: Promise<void>
+    finish(): void
+  }
   timer?: NodeJS.Timeout
 }
 const empty: Checkpoint = { physical: [], logical: [], kind: 'data' }
@@ -85,8 +93,31 @@ export class MemoryEngineController {
   private retired = false
   private failure?: Error
   private prepared = new WeakSet<Plan>()
+  // Controller-local actual references, not reconstructed from status or durable records.
+  // A rejected caller promise is not drain. Only a terminal child reply seals preparation.
+  private preparations = new Map<string, NonNullable<Pending['preparation']>>()
   ownsPlan(plan: Plan) {
-    return this.prepared.has(plan)
+    const own = this.preparations.get(plan.id)
+    return this.prepared.has(plan) && own?.drained === true && !own.retired
+  }
+  claimPlan(plan: Plan) {
+    if (!this.ownsPlan(plan)) throw Error('Exact unpublished parent plan required')
+    const own = this.preparations.get(plan.id)!
+    if (own.published) throw Error('Operation executor already reserved or capacity blocked')
+    own.published = true // irreversible, before any publisher await
+  }
+  async retireUnpublished(view: string, context: OperationContext) {
+    assertCurrent(context)
+    const candidates = [...this.preparations.values()].filter(
+      (entry) => entry.plan.view === view && !entry.retired,
+    )
+    if (candidates.length !== 1) return // never guess between distinct prepare attempts
+    const own = candidates[0]!
+    if (own.published) return
+    own.retired = true // no old continuation may publish while fresh-authority recovery awaits
+    await own.joined
+    if (!own.drained || own.published) return
+    return await this.request('recover', { plan: own.plan.id, digest: own.plan.digest }, context)
   }
   private exited?: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
   readonly root: string
@@ -143,6 +174,7 @@ export class MemoryEngineController {
   }
   private finish(p: Pending, error?: Error, result?: unknown) {
     clearTimeout(p.timer)
+    p.preparation?.finish() // failed/closed channels release waiters, but confer no drain proof
     p.context.signal?.removeEventListener('abort', p.abort)
     this.queuedBytes -= p.frame.length
     recordMemoryDiagnostic(this.root, 'response', { id: p.id, method: p.method }, error)
@@ -177,7 +209,7 @@ export class MemoryEngineController {
       if (
         Object.keys(message).length !== 5 ||
         !Number.isSafeInteger(message.check) ||
-        !objectShape(message.targets, ['physical', 'logical', 'kind'])
+        !objectShape(message.targets, ['physical', 'logical', 'kind', 'preparing'])
       )
         throw Error('Invalid authorization checkpoint')
       const targets = message.targets as unknown as Checkpoint
@@ -196,6 +228,26 @@ export class MemoryEngineController {
       try {
         if (!p.cancelled) {
           assertCurrent(p.context, targets)
+          if (targets.preparing !== undefined) {
+            if (!['prepare', 'manage'].includes(p.method) || p.preparation)
+              throw Error('Unexpected preparation handoff')
+            validatePlan(targets.preparing)
+            const input = JSON.parse(p.frame.toString('utf8')).input
+            if (p.method === 'prepare' && targets.preparing.view !== input.view)
+              throw Error('Preparation view mismatch')
+            if (this.preparations.has(targets.preparing.id) || this.preparations.size >= 64)
+              throw Error('Preparation ownership capacity blocked')
+            const plan = targets.preparing
+            for (const change of plan.changes) Object.freeze(change)
+            Object.freeze(plan.changes)
+            Object.freeze(plan)
+            let finish!: () => void
+            const joined = new Promise<void>((resolve) => {
+              finish = resolve
+            })
+            p.preparation = { plan, drained: false, published: false, retired: false, joined, finish }
+            this.preparations.set(plan.id, p.preparation)
+          }
           allow = true
         }
       } catch (error) {
@@ -224,6 +276,9 @@ export class MemoryEngineController {
     // Validate even on cancellation/authority loss: malformed diagnostics are protocol failures,
     // not a valid result. Classification is diagnostic only; current authority still wins.
     const childError = 'error' in message ? decodeMemoryFailure(message.error) : undefined
+    // Receipt of the terminal frame joins the child's operation, including a cancelled
+    // write whose result was suppressed. Timeouts/fail()/retirement never set this bit.
+    if (p.preparation) p.preparation.drained = true
     let error: Error | undefined
     try {
       assertCurrent(p.context)
@@ -241,6 +296,8 @@ export class MemoryEngineController {
     ) {
       const plan = message.result.plan
       validatePlan(plan)
+      if (!p.preparation || JSON.stringify(p.preparation.plan) !== JSON.stringify(plan))
+        throw Error('Prepared plan differs from pre-write ownership')
       for (const change of plan.changes) Object.freeze(change)
       Object.freeze(plan.changes)
       Object.freeze(plan)
@@ -277,6 +334,10 @@ export class MemoryEngineController {
       this.active = p
       const message = JSON.parse(p.frame.toString('utf8'))
       if (p.method === 'reconcile' || p.method === 'recover') {
+        const own = this.preparations.get(message.input.plan)
+        message.unpublished =
+          own?.drained === true && !own.published && own.plan.digest === message.input.digest
+        if (message.unpublished) own!.retired = true
         message.drained = executorDrained(this.root, message.input.plan, message.input.digest)
       }
       recordMemoryDiagnostic(this.root, 'dispatch', { id: p.id, method: p.method })

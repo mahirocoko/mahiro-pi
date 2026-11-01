@@ -12,6 +12,7 @@ import { memoryCurationDoctrine } from './guidance.ts'
 import type { ManagedMemoryABI } from './experimental-contracts.ts'
 
 import { primaryDelegationDoctrine } from './prompt.ts'
+import { memoryFailure } from './reasons.ts'
 import { installedWriter, preflightWriterRoute } from './writer-route.ts'
 
 type Store = ReturnType<typeof createMemoryStore>
@@ -319,8 +320,9 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
     }
     const project = f.store.project(realpathSync(ctx.cwd))
     if (!project) throw new Error('Unmapped managed-memory scope')
-    if (!draft || draft.state !== 'open' || draft.project !== project || Date.now() >= draft.deadline)
-      draft = f.store.createView(project, 600000, true)
+    if (draft && (draft.state !== 'open' || draft.project !== project || Date.now() >= draft.deadline))
+      throw memoryFailure('draft', 'Existing primary draft selection invalid; proposal preserved')
+    if (!draft) draft = f.store.createView(project, 600000, true)
     return { view: draft, value: undefined }
   }
   const run = async (name: string, args: unknown, ctx: ExtensionContext, signal?: AbortSignal) => {

@@ -69,7 +69,13 @@ export interface Page {
   truncated: boolean
   missing?: boolean
 }
-export type CapacityNamespaceName = 'journal' | 'legacyViews' | 'drafts' | 'episodes'
+export type CapacityNamespaceName =
+  | 'journal'
+  | 'legacyViews'
+  | 'drafts'
+  | 'episodes'
+  | 'overflowDrafts'
+  | 'overflowSlots'
 export type CapacityDoctorBlockerName = CapacityNamespaceName | 'retainedViews'
 export type CapacityNamespaceState = 'available' | 'blocked' | 'unknown' | 'not-applicable'
 export interface CapacityNamespace {
@@ -81,7 +87,7 @@ export interface CapacityNamespace {
   admission: CapacityNamespaceState
 }
 export interface CapacityDiagnostic {
-  version: 1
+  version: 1 | 2
   kind: 'abi2-capacity-diagnostic'
   revision: string
   configHash: string
@@ -92,6 +98,8 @@ export interface CapacityDiagnostic {
     legacyViews: CapacityNamespace
     drafts: CapacityNamespace
     episodes: CapacityNamespace
+    overflowDrafts?: CapacityNamespace
+    overflowSlots?: CapacityNamespace
   }
   derived: {
     retainedViews: {
@@ -220,6 +228,8 @@ export type Method = keyof Operations
 export type Input<M extends Method> = Operations[M]['input']
 export type Output<M extends Method> = Operations[M]['output']
 export interface Checkpoint {
+  /** Exact plan handoff before its first durable write; never permission evidence. */
+  preparing?: Plan
   physical: string[]
   logical: string[]
   kind: 'data' | 'view' | 'git'

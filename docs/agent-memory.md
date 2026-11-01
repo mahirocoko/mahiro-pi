@@ -222,11 +222,74 @@ that same leaf. Initialization, policy, writer admission, observation and
 compaction use that same rule; compaction still admits only the one paired
 append.
 
+### Bounded rolling-compatible draft overflow
+
+When the original ABI2 draft directory has exactly 64 entries, an upgraded controller
+can admit a new proposal into a separate `overflow-drafts` sibling. It does not move,
+rewrite, adopt, expire or delete existing manifests, and it does not restart or reload
+other sessions. The original 64-entry namespace and the existing UUID manifest,
+operation-record and root publication-lock formats stay unchanged. An already
+oversized original directory still fails closed.
+
+Overflow has 32 exclusive admission slots shared by upgraded controllers. Each slot
+is reserved with an exclusive directory creation before its UUID manifest is written.
+A failed or crashed admission consumes its slot, even if no owner or manifest was
+published. Slots are never reused or automatically reclaimed; cancellation and commit
+also retain the slot and manifest. This is bounded extra runway, not a garbage
+collector or an unlimited remedy. Overflow metadata inventories are separately
+bounded; unknown entries, duplicate identities and unreserved manifests fail closed.
+
+Overflow allocation requires fewer than 32 entries in the **shared** operation
+journal. Preparation repeats that check at entry and immediately before writing its
+operation record. Original-directory proposals retain their existing admission rules.
+The 32-entry cutoff is conservative headroom, not a root-wide capacity transaction:
+unchanged old controllers do not participate in a new reservation protocol. Their
+preexisting concurrent journal-admission race is not eliminated. New overflow
+publication still uses the shared journal, canonical Git tree and root lock, and may
+cause ordinary lock contention, pending-operation fences, revision changes or conflicts
+for other sessions. It does not promise zero shared publication effects.
+
+Upgraded controllers resolve both manifest locations for active reads, edits,
+cancellation, conflict discovery/recovery, management counts and durable same-operation
+reconciliation after a crash. Persisted proposals remain evidence, not reopened handles
+or chunk capabilities. Exact-root authority, root identity, proposal hash, lock owner,
+config/revision checks and executor-drain requirements remain mandatory. A fresh
+controller cannot adopt an old active handle. Older code sees only the original draft
+namespace: it can continue using its existing handles, but it cannot discover or
+recover overflow proposals. Pending shared journal records remain visible to old code;
+recovery of an overflow operation requires upgraded code. Do not downgrade a recovery
+owner while overflow evidence is needed.
+
+The version-2 count-only capacity diagnostic includes the original namespaces plus
+separate overflow-manifest and permanent-slot counts. Its draft admission state describes
+effective namespace headroom: below 64 original entries it uses the original directory;
+at exactly 64 it requires fewer than 32 journal entries and fewer than 32 occupied valid
+slot names; above 64 it is blocked. Inexact scans without a proven blocker remain unknown.
+Empty crash reservations still consume slots. These counts do not validate manifest bodies,
+reservation owners or other integrity conditions and do not guarantee that creation succeeds.
+The codec still accepts closed version-1 replies with their original four-namespace semantics.
+Upgraded retained-preview and management counts include overflow. Existing offline
+`--drafts` archive/parking operators target the original directory only; they neither
+reclaim overflow slots nor restore overflow handles. The separate typed offline
+lock-adoption/dirty-recovery operator resolves either canonical proposal location,
+checks its reservation and exact journal proposal hash, and rejects duplicate IDs.
+It independently archives the slots and proposal, retains all reservations, and marks
+only the reviewed proposal as conflict. A full original directory requires remaining
+overflow-slot and shared-journal headroom before adoption can release its barrier.
+Existing version-1 original-path checkpoints remain readable. All existing exact
+fingerprint, authority, kernel-holder, offline-assurance, archive and resume gates
+still apply: active cooperating Pi sessions must be closed before offline adoption.
+No online overflow action authorizes offline maintenance or changes live authority.
+
 When ordinary ABI2 status fails specifically with `storageReason: capacity`, the
 source runtime makes one separately authorized, idle-primary read-only attempt to
-attach `storageCapacity`. The closed diagnostic scans only four private metadata
-namespaces—journal, legacy views, engine drafts and episodes—with an 8,192-entry
-exactness limit; one additional entry becomes the bounded overflow sentinel. It
+attach `storageCapacity`. The closed diagnostic scans only six private metadata
+namespaces—journal, legacy views, engine drafts, episodes, overflow manifests and
+permanent overflow slots—with an 8,192-entry exactness limit per namespace; one
+additional entry becomes the bounded scan sentinel. Overflow directory entries include
+its `slots` directory and temporary entries, while matching counts include only manifests;
+slot matching counts include only the 32 canonical slot names. Overflow counts are not
+added to the original retained-view doctor threshold. It
 returns sequential non-atomic clamped counts, exact/unknown markers, a derived
 combined retained-view doctor check and separate status/doctor/admission blocker
 lists. The fallback does not retraverse an already-overflowed session branch; it
@@ -370,11 +433,11 @@ validated byte-for-byte except its explicit model/thinking slots. The public loa
 role descriptor exposes routing/lock/tools/prompt mode/inheritance/background, not
 body or max-turn fields: the runtime checks the exposed fields, replaces the worker
 prompt from canonical installed source, and passes an explicit eight-turn native
-budget plus a 120-second lease deadline. A project body/budget override does not
+budget plus a 240-second lease deadline. A project body/budget override does not
 replace those runtime controls. Its commit marks the view ready; a healthy parent
 integrates only after successful native completion. A completion admitted before
 that deadline receives a bounded parent-only publication reserve of up to 30 seconds,
-capped at 150 seconds from draft admission. It does not revive a late writer or
+capped at 270 seconds from draft admission. It does not revive a late writer or
 extend child access. Authority and publication fences remain in effect.
 
 Automatic writing depends on private `automatic` policy and bounded eligible,
@@ -479,7 +542,11 @@ is reported as unknown, not a successful empty/idle result. Status does not reso
 credentials or prove provider execution.
 
 Memory tool errors and `/mh-memory` failures use source-owned, closed diagnostic
-reasons: `capacity`, `deadline`, `branch`, `CAS`, `retention` or `unknown`.
+reasons: `capacity`, `deadline`, `branch`, `CAS`, `retention`, `draft` or `unknown`.
+An expired or project/configuration-mismatched primary draft is not silently replaced
+on read or edit: selection reports `draft` and preserves the proposal for explicit
+owner review. ABI2 also refuses competing first creation while one is pending;
+this does not renew a draft, publish it, or change existing lifecycle/authority rules.
 Unrecognized failures use fixed `unknown` text; exception messages and caller-supplied
 tags do not determine a reason. Read invalidation keeps its distinct current-forgetting
 or revision-race message in both ABIs, without returning partial content or discarding
@@ -639,6 +706,20 @@ block mutation admission. A fresh primary read does not create a draft or obtain
 a publication capability; an existing private draft retains its explicit snapshot
 semantics and never reads partially published worktree bytes.
 
+ABI2 also owns the exact prepare-to-publish interval before the child's first durable
+operation-record write. Foreground input still cancels the writer immediately. If
+preparation completes but its reply loses caller authority, only that controller's
+actual pre-write ownership and terminal child response can establish that the exact
+operation drained without ever admitting publication. With fresh authority bound to
+the original runtime, root and generation, the parent may CAS-retire that unchanged
+`prepared` record as `not_committed_dirty`; it does not publish files, review episodes,
+delete the proposal or grant replay. Once publication is admitted, only the existing
+executor/reconciliation rules apply. Changed records, lost authority/channel evidence,
+and other controllers or restarted processes cannot adopt this preparation owner;
+uncertain operations remain retained for same-operation inspection/recovery. An unchanged
+HEAD/tree is not proof of a completed no-op publication: that success also requires
+an actual drained publication executor, not a foreign prepared record.
+
 Ordinary read-only engine requests (`projection`, `config`, `status`, `episodes`,
 `conflicts`, `read`, `headRead`, `stats`, and `manage` with `doctor` or `palace`)
 are completion-driven and caller-cancellable, without a fixed whole-request
@@ -649,12 +730,20 @@ request still waits for the child to drain; it does not restart/replay the chann
 or prove quiescence immediately. A slow read can therefore delay queued work.
 Current authority, revision/branch fencing, resource/transport limits and per-Git
 bounds remain in effect. This changes no stored data, capacity, publication rule,
-permission or native writer's separate 120-second lease.
+permission or native writer's separate 240-second lease.
 
 Engine status reports only newly observed native attempt metadata.
 `latestAttempt` is null when absent or invalidated; unknown progress and
 unobserved tool ends remain null. It does not inspect historical private attempts,
 prove provider execution or establish successful semantic learning.
+Optional ephemeral ABI2 `latestAttempt.timing` starts at the authenticated child's
+`before_agent_start`: monotonic elapsed milliseconds, observed tool-wall interval
+union, and unclassified remainder (not provider latency). Missing/unpaired or
+bounded-overflow tool observations mark it incomplete and the remainder null.
+Timing freezes at terminal observation/cancellation; it excludes later publication
+work. Only bounded active call IDs are held transiently; no payload, tool name,
+path, result, log or persistent telemetry is collected. Authority, readiness and
+deadlines are unchanged; ABI1 is unchanged.
 
 Disposable fixtures cover representative abrupt parent exits before canonical
 start, after staging and after HEAD observation; late-journal authority loss,
@@ -665,6 +754,62 @@ checks, independent QA and responsiveness/I/O measurements are separate gates. F
 OS/Git body reads: index refresh and ordinary hooks may read worktree content.
 No installed activation, latency/RAM improvement, rendered quality, full Letta
 parity or learning acceptance follows from these source contracts.
+
+## Episode admission and offline recovery (ABI2)
+
+Upgraded ABI2 writers serialize the complete fresh-ledger, reviewed/forgotten cleanup,
+capacity-count and create sequence with a separate `.episodes/.admission` mutex. The
+publication `.lock` is unchanged. Duplicate IDs remain byte-idempotent, including at
+256 files; changed bytes refuse. Contention retries at most 80 attempts with 25-ms
+spacing, then fails closed. Anonymous, partial-owner and uncertain-release locks are
+never stolen by PID, age or a normal request. Acquisition retains a kernel-visible
+`.episodes` directory descriptor **before mkdir through final unwind**, including the
+mkdir-to-owner seam. Startup provisions no lock and existing layouts need no migration.
+
+This guarantee requires **all episode writers to use the upgraded ABI2 implementation**.
+Old ABI2 controllers and ABI1 writers do not participate and cannot be constrained by
+this mutex. Close all cooperating sessions/controllers before deploying the upgrade;
+source checks or installing files do not prove that old writers have stopped. Already
+over-capacity or ambiguous stores remain HOLD; recovery never deletes unreviewed episodes
+to make a bound pass.
+
+The separate explicit `memory-maintenance.mjs --episodes` selector uses the existing
+idle ephemeral primary offline owner: exact-root PSS authority is rechecked throughout,
+with the same affirmative known-profile-closed/no-new-cooperative-writers assurance and
+fixed system `lsof` tree-FD/cwd inspection. Episode recovery also requires an idle
+controller and does not exempt that controller's child from the holder check (it does
+not need publication certification). Anonymous locks are **not evidence of death**.
+An upgraded writer still suspended anywhere after acquisition began retains the directory
+handle and blocks recovery. `lsof` alone is not quiescence or a dormant/hostile same-user
+process guarantee; the explicit offline closure assurance remains mandatory. Never kill
+or steal a suspected writer to satisfy this procedure.
+
+`--episodes --inspect` returns only counts, a target and exact metadata fingerprint.
+`--episodes --apply --offline --target <target> --expect <fingerprint>` requires that
+reviewed pair. It creates a durable `.episodes/.admission-recovery` checkpoint, which
+blocks new upgraded admissions. It preserves incomplete owner bytes and directory identity,
+and quarantines the exact lock rather than unlinking it. Recognized episode temp files
+are copied to new private inodes and synced **before** their exact original links are
+removed. A recognized temp/canonical hardlink pair retains the canonical inode and bytes,
+returning its link count to one; moving the temp link alone would not restore readability.
+No canonical episode is deleted or rewritten, and no episode text, owner text, root path
+or raw private error is returned.
+
+After interruption, use the same `--episodes --inspect` and then explicit
+`--episodes --resume --offline --target <target> --expect <fingerprint>`. If interruption
+preceded a complete plan (empty checkpoint or partial plan write), inspection instead
+returns a new review for explicit `--apply`; the partial bytes are retained. Complete
+plans resume after copy, unlink, lock quarantine and final rename without replaying
+admission. Completed quarantine is retained at `.episodes/.admission-recovered-<fingerprint>`;
+resume can acknowledge completion after a lost response. This is admission recovery, not
+publication recovery, a live lock release, root migration or secure history erasure.
+
+Recovery bounds are 256 canonical episodes, 256 recognized temps, fewer than 32 prior
+quarantines, 16 incomplete pre-plan writes and 32 in-plan partial writes. Episode/owner
+files are capped at 16 KiB and checkpoint/partial metadata at 256 KiB. Unknown entries,
+external or mismatched hardlinks, changed identities, exhausted bounds and other pending
+offline maintenance refuse without deleting evidence. No automatic quarantine pruning
+or general-purpose repair is provided.
 
 ## Explicit offline maintenance recovery
 
