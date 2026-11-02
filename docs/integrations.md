@@ -2,112 +2,116 @@
 
 [← Documentation](README.md) · [Status](status.md) · [Installation](getting-started.md)
 
-The optional `extensions/mahiro-worker-activity.ts` resource reads the public
-parent-scoped native subagent service. It never launches/stops children, owns
-their lifecycle or makes the parent's idle/completed state depend on them.
+The optional `extensions/mahiro-worker-activity.ts` resource is the single private
+Web receipt producer for both original Herdr and Herdr App/core. It reads the
+public exact-SessionManager subagent service; it never launches/stops children,
+sends messages or makes the parent's completion depend on background work.
 
-## Enable the optional resource
+## One-time setup
 
-Worker activity is outside the default manifest. After installing the required
-public owners, explicitly register the exact canonical extension through Pi's
-public extension settings and intentionally fresh-load the intended session.
-Do not add a second subagent manager or competing Web producer.
+With explicit profile-configuration approval, register this canonical extension
+once in the intended Pi profile's public `settings.json` extension list, preserving
+other entries. It stays outside the guards-first13 package manifest. Create a
+regular, non-linked, owner-private (0600) `herdr-web.json` in the same Pi agent
+directory (`~/.pi/agent` or explicit `PI_CODING_AGENT_DIR`):
 
-`getSubagentsServiceForSession(ctx.sessionManager)` and exact manager identity
-are required. A legacy global getter or caller-supplied session lookup is not a
-fallback. Missing capability means unavailable, not no children. Counts are
-separate from the current request's [streaming activity line](status.md).
+```json
+{ "version": 1, "root": "/absolute/canonical/path/to/herdr-web" }
+```
 
-## Worker counts
+The target is explicit, independent of session cwd and native runtime. It is the
+Web checkout root, not a transcript path or arbitrary receipt directory. Separate
+profiles require their own setup. Missing configuration leaves Web publication
+off. Invalid/nonprivate configuration fails closed, without another target.
 
-Only a TUI in a validated inherited Herdr environment acquires the producer.
-Before publication/clear, the public CLI must confirm the exact Pi PID in the
-bound pane's foreground process list. Unknown/lost ownership fails closed;
-headless/RPC/SDK children cannot replace their TUI parent.
-
-A complete schema-1 token tuple publishes only running/queued counts and an
-opaque generation owner. At most 256 well-formed records are accepted.
-Completed/aborted/stopped/error records are not running. Missing, malformed or
-oversized snapshots are unavailable, never clamped or fabricated as zero.
-
-The poll is bounded to one second, unchanged heartbeat to ten seconds and token
-TTL to thirty seconds. One coalescing publication lane, generation fencing,
-backoff and disposal prevent stale callbacks. Tokens contain no child prompts,
-descriptions, models, results, transcripts or identities.
-
-Herdr owns rendering and lifecycle. Display metadata does not change cwd/title,
-focus a pane, replace native ProgramStatusReporter/OSC 7501, complete work or
-mutate task-board/Goal/voice truth.
-
-## Web observer
-
-The same owner/poll can supply a separate bounded private v1 JSON receipt:
+Activate only through an authorized fresh launch or reload. After activation,
+**every TUI session using this profile automatically publishes**, including new,
+resume, fork and reload. No per-session observer start is needed. RPC/print/SDK
+children cannot replace or retire the TUI producer. The public
+`getSubagentsServiceForSession(ctx.sessionManager)` lookup is mandatory; no legacy
+global getter or caller-supplied session lookup substitutes for it.
 
 ```text
-/mh-herdr-web-observer start
 /mh-herdr-web-observer status
 /mh-herdr-web-observer stop
 ```
 
-The observer is **off merely on load**. Start opts in only the current interactive
-session and canonical cwd; it is not persisted or inherited by children.
-Reload/shutdown stops it and requires a new explicit start. No new model tool,
-grant, registry, poll timer or default manifest entry is added.
+Status describes local publication, not consumer acceptance. Stop suspends only
+this session; next session/reload uses profile configuration again. The old start
+command explains setup but grants no session-specific activation. To disable
+future sessions, separately approve removal of the profile target/resource.
+Neither loading source nor running Web writes configuration or reloads sessions.
 
-After exact foreground PID validation, the writer rereads and fences service,
-generation and parent identity before atomic publication beneath the current cwd:
+Retire older installed observer copies when adopting this producer. Web's old
+`scripts/pi-subagents-extension.ts` is a non-writing migration notice. Do not
+leave an older, separately installed session-command producer active alongside
+this resource. The original Herdr's native `herdr:pi` integration still owns its
+identity/lifecycle reporting; it does not write these private receipts.
+
+## Lifecycle and private wire
+
+One existing worker poll supplies the sink. The writer uses no native CLI,
+socket, subprocess or second timer; Web independently validates the current Pi
+foreground PID against its selected native runtime. One process-global generation
+owns publication. A replacement disposes its predecessor. Normal shutdown/reload
+revokes only the receipt carrying its own producer token; a late predecessor
+cannot erase the successor. A fresh foreign receipt (including an older installed
+producer without a generation token) blocks publication rather than starting a
+write race; only expired same-parent v1 wire may be replaced. Incompatible receipts
+remain unavailable, never silently repaired. Crash/unsafe cleanup falls back to the eight-second
+consumer lease. Public SessionManager persistence is lazy: an unwritten parent
+publishes nothing until its first persisted response, without requiring restart.
+
+Receipts are atomic owner-only files beneath the explicit target:
 
 ```text
 .agent-state/runtime/upstream-v10700/pi-subagents/
   <sha256(canonical parent session file)>.json
 ```
 
-The fixed path is the consumer protocol, not an evidence directory chosen by the
-caller. Envelope fields are version, parentFile, parentSessionId, pid, updatedAt
-and records. Each record contains id, type, description, native status, startedAt,
-optional completedAt, toolUses and optional outputFile. Prompts, thinking,
-model/auth details, results and transcript contents are not read/copied.
-A path in metadata is not permission to read it.
+Wire v1 contains parentFile, parentSessionId, pid, updatedAt, producer generation
+and records. Native child metadata is whitelisted to id, type, description,
+status, startedAt, optional completedAt, toolUses and optional outputFile. No
+prompts, thinking, model/auth details, results or transcript contents are copied.
+A path in metadata is not permission to read it. Missing exact child service
+publishes parent-only `activity: "unavailable"`, never fabricated empty live
+activity; malformed, duplicate or oversized snapshots publish no receipt.
 
 | Bound | Value |
 | --- | --- |
 | Inspected source records | 256 |
 | Published records | 24, active first |
-| Serialized UTF-8 | 16 KiB |
-| Receipt heartbeat | At most every two seconds; one foreground probe in flight |
+| Serialized UTF-8 | 16 KiB including envelope |
+| Poll / receipt heartbeat | One second / at most every two seconds |
 | Consumer TTL | Eight seconds |
 
-Too many active records, malformed/duplicate records, oversize or revoked/missing
-ownership produces no receipt. Missing/incompatible/stale/denied observation is
-**UNKNOWN**, not zero, running or done. Stop leaves prior receipts to expire
-rather than deleting a newer runtime's file.
+Web independently checks the exact parent file/session header, canonical Pi
+store, foreground argv/PID and TTL. Conflicting active managers on one PID fail
+closed. Unavailable observation is UNKNOWN, not zero, running or done. Web owns cards and
+read-only child details; native subagents own terminal records and transcripts.
 
-### Privacy and compatible consumer
+The writer is POSIX-only. Existing runtime nodes must be non-linked, owned by
+the current UID and owner-private; regular receipts are 0600-equivalent. New
+directories use 0700, exclusive temporary files 0600. No chmod, umask/ACL repair,
+Windows fallback, credential access or hostile same-user isolation is promised.
 
-The writer is POSIX-only. Existing path components must be non-linked,
-current-UID-owned private directories (0700-equivalent); receipt files must be
-regular/non-linked, owned and 0600-equivalent. New directories use 0700 and
-exclusive temporary files 0600. Live/dangling symlinks reject.
+## Worker counts
 
-Nothing repairs permissions, changes umask/ACLs, grants access or falls back to
-another directory. A non-private ancestor can block publication even if its
-children are private. Privacy preparation needs that directory owner's approval,
-not silent chmod. Windows has no live writer. These are local cooperative
-privacy checks, not hostile same-user/admin isolation.
+In an already validated inherited original Herdr environment, the same owner
+also publishes counts-only display metadata. Before publication/clear the public
+CLI confirms the exact Pi PID in the bound pane foreground. Core does not use
+this old-runtime transport; its Web receipt lane is independent.
 
-A compatible [Herdr Web v0.11.0 consumer](https://github.com/mahirocoko/herdr-web/releases/tag/v0.11.0)
-independently validates parent/session, foreground PID and TTL. Web owns cards,
-read-only details and Main Send/Stop; native subagents own terminal records and
-transcripts. Those records remain the consumer's separate read-only fallback.
-Installing or restarting Web does not load this Pi resource or enable observation.
+The schema-1 tuple contains running/queued counts and an opaque generation owner,
+not child prompts, models, results, transcripts or identities. At most 256 valid
+records are inspected. Polls are bounded to one second, unchanged heartbeat to
+ten seconds and native token TTL to thirty seconds. One coalescing publication
+lane, generation fencing, backoff and disposal prevent stale callbacks.
 
-For activation, confirm the exact optional resource/native owner, inspect directory
-privacy read-only, fresh-load only if authorized, then start/status after a poll.
-Unavailable controls mean review provisioning, not launch another executor.
-Stop when finished and allow the TTL to expire. Provider prompts and child
-launches are unnecessary merely to enable this sink.
+Herdr owns rendering/lifecycle. Display metadata does not change cwd/title,
+focus, native ProgramStatusReporter/OSC 7501, Send/Stop, tasks or Goal truth.
 
 Owners: [extension](../extensions/mahiro-worker-activity.ts),
-[count producer](../lib/worker-activity.ts) and
-[Web writer](../lib/worker-activity-web.ts). Source/offline checks establish
-neither live activation nor browser/native/human acceptance.
+[count/poll owner](../lib/worker-activity.ts),
+[Web writer/config reader](../lib/worker-activity-web.ts). Source/offline checks
+are not live profile activation, independent QA or human acceptance.

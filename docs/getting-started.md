@@ -160,10 +160,11 @@ Configure it only when you explicitly want native child metadata, using Pi's
 public extension settings and the exact canonical resource. Do not load a second
 child manager or Web producer alongside it. See [Herdr integrations](integrations.md).
 
-Even with that resource loaded, the Web observer stays off until
-`/mh-herdr-web-observer start` in the intended interactive session.
-Its directory privacy and parent/PID binding are required, not repaired for you.
-[Web setup](integrations.md#web-observer) explains the separate consumer and TTL.
+For Web, explicitly configure its owner-private profile target once, then activate
+through an authorized fresh launch/reload. Every TUI session using that profile,
+on either native runtime and from any cwd, publishes automatically; no per-session
+start is needed. Directory privacy and consumer parent/PID binding remain required,
+not repaired. [One-time setup](integrations.md#one-time-setup) owns activation and TTL.
 
 ## Other setup commands
 

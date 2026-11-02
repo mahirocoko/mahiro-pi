@@ -96,7 +96,7 @@ interface Options {
   load?: () => Promise<WorkerAPI>
   now?: () => number
   every?: (callback: () => void, ms: number) => () => void
-  // Optional explicitly enabled consumer. Same scoped service/poll/generation,
+  // Optional configured consumer. Same scoped service/poll/generation,
   // never a second registry or a caller-supplied substitute service.
   observe?: (read: () => unknown, current: () => boolean) => void
 }
@@ -107,7 +107,7 @@ export function startWorkerActivity(ctx: Context, options: Options = {}) {
   // Must precede even touching the shared owner: embedded RPC children share PID/env.
   if (ctx.mode !== 'tui') return { tick: noop, dispose: noop }
   const binding = herdrBinding(options.env ?? process.env)
-  if (!binding) return { tick: noop, dispose: noop }
+  if (!binding && !options.observe) return { tick: noop, dispose: noop }
   const owner = options.owner ?? workerOwner()
   owner.dispose?.()
   const generation = {}
@@ -151,7 +151,7 @@ export function startWorkerActivity(ctx: Context, options: Options = {}) {
     return true
   }
   function flush() {
-    if (!owned() || job || now() < retryAt) return
+    if (!binding || !owned() || job || now() < retryAt) return
     const counts = alive && !invalidated ? desired : undefined
     const serialized = JSON.stringify(counts ?? null)
     if (serialized === last && now() - at < WORKER_HEARTBEAT_MS) return
@@ -210,7 +210,7 @@ export function startWorkerActivity(ctx: Context, options: Options = {}) {
     }
     flush()
     try {
-      if (service && valid()) {
+      if (valid()) {
         options.observe?.(() => {
           if (!valid()) return undefined
           const snapshot = service?.listAgents()

@@ -16,13 +16,13 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { createWebActivityPublisher, webActivitySnapshot } from '../lib/worker-activity-web.ts'
-import { startWorkerActivity } from '../lib/worker-activity.ts'
-import type { Run } from '../lib/status.ts'
+import {
+  createWebActivityPublisher,
+  readWebActivityTarget,
+  webActivitySnapshot,
+} from '../lib/worker-activity-web.ts'
+import { startWorkerActivity, type WorkerOwner } from '../lib/worker-activity.ts'
 
-const settle = async () => {
-  for (let i = 0; i < 25; i++) await Promise.resolve()
-}
 const row = (id: string, status = 'running') => ({
   id,
   type: 'verifier',
@@ -37,74 +37,25 @@ function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-web-observer-')))
   const parent = join(root, 'parent.jsonl')
   writeFileSync(parent, '{"type":"session","id":"parent"}\n', { mode: 0o600 })
-  let file = parent
+  let file: string | undefined = parent
   const manager = { getSessionFile: () => file, getSessionId: () => 'parent' }
-  const ctx = { mode: 'tui', cwd: root, sessionManager: manager }
-  const env = {
-    HERDR_ENV: '1',
-    HERDR_PANE_ID: 'w1:p1',
-    HERDR_SOCKET_PATH: '/fixture/socket',
-  }
+  const ctx = { mode: 'tui', sessionManager: manager }
   const directory = join(root, '.agent-state/runtime/upstream-v10700/pi-subagents')
   const receipt = join(directory, `${createHash('sha256').update(parent).digest('hex')}.json`)
   let now = 10_000
-  let foreground = true
-  let release: (() => void) | undefined
-  let delayed = false
-  let calls = 0
-  let cancelled = 0
-  const run: Run = (_command, args) => {
-    assert.deepEqual(args, ['pane', 'process-info', '--pane', env.HERDR_PANE_ID])
-    calls++
-    return {
-      promise: (async () => {
-        if (delayed)
-          await new Promise<void>((r) => {
-            release = r
-          })
-        return JSON.stringify({
-          result: {
-            process_info: {
-              pane_id: env.HERDR_PANE_ID,
-              foreground_processes: [{ pid: foreground ? process.pid : -1 }],
-            },
-          },
-        })
-      })(),
-      cancel() {
-        cancelled++
-        release?.()
-      },
-    }
-  }
-  const sink = createWebActivityPublisher(ctx, { env, run, now: () => now })
+  const make = () => createWebActivityPublisher(ctx, { root, now: () => now })
+  const sink = make()
   return {
     root,
     ctx,
-    env,
     receipt,
     directory,
     sink,
-    get calls() {
-      return calls
-    },
-    get cancelled() {
-      return cancelled
-    },
+    make,
     time() {
       now += 2000
     },
-    delay() {
-      delayed = true
-    },
-    release() {
-      delayed = false
-      release?.()
-    },
-    foreground(v: boolean) {
-      foreground = v
-    },
-    parent(v: string) {
+    parent(v: string | undefined) {
       file = v
     },
     clean() {
@@ -114,7 +65,7 @@ function fixture() {
   }
 }
 
-test('wire v1 whitelist, caps, native statuses and active-first metadata', () => {
+test('wire whitelist, parent-only unavailable, active-first caps and native statuses', () => {
   const f = fixture()
   try {
     const snapshot = webActivitySnapshot(
@@ -122,11 +73,10 @@ test('wire v1 whitelist, caps, native statuses and active-first metadata', () =>
       [row('terminal', 'completed'), row('live')],
       10,
     )
-    assert.equal(snapshot?.version, 1)
-    assert.equal(snapshot?.parentFile, f.ctx.sessionManager.getSessionFile())
     assert.equal(snapshot?.records[0].id, 'live')
     assert.doesNotMatch(JSON.stringify(snapshot), /DO_NOT_PUBLISH|prompt|result/)
-    assert.equal(webActivitySnapshot(f.ctx.sessionManager, [] as unknown[], 10)?.records.length, 0)
+    assert.equal(webActivitySnapshot(f.ctx.sessionManager, [])?.records.length, 0)
+    assert.equal(webActivitySnapshot(f.ctx.sessionManager, undefined)?.activity, 'unavailable')
     for (const bad of [
       [null],
       [row('same'), row('same')],
@@ -137,14 +87,15 @@ test('wire v1 whitelist, caps, native statuses and active-first metadata', () =>
       Array.from({ length: 257 }, (_, i) => row(`a${i}`, 'completed')),
       [{ ...row('x'), toolUses: -1 }],
       [{ ...row('x'), completedAt: 0 }],
-    ]) {
+    ])
       assert.equal(webActivitySnapshot(f.ctx.sessionManager, bad), undefined)
-    }
-    const large = Array.from({ length: 24 }, (_, i) => ({
-      ...row(`r${i}`),
-      description: 'x'.repeat(1024),
-    }))
-    assert.equal(webActivitySnapshot(f.ctx.sessionManager, large), undefined)
+    assert.equal(
+      webActivitySnapshot(
+        f.ctx.sessionManager,
+        Array.from({ length: 24 }, (_, i) => ({ ...row(`r${i}`), description: 'x'.repeat(1024) })),
+      ),
+      undefined,
+    )
     assert.equal(
       webActivitySnapshot(
         f.ctx.sessionManager,
@@ -157,17 +108,14 @@ test('wire v1 whitelist, caps, native statuses and active-first metadata', () =>
   }
 })
 
-test('explicit sink only; 2s single-flight, foreground guard, private atomic parent SHA receipt', async () => {
+test('runtime-neutral configured sink, private atomic publication, bounded heartbeat and revocation', () => {
   const f = fixture()
   try {
-    assert.equal(f.calls, 0)
     assert.equal(existsSync(f.directory), false)
     f.sink.publish(
       () => [row('a')],
       () => true,
     )
-    await settle()
-    assert.equal(f.calls, 1)
     assert.equal(lstatSync(f.receipt).mode & 0o777, 0o600)
     assert.equal(lstatSync(f.directory).mode & 0o777, 0o700)
     assert.equal(JSON.parse(readFileSync(f.receipt, 'utf8')).records[0].id, 'a')
@@ -175,55 +123,113 @@ test('explicit sink only; 2s single-flight, foreground guard, private atomic par
       () => [],
       () => true,
     )
-    assert.equal(f.calls, 1)
+    assert.equal(JSON.parse(readFileSync(f.receipt, 'utf8')).records.length, 1)
     f.time()
-    f.foreground(false)
-    const prior = readFileSync(f.receipt, 'utf8')
+    f.sink.publish(
+      () => undefined,
+      () => true,
+    )
+    assert.equal(JSON.parse(readFileSync(f.receipt, 'utf8')).activity, 'unavailable')
+    f.sink.dispose()
+    assert.equal(existsSync(f.receipt), false)
+    f.time()
     f.sink.publish(
       () => [],
       () => true,
     )
-    await settle()
-    assert.equal(readFileSync(f.receipt, 'utf8'), prior)
-    assert.match(f.sink.status(), /unavailable/)
-    assert.deepEqual(readdirSync(f.directory), [f.receipt.split('/').at(-1)])
+    assert.equal(existsSync(f.receipt), false)
   } finally {
     f.clean()
   }
 })
 
-test('async return fence reads latest native data; no stale generation, switched parent or shutdown publication', async () => {
-  for (const action of ['latest', 'revoke', 'parent', 'dispose']) {
+test('single producer generation, replacement session and stale shutdown cannot erase newer receipt', () => {
+  const f = fixture()
+  let next: ReturnType<typeof createWebActivityPublisher> | undefined
+  try {
+    f.sink.publish(
+      () => [row('old')],
+      () => true,
+    )
+    next = f.make()
+    assert.equal(existsSync(f.receipt), false)
+    next.publish(
+      () => [row('new')],
+      () => true,
+    )
+    f.time()
+    f.sink.publish(
+      () => [row('stale')],
+      () => true,
+    )
+    f.sink.dispose()
+    assert.equal(JSON.parse(readFileSync(f.receipt, 'utf8')).records[0].id, 'new')
+    f.parent(join(f.root, 'other.jsonl'))
+    next.publish(
+      () => [],
+      () => true,
+    )
+    assert.equal(existsSync(f.receipt), false)
+  } finally {
+    next?.dispose()
+    f.clean()
+  }
+})
+
+test('fresh legacy/foreign producers never race; only expired same-parent wire may be replaced', () => {
+  for (const foreign of [undefined, 'another-producer']) {
     const f = fixture()
     try {
-      let current = true
-      let records = [row('old')]
-      f.delay()
       f.sink.publish(
-        () => records,
-        () => current,
-      )
-      f.time()
-      f.sink.publish(
-        () => [row('ignored')],
+        () => [row('own')],
         () => true,
       )
-      assert.equal(f.calls, 1)
-      if (action === 'latest') records = [row('new', 'completed')]
-      if (action === 'revoke') current = false
-      if (action === 'parent') f.parent(join(f.root, 'other.jsonl'))
-      if (action === 'dispose') f.sink.dispose()
-      f.release()
-      await settle()
-      if (action === 'latest') assert.equal(JSON.parse(readFileSync(f.receipt, 'utf8')).records[0].id, 'new')
-      else assert.equal(existsSync(f.receipt), false)
+      const previous = JSON.parse(readFileSync(f.receipt, 'utf8'))
+      delete previous.producer
+      if (foreign) previous.producer = foreign
+      previous.records = [row('foreign')]
+      writeFileSync(f.receipt, JSON.stringify(previous), { mode: 0o600 })
+      f.time()
+      f.sink.publish(
+        () => [row('must-not-overwrite')],
+        () => true,
+      )
+      assert.equal(JSON.parse(readFileSync(f.receipt, 'utf8')).records[0].id, 'foreign')
+      assert.match(f.sink.status(), /unavailable/)
+      for (let i = 0; i < 4; i++) f.time()
+      f.sink.publish(
+        () => [row('after-expiry')],
+        () => true,
+      )
+      assert.equal(JSON.parse(readFileSync(f.receipt, 'utf8')).records[0].id, 'after-expiry')
     } finally {
       f.clean()
     }
   }
 })
 
-test('unsafe existing directories, files and links refuse without chmod/repair or dangling temp', async () => {
+test('lazy persistent SessionManager file is bound on first valid publication, not construction', () => {
+  const f = fixture()
+  try {
+    f.parent(undefined)
+    f.sink.publish(
+      () => [],
+      () => true,
+    )
+    assert.equal(existsSync(f.receipt), false)
+    f.parent(join(f.root, 'parent.jsonl'))
+    f.time()
+    f.sink.publish(
+      () => [],
+      () => true,
+    )
+    assert.equal(existsSync(f.receipt), true)
+  } finally {
+    f.clean()
+  }
+})
+
+test('unsafe ancestors/files/links refuse without repair or temporary leaks', () => {
   for (const kind of ['ancestor', 'file', 'link', 'dangling']) {
     const f = fixture()
     try {
@@ -231,7 +237,6 @@ test('unsafe existing directories, files and links refuse without chmod/repair o
         () => [],
         () => true,
       )
-      await settle()
       const before = readFileSync(f.receipt)
       f.time()
       if (kind === 'ancestor') chmodSync(join(f.root, '.agent-state'), 0o755)
@@ -244,7 +249,6 @@ test('unsafe existing directories, files and links refuse without chmod/repair o
         () => [row('secret')],
         () => true,
       )
-      await settle()
       assert.match(f.sink.status(), /unavailable/)
       if (kind === 'ancestor') assert.equal(lstatSync(join(f.root, '.agent-state')).mode & 0o777, 0o755)
       if (kind === 'file') {
@@ -262,68 +266,75 @@ test('unsafe existing directories, files and links refuse without chmod/repair o
   }
 })
 
-test('worker observer uses existing exact owner, no extra poll/import; revoked getter fails closed', async () => {
-  let observe: (() => unknown) | undefined
+test('one-time profile config is explicit, private, bounded, canonical and independent of cwd', () => {
+  const f = fixture()
+  const profile = join(f.root, 'profile')
+  mkdirSync(profile, { mode: 0o700 })
+  const file = join(profile, 'herdr-web.json')
+  try {
+    assert.equal(readWebActivityTarget(profile), undefined)
+    writeFileSync(file, JSON.stringify({ version: 1, root: f.root }), { mode: 0o600 })
+    assert.equal(readWebActivityTarget(profile), f.root)
+    chmodSync(file, 0o644)
+    assert.throws(() => readWebActivityTarget(profile))
+    rmSync(file)
+    symlinkSync(join(f.root, 'absent'), file)
+    // O_NOFOLLOW refuses a dangling link rather than treating it as absent config.
+    assert.throws(() => readWebActivityTarget(profile))
+    rmSync(file)
+    writeFileSync(file, 'x'.repeat(4097), { mode: 0o600 })
+    assert.throws(() => readWebActivityTarget(profile))
+  } finally {
+    f.clean()
+  }
+})
+
+test('core can observe without old Herdr binding; non-TUI cannot replace TUI owner', async () => {
+  let read: (() => unknown) | undefined
   let current: (() => boolean) | undefined
-  let callback = () => {}
-  let records: unknown[] = [row('a')]
-  let service = { listAgents: () => records }
   const manager = {}
+  const owner: WorkerOwner = { seq: 0 }
+  const service = { listAgents: () => [row('a')] }
+  let polls = 0
   const p = startWorkerActivity(
     { mode: 'tui', sessionManager: manager },
     {
-      owner: { seq: 0 },
-      env: {
-        HERDR_ENV: '1',
-        HERDR_PANE_ID: 'w1:p1',
-        HERDR_SOCKET_PATH: '/test/socket',
-      },
-      every(cb) {
-        callback = cb
+      owner,
+      env: {},
+      load: async () => ({ getSubagentsServiceForSession: (o) => (o === manager ? service : undefined) }),
+      every() {
+        polls++
         return () => {}
       },
-      load: async () => ({
-        getSubagentsServiceForSession: (owner) => (owner === manager ? service : undefined),
-      }),
-      run: (_command, args) => ({
-        promise: Promise.resolve(
-          args[1] === 'process-info'
-            ? JSON.stringify({
-                result: {
-                  process_info: {
-                    pane_id: 'w1:p1',
-                    foreground_processes: [{ pid: process.pid }],
-                  },
-                },
-              })
-            : '{}',
-        ),
-        cancel() {},
-      }),
-      observe(read, valid) {
-        observe = read
+      observe(r, valid) {
+        read = r
         current = valid
       },
     },
   )
-  await settle()
-  assert.deepEqual(observe?.(), records)
-  records = [row('b')]
-  assert.deepEqual(observe?.(), records)
-  service = { listAgents: () => [] }
-  assert.equal(current?.(), false)
-  assert.equal(observe?.(), undefined)
-  callback()
+  for (let i = 0; i < 25; i++) await Promise.resolve()
+  assert.deepEqual(read?.(), service.listAgents())
+  const generation = owner.generation
+  startWorkerActivity(
+    { mode: 'print', sessionManager: {} },
+    {
+      owner,
+      observe() {
+        throw Error('child must not observe')
+      },
+    },
+  )
+  assert.equal(owner.generation, generation)
+  assert.equal(polls, 1)
   p.dispose()
-  assert.equal(observe?.(), undefined)
+  assert.equal(current?.(), false)
 })
 
-test('non-TUI or absent Herdr sink fails before creating output', () => {
+test('non-TUI publisher refuses before output', () => {
   const f = fixture()
   try {
     for (const mode of ['rpc', 'print', 'sdk'])
-      assert.throws(() => createWebActivityPublisher({ ...f.ctx, mode }, { env: f.env }))
-    assert.throws(() => createWebActivityPublisher(f.ctx, { env: {} }))
+      assert.throws(() => createWebActivityPublisher({ ...f.ctx, mode }, { root: f.root }))
     assert.equal(existsSync(f.directory), false)
   } finally {
     f.clean()
