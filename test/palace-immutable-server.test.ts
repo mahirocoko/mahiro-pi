@@ -30,10 +30,13 @@ test('ABI2 stylesheet preserves pulled Letta shell grammar without brands or ass
   assert.match(abi2PalaceStyle, /th, td \{ border: 1px solid #ddd; padding: 6px 10px; \}/)
   assert.match(abi2PalaceStyle, /h2, caption \{[^}]+color: var\(--text-muted\)/s)
   assert.match(abi2PalaceStyle, /footer \{[^}]+color: var\(--text-muted\)/s)
-  assert.doesNotMatch(abi2PalaceStyle, /@import|url\(|@font-face|radial-gradient|\.hero|header-brand/i)
+  assert.match(abi2PalaceStyle, /\.header-brand \{/)
+  assert.match(abi2PalaceStyle, /\.product-mark \{/)
+  assert.doesNotMatch(abi2PalaceStyle, /@import|url\(|@font-face|radial-gradient|\.hero/i)
   const source = readFileSync(new URL('../lib/palace-render/abi2-page.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /from ['"][^'"]*local\//)
-  assert.doesNotMatch(source, /<svg|<script|<img|<link/i)
+  assert.match(source, /const mahiroMarkSvg =/)
+  assert.doesNotMatch(source, /<script|<img|<link/i)
   const notices = readFileSync(new URL('../THIRD_PARTY_NOTICES.md', import.meta.url), 'utf8')
   for (const text of [
     'lib/palace-render/abi2-page.ts',
