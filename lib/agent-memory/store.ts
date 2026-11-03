@@ -50,6 +50,7 @@ import {
   discoveryVersion,
   extractFrontmatterAndLinks,
   topicMetadata,
+  projectedDirectoryIndexes,
 } from './retrieval.ts'
 import { observedEpisode } from './engine/episodes.ts'
 
@@ -1082,12 +1083,15 @@ export function createMemoryStore(
           )
           for (const path of paths) current(join(root, path))
           const topics = topicMetadata(paths)
+          const { directories, directoriesTruncated } = projectedDirectoryIndexes(paths, project)
           // Config and all authority I/O (including head's safe()) must finish
           // before the final HEAD observation, just as for inspect above.
           if (!equal(config(), c) || head(undefined, true) !== revision)
             throw new Error('Memory projection unavailable: current state changed')
           return {
             version: discoveryVersion,
+            ...(directories.length ? { directories } : {}),
+            ...(directoriesTruncated ? { directoriesTruncated: true } : {}),
             topics: topics.slice(0, 8),
             totalTopics: topics.length,
             ...(topics.length > 8 ? { nextOffset: 8 } : {}),

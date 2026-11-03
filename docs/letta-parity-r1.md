@@ -82,6 +82,12 @@ refresh from the new committed revision. The disconnected local
 `compilePrompt()` result identifies its local commit only; it is not evidence that
 Pi used those bytes.
 
+Committed projection includes optional `discovery.directories`: up to 32 lexical
+`{ path: '<dir>/', index: '<dir>/index.md' }` entries from active, non-forgotten,
+project-scoped paths, including shared projection. Archives are excluded; nested
+indexes require every indexable ancestor index. `directoriesTruncated: true`
+indicates more eligible entries, not automatic loading of their bodies.
+
 ## Deferred discovery outcomes
 
 Mahiro uses exact path reads, bounded namespace/topic listing and bounded lexical

@@ -690,10 +690,28 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       if (v.projectSystem !== undefined) documents(v.projectSystem, `projects/${input.project}/system/`)
       const d = shape(
         v.discovery,
-        ['version', 'topics', 'totalTopics', 'nextOffset', 'routes'],
+        ['version', 'topics', 'totalTopics', 'nextOffset', 'routes', 'directories', 'directoriesTruncated'],
         ['version', 'topics', 'totalTopics', 'routes'],
       )
       ensure(d.version === 2 && integer(d.totalTopics, limits.files))
+      if (d.directories !== undefined) {
+        ensure(Array.isArray(d.directories) && d.directories.length >= 1 && d.directories.length <= 32)
+        let previous = ''
+        for (const raw of d.directories as unknown[]) {
+          const entry = shape(raw, ['path', 'index'])
+          ensure(
+            typeof entry.index === 'string' &&
+              entry.index.endsWith('/index.md') &&
+              !entry.index.startsWith('archives/') &&
+              allowedPath(entry.index, input.project as string) &&
+              entry.index > previous &&
+              entry.path === `${entry.index.slice(0, -'/index.md'.length)}/`,
+          )
+          previous = entry.index as string
+        }
+      }
+      if (d.directoriesTruncated !== undefined)
+        ensure(d.directoriesTruncated === true && Array.isArray(d.directories) && d.directories.length === 32)
       topics(d.topics, 8)
       if (d.nextOffset !== undefined) ensure(d.nextOffset === 8 && (d.totalTopics as number) > 8)
       const r = shape(d.routes, ['namespaces', 'allFiles', 'lexical'])

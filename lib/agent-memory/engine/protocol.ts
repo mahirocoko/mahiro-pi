@@ -133,7 +133,10 @@ export interface Operations {
       index: string
       system?: Record<string, string>
       projectSystem?: Record<string, string>
-      discovery: Record<string, unknown>
+      discovery: Record<string, unknown> & {
+        directories?: { path: string; index: string }[]
+        directoriesTruncated?: true
+      }
     }
   }
   config: { input: Record<string, never>; output: { config: MemoryConfig; configHash: string } }

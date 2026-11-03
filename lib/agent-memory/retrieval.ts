@@ -1,5 +1,6 @@
 import { bytes, digest, objectShape } from '../continuity/records.ts'
 import {
+  allowedPath,
   isAlwaysLoadedTieredPath,
   isCriticalLinkSource,
   isProtectedRetentionPath,
@@ -20,6 +21,33 @@ export const retrievalLimits = Object.freeze({
   outputBytes: 32768,
   workBytes: 1024 * 1024,
 })
+// Adapt Letta's indexed ancestry discovery to Mahiro's allowed directory roots.
+export function projectedDirectoryIndexes(
+  paths: readonly string[],
+  project?: string,
+): { directories: { path: string; index: string }[]; directoriesTruncated?: true } {
+  const activeSet = new Set(paths)
+  const indexes = [...activeSet]
+    .filter((path) => {
+      if (path === 'index.md' || !path.endsWith('/index.md') || path.startsWith('archives/')) return false
+      if (!allowedPath(path, project)) return false
+      const parts = path.slice(0, -'/index.md'.length).split('/')
+      for (let i = 1; i < parts.length; i++) {
+        const ancestor = `${parts.slice(0, i).join('/')}/index.md`
+        if (allowedPath(ancestor, project) && !activeSet.has(ancestor)) return false
+      }
+      return true
+    })
+    .sort()
+  return {
+    directories: indexes.slice(0, retrievalLimits.page).map((index) => ({
+      path: `${index.slice(0, -'/index.md'.length)}/`,
+      index,
+    })),
+    ...(indexes.length > retrievalLimits.page ? { directoriesTruncated: true as const } : {}),
+  }
+}
+
 export type ReadSelection =
   | { mode: 'list' }
   | { mode: 'path'; path: string; offset: number; limit: number }

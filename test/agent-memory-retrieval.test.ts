@@ -12,11 +12,77 @@ import {
   directoryPage,
   memoryReadSchema,
   parseMemoryRead,
+  projectedDirectoryIndexes,
   retrieveMemory,
   retrievalLimits,
   type ReadSelection,
 } from '../lib/agent-memory/retrieval.ts'
 import { bytes, digest } from '../lib/continuity/records.ts'
+
+test('projected directory indexes follow scoped indexed ancestry and bounded discovery', () => {
+  const paths = [
+    'index.md',
+    'reference/area/index.md',
+    'system/human/prefs/index.md',
+    'projects/project/reference/index.md',
+    'projects/project/system/index.md',
+    'projects/other/reference/index.md',
+    'deferred/other/index.md',
+    'archives/project/index.md',
+    'global/index.md',
+    'procedures/index.md',
+    'deferred/project/index.md',
+  ]
+  assert.deepEqual(
+    projectedDirectoryIndexes(paths, 'project').directories.map((d) => d.index),
+    [
+      'deferred/project/index.md',
+      'global/index.md',
+      'procedures/index.md',
+      'projects/project/reference/index.md',
+      'projects/project/system/index.md',
+    ],
+  )
+  const indexed = [...paths, 'reference/index.md', 'system/human/index.md']
+  const result = projectedDirectoryIndexes(indexed, 'project')
+  assert.ok(result.directories.some((d) => d.index === 'reference/area/index.md'))
+  assert.ok(result.directories.some((d) => d.index === 'system/human/prefs/index.md'))
+  assert.equal(result.directoriesTruncated, undefined)
+  const many = [
+    'reference/index.md',
+    ...Array.from({ length: 33 }, (_, i) => `reference/a${i.toString().padStart(2, '0')}/index.md`),
+  ]
+  assert.equal(projectedDirectoryIndexes(many, 'project').directories.length, 32)
+  assert.equal(projectedDirectoryIndexes(many, 'project').directoriesTruncated, true)
+  assert.equal(projectedDirectoryIndexes(many.slice(0, 32), 'project').directoriesTruncated, undefined)
+  const envelope = {
+    revision: 'a'.repeat(40),
+    core: '# Core\n',
+    index: '# Index\n',
+    discovery: {
+      version: 2,
+      topics: [],
+      totalTopics: 0,
+      routes: { namespaces: { topic: '' }, allFiles: { topic: '*' }, lexical: 'agent_memory_read query' },
+      ...result,
+    },
+  }
+  validateReply('projection', { project: 'project', shared: true }, envelope)
+  for (const forged of [
+    { directories: [{ path: 'projects/other/reference/', index: 'projects/other/reference/index.md' }] },
+    { directories: [{ path: 'archives/project/', index: 'archives/project/index.md' }] },
+    { directories: result.directories.slice().reverse() },
+    { directories: result.directories, directoriesTruncated: true },
+    { directories: [] },
+  ])
+    assert.throws(() =>
+      validateReply(
+        'projection',
+        { project: 'project', shared: true },
+        { ...envelope, discovery: { ...envelope.discovery, ...forged } },
+      ),
+    )
+})
 
 test('directory ordering uses child edit time then name, with unknown times last', () => {
   const paths = ['reference/a.md', 'reference/z.md', 'reference/b/item.md', 'reference/c/item.md']

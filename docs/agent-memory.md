@@ -65,6 +65,11 @@ registration alone never migrates knowledge.
 The [R1 schema contract](letta-parity-r1.md) records the bidirectional Letta
 v0.34.31 job mapping, unsupported paths, precise committed/draft/integrated/
 projected/active-prompt terms, discovery outcomes and differential fixture matrix.
+Projection discovery also advertises up to 32 committed, non-forgotten `<dir>/index.md`
+entries as `discovery.directories` (`path` and `index`). Only the current project's
+allowed paths qualify, even for shared projection; archives are excluded. Nested
+indexes require each indexable ancestor's active index. Entries are lexical;
+`directoriesTruncated: true` means additional eligible indexes exist.
 It deliberately retains the Mahiro schema rather than claiming MemFS v2 path or
 wire compatibility.
 

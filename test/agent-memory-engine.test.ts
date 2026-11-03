@@ -2888,6 +2888,52 @@ test('bounded synthetic durable correction replaces its existing owner, not an i
   }
 })
 
+test('projection directory indexes match ABI1 and ABI2 with committed ancestry and forgetting', async () => {
+  const f = fixture(0)
+  try {
+    const view = f.store.createView('project', 120000, true)
+    const initial = [
+      'reference/area/index.md',
+      'system/human/index.md',
+      'system/human/prefs/index.md',
+      'projects/project/reference/index.md',
+      'projects/other/reference/index.md',
+      'deferred/other/index.md',
+      'archives/project/index.md',
+    ]
+    for (const path of initial) f.store.edit(view, path, null, '# Index\n', [])
+    f.store.integrate(view)
+    const project = { project: 'project', shared: true }
+    const before = await f.engine.request('projection', project, f.context)
+    assert.deepEqual(before, f.store.projection('project', true))
+    assert.deepEqual(
+      before.discovery.directories?.map((d) => d.index),
+      ['projects/project/reference/index.md', 'system/human/index.md', 'system/human/prefs/index.md'],
+    )
+    const next = f.store.createView('project', 120000, true)
+    f.store.edit(next, 'reference/index.md', null, '# Reference\n', [])
+    for (let i = 0; i < 33; i++)
+      f.store.edit(next, `reference/a${i.toString().padStart(2, '0')}/index.md`, null, '# Area\n', [])
+    f.store.integrate(next)
+    const after = await f.engine.request('projection', project, f.context)
+    assert.deepEqual(after, f.store.projection('project', true))
+    assert.equal(after.discovery.directories?.length, 32)
+    assert.equal(after.discovery.directoriesTruncated, true)
+    const ledgerPath = join(f.root, '.memory.json')
+    const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+    ledger.forgottenPaths.push('reference/index.md')
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 })
+    execFileSync('git', ['add', '.memory.json'], { cwd: f.root })
+    execFileSync('git', ['commit', '-m', 'Synthetic index forgetting'], { cwd: f.root })
+    const forgotten = await f.engine.request('projection', project, f.context)
+    assert.deepEqual(forgotten, f.store.projection('project', true))
+    assert.ok(!forgotten.discovery.directories?.some((d) => d.index.startsWith('reference/')))
+    assert.equal(forgotten.discovery.directoriesTruncated, undefined)
+  } finally {
+    await f.close()
+  }
+})
+
 test('new selective read/query/topic/projection match legacy result semantics including no-op draft basis', async () => {
   const f = fixture(3)
   try {
@@ -3801,7 +3847,9 @@ test('directory batches exactly selected bodies with identical pagination and fe
         })),
         directoriesTruncated: true,
       })
-      assert.deepEqual(batches.flat(), selected)
+      // The history lookup authorizes metadata for all committed descendants;
+      // the subsequent body batch must still load exactly the selected page/indexes.
+      assert.deepEqual(batches.flat(), [...Object.keys(files).sort(), ...selected])
       for (const path of Object.keys(files))
         assert.equal(
           (after.blobReads[path] ?? 0) - (before.blobReads[path] ?? 0),

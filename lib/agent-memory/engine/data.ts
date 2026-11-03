@@ -39,6 +39,7 @@ import {
   retrievalLimits,
   retrieveMemory,
   topicMetadata,
+  projectedDirectoryIndexes,
 } from '../retrieval.ts'
 import type { MemoryConfig, MemoryFile, View } from '../store.ts'
 import { episodeAssistantSteps, observedEpisode } from './episodes.ts'
@@ -2052,6 +2053,7 @@ export class MemoryDataEngine {
           paths,
         )
         const topics = topicMetadata(paths)
+        const { directories, directoriesTruncated } = projectedDirectoryIndexes(paths, args.project)
         if ((await this.config()).configHash !== configHash || (await this.head()) !== revision)
           throw Error('Memory projection unavailable: current state changed')
         const systemEntries = tieredPaths
@@ -2068,6 +2070,8 @@ export class MemoryDataEngine {
           ...(projectSystemEntries.length ? { projectSystem: Object.fromEntries(projectSystemEntries) } : {}),
           discovery: {
             version: 2,
+            ...(directories.length ? { directories } : {}),
+            ...(directoriesTruncated ? { directoriesTruncated: true } : {}),
             topics: topics.slice(0, 8),
             totalTopics: topics.length,
             ...(topics.length > 8 ? { nextOffset: 8 } : {}),
