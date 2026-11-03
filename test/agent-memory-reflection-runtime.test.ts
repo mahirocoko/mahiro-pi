@@ -22,7 +22,11 @@ import type { Plan } from '../lib/agent-memory/engine/protocol.ts'
 import { observedEpisode } from '../lib/agent-memory/engine/episodes.ts'
 import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
 import { verificationPartLimit } from '../lib/agent-memory/verification-evidence.ts'
-import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
+import {
+  createExperimentalMemoryRuntime,
+  formatReflectionStatus,
+  resolveProjectSlug,
+} from '../lib/agent-memory/experimental-runtime.ts'
 import { registerOfflineMaintenanceSession } from '../lib/agent-memory/offline-bootstrap.ts'
 import { memoryFailureCode, offlineResetFailureCode } from '../lib/agent-memory/reasons.ts'
 import { destroyNoBackup } from '../lib/agent-memory/engine/offline-reset.ts'
@@ -358,7 +362,9 @@ function fixture() {
       }
       return Object.assign(execute, {
         async emit(name: string, event: unknown) {
-          for (const handler of childHandlers.get(name) ?? []) await handler(event, childCtx)
+          const results: unknown[] = []
+          for (const handler of childHandlers.get(name) ?? []) results.push(await handler(event, childCtx))
+          return results
         },
       })
     },
@@ -2300,6 +2306,106 @@ test('commandless coverage and Windows-path results still enumerate another proj
     assert.equal(pathText.results[0]?.text, 'C:\\users\\test')
   } finally {
     await engine.close()
+    await f.close()
+  }
+})
+
+test('reflection statusline publishes step counter, policy modes, and retirement cleanup', async () => {
+  assert.equal(formatReflectionStatus({ trigger: 'step-count', stepCount: 25 }, 4), '😴 4/25')
+  assert.equal(formatReflectionStatus({ trigger: 'compaction-event', stepCount: 25 }, 4), '🗜️ compact')
+  assert.equal(formatReflectionStatus({ trigger: 'off', stepCount: 25 }, 4), '💤 off')
+  assert.equal(resolveProjectSlug('/tmp/My New Project!', []), 'my-new-project')
+  assert.equal(resolveProjectSlug('/tmp/b/app', [{ cwd: '/tmp/a/app', id: 'app' }]), 'app-2')
+
+  const f = fixture()
+  const statuses = new Map<string, string | undefined>()
+  ;(f.ctx as unknown as { ui: { setStatus(key: string, text?: string): void } }).ui = {
+    setStatus(key, text) {
+      statuses.set(key, text)
+    },
+  }
+  try {
+    await f.emit('session_start')
+    assert.equal(statuses.get('mahiro-memory'), '😴 0/25')
+    await f.turn('step-one', 3)
+    assert.equal(statuses.get('mahiro-memory'), '😴 3/25')
+    await f.turn('step-two', 22)
+    assert.equal(f.spawns.length, 1)
+    assert.equal(statuses.get('mahiro-memory'), '😴 25/25')
+    await f.finish('completed')
+    assert.equal(statuses.get('mahiro-memory'), '😴 0/25')
+    await selectReflection(f, 'compaction-event', 25, true)
+    assert.equal(statuses.get('mahiro-memory'), '🗜️ compact')
+    await selectReflection(f, 'off', 25, false)
+    assert.equal(statuses.get('mahiro-memory'), '💤 off')
+    await selectReflection(f, 'step-count', 10, true)
+    assert.equal(statuses.get('mahiro-memory'), '😴 0/10')
+    f.revoke()
+    await f.emit('session_shutdown')
+    assert.equal(statuses.get('mahiro-memory'), undefined)
+  } finally {
+    await f.close()
+  }
+})
+
+test('ready writer finishing on final turn budget integrates committed view and marks episodes reviewed', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await f.turn('budget-turn', 25)
+    assert.equal(f.spawns.length, 1)
+    const spawned = f.spawns[0]!
+    const bound = f.binding()
+    assert.ok(bound)
+    const child = await f.child()
+    const promptResults = await child.emit('before_agent_start', {
+      systemPrompt: '<active_agent name="managed-memory-writer"/>',
+    })
+    const writerPrompt =
+      (promptResults.find(Boolean) as { systemPrompt?: string } | undefined)?.systemPrompt ?? ''
+    assert.match(writerPrompt, /<mahiro-managed-memory-view>/)
+    assert.match(writerPrompt, /Synthetic reflection identity\./)
+    await bound.value.engine.request('ready', { view: bound.value.view }, { current: () => true })
+    bound.value.ready = true
+    const record = f.records.get(spawned.id) as {
+      status: string
+      turnBudget?: { used: number; maxTurns: number; phase: string }
+    }
+    record.status = 'failed'
+    record.turnBudget = { used: 8, maxTurns: 8, phase: 'exhausted' }
+    f.nativeEvent('subagents:failed', { id: spawned.id, type: 'managed-memory-writer' })
+    await f.runtime.drain()
+    assert.equal(f.store.snapshot().reviewed.length, 1)
+  } finally {
+    await f.close()
+  }
+})
+
+test('init-project registers custom projectId, updates statusline, and respects 128-project cap', async () => {
+  const f = fixture()
+  const statuses = new Map<string, string | undefined>()
+  ;(f.ctx as unknown as { ui: { setStatus(key: string, text?: string): void } }).ui = {
+    setStatus(key, text) {
+      statuses.set(key, text)
+    },
+  }
+  try {
+    await f.emit('session_start')
+    await selectReflection(f, 'step-count', 12, true)
+    assert.equal(statuses.get('mahiro-memory'), '😴 0/12')
+
+    const inited = (await f.runtime.run(
+      'agent_memory_manage',
+      { action: 'init-project', projectId: 'custom-slug' },
+      f.ctx,
+    )) as { initialized: string[] }
+    assert.equal(inited.initialized.includes('projects/custom-slug/system/overview.md'), true)
+    assert.equal(statuses.get('mahiro-memory'), '😴 0/12')
+    const statusCustom = (await f.runtime.run('agent_memory_manage', { action: 'status' }, f.ctx)) as {
+      project: string
+    }
+    assert.equal(statusCustom.project, 'custom-slug')
+  } finally {
     await f.close()
   }
 })

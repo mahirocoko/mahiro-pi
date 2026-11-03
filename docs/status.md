@@ -13,8 +13,8 @@ activity line is a separate public working message, not a repeated footer cell.
 
 At wider widths, project/Git is left-aligned opposite model/thinking on the first
 row. The second row puts context used immediately before supported Codex quota,
-then native input/output totals and RTK's existing status. Logical fields use
-` | ` separators; context and quota bars use ten `▰` / `▱` cells, not a colored
+then native input/output totals, ABI2 reflection status (when active) and RTK's
+existing status. Logical fields use ` | ` separators; context and quota bars use ten `▰` / `▱` cells, not a colored
 background. Git file counts (`?N` / `~N`), thinking effort and empty `▱` cells
 use the existing secondary-text color. Branch/model accents, filled-bar semantic
 colors and green/red line totals remain distinct; this changes paint, not text,
@@ -22,7 +22,7 @@ geometry or thresholds. For example, with synthetic values:
 
 ```text
 📁 mahiro-pi | 🌿 main ?2 ~1 | +247 | −89             GPT-6.1 Sol | medium
-ctx ▰▰▰▰▱▱▱▱▱▱ 42.0% | Codex Weekly ▰▰▰▰▰▰▰▰▱▱ 81% | ↑128k ↓12k | RTK rewrite-rtk
+ctx ▰▰▰▰▱▱▱▱▱▱ 42.0% | Codex Weekly ▰▰▰▰▰▰▰▰▱▱ 81% | ↑128k ↓12k | 😴 4/25 | RTK rewrite-rtk
 ```
 
 The quota field is optional; this example does not imply current account support
@@ -67,6 +67,10 @@ Their colors, scripts and runtime integration are not imported.
 - Native idle state and bounded active-tool names are display hints, not proof
   of completion, success or human acceptance. They remain available to the Herdr
   display publisher; the separate streaming line below owns visible activity.
+- ABI2 reflection status (`mahiro-memory`) shows the active trigger and step
+  counter (`😴 <steps>/<stepCount>` for `step-count`, `🗜️ compact` for
+  `compaction-event`, or `💤 off` when automatic reflection is disabled). Absent
+  or unattested stores omit the cell without provisioning storage.
 - RTK's current mode is an extension status cell; missing authority shows
   unavailable rather than fabricating an enabled mode.
 

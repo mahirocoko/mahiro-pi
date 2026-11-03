@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
+import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { lstat, realpath } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
 import { selectedVerification, verificationResultText } from './verification-evidence.ts'
@@ -13,6 +14,7 @@ import { type AttemptOutcome, createAttempt } from './engine/attempt.ts'
 import { attemptTimingSink, type AttemptTimingEvent } from './engine/attempt-timing.ts'
 import { assertCurrent, MemoryEngineController, type OperationContext } from './engine/controller.ts'
 import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
+import { atomicPrivate } from './engine/io.ts'
 import { MemoryLifetime } from './engine/lifetime.ts'
 import { type MaintenanceRequest, offlineMaintenance } from './engine/offline-maintenance.ts'
 import { offlineReset, type ResetRequest } from './engine/offline-reset.ts'
@@ -74,6 +76,49 @@ const resetCheck = <T>(enabled: boolean, code: OfflineResetFailureCode, check: (
 
 const writerLifetimeMs = 240000
 const publicationReserveMs = 30000
+const statusOwnersKey = Symbol.for('@mahirocoko/pi-memory:status-owners')
+const statusOwners: WeakMap<object, object> = ((
+  globalThis as unknown as Record<symbol, WeakMap<object, object>>
+)[statusOwnersKey] ??= new WeakMap())
+
+export function formatReflectionStatus(
+  mode: { trigger: ReflectionTrigger; stepCount: number },
+  steps?: number,
+) {
+  if (mode.trigger === 'off') return '💤 off'
+  if (mode.trigger === 'compaction-event') return '🗜️ compact'
+  if (typeof steps === 'number' && Number.isSafeInteger(steps) && steps >= 0)
+    return `😴 ${steps}/${mode.stepCount}`
+  return `😴 ${mode.stepCount}`
+}
+
+export function resolveProjectSlug(
+  cwd: string,
+  projects: ReadonlyArray<{ cwd?: unknown; id?: unknown }>,
+  explicitSlug?: string,
+): string {
+  if (!explicitSlug) {
+    const mapped = projects.find((entry) => entry?.cwd === cwd && typeof entry.id === 'string')?.id as
+      | string
+      | undefined
+    if (mapped) return mapped
+  }
+  const rawSlug =
+    explicitSlug ??
+    basename(cwd)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 60)
+  const baseSlug = /^[a-z0-9]/.test(rawSlug) ? rawSlug : `p-${rawSlug || 'project'}`.slice(0, 60)
+  let slug = baseSlug
+  let suffix = 2
+  while (projects.some((entry) => entry?.id === slug && entry?.cwd !== cwd)) {
+    slug = `${baseSlug.slice(0, 56)}-${suffix++}`
+  }
+  return slug
+}
 
 interface RuntimeBinding {
   manager: ExtensionContext['sessionManager']
@@ -339,7 +384,107 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
   let treeResume:
     | (RuntimeBinding & { serial: number; token: number; drained: Promise<void>; ready: boolean })
     | undefined
+  const statusOwner = {}
+  let statusContext: ExtensionContext | undefined
   const nodes = () => (globalThis as Record<symbol, Map<string, MemoryNode>>)[registry]
+  const isPrimaryTui = (ctx: ExtensionContext) =>
+    active &&
+    ctx.mode === 'tui' &&
+    ctx.hasUI &&
+    typeof ctx.ui?.setStatus === 'function' &&
+    binding !== undefined &&
+    ctx.sessionManager === binding.manager &&
+    binding.manager.getSessionId() === binding.sessionId &&
+    pinned === binding.node &&
+    binding.node.healthy() &&
+    binding.abi.live() &&
+    binding.abi.isPrimarySession(ctx)
+  const clearStatus = () => {
+    const ctx = statusContext
+    statusContext = undefined
+    if (!ctx?.ui || statusOwners.get(ctx.ui) !== statusOwner) return
+    statusOwners.delete(ctx.ui)
+    if (typeof ctx.ui.setStatus === 'function') ctx.ui.setStatus('mahiro-memory', undefined)
+  }
+  const publishStatus = (
+    ctx: ExtensionContext,
+    mode: { trigger: ReflectionTrigger; stepCount: number },
+    steps?: number,
+  ) => {
+    if (!isPrimaryTui(ctx)) return
+    if (statusContext?.ui !== ctx.ui) clearStatus()
+    statusOwners.set(ctx.ui, statusOwner)
+    statusContext = ctx
+    ctx.ui.setStatus('mahiro-memory', formatReflectionStatus(mode, steps))
+  }
+  const publishInitialStatus = (ctx: ExtensionContext) => {
+    if (!isPrimaryTui(ctx) || !binding) return
+    try {
+      const { abi, root, sessionId } = binding
+      const tool = pi.getAllTools().find((entry) => entry.name === 'agent_memory_read')
+      if (!tool || !abi.trustedTool(tool)) return
+      const access = abi.assertAccess(tool, ctx, root, 'read')
+      if (access.kind !== 'primary') return
+      const configPath = join(root, 'config.json')
+      abi.assertTargets(tool, ctx, root, 'read', [configPath])
+      const rawConfig = JSON.parse(readFileSync(configPath, 'utf8'))
+      if (!rawConfig || typeof rawConfig !== 'object' || typeof rawConfig.automatic !== 'boolean') return
+      const mode = reflectionPolicy(rawConfig)
+      if (mode.trigger !== 'step-count') {
+        publishStatus(ctx, mode)
+        return
+      }
+      let steps = 0
+      try {
+        const cwd = realpathSync(ctx.cwd)
+        const projects = Array.isArray(rawConfig.projects) ? rawConfig.projects : []
+        const project = resolveProjectSlug(cwd, projects)
+        const ledgerPath = join(root, '.memory.json')
+        const episodesDir = join(root, '.episodes')
+        abi.assertTargets(tool, ctx, root, 'read', [ledgerPath, episodesDir])
+        const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+        const reviewed = new Set<string>(Array.isArray(ledger?.reviewed) ? ledger.reviewed : [])
+        const forgotten = new Set<string>(
+          Array.isArray(ledger?.forgottenSources)
+            ? ledger.forgottenSources
+                .filter((entry: { project?: unknown }) => entry?.project === project)
+                .map((entry: { source?: unknown }) => String(entry?.source ?? ''))
+            : [],
+        )
+        const names = readdirSync(episodesDir)
+          .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
+          .sort()
+        if (names.length <= 256) {
+          const targets = names.map((name) => join(episodesDir, name))
+          for (let start = 0; start < targets.length; start += 32)
+            abi.assertTargets(tool, ctx, root, 'read', targets.slice(start, start + 32))
+          for (const name of names) {
+            const id = name.slice(0, -5)
+            if (reviewed.has(id) || forgotten.has(id)) continue
+            const ep = JSON.parse(readFileSync(join(episodesDir, name), 'utf8'))
+            if (ep?.id === id && ep?.project === project && ep?.session === sessionId && !('kind' in ep)) {
+              const credit =
+                typeof ep.assistantSteps === 'number' &&
+                Number.isSafeInteger(ep.assistantSteps) &&
+                ep.assistantSteps >= 1
+                  ? ep.assistantSteps
+                  : 0
+              steps += credit
+            }
+          }
+        }
+        if (reflection.project === null && !reflection.drain) {
+          reflection.project = project
+          reflection.steps = steps
+        }
+      } catch {
+        steps = 0
+      }
+      publishStatus(ctx, mode, steps)
+    } catch {
+      // Absent/unconfigured/unattested store leaves status unset; startup provisions nothing.
+    }
+  }
   const closeActiveViewer = async (): Promise<boolean> => {
     viewerSerial++
     const own = viewer
@@ -366,6 +511,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     // Even an already-draining terminal transition revokes pending tree/start rebinds.
     bindingSerial++
     treeResume = undefined
+    clearStatus()
     if (retirement) return retirement
     const viewerDrain = closeViewer()
     epoch++
@@ -431,6 +577,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     binding = { manager, sessionId, node, abi, generation: node.generation, root: abi.root }
     active = true
     starting = false
+    publishInitialStatus(ctx)
   }
   const treeBindingCurrent = (own: RuntimeBinding, ctx: ExtensionContext) =>
     !ctx.signal?.aborted &&
@@ -590,16 +737,67 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     name: string,
     operation: 'read' | 'write',
     signal?: AbortSignal,
+    explicitProjectId?: string,
   ) => {
     const f = owner(ctx, name, operation, signal)
     await f.abi.authorize(f.tool, ctx, f.root, operation, signal)
-    const { config, configHash } = await f.barrier()
+    let { config, configHash } = await f.barrier()
     const cwd = await realpath(ctx.cwd)
     assertCurrent(f.context)
-    const project = config.projects.find((entry) => entry.cwd === cwd)?.id ?? digest(cwd)
+    const explicitSlug =
+      typeof explicitProjectId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(explicitProjectId)
+        ? explicitProjectId
+        : undefined
+    const mappedEntry = config.projects.find((entry) => entry.cwd === cwd)
+    const project = resolveProjectSlug(
+      cwd,
+      explicitSlug ? config.projects.filter((entry) => entry.cwd !== cwd) : config.projects,
+      explicitSlug,
+    )
     if (config.projects.some((entry) => entry.id === project && entry.cwd !== cwd))
       throw Error('Project identity collision')
-    return { ...f, project, configHash }
+    const canRegister = mappedEntry
+      ? Boolean(explicitSlug && mappedEntry.id !== explicitSlug)
+      : config.projects.length < 128
+    if (
+      f.access.kind === 'primary' &&
+      f.abi.isPrimarySession(ctx) &&
+      canRegister &&
+      !viewer &&
+      !viewerOpening &&
+      !job &&
+      !starting &&
+      !draft
+    ) {
+      try {
+        const configPath = join(f.root, 'config.json')
+        const lockPath = join(f.root, '.lock')
+        f.abi.assertTargets(f.tool, ctx, f.root, 'write', [f.root, configPath, lockPath])
+        let locked = true
+        try {
+          await lstat(lockPath)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') locked = false
+          else throw error
+        }
+        if (!locked) {
+          const currentStatus = await f.request('status', {})
+          if (!currentStatus.pendingOperations.length) {
+            const nextConfig = {
+              ...config,
+              projects: [...config.projects.filter((entry) => entry.cwd !== cwd), { cwd, id: project }],
+            }
+            await atomicPrivate(configPath, `${JSON.stringify(nextConfig)}\n`)
+            const refreshed = await f.barrier()
+            config = refreshed.config
+            configHash = refreshed.configHash
+          }
+        }
+      } catch {
+        // Read-only calls or restricted target policies keep the derived readable slug in memory.
+      }
+    }
+    return { ...f, project, configHash, config }
   }
   const branch = async (ctx: ExtensionContext, anchor?: SessionAnchor, guard?: () => void) => {
     const captured = anchor ?? sessionAnchor(ctx)
@@ -1154,6 +1352,24 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         value.view === created.view &&
         Date.now() < (publicationDeadline ?? value.deadline) &&
         !ctx.signal?.aborted
+      const writerRecordCompleted = (
+        record: { status?: unknown; turnBudget?: unknown } | undefined,
+        ready: boolean,
+      ) => {
+        if (record?.status === 'completed') return true
+        if (!ready || record?.status !== 'failed') return false
+        const budget =
+          record.turnBudget && typeof record.turnBudget === 'object'
+            ? (record.turnBudget as { used?: unknown; maxTurns?: unknown; phase?: unknown })
+            : undefined
+        return (
+          budget?.phase === 'exhausted' ||
+          (typeof budget?.used === 'number' &&
+            typeof budget?.maxTurns === 'number' &&
+            budget.maxTurns > 0 &&
+            budget.used >= budget.maxTurns)
+        )
+      }
       const jobContext: OperationContext = {
         admission: f.context.admission,
         hold: (identity) => f.abi.hold(identity),
@@ -1165,8 +1381,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             record.id !== own.id ||
             record.type !== 'managed-memory-writer' ||
             (own.phase === 'integrating'
-              ? record.status !== 'completed' || !value.ready
-              : !['queued', 'running', 'completed'].includes(record.status))
+              ? !writerRecordCompleted(record, value.ready) || !value.ready
+              : !['queued', 'running', 'completed'].includes(record.status) &&
+                !writerRecordCompleted(record, value.ready))
           )
             return false
           return f.context.current(targets) === true
@@ -1227,8 +1444,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             armDeadline(publicationDeadline)
             let integrated = false
             try {
-              if (record.status !== 'completed' || !value.ready) {
-                attempt.finish(record.status !== 'completed' ? 'native-unsuccessful' : 'not-ready')
+              if (!writerRecordCompleted(record, value.ready) || !value.ready) {
+                attempt.finish(
+                  !writerRecordCompleted(record, value.ready) ? 'native-unsuccessful' : 'not-ready',
+                )
                 throw Error('Successful ready native writer required')
               }
               await dataBarrier()
@@ -1300,6 +1519,24 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
               if (!reflection.drain) capacityDrainHeld = false
               if (next.length && reflection.drain?.id === drainId && reflectionLaunchLive(ctx, launch))
                 await launchReflection(ctx, next, launch.fence)
+            }
+            if (integrated && isPrimaryTui(ctx)) {
+              try {
+                const { config } = await f.barrier()
+                const mode = reflectionPolicy(config)
+                if (mode.trigger === 'step-count') {
+                  const credit = await f.request('episodeCredit', {
+                    project: f.project,
+                    session: ctx.sessionManager.getSessionId(),
+                  })
+                  if (reflection.project === f.project) reflection.steps = credit.steps
+                  publishStatus(ctx, mode, credit.steps)
+                } else {
+                  publishStatus(ctx, mode)
+                }
+              } catch {
+                // Status refresh after writer integration is best-effort.
+              }
             }
           }),
       }
@@ -1487,7 +1724,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       const cwd = await realpath(ctx.cwd)
       await context.barrier()
       const plan = prepareInitialization(cwd, args)
-      return await initializeMemoryRoot(f.root, plan, context)
+      const initialized = await initializeMemoryRoot(f.root, plan, context)
+      publishStatus(ctx, reflectionPolicy({ automatic: args.automatic !== false }), 0)
+      return initialized
     }
     if (
       name === 'agent_memory_manage' &&
@@ -1585,11 +1824,19 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     const manageRead = (action: unknown) =>
       action === 'status' || action === 'doctor' || action === 'palace' || action === 'migration-export'
     const requestedRead = name === 'agent_memory_manage' && manageRead(actionOf(args))
+    const explicitInitProjectId =
+      name === 'agent_memory_manage' &&
+      objectShape(args, ['action', 'projectId']) &&
+      args.action === 'init-project' &&
+      typeof args.projectId === 'string'
+        ? args.projectId
+        : undefined
     const f = await resolve(
       ctx,
       name,
       name === 'agent_memory_read' || requestedRead ? 'read' : 'write',
       signal,
+      explicitInitProjectId,
     )
     if (name === 'agent_memory_reflect') {
       if (!objectShape(args, ['assignment']) || typeof args.assignment !== 'string')
@@ -1657,7 +1904,59 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       }
       if (args.action === 'init-project' || args.action === 'migrate-v2') {
         job?.cancel()
-        const staged = await f.request('manage', { action: args.action, project: f.project })
+        let targetProject = f.project
+        if (args.action === 'init-project') {
+          const cwd = await realpath(ctx.cwd)
+          assertCurrent(f.context)
+          const explicitSlug =
+            typeof args.projectId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(args.projectId)
+              ? args.projectId
+              : undefined
+          const mappedEntry = f.config.projects.find((entry) => entry.cwd === cwd)
+          const canRegister = mappedEntry
+            ? Boolean(explicitSlug && mappedEntry.id !== explicitSlug)
+            : f.config.projects.length < 128
+          if (canRegister && !draft && !starting && !viewer && !viewerOpening) {
+            const currentStatus = await f.request('status', {})
+            const slug = resolveProjectSlug(
+              cwd,
+              f.config.projects.filter((entry) => entry.cwd !== cwd),
+              explicitSlug,
+            )
+            const configPath = join(f.root, 'config.json')
+            const lockPath = join(f.root, '.lock')
+            f.abi.assertTargets(f.tool, ctx, f.root, 'write', [f.root, configPath, lockPath])
+            let locked = true
+            try {
+              await lstat(lockPath)
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === 'ENOENT') locked = false
+              else throw error
+            }
+            if (!locked && !currentStatus.pendingOperations.length) {
+              const nextConfig = {
+                ...f.config,
+                projects: [...f.config.projects.filter((entry) => entry.cwd !== cwd), { cwd, id: slug }],
+              }
+              await atomicPrivate(configPath, `${JSON.stringify(nextConfig)}\n`)
+              const refreshed = await f.barrier()
+              f.config = refreshed.config
+              f.configHash = refreshed.configHash
+              f.project = slug
+              targetProject = slug
+            }
+          }
+          if (reflection.project === null || (!reflection.drain && reflection.project !== targetProject)) {
+            reflection.project = targetProject
+            reflection.steps = 0
+          }
+          publishStatus(
+            ctx,
+            reflectionPolicy(f.config),
+            reflection.project === targetProject ? reflection.steps : 0,
+          )
+        }
+        const staged = await f.request('manage', { action: args.action, project: targetProject })
         if (!('changed' in staged)) throw Error('Management draft unavailable')
         if (!staged.changed) {
           return {
@@ -1721,6 +2020,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       if (args.action === 'status') {
         if (latestAttempt && !latestAttempt.matches(ctx, f.configHash, f.project)) latestAttempt = undefined
         const status = await f.request('status', {})
+        const { config } = await f.barrier()
+        const mode = reflectionPolicy(config)
+        publishStatus(ctx, mode, reflection.project === f.project ? reflection.steps : 0)
         return {
           ...status,
           project: f.project,
@@ -1729,7 +2031,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           lastError,
           latestAttempt: latestAttempt?.value.snapshot() ?? null,
           historicalErasure: false,
-          automatic: (await f.barrier()).config.automatic,
+          automatic: config.automatic,
           policyOperation: await memoryPolicyStatus(f.engine, f.context, status.pendingOperations),
           configHash: f.configHash,
           engineABI: 2,
@@ -1797,7 +2099,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
               stepCount: args.reflectionStepCount as number,
             }
           : undefined
-        return await setMemoryAutomatic(
+        const policyResult = await setMemoryAutomatic(
           f.engine,
           policyContext(),
           args.revision,
@@ -1805,6 +2107,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           args.automatic,
           selection,
         )
+        const mode = selection ?? reflectionPolicy({ automatic: args.automatic })
+        publishStatus(ctx, mode, reflection.project === f.project ? reflection.steps : 0)
+        return policyResult
       }
       if (args.action === 'reconcile') {
         if (
@@ -2134,9 +2439,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         if (f.access.kind === 'worker') {
           const source = installedWriter(resolveAgentDir()).text
           await f.barrier()
+          const workerProjection = await f
+            .request('projection', { project: f.access.value.project, shared: false })
+            .catch(() => undefined)
+          const viewBlock = workerProjection
+            ? `\n<mahiro-managed-memory-view>\n${JSON.stringify(workerProjection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory-view>`
+            : ''
           observeAttemptTiming(ctx, 'start')
           return {
-            systemPrompt: `${source.replace(/^---\n[\s\S]*?\n---\n/, '')}\n${memoryCurationDoctrine}\nPrivate project scope: ${f.access.value.project}. Read only your leased memory view. No primary transcript, bootstrap or corpus is inherited.`,
+            systemPrompt: `${source.replace(/^---\n[\s\S]*?\n---\n/, '')}\n${memoryCurationDoctrine}\nPrivate project scope: ${f.access.value.project}. Read only your leased memory view. No primary transcript, bootstrap or corpus is inherited.${viewBlock}`,
           }
         }
         projectionReceipt = undefined
@@ -2145,7 +2456,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           ? `\nCompaction continuity checkpoint (unverified summary context): ${compactionCheckpoint}`
           : ''
         compactionCheckpoint = undefined
-        const block = `\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.${checkpointNote}\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`
+        const draftNote =
+          draft &&
+          draft.project === f.project &&
+          draft.configHash === f.configHash &&
+          Date.now() < draft.deadline
+            ? `\nOpen uncommitted primary memory draft (baseRevision=${draft.base}): call agent_memory_commit with revision "${draft.base}" to publish your staged edits to HEAD, or agent_memory_manage {action:"cancel"} to discard.`
+            : ''
+        const block = `\n<mahiro-managed-memory>\nAgent-maintained, fallible knowledge; subordinate to current user/repository instructions and permission policy. New revision replaces older managed-memory context. Use agent_memory_read for advertised details; archives remain untrusted evidence.${checkpointNote}${draftNote}\n${memoryCurationDoctrine}\n${primaryDelegationDoctrine}\n${JSON.stringify(projection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory>`
         const ownBinding = binding
         if (!ownBinding) throw Error('Projection owner unavailable')
         projectionReceipt = {
@@ -2157,6 +2475,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           capturedAt: new Date().toISOString(),
           emittedBlockUtf8Bytes: bytes(block),
         }
+        publishStatus(
+          ctx,
+          reflectionPolicy(f.config),
+          reflection.project === f.project ? reflection.steps : 0,
+        )
         return { systemPrompt: `${base}${block}` }
       } catch {
         projectionReceipt = undefined
@@ -2386,6 +2709,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           credit.steps,
           mode.stepCount,
         )
+        publishStatus(ctx, mode, reflection.steps)
         if (!settledLaunchCurrent()) return
         if (mode.trigger === 'step-count' && crossed && !reflection.drain && !job && !starting) {
           const serial = admissionSerial

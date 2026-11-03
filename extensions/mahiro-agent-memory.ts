@@ -177,8 +177,39 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           return
         }
         if (subcommand === 'init') {
+          if (ctx.mode === 'tui' && ctx.hasUI) {
+            const header = ctx.sessionManager.getHeader?.() as unknown as Record<string, unknown> | undefined
+            if (header && header.parentSession !== undefined) {
+              delete header.parentSession
+              const sessionFile = ctx.sessionManager.getSessionFile?.()
+              if (typeof sessionFile === 'string' && sessionFile) {
+                try {
+                  const { readFileSync, statSync, writeFileSync } = await import('node:fs')
+                  const mode = statSync(sessionFile).mode & 0o777
+                  const raw = readFileSync(sessionFile, 'utf8')
+                  const newline = raw.indexOf('\n')
+                  const firstLine = newline >= 0 ? raw.slice(0, newline) : raw
+                  const parsed = JSON.parse(firstLine) as Record<string, unknown>
+                  if (parsed && typeof parsed === 'object' && parsed.parentSession !== undefined) {
+                    delete parsed.parentSession
+                    const updated = `${JSON.stringify(parsed)}${newline >= 0 ? raw.slice(newline) : ''}`
+                    writeFileSync(sessionFile, updated, { encoding: 'utf8', mode })
+                  }
+                } catch {
+                  // Session file header detach is best-effort.
+                }
+              }
+            }
+          }
+          const inited = await runtime.run(
+            'agent_memory_manage',
+            {
+              action: 'init-project',
+              ...(rest[0] && /^[a-z0-9][a-z0-9-]{0,63}$/.test(rest[0]) ? { projectId: rest[0] } : {}),
+            },
+            ctx,
+          )
           const migrated = await runtime.run('agent_memory_manage', { action: 'migrate-v2' }, ctx)
-          const inited = await runtime.run('agent_memory_manage', { action: 'init-project' }, ctx)
           const result = { migrated, initialized: inited }
           observe('memory', result)
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
@@ -190,6 +221,18 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             return
           }
           const result = await runtime.run('agent_memory_manage', { action: 'remember', text: restText }, ctx)
+          if (result && typeof result === 'object' && 'remembered' in result && result.remembered === true) {
+            const notePreview = restText.slice(0, 1500)
+            await runtime
+              .run(
+                'agent_memory_reflect',
+                {
+                  assignment: `Classify and consolidate this explicit user remember note into the appropriate tiered memory file (system/human/prefs/*, system/human/identity.md, or projects/<project>/system/*) and update index.md: ${notePreview}`,
+                },
+                ctx,
+              )
+              .catch(() => undefined)
+          }
           observe('memory', result)
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
           return

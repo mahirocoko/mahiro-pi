@@ -899,3 +899,22 @@ test('append-only session totals are recomputed only for new entries, leaf moves
   paint()
   assert.equal(estimates, 6, 'an unavailable estimate is retried rather than cached')
 })
+
+test('mahiro-memory reflection status renders inline before RTK without duplicating onto an extra row', () => {
+  const f = fixture()
+  for (const label of ['😴 4/25', '🗜️ compact', '💤 off']) {
+    f.data.getExtensionStatuses = () =>
+      new Map([
+        ['mahiro-memory', label],
+        ['mahiro-rtk', 'RTK rewrite-rtk'],
+        ['other', 'another extension'],
+      ])
+    const rows = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry).map(plain)
+    assert.equal(rows.length, 3)
+    assert.match(
+      rows[1],
+      new RegExp(`↑10 ↓3 \\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| RTK rewrite-rtk$`),
+    )
+    assert.equal(rows.join('\n').split(label).length - 1, 1)
+  }
+})

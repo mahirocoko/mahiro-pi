@@ -333,6 +333,7 @@ export function renderFooter(
         : COLORS.context
   const warning = settings.compaction?.enabled === false ? [cell('auto off', COLORS.error)] : []
   const statuses = data.getExtensionStatuses()
+  const memory = text(statuses.get('mahiro-memory'))
   const rtk = text(statuses.get('mahiro-rtk'))
   const native = cell(`↑${tokens(stats.input)} ↓${tokens(stats.output)}`)
   const modelBudget = Math.min(width, Math.max(30, Math.floor(width / 2)))
@@ -357,13 +358,24 @@ export function renderFooter(
   // before wrapping, so narrow terminals never lose a known percentage behind
   // a long label. Native totals/RTK remain visible on additional rows if needed.
   rows.push(
-    ...pack([...warning, contextCell, ...quota, native, ...(rtk ? [cell(rtk)] : [])], width, geometry),
+    ...pack(
+      [
+        ...warning,
+        contextCell,
+        ...quota,
+        native,
+        ...(memory ? [cell(memory)] : []),
+        ...(rtk ? [cell(rtk)] : []),
+      ],
+      width,
+      geometry,
+    ),
   )
   // A virtual route is exceptional evidence, not a repeated ordinary provider.
   const route = routeLabel(ctx)
   if (route) rows.push(...pack([cell(route, COLORS.context)], width, geometry))
   const others = [...statuses]
-    .filter(([key]) => key !== 'mahiro-status' && key !== 'mahiro-rtk')
+    .filter(([key]) => key !== 'mahiro-status' && key !== 'mahiro-memory' && key !== 'mahiro-rtk')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, value]) => cell(text(value, 4096)))
   rows.push(...pack(others, width, geometry))
