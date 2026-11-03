@@ -44,7 +44,7 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
     })
   // Construct during factory load, never during session_start dispatch.
   const legacy = createAgentMemoryRuntime(filtered(1), config)
-  const experimental = createExperimentalMemoryRuntime(filtered(2))
+  const experimental = createExperimentalMemoryRuntime(filtered(2), { openBrowser: config.openBrowser })
   const selected = () => {
     if (mode === 1) return legacy
     if (mode === 2) return experimental

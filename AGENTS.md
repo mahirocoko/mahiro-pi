@@ -151,12 +151,27 @@ dated source records, not current installation instructions.
   synthetic service, is not live authority and does not own the public Palace
   command. Extension, kernel, installer, and profile code do not import it. It
   does not publish, select installation, or switch live authority.
-  The separate installed-path ABI2 metadata handoff is owned by
+  The separate installed-path ABI2 committed-preview handoff is owned by
   `lib/agent-memory/palace-handoff.ts` and rendering-only `lib/palace-render/`.
   It must not import `lib/agent-memory/local/**`, receive roots/Git/file readers,
-  or grow document/diff/mutation routes. It may render only the bounded
-  owner-certified structure, invocation metadata and offset-zero identity/time
-  history supplied by the live ABI2 runtime. Preserve frozen bytes, explicit
+  or grow mutation routes. It renders bounded owner-certified structure, invocation
+  metadata and offset-zero history with sanitized subjects and in-scope changed-file
+  counts supplied by the live ABI2 runtime, intersecting requested history scope
+  with existing project-bound `allowedPath` authority (prefixes grant nothing).
+  Any forgotten path or source refuses history; cross-project or unknown changed
+  paths redact the subject and empty the diff. `engine/data.ts` alone reads committed
+  previews: strict project allowedPath intersected with Core.md, index.md, system/,
+  reference/, archives/ and projects/<project>/, with forgetting suppression.
+  Legacy archives require canonical legacy-v1-<12 hex>/global/<slug>.md or
+  deferred/<requested-project>/<slug>.md attribution; arbitrary legacy-v1 prefixes
+  and foreign deferred archives are not shared authority.
+  Bodies are at most 32 files, 4 KiB each and 8 KiB aggregate; eight history diffs
+  are at most 4 KiB each and 8 KiB aggregate. UTF-8 truncation is deterministic and
+  explicit. No Git headers, rename/copy detection or external diff/textconv helpers.
+  Preserve the 48 KiB frozen handoff and authority/transport fences, never renderer
+  file access.
+  TUI viewer publication may best-effort open its capability URL in the system browser;
+  opener failure is nonfatal and tests must inject a stub. Preserve frozen bytes, explicit
   non-atomic association, per-request authority/digest revalidation, one runtime
   lifetime owner, bounded transport close with abort- and generation-fenced late
   validation, and capability-scoped `127.0.0.1:0` GET/HEAD-only transport with

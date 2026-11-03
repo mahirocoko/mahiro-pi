@@ -32,7 +32,7 @@ const deferred = () => {
 }
 
 // Controlled ABI double for adversarial scheduling; real data child/store, not kernel/PSS proof.
-function fixture(commandSurface = false) {
+function fixture(commandSurface = false, browserFailure?: 'sync' | 'async') {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'memory-tree-'))
   const root = join(directory, 'memory')
   const previous = { ...process.env }
@@ -150,9 +150,15 @@ function fixture(commandSurface = false) {
   const oldRegistry = globals[registry]
   const nodes = new Map([['primary', node]])
   globals[registry] = nodes
+  const openedUrls: string[] = []
+  const openBrowser = (url: string) => {
+    openedUrls.push(url)
+    if (browserFailure === 'sync') throw Error('Synthetic browser failure')
+    if (browserFailure === 'async') return Promise.reject(Error('Synthetic browser failure'))
+  }
   const runtime: any = commandSurface
-    ? activateAgentMemory(pi, { root, nodes: nodes as any })
-    : createExperimentalMemoryRuntime(pi)
+    ? activateAgentMemory(pi, { root, nodes: nodes as any, openBrowser })
+    : createExperimentalMemoryRuntime(pi, { openBrowser })
   const emit = async (name: string, event = {}, context = ctx) => {
     const results = []
     for (const handler of handlers.get(name) ?? []) results.push(await handler(event, context))
@@ -160,6 +166,7 @@ function fixture(commandSurface = false) {
   }
   return {
     runtime,
+    openedUrls,
     commands,
     notifications,
     abi,
@@ -544,14 +551,16 @@ test('ABI2 Palace context observes real Palace and rejects sampling races withou
         assert.equal(result.consistency.atomic, false)
         assert.equal(result.consistency.committedSnapshot, 'owner-certified')
         assert.equal(result.consistency.invocationAssociation, 'observed-non-atomic')
-        assert.equal(result.structure.bodyInspection, 'not-requested')
+        assert.equal(result.structure.bodyInspection, 'bounded-committed-preview')
         assert.equal(result.structure.configHash, result.context.binding.configHash)
         assert.equal(result.structure.revision, result.context.memoryProjection?.revision)
-        assert.ok(result.structure.files.some((file: { path: string }) => file.path === 'Core.md'))
-        assert.doesNotMatch(
-          JSON.stringify(result),
-          /SYNTHETIC_TREE_CORE|memory-tree-|Synthetic effective prompt/,
+        assert.ok(
+          result.structure.files.some(
+            (file: { path: string; body?: string }) =>
+              file.path === 'Core.md' && file.body?.includes('SYNTHETIC_TREE_CORE'),
+          ),
         )
+        assert.doesNotMatch(JSON.stringify(result), /memory-tree-|Synthetic effective prompt/)
       }
     } finally {
       release.resolve()
@@ -1153,11 +1162,13 @@ test('ABI2 Palace HTML serves one frozen page and revokes on authority or new wo
     assert.equal(opened.atomic, false)
     assert.equal(opened.closeCommand, '/mh-memory palace close')
     assert.match(opened.url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/)
+    assert.deepEqual(f.openedUrls, [opened.url])
     const response = await fetch(opened.url)
     assert.equal(response.status, 200)
     const html = await response.text()
     assert.match(html, /Mahiro Palace · ABI2 metadata handoff/)
-    assert.doesNotMatch(html, /SYNTHETIC_TREE_CORE|Synthetic effective prompt|memory-tree-/)
+    assert.match(html, /SYNTHETIC_TREE_CORE/)
+    assert.doesNotMatch(html, /Synthetic effective prompt|memory-tree-/)
     assert.equal(f.runtime.status().palaceViewer, 'open')
 
     f.setGranted(false)
@@ -1181,6 +1192,26 @@ test('ABI2 Palace HTML serves one frozen page and revokes on authority or new wo
   }
 })
 
+test('ABI2 Palace browser failures are nonfatal after viewer publication, including router injection', async () => {
+  for (const commandSurface of [false, true]) {
+    for (const failure of ['sync', 'async'] as const) {
+      const f = fixture(commandSurface, failure)
+      try {
+        await f.emit('session_start')
+        await f.emit('before_agent_start', { systemPrompt: 'Base' })
+        const opened = await f.runtime.openPalaceViewer(f.ctx)
+        assert.deepEqual(f.openedUrls, [opened.url])
+        assert.equal(f.runtime.status().palaceViewer, 'open')
+        assert.equal((await fetch(opened.url)).status, 200)
+        await f.runtime.closePalaceViewer()
+        await assert.rejects(fetch(opened.url))
+      } finally {
+        await f.close()
+      }
+    }
+  }
+})
+
 test('ABI2 Palace HTML opening is abortable and joined before it can publish a server', async () => {
   const f = fixture()
   const reached = deferred()
@@ -1199,6 +1230,7 @@ test('ABI2 Palace HTML opening is abortable and joined before it can publish a s
     assert.equal((await closing).closed, true)
     await rejected
     assert.equal(f.runtime.status().palaceViewer, undefined)
+    assert.deepEqual(f.openedUrls, [])
   } finally {
     release.resolve()
     await f.close()

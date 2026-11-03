@@ -90,7 +90,15 @@ function copyDiagnostic(value: PalaceDiagnostic): PalaceDiagnostic {
   ])
   if (!Array.isArray(value.structure.files)) refused()
   const files: PalaceStructureFile[] = value.structure.files.map((file) => {
-    exact(file, ['path', 'layer', 'bytes', 'protectedRetention', 'alwaysLoaded', 'sourcesCount'])
+    exact(file, [
+      'path',
+      'layer',
+      'bytes',
+      'protectedRetention',
+      'alwaysLoaded',
+      'sourcesCount',
+      ...(value.structure.bodyInspection === 'bounded-committed-preview' ? ['body', 'bodyTruncated'] : []),
+    ])
     return {
       path: file.path,
       layer: file.layer,
@@ -98,6 +106,9 @@ function copyDiagnostic(value: PalaceDiagnostic): PalaceDiagnostic {
       protectedRetention: file.protectedRetention,
       alwaysLoaded: file.alwaysLoaded,
       sourcesCount: file.sourcesCount,
+      ...(value.structure.bodyInspection === 'bounded-committed-preview'
+        ? { body: file.body, bodyTruncated: file.bodyTruncated }
+        : {}),
     }
   })
   const output = copyOutput(value.structure.output)
@@ -321,7 +332,7 @@ function copyHistory(value: KnowledgeHistory): KnowledgeHistory {
     windowSize: 128,
     nextOffset: value.nextOffset,
     windowLimitReached: value.windowLimitReached,
-    metadata: 'commit-identity-time-only',
+    metadata: 'commit-identity-time-subject-count',
     entries: value.entries.map((entry) => ({ ...entry })),
   }
 }

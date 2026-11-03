@@ -298,7 +298,7 @@ function legacyText(
   assert.ok('text' in result)
   return result.text
 }
-test('knowledge history follows only current first-parent identity/time, bounds pages and refuses unsupported Git', async () => {
+test('knowledge history follows current first-parent details, bounds pages and refuses unsupported Git', async () => {
   const f = fixture(0)
   try {
     const request = async (offset = 0) => {
@@ -330,7 +330,9 @@ test('knowledge history follows only current first-parent identity/time, bounds 
     assert.equal(merged.entries[0].parent, main)
     assert.equal(merged.entries.length, 3)
     assert.ok(!merged.entries.some((e) => e.revision === side))
-    assert.doesNotMatch(JSON.stringify(merged), /PRIVATE|Synthetic|Core.md|fixture@example/)
+    assert.equal(merged.entries[0].subject, 'PRIVATE_MERGE')
+    assert.equal(merged.entries[0].changedFiles, 0)
+    assert.doesNotMatch(JSON.stringify(merged), /Synthetic|Core.md|fixture@example/)
     f.git('replace', merged.revision, main)
     await assert.rejects(request(), engineError())
     f.git('replace', '-d', merged.revision)
@@ -353,7 +355,111 @@ test('knowledge history follows only current first-parent identity/time, bounds 
   }
 })
 
-test('knowledge history refuses all source tombstones but path tombstones reveal no markers', async () => {
+test('knowledge history resolves Git subjects and scoped counts, redacting cross-project and unknown updates', async () => {
+  const f = fixture(0)
+  try {
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const request = () =>
+      f.engine.request(
+        'knowledgeHistory',
+        {
+          project: 'project',
+          expectedRevision: f.git('rev-parse', 'HEAD'),
+          expectedConfigHash: configHash,
+          offset: 0,
+        },
+        f.context,
+      )
+    const scopedPath = 'projects/project/reference/history.md'
+    mkdirSync(join(f.root, scopedPath, '..'), { recursive: true })
+    writeFileSync(join(f.root, scopedPath), 'synthetic')
+    f.git('add', scopedPath)
+    f.git('commit', '-m', 'Scoped update')
+    let result = await request()
+    assert.equal(result.entries[0].subject, 'Scoped update')
+    assert.equal(result.entries[0].changedFiles, 1)
+    assert.match(result.entries[0].diff!, /\+synthetic/)
+    assert.doesNotMatch(result.entries[0].diff!, /diff --git|--- |\+\+\+ /)
+    for (const path of [
+      'projects/other/reference/private.md',
+      'archives/other/private.md',
+      'archives/legacy-v1-abcdef123456/deferred/other/private.md',
+      'archives/legacy-v1-pretend/global/private.md',
+      'system/private.txt',
+      'projects/project/arbitrary.bin',
+      'unknown/private.md',
+    ]) {
+      mkdirSync(join(f.root, path, '..'), { recursive: true })
+      writeFileSync(join(f.root, path), 'synthetic')
+      writeFileSync(join(f.root, scopedPath), path)
+      f.git('add', path, scopedPath)
+      f.git('commit', '-m', `PRIVATE subject ${path}`)
+      result = await request()
+      assert.equal(result.entries[0].subject, 'Out-of-scope project update')
+      assert.equal(result.entries[0].changedFiles, 1)
+      assert.equal(result.entries[0].diff, '')
+      assert.equal(result.entries[0].diffTruncated, false)
+      assert.doesNotMatch(
+        JSON.stringify(result),
+        /PRIVATE|projects\/other|archives\/other|private\.txt|arbitrary\.bin|unknown\//,
+      )
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+test('knowledge history bounds multibyte diffs and redacts cross-scope renames and copies', async () => {
+  const f = fixture(0)
+  try {
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const request = () =>
+      f.engine.request(
+        'knowledgeHistory',
+        {
+          project: 'project',
+          expectedRevision: f.git('rev-parse', 'HEAD'),
+          expectedConfigHash: configHash,
+          offset: 0,
+        },
+        f.context,
+      )
+    const path = 'projects/project/reference/large.md'
+    mkdirSync(join(f.root, path, '..'), { recursive: true })
+    for (let i = 0; i < 8; i++) {
+      writeFileSync(join(f.root, path), `# ${i}\n${'😀'.repeat(2000)}\n`)
+      f.git('add', path)
+      f.git('commit', '-m', `Scoped ${i}`)
+    }
+    const result = await request()
+    assert.equal(result.entries.length, 8)
+    assert.ok(result.entries.reduce((n, e) => n + Buffer.byteLength(e.diff!), 0) <= 8192)
+    for (const entry of result.entries) {
+      assert.ok(Buffer.byteLength(entry.diff!) <= 4096)
+      assert.equal(entry.diffTruncated, true)
+      assert.doesNotMatch(entry.diff!, /\ufffd|diff --git|--- |\+\+\+ /)
+    }
+    assert.deepEqual(await request(), result)
+    const other = 'projects/other/reference/PRIVATE.md'
+    mkdirSync(join(f.root, other, '..'), { recursive: true })
+    f.git('mv', path, other)
+    f.git('commit', '-m', 'PRIVATE rename')
+    let next = await request()
+    assert.equal(next.entries[0].diff, '')
+    assert.equal(next.entries[0].subject, 'Out-of-scope project update')
+    writeFileSync(join(f.root, path), readFileSync(join(f.root, other)))
+    writeFileSync(join(f.root, other), 'PRIVATE_OTHER_BODY\n')
+    f.git('add', path, other)
+    f.git('commit', '-m', 'PRIVATE copy')
+    next = await request()
+    assert.equal(next.entries[0].diff, '')
+    assert.doesNotMatch(JSON.stringify(next), /PRIVATE/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('knowledge history refuses all path and source tombstones before revealing history details', async () => {
   const f = fixture(0)
   try {
     const { configHash } = await f.engine.request('config', {}, f.context)
@@ -374,7 +480,8 @@ test('knowledge history refuses all source tombstones but path tombstones reveal
     writeFileSync(ledgerPath, JSON.stringify(ledger))
     f.git('add', '.memory.json')
     f.git('commit', '-m', 'PRIVATE_PATH')
-    assert.doesNotMatch(JSON.stringify(await request()), /private-marker|PRIVATE_PATH|forgottenPaths/)
+    await assert.rejects(request(), engineError({ reason: 'unknown', readInvalidation: 'forgetting' }))
+    ledger.forgottenPaths = []
     for (const project of [null, 'project', 'another']) {
       ledger.forgottenSources = [{ project, source: 'PRIVATE_SOURCE' }]
       writeFileSync(ledgerPath, JSON.stringify(ledger))
@@ -458,6 +565,64 @@ function blobFrame(body: Buffer, algorithm = 'sha1') {
     raw: Buffer.concat([Buffer.from(`${oid} blob ${body.length}\n`), body, Buffer.from('\n')]),
   }
 }
+
+test('ABI2 directory listing orders committed children by latest edit', async () => {
+  const f = fixture(0)
+  try {
+    const commit = (path: string, date: string) => {
+      process.env.GIT_AUTHOR_DATE = date
+      process.env.GIT_COMMITTER_DATE = date
+      const view = f.store.createView('project', 120000, true)
+      f.store.edit(view, path, null, `# ${path}\n`)
+      f.store.integrate(view)
+    }
+    commit('reference/alpha.md', '2026-01-01T00:00:00Z')
+    commit('reference/zeta.md', '2026-01-02T00:00:00Z')
+    delete process.env.GIT_AUTHOR_DATE
+    delete process.env.GIT_COMMITTER_DATE
+    const page = (await f.engine.request(
+      'headRead',
+      { project: 'project', shared: true, selection: { path: 'reference' } },
+      f.context,
+    )) as { entries: { path: string }[] }
+    assert.deepEqual(
+      page.entries.map((entry) => entry.path),
+      ['reference/zeta.md', 'reference/alpha.md'],
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+test('ABI2 directory timestamps use the latest active descendant even with nonmonotonic commit dates', async () => {
+  const f = fixture(0)
+  try {
+    for (const [path, date] of [
+      ['reference/a/first.md', '2026-01-03T00:00:00Z'],
+      ['reference/a/second.md', '2026-01-01T00:00:00Z'],
+      ['reference/b/first.md', '2026-01-02T00:00:00Z'],
+    ]) {
+      process.env.GIT_AUTHOR_DATE = date
+      process.env.GIT_COMMITTER_DATE = date
+      const view = f.store.createView('project', 120000, true)
+      f.store.edit(view, path, null, `# ${path}\n`)
+      f.store.integrate(view)
+    }
+    delete process.env.GIT_AUTHOR_DATE
+    delete process.env.GIT_COMMITTER_DATE
+    const page = (await f.engine.request(
+      'headRead',
+      { project: 'project', shared: true, selection: { path: 'reference' } },
+      f.context,
+    )) as { directories: { path: string }[] }
+    assert.deepEqual(
+      page.directories.map((entry) => entry.path),
+      ['reference/a', 'reference/b'],
+    )
+  } finally {
+    await f.close()
+  }
+})
 
 test('ABI2 directory reads page large descendant metadata below the transport cap', async () => {
   const f = fixture(0)
@@ -3314,6 +3479,71 @@ test('aborted first chunk retains private staging evidence without untracked can
   }
 })
 
+test('Palace committed previews bound files and aggregate UTF-8 bodies and never expose other projects', async () => {
+  const f = fixture(0)
+  try {
+    const view = f.store.createView('project', 120000, true)
+    for (let i = 0; i < 40; i++)
+      f.store.edit(
+        view,
+        `projects/project/reference/file-${String(i).padStart(2, '0')}.md`,
+        null,
+        '😀'.repeat(2000) + '\n',
+        [],
+      )
+    f.store.edit(view, 'projects/other/reference/private.md', null, 'PRIVATE_OTHER_PROJECT\n', [])
+    f.store.edit(
+      view,
+      'archives/legacy-v1-abcdef123456/deferred/other/private.md',
+      null,
+      'PRIVATE_ARCHIVE\n',
+      [],
+    )
+    f.store.edit(view, 'archives/legacy-v1-pretend/global/private.md', null, 'PRIVATE_LEGACY_PREFIX\n', [])
+    f.store.integrate(view)
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const args = { project: 'project', expectedConfigHash: configHash }
+    const result = await f.engine.request('palaceStructure', args, f.context)
+    assert.ok(result.files.length <= 32)
+    assert.equal(result.output.total, 42)
+    assert.equal(result.output.truncated, true)
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 16384)
+    assert.ok(result.files.reduce((n, file) => n + Buffer.byteLength(file.body!), 0) <= 8192)
+    for (const file of result.files) {
+      assert.ok(Buffer.byteLength(file.body!) <= 4096)
+      assert.equal(file.bodyTruncated, Buffer.byteLength(file.body!) < file.bytes)
+      assert.doesNotMatch(file.body!, /\ufffd/)
+    }
+    assert.doesNotMatch(
+      JSON.stringify(result),
+      /PRIVATE_OTHER|PRIVATE_ARCHIVE|PRIVATE_LEGACY|legacy-v1|projects\/other/,
+    )
+    assert.deepEqual(await f.engine.request('palaceStructure', args, f.context), result)
+  } finally {
+    await f.close()
+  }
+})
+
+test('Palace committed previews preserve a UTF-8 BOM without false truncation', async () => {
+  const f = fixture(0)
+  try {
+    const view = f.store.createView('project', 120000, true)
+    f.store.edit(view, 'reference/bom.md', null, '\ufeff# Preserved\n', [])
+    f.store.integrate(view)
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const result = await f.engine.request(
+      'palaceStructure',
+      { project: 'project', expectedConfigHash: configHash },
+      f.context,
+    )
+    const file = result.files.find((entry) => entry.path === 'reference/bom.md')
+    assert.equal(file?.body, '\ufeff# Preserved\n')
+    assert.equal(file?.bodyTruncated, false)
+  } finally {
+    await f.close()
+  }
+})
+
 test('Palace structure certifies committed metadata, bounds output and reauthorizes every warm active path', async () => {
   const f = fixture(140, true)
   try {
@@ -3322,11 +3552,12 @@ test('Palace structure certifies committed metadata, bounds output and reauthori
     const first = await f.engine.request('palaceStructure', args, f.context)
     assert.equal(first.revision, f.store.snapshot().revision)
     assert.equal(first.configHash, configHash)
-    assert.equal(first.bodyInspection, 'not-requested')
-    assert.equal(first.output.total, 142)
-    assert.equal(first.output.returned, 128)
-    assert.equal(first.output.omitted, 14)
-    assert.equal(first.output.truncated, true)
+    assert.equal(first.bodyInspection, 'bounded-committed-preview')
+    assert.equal(first.output.total, 2)
+    assert.equal(first.output.returned, 2)
+    assert.equal(first.output.omitted, 0)
+    assert.equal(first.output.truncated, false)
+    assert.match(first.files.find((f) => f.path === 'Core.md')!.body!, /Synthetic identity/)
     assert.deepEqual(
       first.files.map((x) => x.path),
       first.files.map((x) => x.path).sort(),
@@ -3345,10 +3576,10 @@ test('Palace structure certifies committed metadata, bounds output and reauthori
       },
     })
     assert.deepEqual(warm, first)
-    assert.equal([...seen].filter((p) => newPath(p)).length, 142)
+    assert.equal([...seen].filter((p) => newPath(p)).length, 2)
     assert.ok(seen.has('Core.md'))
     assert.deepEqual((await f.engine.request('stats', {}, f.context)).blobReads, before.blobReads)
-    const omitted = [...seen].find((p) => newPath(p) && !first.files.some((x) => x.path === p))!
+    const omitted = 'Core.md'
     await assert.rejects(
       f.engine.request('palaceStructure', args, { current: (targets) => !targets.logical.includes(omitted) }),
     )
@@ -3407,16 +3638,19 @@ test('Palace structure refuses expected-config mismatch, unmapped project and fi
   }
 })
 
-test('Palace structure ignores worktree text and filters committed suppression without body inspection', async () => {
+test('Palace structure ignores worktree text and filters committed suppression for body previews', async () => {
   const f = fixture(2)
   try {
+    const view = f.store.createView('project', 120000, true)
+    f.store.edit(view, 'reference/forgotten.md', null, '# Forgotten body\n', [])
+    f.store.integrate(view)
     const { configHash } = await f.engine.request('config', {}, f.context)
     const args = { project: 'project', expectedConfigHash: configHash }
     const first = await f.engine.request('palaceStructure', args, f.context)
     writeFileSync(join(f.root, 'global/file-0.md'), 'PRIVATE_WORKTREE_SENTINEL')
     assert.deepEqual(await f.engine.request('palaceStructure', args, f.context), first)
     const ledger = JSON.parse(readFileSync(join(f.root, '.memory.json'), 'utf8'))
-    ledger.forgottenPaths.push('global/file-1.md')
+    ledger.forgottenPaths.push('reference/forgotten.md')
     writeFileSync(join(f.root, '.memory.json'), JSON.stringify(ledger))
     f.git('add', '.memory.json')
     f.git(
@@ -3430,7 +3664,7 @@ test('Palace structure ignores worktree text and filters committed suppression w
     )
     const next = await f.engine.request('palaceStructure', args, f.context)
     assert.equal(next.output.total, first.output.total - 1)
-    assert.ok(!next.files.some((x) => x.path === 'global/file-1.md'))
+    assert.ok(!next.files.some((x) => x.path === 'reference/forgotten.md'))
     assert.notEqual(next.snapshotDigest, first.snapshotDigest)
     assert.notEqual(next.structureDigest, first.structureDigest)
   } finally {

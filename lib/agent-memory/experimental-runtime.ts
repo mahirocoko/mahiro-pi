@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { lstat, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
@@ -180,7 +181,23 @@ interface PalaceViewerOpening {
   finish(): void
 }
 
-export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
+export interface ExperimentalRuntimeConfig {
+  openBrowser?: (url: string) => void | Promise<void>
+}
+
+function openSystemBrowser(url: string) {
+  const [command, args] =
+    process.platform === 'darwin'
+      ? ['open', [url]]
+      : process.platform === 'win32'
+        ? ['cmd', ['/c', 'start', '', url]]
+        : ['xdg-open', [url]]
+  const child = spawn(command, args, { shell: false, stdio: 'ignore', detached: true })
+  child.on('error', () => {})
+  child.unref()
+}
+
+export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: ExperimentalRuntimeConfig = {}) {
   let epoch = 0
   let admissionSerial = 0
   let active = false
@@ -997,6 +1014,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           lastError = 'palace-viewer-close-unavailable'
         },
       )
+      // Best effort only: do not let an opener's rejection or pending promise own
+      // the viewer lifecycle, block retirement, or tear down a published viewer.
+      try {
+        void Promise.resolve((config.openBrowser ?? openSystemBrowser)(server.url)).catch(() => {})
+      } catch {}
       return {
         version: 1 as const,
         kind: 'abi2-palace-html-viewer' as const,

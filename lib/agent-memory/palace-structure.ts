@@ -9,6 +9,41 @@ import {
 } from './engine/schema.ts'
 import { palaceLayerFor } from './retrieval.ts'
 
+// Shared validation only; committed reads remain exclusively in engine/data.ts.
+export function palaceScopedPath(path: string, project: string) {
+  if (path.startsWith('archives/')) {
+    const parts = path.split('/')
+    // Classify reserved legacy namespaces before project equality: a mapped
+    // project can itself have a legacy-looking ID but cannot adopt an archive.
+    if (parts[1]?.startsWith('legacy-v1')) {
+      if (!/^legacy-v1-[a-f0-9]{12}$/.test(parts[1])) return false
+      if (
+        !(parts.length === 4 && parts[2] === 'global') &&
+        !(parts.length === 5 && parts[2] === 'deferred' && parts[3] === project)
+      )
+        return false
+    } else if (parts[1] !== project) return false
+  }
+  return (
+    allowedPath(path, project) &&
+    !path.split('/').some((part) => !part || part === '.' || part === '..') &&
+    !/[\u0000-\u001f\u007f-\u009f\\]/.test(path) &&
+    (path === 'Core.md' ||
+      path === 'index.md' ||
+      ['system/', 'reference/', 'archives/', `projects/${project}/`].some((p) => path.startsWith(p)))
+  )
+}
+export function utf8Preview(text: string, cap: number) {
+  let result = ''
+  let size = 0
+  for (const char of text) {
+    const n = Buffer.byteLength(char)
+    if (size + n > cap) break
+    result += char
+    size += n
+  }
+  return result
+}
 export interface PalaceStructureFile {
   path: string
   layer: string
@@ -16,6 +51,8 @@ export interface PalaceStructureFile {
   protectedRetention: boolean
   alwaysLoaded: boolean
   sourcesCount: number
+  body?: string
+  bodyTruncated?: boolean
 }
 export interface PalaceStructure {
   version: 1
@@ -24,7 +61,7 @@ export interface PalaceStructure {
   project: string
   basis: 'committed-head'
   currentness: 'config-and-head-matched-at-final-checks'
-  bodyInspection: 'not-requested'
+  bodyInspection: 'not-requested' | 'bounded-committed-preview'
   structureDigest: string
   snapshotDigest: string
   output: { total: number; returned: number; omitted: number; truncated: boolean }
@@ -79,7 +116,7 @@ export function assertPalaceStructure(
     !idPattern.test(s.project) ||
     s.basis !== 'committed-head' ||
     s.currentness !== 'config-and-head-matched-at-final-checks' ||
-    s.bodyInspection !== 'not-requested' ||
+    !['not-requested', 'bounded-committed-preview'].includes(s.bodyInspection) ||
     !exact(s.output, ['total', 'returned', 'omitted', 'truncated']) ||
     !Array.isArray(s.files) ||
     s.files.length > 128
@@ -87,7 +124,21 @@ export function assertPalaceStructure(
     fail()
   for (const [i, f] of s.files.entries()) {
     if (
-      !exact(f, ['path', 'layer', 'bytes', 'protectedRetention', 'alwaysLoaded', 'sourcesCount']) ||
+      !exact(f, [
+        'path',
+        'layer',
+        'bytes',
+        'protectedRetention',
+        'alwaysLoaded',
+        'sourcesCount',
+        ...(s.bodyInspection === 'bounded-committed-preview' ? ['body', 'bodyTruncated'] : []),
+      ]) ||
+      (s.bodyInspection === 'bounded-committed-preview' &&
+        (!palaceScopedPath(f.path, s.project) ||
+          typeof f.body !== 'string' ||
+          bytes(f.body) > 4096 ||
+          typeof f.bodyTruncated !== 'boolean' ||
+          f.bodyTruncated !== bytes(f.body) < f.bytes)) ||
       typeof f.path !== 'string' ||
       !allowedPath(f.path) ||
       f.layer !== palaceLayerFor(f.path) ||
@@ -100,6 +151,13 @@ export function assertPalaceStructure(
     )
       fail()
   }
+  if (
+    s.bodyInspection === 'bounded-committed-preview' &&
+    (s.files.length > 32 ||
+      bytes(JSON.stringify(s)) > 16384 ||
+      s.files.reduce((n, file) => n + bytes(file.body!), 0) > 8192)
+  )
+    fail()
   const o = s.output
   if (
     !integer(o.total, limits.files) ||

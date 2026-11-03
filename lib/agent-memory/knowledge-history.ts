@@ -1,4 +1,5 @@
 import { objectShape } from '../continuity/records.ts'
+import { palaceScopedPath } from './palace-structure.ts'
 
 export interface KnowledgeHistory {
   version: 1
@@ -13,13 +14,44 @@ export interface KnowledgeHistory {
   windowSize: 128
   nextOffset: number | null
   windowLimitReached: boolean
-  metadata: 'commit-identity-time-only'
+  metadata: 'commit-identity-time-subject-count'
   entries: HistoryEntry[]
 }
 interface HistoryEntry {
   revision: string
   parent: string | null
   committedAt: string
+  subject: string
+  changedFiles: number
+  diff?: string
+  diffTruncated?: boolean
+}
+type HistoryIdentity = Omit<HistoryEntry, 'subject' | 'changedFiles'>
+
+// No historical path leaves this owner, including unknown or cross-project paths.
+export function historyDetails(subject: Buffer, paths: Buffer, project: string) {
+  const { subject: clean, changedFiles } = historyClassification(subject, paths, project)
+  return { subject: clean, changedFiles }
+}
+export function historyClassification(subject: Buffer, paths: Buffer, project: string) {
+  ensure(subject.length <= 64 * 1024 && paths.length <= 1024 * 1024)
+  ensure(paths.length === 0 || paths[paths.length - 1] === 0)
+  const names = paths.length ? paths.toString('utf8').slice(0, -1).split('\0') : []
+  ensure(names.length <= 32768 && names.every((path) => path.length > 0))
+  const scoped = (path: string) => palaceScopedPath(path, project)
+  const changed = names.filter((path) => path !== '.memory.json')
+  const redacted = changed.some((path) => !scoped(path))
+  let clean = ''
+  for (const char of subject.toString('utf8').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')) {
+    if (Buffer.byteLength(clean + char) > 256) break
+    clean += char
+  }
+  return {
+    subject: redacted ? 'Out-of-scope project update' : clean,
+    changedFiles: changed.filter(scoped).length,
+    redacted,
+    paths: changed.filter(scoped),
+  }
 }
 export const historyOID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
 function ensure(condition: unknown): asserts condition {
@@ -31,7 +63,7 @@ function exact(value: unknown, keys: string[]): asserts value is Record<string, 
 export function historyOffset(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) < 128
 }
-export function parseHistoryRows(raw: Buffer, revision: string): HistoryEntry[] {
+export function parseHistoryRows(raw: Buffer, revision: string): HistoryIdentity[] {
   ensure(raw.length > 0 && raw.length <= 300 * 1024 && raw[raw.length - 1] === 10)
   ensure(raw.every((b) => b === 10 || b === 32 || (b >= 48 && b <= 57) || (b >= 97 && b <= 102)))
   const rows = raw.toString('ascii').slice(0, -1).split('\n')
@@ -93,7 +125,11 @@ export function assertKnowledgeHistory(
     value.basis === 'committed-head-first-parent' &&
       value.currentness === 'config-head-ledger-matched-at-final-checks',
   )
-  ensure(value.metadata === 'commit-identity-time-only' && value.pageSize === 8 && value.windowSize === 128)
+  ensure(
+    value.metadata === 'commit-identity-time-subject-count' &&
+      value.pageSize === 8 &&
+      value.windowSize === 128,
+  )
   ensure(
     historyOffset(value.offset) &&
       value.offset === input.offset &&
@@ -103,7 +139,30 @@ export function assertKnowledgeHistory(
   const entries = value.entries
   const seen = new Set<string>()
   entries.forEach((entry, index) => {
-    exact(entry, ['revision', 'parent', 'committedAt'])
+    exact(entry, [
+      'revision',
+      'parent',
+      'committedAt',
+      'subject',
+      'changedFiles',
+      ...(Object.hasOwn(entry, 'diff') ? ['diff', 'diffTruncated'] : []),
+    ])
+    if (Object.hasOwn(entry, 'diff'))
+      ensure(
+        typeof entry.diff === 'string' &&
+          Buffer.byteLength(entry.diff) <= 4096 &&
+          typeof entry.diffTruncated === 'boolean',
+      )
+    ensure(
+      typeof entry.subject === 'string' &&
+        Buffer.byteLength(entry.subject) <= 256 &&
+        !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(entry.subject),
+    )
+    ensure(
+      Number.isSafeInteger(entry.changedFiles) &&
+        (entry.changedFiles as number) >= 0 &&
+        (entry.changedFiles as number) <= 32768,
+    )
     ensure(
       typeof entry.revision === 'string' &&
         historyOID.test(entry.revision) &&
@@ -125,6 +184,12 @@ export function assertKnowledgeHistory(
     )
     if (index + 1 < entries.length) ensure(entry.parent === entries[index + 1].revision)
   })
+  ensure(
+    entries.reduce(
+      (n, entry) => n + Buffer.byteLength(typeof entry.diff === 'string' ? entry.diff : ''),
+      0,
+    ) <= 8192,
+  )
   if (value.offset === 0) ensure(entries.length > 0 && entries[0].revision === value.revision)
   const end = value.offset + entries.length
   const more = entries.length === 8 && end < 128 && entries.at(-1)?.parent !== null

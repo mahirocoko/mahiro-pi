@@ -1384,6 +1384,44 @@ test('a full unreviewed directory launches one bounded backlog writer without ne
   }
 })
 
+test('ABI2 backlog drain delivers later sessions after reviewing the first batch', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const seeded: Episode[] = Array.from({ length: 256 }, (_, index) => ({
+      id: digest(`cross-session-backlog-${index}`),
+      project: 'project',
+      session: index < 4 ? 'session-a' : 'session-b',
+      evidence: 'observed-native-unverified',
+      observedAt: `2026-01-01T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+      entryHash: digest(`cross-session-entry-${index}`),
+      input: { text: `Settled note ${index}`, source: 'rpc' },
+      actions: [{ text: 'Verified outcome' }],
+      results: [],
+      outcome: 'completed',
+    }))
+    for (const episode of seeded) f.store.recordEpisode(episode.id, episode)
+    await f.turn('capacity-trigger', 1)
+    const first = episodeIds(f.spawns[0]?.prompt ?? '').map((episode) => episode.id)
+    assert.deepEqual(
+      first,
+      seeded.slice(0, 4).map((episode) => episode.id),
+    )
+    await f.finish('completed')
+    assert.deepEqual(f.store.snapshot().reviewed.slice().sort(), first.slice().sort())
+    assert.equal(f.spawns.length, 2)
+    const second = episodeIds(f.spawns[1]?.prompt ?? '').map((episode) => episode.id)
+    assert.deepEqual(
+      second,
+      seeded.slice(4, 8).map((episode) => episode.id),
+    )
+    assert.ok(second.includes(seeded[4]!.id))
+    assert.equal(f.store.snapshot().reviewed.includes(seeded[4]!.id), false)
+  } finally {
+    await f.close()
+  }
+})
+
 test('a cancelled capacity writer can launch one later backlog drain without reviewing old episodes', async () => {
   const f = fixture()
   try {

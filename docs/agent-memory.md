@@ -153,7 +153,11 @@ immediate child directories from that same scoped path list. A child description
 is its in-scope `index.md` frontmatter description, or that file's first prose
 paragraph when frontmatter has none. Other file text is not copied into the
 description. When that directory's own `index.md` is in scope, the page also
-includes a bounded prefix of that file and where the remainder continues.
+includes a bounded prefix of that file and where the remainder continues. In ABI2,
+entries are grouped by immediate child and ordered by that child's latest committed
+edit, newest first, with name order for ties or unknown times. A directory's time
+comes from its authorized committed descendants; draft-only entries have no committed
+time. The existing descendant-file pages and child-directory list remain separate.
 
 Queries are bounded to 256 UTF-8 bytes and 16 distinct word terms. English/Thai
 segmentation and normalization are for matching only; returned snippets and
@@ -357,8 +361,9 @@ apply, reload or migrate a live root. This is metadata-only export, not content
 capture or backup. The [R6 operator contract](letta-parity-r6.md) inventories current
 user jobs and explicitly unavailable backup/restore, active migration, authority
 cutover and conversation replay workflows. R7 now has a disconnected synthetic
-knowledge-history/diff service API, but user/operator/HTML history remains
-unavailable. The standalone fixed-synthetic rehearsal described below is not a
+knowledge-history/diff service API, separate from the installed ABI2 bounded
+first-parent history metadata shown by `/mh-memory palace`. Installed bodies/diffs
+remain unavailable. The standalone fixed-synthetic rehearsal described below is not a
 live parity CLI or active migration API.
 
 ## Compaction provenance and compatibility
@@ -1640,16 +1645,26 @@ snapshot is owner-certified; its association with invocation context remains
 observed-non-atomic (`atomic: false`), not a linearizable combined capture or viewer.
 Lifecycle is omitted; captureId is correlation only and replay is unsupported.
 
-The closed JSON DTO retains context's 4 KiB bound, at most 128 structural files,
-a versioned committed-head basis, config/revision/project binding, deterministic
-full-structure and snapshot digests, body inspection explicitly not requested,
-and separate upstream and returned/omitted/truncated output
-accounting. The engine result is bounded to 64 KiB; diagnostic version 2 preserves
-the command-only surface. Cold certification may validate bodies internally; no
-body inspection/report is requested or returned. The final compact object and compact command notification are bounded
-to 32 KiB including UTF-8 and JSON escaping. It omits bodies, frontmatter names and
-descriptions, links, views, episodes, operations, budget ceilings, overall healthy,
-source IDs, history/diffs and private root/profile/session paths. A prior projection
+The closed JSON DTO retains context's 4 KiB bound, a versioned committed-head basis,
+config/revision/project binding, deterministic structure and snapshot digests, and
+separate upstream and returned/omitted/truncated output accounting. The engine alone
+reads committed bodies. Its result is at most 16 KiB including JSON escaping, with
+at most 32 files, 4 KiB per UTF-8 body and 8 KiB of body text in aggregate. Scope is
+`Core.md`, `index.md`, `system/`, `reference/`, `archives/`, and
+`projects/<mapped-project>/`, intersected with strict project `allowedPath` and current
+path/source suppression. Archive scope does not inherit the broad `legacy-v1*`
+compatibility allowance: only canonical `legacy-v1-<12 hex>/global/<slug>.md`
+is shared, and `legacy-v1-<12 hex>/deferred/<project>/<slug>.md` must match the
+requested project. Reserved legacy namespaces are classified before project-ID
+equality, even when the mapped project has a legacy-looking ID. Unknown legacy
+prefixes/layouts fail closed. No other-project
+path or body is returned. Previews truncate
+on Unicode scalar boundaries deterministically; each file truthfully reports
+`bodyTruncated`, including empty previews after the aggregate budget is exhausted.
+Invalid UTF-8 fails closed. The final compact diagnostic and command notification
+remain bounded to 32 KiB including JSON escaping. Frontmatter-derived metadata,
+links, views, episodes, operations, budget ceilings, source IDs and private
+root/profile/session paths remain omitted. A prior projection
 receipt remains separately labelled from current committed revision until the next
 request (when its binding/config remains applicable). Public Pi estimates are not
 provider consumption or category accounting. No model-callable action, persistent
@@ -1668,13 +1683,21 @@ mapped project, expected current revision and config hash, reads the committed
 current ledger, and walks at most 128 commits from that exact HEAD along Git's
 first-parent chain. Pages are fixed at eight rows.
 
-The result is intentionally identity/time-only. Each row contains only the commit
-OID, its first parent or `null`, and a canonical UTC commit timestamp. Author,
-subject, email, changed paths/counts, patch text, file bodies, historical ledgers,
-refs and arbitrary commit selectors are unavailable. Any current forgotten source
-makes history unavailable because historical source attribution is absent. Path
-forgetting does not reveal path-shaped metadata because that metadata is never
-collected or returned. Replacement refs, grafts and shallow history are refused.
+Each row contains the commit OID, its first parent or `null`, a canonical UTC
+commit timestamp, a sanitized single-line subject (at most 256 UTF-8 bytes), and an
+in-scope changed-file count resolved from that commit against its first parent
+(or the empty tree for a root commit). Scope is `Core.md`, `index.md`, `system/`,
+`reference/`, `archives/` and `projects/<mapped-project>/`, intersected with the
+existing `allowedPath(path, mappedProject)` authority. Prefix membership alone grants
+nothing: other-project archives and unknown system/project filenames are excluded.
+`.memory.json` is ignored. Any other changed path, including unknown paths, replaces the subject with
+`Out-of-scope project update` and makes its diff empty. Each row also carries a
+bounded patch-hunk preview (4 KiB per commit, 8 KiB aggregate per eight-row page),
+with explicit `diffTruncated`. Only in-scope commits can supply hunks. Git headers
+are stripped; rename/copy detection, external diff and textconv helpers are disabled.
+No changed path list, author, email, historical ledger, ref or arbitrary commit
+selector is returned. Any current forgotten path or source makes history unavailable because
+historical attribution is absent. Replacement refs, grafts and shallow history are refused.
 
 Before return the engine rechecks repository semantics, current config hash, HEAD
 and the exact committed ledger digest, then the runtime rechecks status, branch,
@@ -1695,15 +1718,26 @@ operation captures the existing owner-certified committed structure, public
 invocation metadata and exactly the offset-zero eight-row knowledge-history page,
 then checks revision, config, branch, writer/draft state, generation, binding and
 current read authority. The combined association remains explicitly non-atomic;
-provider prompt consumption, category token accounting, lifecycle, bodies, diffs,
-authors, subjects, changed paths and replay remain unavailable.
+provider prompt consumption, category token accounting, lifecycle, authors, changed
+path lists and replay remain unavailable. Committed body and patch-hunk previews
+come exclusively from `engine/data.ts` with the bounds and suppression described
+above. The renderer receives only frozen text and escapes it as HTML; it receives
+no roots, Git or file readers and does not import the local service.
+This follows Letta's committed-file and commit-diff viewer behavior, reviewed at
+`dcd783d619a2ed82efa179d0418e5ccd831c5a77` after a clean fast-forward pull.
+Mahiro's scope, forgetting, helper-execution and transport restrictions narrow the
+upstream full-patch behavior; no brand assets are copied.
 
 The allowlisted handoff DTO is deeply copied/frozen and bounded to 48 KiB. Its
 static semantic HTML is bounded to 256 KiB, contains no script or remote asset,
-and exposes only invocation metadata, returned committed structure and the latest
-bounded first-parent identity/time rows. The runtime serves those exact frozen
+and exposes invocation metadata, returned committed structure/body previews and the
+latest bounded first-parent identity/time/subject/count/hunk rows. The runtime serves those exact frozen
 bytes for at most ten minutes on one random capability path at `127.0.0.1:0`.
-It does not open a browser or write an HTML file. Only exact Host + capability
+After publishing the TUI viewer it best-effort opens that URL in the system browser
+(`open`, `cmd /c start` or `xdg-open`, without a shell, detached with ignored stdio).
+Opener failures do not fail or revoke the viewer; the URL remains available for manual
+opening. Tests inject an opener and never launch a real browser. No HTML file is
+written. Only exact Host + capability
 GET/HEAD requests without a body are accepted. CSP uses one fixed inline-style
 hash with `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`,
 `img-src 'none'` and `font-src 'none'`; responses also disable caching, referrers,
@@ -1743,6 +1777,6 @@ Earlier checkpoint routes remain accepted only as hidden compatibility aliases f
 source and operator evidence. They are omitted from public help and are not separate
 product features. Their underlying runtime/RPC owners stay separate so the
 façade cannot mislabel sequential context, structure and history checks as one
-atomic snapshot. This consolidation changes command UX only: it does not open a
-browser, activate a profile, add data routes, expand authority or alter the live ABI2
-publication owner.
+atomic snapshot. Viewer publication now best-effort opens the system browser as
+described above; it does not activate a profile, add data routes, expand authority
+or alter the live ABI2 publication owner.

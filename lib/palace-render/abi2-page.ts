@@ -177,7 +177,7 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
   const files = structure.files
     .map(
       (file) => `<tr>
-<th scope="row"><code>${escape(file.path)}</code></th>
+<th scope="row"><code>${escape(file.path)}</code>${file.body === undefined ? '' : `<details><summary>Committed body${file.bodyTruncated ? ' (truncated)' : ''}</summary><pre>${escape(file.body)}</pre></details>`}</th>
 <td>${escape(file.layer)}</td>
 <td>${displayCount(file.bytes)}</td>
 <td>${file.alwaysLoaded ? 'Yes' : 'No'}</td>
@@ -192,6 +192,8 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 <th scope="row"><code>${escape(entry.revision)}</code></th>
 <td>${entry.parent ? `<code>${escape(entry.parent)}</code>` : 'Root'}</td>
 <td><time datetime="${escape(entry.committedAt)}">${escape(entry.committedAt)}</time></td>
+<td>${escape(entry.subject)}${entry.diff === undefined ? '' : `<details><summary>Commit diff${entry.diffTruncated ? ' (truncated)' : ''}</summary><pre>${escape(entry.diff)}</pre></details>`}</td>
+<td>${displayCount(entry.changedFiles)}</td>
 </tr>`,
     )
     .join('')
@@ -209,8 +211,8 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 <header class="header">
 <h1>Mahiro Palace · ABI2 metadata handoff</h1>
 </header>
-<p class="lede">This immutable page combines one owner-certified committed structure, one observed invocation association and the latest bounded first-parent history page. It contains metadata only.</p>
-<p class="notice"><strong>Non-atomic capture.</strong> Invocation association is observed, not a provider-consumption receipt. Replay, lifecycle history, document bodies, diffs and mutation controls are unavailable.</p>
+<p class="lede">This immutable page combines one owner-certified committed structure, one observed invocation association and the latest bounded first-parent history page. It includes bounded committed bodies and recent diffs where certified by the owner.</p>
+<p class="notice"><strong>Non-atomic capture.</strong> Invocation association is observed, not a provider-consumption receipt. Replay, lifecycle history and mutation controls are unavailable. Previews can be truncated; redacted commits have empty diffs.</p>
 <nav aria-label="Page sections"><ul class="tabs">
 <li><a class="tab" href="#invocation">Invocation</a></li>
 <li><a class="tab" href="#structure">Committed structure</a></li>
@@ -252,7 +254,7 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 </section>
 <section class="panel" id="history" aria-labelledby="history-heading">
 <h2 id="history-heading">Knowledge history</h2>
-<p class="lede">Latest up to 8 first-parent commits from the bounded 128-entry observation window. This page does not expose authors, subjects, paths, counts, diffs or document bodies.</p>
+<p class="lede">Latest up to 8 first-parent commits from the bounded 128-entry observation window. Subjects are sanitized and redacted for out-of-scope updates; counts include only in-scope changed files. Authors and Git headers are unavailable. Diffs contain in-scope hunks only; out-of-scope commits have empty diffs.</p>
 <dl class="meta">
 <div><dt>Ledger digest</dt><dd><code>${escape(history.ledgerDigest)}</code></dd></div>
 <div><dt>History basis</dt><dd>${escape(history.basis)}</dd></div>
@@ -261,9 +263,9 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
 </dl>
 <div class="table-region" role="region" aria-labelledby="history-caption" tabindex="0">
 <table>
-<caption id="history-caption">Identity and canonical UTC time only</caption>
-<thead><tr><th scope="col">Revision</th><th scope="col">First parent</th><th scope="col">Committed at</th></tr></thead>
-<tbody>${historyRows || '<tr><td colspan="3">No returned history entries.</td></tr>'}</tbody>
+<caption id="history-caption">Commit identity, UTC time, sanitized subject and scoped file count</caption>
+<thead><tr><th scope="col">Revision</th><th scope="col">First parent</th><th scope="col">Committed at</th><th scope="col">Subject</th><th scope="col">Changed files (in scope)</th></tr></thead>
+<tbody>${historyRows || '<tr><td colspan="5">No returned history entries.</td></tr>'}</tbody>
 </table>
 </div>
 </section>

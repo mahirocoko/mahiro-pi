@@ -18,6 +18,27 @@ import {
 } from '../lib/agent-memory/retrieval.ts'
 import { bytes, digest } from '../lib/continuity/records.ts'
 
+test('directory ordering uses child edit time then name, with unknown times last', () => {
+  const paths = ['reference/a.md', 'reference/z.md', 'reference/b/item.md', 'reference/c/item.md']
+  const edited = new Map([
+    ['z.md', 20],
+    ['b', 10],
+    ['c', 10],
+  ])
+  assert.deepEqual(directoryPage(paths, 'reference', 0, 32, edited).paths, [
+    'reference/z.md',
+    'reference/b/item.md',
+    'reference/c/item.md',
+    'reference/a.md',
+  ])
+  assert.deepEqual(childDirectoryPaths(paths, 'reference', edited), ['reference/b', 'reference/c'])
+  const tied = ['reference/a-b/item.md', 'reference/a/item.md']
+  assert.deepEqual(directoryPage(tied, 'reference', 0, 32, new Map()).paths, [
+    'reference/a/item.md',
+    'reference/a-b/item.md',
+  ])
+})
+
 process.env.GIT_AUTHOR_NAME = 'Fictional retrieval fixture'
 process.env.GIT_AUTHOR_EMAIL = 'fixture@example.invalid'
 process.env.GIT_COMMITTER_NAME = 'Fictional retrieval fixture'

@@ -4,14 +4,25 @@ import { lstat, mkdir, open, opendir, readdir, rmdir, unlink } from 'node:fs/pro
 import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
-import { assertKnowledgeHistory, type KnowledgeHistory, parseHistoryRows } from '../knowledge-history.ts'
+import {
+  assertKnowledgeHistory,
+  historyClassification,
+  type KnowledgeHistory,
+  parseHistoryRows,
+} from '../knowledge-history.ts'
 import {
   canonicalLedgerDigest,
   migrationExportPageLimit,
   migrationSourceIndex,
   pageMigrationExport,
 } from '../migration-export.ts'
-import { type PalaceStructure, snapshotDigest, structureDigest } from '../palace-structure.ts'
+import {
+  type PalaceStructure,
+  palaceScopedPath,
+  utf8Preview,
+  snapshotDigest,
+  structureDigest,
+} from '../palace-structure.ts'
 import { memoryFailure } from '../reasons.ts'
 import {
   buildMemoryPalace,
@@ -1801,7 +1812,7 @@ export class MemoryDataEngine {
             ['.memory.json'],
           )
           const ledger = parseLedger(raw.toString('utf8'))
-          if (ledger.forgottenSources.length)
+          if (ledger.forgottenPaths.length || ledger.forgottenSources.length)
             throw memoryFailure('unknown', 'History unavailable', 'forgetting')
           return createHash('sha256').update(raw).digest('hex')
         }
@@ -1841,6 +1852,65 @@ export class MemoryDataEngine {
         ])
         const entries = parseHistoryRows(raw, revision)
         const end = Math.min(args.offset + 8, entries.length)
+        const detailedEntries = []
+        let diffBudget = 8192
+        for (const entry of entries.slice(args.offset, args.offset + 8)) {
+          const subject = await this.gitBytes([
+            '--no-replace-objects',
+            'show',
+            '-s',
+            '--format=%s',
+            entry.revision,
+          ])
+          const paths = await this.gitBytes([
+            '--no-replace-objects',
+            'diff-tree',
+            '--no-commit-id',
+            '--name-only',
+            '--no-renames',
+            '-r',
+            '-z',
+            ...(entry.parent ? [entry.parent, entry.revision] : ['--root', entry.revision]),
+          ])
+          const details = historyClassification(subject, paths, args.project)
+          let patch = ''
+          if (!details.redacted && details.paths.length) {
+            // No external diff/textconv helpers, rename/copy headers, or caller-supplied Git arguments.
+            const rawPatch = await this.gitBytes(
+              [
+                '--no-replace-objects',
+                'diff-tree',
+                '--no-commit-id',
+                '-r',
+                '-p',
+                '--no-ext-diff',
+                '--no-textconv',
+                '--no-renames',
+                '--no-color',
+                ...(entry.parent ? [entry.parent, entry.revision] : ['--root', entry.revision]),
+                '--',
+                ...details.paths,
+              ],
+              details.paths,
+            )
+            // Retain only hunks; Git headers (including arbitrary attribute/helper metadata) never leave.
+            let inHunk = false
+            for (const line of rawPatch.toString('utf8').split('\n')) {
+              if (line.startsWith('diff --git ')) inHunk = false
+              if (line.startsWith('@@ ')) inHunk = true
+              if (inHunk && /^(?:@@ |[ +\\-])/.test(line)) patch += `${line}\n`
+            }
+          }
+          const diff = utf8Preview(patch, Math.min(4096, diffBudget))
+          diffBudget -= bytes(diff)
+          detailedEntries.push({
+            ...entry,
+            subject: details.subject,
+            changedFiles: details.changedFiles,
+            diff,
+            diffTruncated: diff !== patch,
+          })
+        }
         const result: KnowledgeHistory = {
           version: 1,
           project: args.project,
@@ -1854,8 +1924,8 @@ export class MemoryDataEngine {
           windowSize: 128,
           nextOffset: end < entries.length ? end : null,
           windowLimitReached: entries.length === 128,
-          metadata: 'commit-identity-time-only',
-          entries: entries.slice(args.offset, args.offset + 8),
+          metadata: 'commit-identity-time-subject-count',
+          entries: detailedEntries,
         }
         await semantics()
         // Sequential endpoint observations, not an atomic snapshot or ABA protection.
@@ -1873,7 +1943,9 @@ export class MemoryDataEngine {
           throw memoryFailure('CAS', 'Palace configuration mismatch')
         const base = await this.certify(config, configHash)
         const paths = Object.keys(base.refs)
-          .filter((p) => !suppressed(base.ledger, p, base.refs[p].sources))
+          .filter(
+            (p) => palaceScopedPath(p, args.project) && !suppressed(base.ledger, p, base.refs[p].sources),
+          )
           .sort()
         // Mandatory even for warm certificates and paths omitted by the presentation cap.
         await this.gate(
@@ -1896,11 +1968,23 @@ export class MemoryDataEngine {
           project: args.project,
           basis: 'committed-head',
           currentness: 'config-and-head-matched-at-final-checks',
-          bodyInspection: 'not-requested',
+          bodyInspection: 'bounded-committed-preview',
           structureDigest: structureDigest(files),
           snapshotDigest: '',
           output: { total: files.length, returned: 0, omitted: files.length, truncated: files.length > 0 },
-          files: files.slice(0, 128),
+          files: [],
+        }
+        let bodyBudget = 8192
+        for (const file of files.slice(0, 32)) {
+          const raw = await this.gitBytes(
+            ['--no-replace-objects', 'cat-file', 'blob', base.refs[file.path].oid],
+            [file.path],
+          )
+          // Invalid UTF-8 cannot be certified as a truthful byte-bounded preview.
+          const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw)
+          const body = utf8Preview(text, Math.min(4096, bodyBudget))
+          bodyBudget -= bytes(body)
+          result.files.push({ ...file, body, bodyTruncated: bytes(body) < file.bytes })
         }
         const account = () => {
           result.output = {
@@ -1909,10 +1993,11 @@ export class MemoryDataEngine {
             omitted: files.length - result.files.length,
             truncated: result.files.length < files.length,
           }
+          result.structureDigest = structureDigest(result.files)
           result.snapshotDigest = snapshotDigest(result)
         }
         account()
-        while (bytes(JSON.stringify(result)) > 65536) {
+        while (bytes(JSON.stringify(result)) > 16384) {
           if (!result.files.pop()) throw Error('Palace structure exceeds bound')
           account()
         }
@@ -2188,8 +2273,44 @@ export class MemoryDataEngine {
           const archiveDirectory =
             v.shared && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
           if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory)) {
-            const page = directoryPage(paths, cleanDir, selection.offset, selection.limit)
-            const childPaths = childDirectoryPaths(paths, cleanDir)
+            // Pin history to the view's committed base and restrict Git to already
+            // authorized active paths; draft-only paths have an unknown timestamp.
+            const committedPaths = paths.filter(
+              (path) => path.startsWith(`${cleanDir}/`) && v.base.refs[path],
+            )
+            const edited = new Map<string, number>()
+            if (committedPaths.length) {
+              const history = await this.git(
+                [
+                  '--no-replace-objects',
+                  'log',
+                  '--format=%x00%ct',
+                  '--name-only',
+                  v.base.revision,
+                  '--',
+                  cleanDir,
+                ],
+                committedPaths,
+              )
+              const committed = new Set(committedPaths)
+              const seen = new Set<string>()
+              let time = 0
+              for (const line of history.split('\n')) {
+                if (line.startsWith('\0')) {
+                  const seconds = Number(line.slice(1))
+                  time =
+                    Number.isSafeInteger(seconds) && Number.isSafeInteger(seconds * 1000) && seconds > 0
+                      ? seconds * 1000
+                      : 0
+                } else if (committed.has(line) && !seen.has(line)) {
+                  seen.add(line)
+                  const child = line.slice(cleanDir.length + 1).split('/')[0]
+                  edited.set(child, Math.max(edited.get(child) ?? 0, time))
+                }
+              }
+            }
+            const page = directoryPage(paths, cleanDir, selection.offset, selection.limit, edited)
+            const childPaths = childDirectoryPaths(paths, cleanDir, edited)
             const shownChildren = childPaths.slice(0, retrievalLimits.page)
             const indexPath = `${cleanDir}/index.md`
             // Directory selection is metadata-only and has no body-dependent early stop.

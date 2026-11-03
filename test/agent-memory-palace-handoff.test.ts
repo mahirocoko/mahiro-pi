@@ -7,6 +7,8 @@ import { buildPalaceDiagnostic } from '../lib/agent-memory/palace-diagnostic.ts'
 import { buildPalaceHandoff } from '../lib/agent-memory/palace-handoff.ts'
 import {
   snapshotDigest,
+  utf8Preview,
+  palaceScopedPath,
   structureDigest,
   type PalaceStructure,
 } from '../lib/agent-memory/palace-structure.ts'
@@ -57,8 +59,16 @@ function history(): KnowledgeHistory {
     windowSize: 128,
     nextOffset: null,
     windowLimitReached: false,
-    metadata: 'commit-identity-time-only',
-    entries: [{ revision, parent: null, committedAt: '2026-01-01T00:00:00.000Z' }],
+    metadata: 'commit-identity-time-subject-count',
+    entries: [
+      {
+        revision,
+        parent: null,
+        committedAt: '2026-01-01T00:00:00.000Z',
+        subject: '<script>Update</script>',
+        changedFiles: 2,
+      },
+    ],
   }
 }
 
@@ -78,6 +88,68 @@ function handoff() {
     expiresAt: new Date('2026-01-02T00:10:00.000Z'),
   })
 }
+
+test('bounded committed previews survive immutable handoff and render escaped with truthful truncation', () => {
+  const s = structure()
+  s.bodyInspection = 'bounded-committed-preview'
+  const text = '<script>😀</script>'.repeat(500)
+  const body = utf8Preview(text, 4096)
+  assert.ok(Buffer.byteLength(body) <= 4096)
+  assert.equal(body, utf8Preview(text, 4096))
+  assert.ok(!body.includes('\ufffd'))
+  s.files[0] = { ...s.files[0], bytes: Buffer.byteLength(text), body, bodyTruncated: true }
+  s.structureDigest = structureDigest(s.files)
+  s.snapshotDigest = snapshotDigest(s)
+  const h = history()
+  h.entries[0].diff = '+<script>😀</script>\n'
+  h.entries[0].diffTruncated = true
+  const context = buildMemoryInvocationContext({
+    revision,
+    configHash,
+    usage: { tokens: null, contextWindow: 4096, percent: null },
+    systemPrompt: '',
+    model: undefined,
+    projection: undefined,
+    now: new Date('2026-01-02T00:00:00.000Z'),
+  })
+  const value = buildPalaceHandoff({
+    diagnostic: buildPalaceDiagnostic(context, s),
+    history: h,
+    expiresAt: new Date('2026-01-02T00:10:00.000Z'),
+  })
+  assert.equal(value.diagnostic.structure.files[0].body, body)
+  assert.equal(value.history.entries[0].diff, h.entries[0].diff)
+  assert.ok(Buffer.byteLength(JSON.stringify(value)) <= 48 * 1024)
+  const html = renderAbi2PalacePage(value)
+  assert.match(html, /Committed body \(truncated\)/)
+  assert.match(html, /Commit diff \(truncated\)/)
+  assert.match(html, /&lt;script&gt;/)
+  assert.doesNotMatch(html, /<script>/)
+  for (const path of [
+    'projects/other/reference/private.md',
+    'archives/other/private.md',
+    'global/private.md',
+    'archives/legacy-v1-abcdef123456/deferred/other/private.md',
+    'archives/legacy-v1-pretend/global/private.md',
+    'archives/legacy-v1-abcdef123456/unknown/private.md',
+    'projects/project/../private.md',
+  ])
+    assert.equal(palaceScopedPath(path, 'project'), false)
+})
+
+test('Palace archive scope recognizes only canonical shared and project-attributed migrations', () => {
+  const collision = 'legacy-v1-abcdef123456'
+  assert.equal(palaceScopedPath(`archives/${collision}/deferred/other/private.md`, collision), false)
+  assert.equal(palaceScopedPath(`archives/${collision}/unknown/private.md`, collision), false)
+  assert.equal(palaceScopedPath('archives/legacy-v1-pretend/global/private.md', 'legacy-v1-pretend'), false)
+  assert.equal(palaceScopedPath(`archives/${collision}/deferred/${collision}/own.md`, collision), true)
+  for (const path of [
+    'archives/legacy-v1-abcdef123456/global/pref.md',
+    'archives/legacy-v1-abcdef123456/deferred/project/pref.md',
+    'archives/project/retained.md',
+  ])
+    assert.equal(palaceScopedPath(path, 'project'), true)
+})
 
 test('installed Palace HTML boundary does not import the disconnected local service', () => {
   for (const path of [
@@ -166,6 +238,9 @@ test('ABI2 Palace page escapes metadata and keeps semantic bounded static sectio
   assert.match(html, /role="region"[^>]+tabindex="0"/)
   assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/)
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
+  assert.match(html, /&lt;script&gt;Update&lt;\/script&gt;/)
+  assert.match(html, /Changed files \(in scope\)/)
+  assert.match(html, /<td>2<\/td>/)
   assert.doesNotMatch(html, /private prompt/i)
   assert.doesNotMatch(html, /<script\b/i)
   assert.match(html, /Non-atomic capture/)

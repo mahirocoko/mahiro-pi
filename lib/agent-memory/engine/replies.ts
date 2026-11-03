@@ -97,6 +97,10 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       return
     case 'palaceStructure':
       assertPalaceStructure(value, { project: input.project, expectedConfigHash: input.expectedConfigHash })
+      if (value.bodyInspection === 'bounded-committed-preview') {
+        ensure(Buffer.byteLength(JSON.stringify(value)) <= 16384 && value.files.length <= 32)
+        ensure(value.files.reduce((n, file) => n + Buffer.byteLength(file.body!), 0) <= 8192)
+      }
       return
     case 'config': {
       const v = shape(value, ['config', 'configHash'])
@@ -811,18 +815,18 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
             if (e.links !== undefined)
               ensure(Array.isArray(e.links) && e.links.every((link) => text(link, 512)))
           }
-          ensure(entryPaths.every((path, index) => index === 0 || entryPaths[index - 1] < path))
+          ensure(new Set(entryPaths).size === entryPaths.length)
           if (v.directories !== undefined) {
             const childSlug = /^[a-z0-9][a-z0-9-]{0,63}$/
             ensure(Array.isArray(v.directories) && v.directories.length <= retrievalLimits.page)
-            let previous = ''
+            const seen = new Set<string>()
             for (const entry of v.directories) {
               const directoryEntry = shape(entry, ['path', 'description'], ['path'])
               const child = directoryEntry.path
               ensure(typeof child === 'string' && child.startsWith(`${v.directory}/`))
               const name = (child as string).slice((v.directory as string).length + 1)
-              ensure(childSlug.test(name) && (child as string) > previous)
-              previous = child as string
+              ensure(childSlug.test(name) && !seen.has(child as string))
+              seen.add(child as string)
               if (directoryEntry.description !== undefined) ensure(text(directoryEntry.description, 4096))
             }
           }

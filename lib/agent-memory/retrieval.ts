@@ -158,9 +158,24 @@ export function extractFrontmatterAndLinks(
   ]
   return { ...(name ? { name } : {}), ...(description ? { description } : {}), links }
 }
-export function directoryPage(paths: string[], prefix: string, offset: number, limit: number) {
+export function directoryPage(
+  paths: string[],
+  prefix: string,
+  offset: number,
+  limit: number,
+  edited?: ReadonlyMap<string, number>,
+) {
   const directory = prefix.replace(/\/+$/, '')
-  const all = [...new Set(paths.filter((p) => p.startsWith(`${directory}/`)))].sort()
+  const child = (path: string) => path.slice(directory.length + 1).split('/')[0]
+  const all = [...new Set(paths.filter((p) => p.startsWith(`${directory}/`)))]
+  if (edited)
+    all.sort(
+      (a, b) =>
+        (edited.get(child(b)) ?? 0) - (edited.get(child(a)) ?? 0) ||
+        child(a).localeCompare(child(b)) ||
+        a.localeCompare(b),
+    )
+  else all.sort()
   const boundedLimit = Math.min(limit, retrievalLimits.page)
   const pagePaths = all.slice(offset, offset + boundedLimit)
   const nextOffset = offset + pagePaths.length
@@ -222,7 +237,11 @@ const childSlug = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 // Immediate child directories in an already scoped path list. Nested files stay
 // on the descendant page; this only names the next segment.
-export function childDirectoryPaths(paths: readonly string[], directory: string): string[] {
+export function childDirectoryPaths(
+  paths: readonly string[],
+  directory: string,
+  edited?: ReadonlyMap<string, number>,
+): string[] {
   const prefix = `${directory}/`
   const found = new Set<string>()
   for (const path of paths) {
@@ -234,7 +253,15 @@ export function childDirectoryPaths(paths: readonly string[], directory: string)
     if (!childSlug.test(name)) continue
     found.add(`${directory}/${name}`)
   }
-  return [...found].sort()
+  const children = [...found]
+  if (edited)
+    children.sort(
+      (a, b) =>
+        (edited.get(b.slice(prefix.length)) ?? 0) - (edited.get(a.slice(prefix.length)) ?? 0) ||
+        a.localeCompare(b),
+    )
+  else children.sort()
+  return children
 }
 
 // Frontmatter description wins. Otherwise the first prose paragraph, matching
