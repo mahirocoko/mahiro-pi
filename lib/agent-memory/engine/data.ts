@@ -1522,7 +1522,7 @@ export class MemoryDataEngine {
     if ((await this.head()) !== revision) throw Error('Episode revision changed')
     return selected
   }
-  private async episodeBacklog(project: string, limit: number) {
+  private async episodeBacklog(project: string, limit: number, session?: string) {
     const revision = await this.head()
     const ledger = await this.ledger(revision)
     const pending = []
@@ -1535,7 +1535,11 @@ export class MemoryDataEngine {
         continue
       const episode = observedEpisode(JSON.parse(await this.read(join(this.root, '.episodes', name), 16384)))
       if (episode.id !== id) throw Error('Invalid episode filename identity')
-      if (episode.project === project) pending.push(episode)
+      if (
+        episode.project === project &&
+        (session === undefined || 'kind' in episode || episode.session === session)
+      )
+        pending.push(episode)
     }
     if ((await this.head()) !== revision) throw Error('Episode revision changed')
     return {
@@ -2136,7 +2140,7 @@ export class MemoryDataEngine {
       }
       case 'episodeBacklog': {
         const args = input as Input<'episodeBacklog'>
-        return await this.episodeBacklog(args.project, args.limit)
+        return await this.episodeBacklog(args.project, args.limit, args.session)
       }
       case 'episodeCredit': {
         const args = input as Input<'episodeCredit'>

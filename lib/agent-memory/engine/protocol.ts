@@ -156,7 +156,7 @@ export interface Operations {
   offlineCertify: { input: { revision: string }; output: { revision: string } }
   episodes: { input: { project: string }; output: Episode[] }
   selectEpisodes: { input: { project: string; ids: string[] }; output: Episode[] }
-  episodeBacklog: { input: { project: string; limit: number }; output: { ids: string[] } }
+  episodeBacklog: { input: { project: string; limit: number; session?: string }; output: { ids: string[] } }
   episodeCredit: { input: { project: string; session: string }; output: { steps: number } }
   observe: { input: { episode: Episode }; output: { recorded: true } }
   manage: {
@@ -300,7 +300,7 @@ export function validateInput(method: Method, input: unknown) {
     offlineCertify: ['revision'],
     episodes: ['project'],
     selectEpisodes: ['project', 'ids'],
-    episodeBacklog: ['project', 'limit'],
+    episodeBacklog: ['project', 'limit', 'session'],
     episodeCredit: ['project', 'session'],
     observe: ['episode'],
     manage: ['action', 'project', 'revision', 'paths', 'sources', 'target', 'section', 'offset', 'limit'],
@@ -409,7 +409,8 @@ export function validateInput(method: Method, input: unknown) {
       !idPattern.test(input.project) ||
       !Number.isSafeInteger(input.limit) ||
       (input.limit as number) < 1 ||
-      (input.limit as number) > reflectionBacklogLimit
+      (input.limit as number) > reflectionBacklogLimit ||
+      (input.session !== undefined && !validId(input.session))
     )
       throw Error('Invalid episode backlog')
   }

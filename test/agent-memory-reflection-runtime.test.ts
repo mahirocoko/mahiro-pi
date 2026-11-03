@@ -2248,9 +2248,30 @@ test('commandless coverage and Windows-path results still enumerate another proj
     const coverage = write('coverage', 'project', '100%', 2)
     const windows = write('windows', 'project', 'C:\\users\\test', 3)
     const sibling = write('sibling', 'other', 'other project ok', 4)
+    const foreignSession = {
+      id: digest('foreign:turn'),
+      project: 'project',
+      session: 'foreign',
+      evidence: 'observed-native-unverified' as const,
+      observedAt: '2026-07-01T00:00:00.000Z',
+      entryHash: digest('foreign-turn'),
+      input: { text: 'foreign turn', source: 'rpc' as const },
+      actions: [{ text: 'kept' }],
+      results: [],
+      outcome: 'completed' as const,
+      assistantSteps: 6,
+    }
+    writeFileSync(join(folder, `${foreignSession.id}.json`), `${JSON.stringify(foreignSession)}\n`, {
+      mode: 0o600,
+    })
     const before = readdirSync(folder).sort()
     const context = { current: () => true }
     const projectBacklog = await engine.request('episodeBacklog', { project: 'project', limit: 32 }, context)
+    const primaryBacklog = await engine.request(
+      'episodeBacklog',
+      { project: 'project', limit: 32, session: 'primary' },
+      context,
+    )
     const otherBacklog = await engine.request('episodeBacklog', { project: 'other', limit: 32 }, context)
     const projectCredit = await engine.request(
       'episodeCredit',
@@ -2262,7 +2283,8 @@ test('commandless coverage and Windows-path results still enumerate another proj
       { project: 'other', session: 'primary' },
       context,
     )
-    assert.deepEqual(projectBacklog.ids.slice().sort(), [coverage, windows].sort())
+    assert.deepEqual(projectBacklog.ids.slice().sort(), [coverage, windows, foreignSession.id].sort())
+    assert.deepEqual(primaryBacklog.ids.slice().sort(), [coverage, windows].sort())
     assert.deepEqual(otherBacklog.ids, [sibling])
     assert.deepEqual(projectCredit, { steps: 5 })
     assert.deepEqual(otherCredit, { steps: 4 })

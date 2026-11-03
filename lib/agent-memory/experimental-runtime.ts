@@ -2226,7 +2226,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             .slice(0, 8)
         : []
       if (text || tools.length) {
-        pending.assistantEvents += 1
+        if (text) pending.assistantEvents += 1
         retain(pending.actions, { ...(text ? { text } : {}), ...(tools.length ? { tools } : {}) })
       }
     } catch {
@@ -2314,9 +2314,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           actions: own.actions,
           results: own.results,
           outcome: 'completed',
-          ...(Number.isSafeInteger(own.assistantEvents) && own.assistantEvents >= 1
-            ? { assistantSteps: own.assistantEvents }
-            : {}),
+          assistantSteps: Math.max(1, Number.isSafeInteger(own.assistantEvents) ? own.assistantEvents : 1),
         }
         while (bytes(`${JSON.stringify(episode)}\n`) > 16384) {
           if (episode.results.length > 2) episode.results.splice(1, 1)
@@ -2394,7 +2392,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           let backlogIds: string[] = []
           try {
             backlogIds = (
-              await f.request('episodeBacklog', { project: f.project, limit: reflectionBacklogLimit })
+              await f.request('episodeBacklog', {
+                project: f.project,
+                limit: reflectionBacklogLimit,
+                session: episode.session,
+              })
             ).ids
           } catch {
             backlogIds = []
