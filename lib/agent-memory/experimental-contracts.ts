@@ -1,6 +1,7 @@
 import type { ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
 import type { MemoryABI } from './runtime.ts'
 import type { MemoryEngineController } from './engine/controller.ts'
+import type { MemoryAdmission } from './engine/admission.ts'
 import { attemptTimingSink, type AttemptTimingSink } from './engine/attempt-timing.ts'
 
 // Opaque by-reference data only. Root never authenticates a serialized view/controller claim.
@@ -8,6 +9,7 @@ export interface EngineWorkerValue {
   version: 2
   [attemptTimingSink]?: () => AttemptTimingSink | undefined
   engine: MemoryEngineController
+  admission?: MemoryAdmission
   root: string
   project: string
   view: string
@@ -17,6 +19,12 @@ export interface EngineWorkerValue {
   ready: boolean
   dataBarrier(): Promise<void>
 }
+// A process-local owner result, never a root-wide exclusion or cleanup certificate.
+export interface MemoryRetirementResult {
+  state: 'drained' | 'unsupported'
+  scope: 'memory-generation'
+  globalQuiescence: false
+}
 export interface MemoryABIV2
   extends Omit<MemoryABI, 'version' | 'assertAccess' | 'authorize' | 'bindWorker'> {
   version: 2
@@ -24,6 +32,15 @@ export interface MemoryABIV2
   live: () => boolean
   hold(owner: object): () => void
   onRetire(callback: () => Promise<void>): () => void
+  // Optional for compatibility with already-loaded/capability-less ABI2 owners.
+  retireMemory?(tool: ToolInfo, ctx: ExtensionContext, root: string): Promise<MemoryRetirementResult>
+  // Exact-primary/PSS read-only handoff authority survives this generation's retirement.
+  preparedRetirementAccess?(
+    tool: ToolInfo,
+    ctx: ExtensionContext,
+    root: string,
+    targets: readonly string[],
+  ): void
   maintenanceAccess(
     tool: ToolInfo,
     ctx: ExtensionContext,
@@ -98,6 +115,8 @@ export function buildManagedMemoryABI(
         live: () => boolean
         hold(owner: object): () => void
         onRetire(callback: () => Promise<void>): () => void
+        retireMemory?: MemoryABIV2['retireMemory']
+        preparedRetirementAccess?: MemoryABIV2['preparedRetirementAccess']
         assertTargets: MemoryABIV2['assertTargets']
         maintenanceAccess: MemoryABIV2['maintenanceAccess']
       }
@@ -130,6 +149,8 @@ export function buildManagedMemoryABI(
     live: selection.live,
     hold: selection.hold,
     onRetire: selection.onRetire,
+    retireMemory: selection.retireMemory,
+    preparedRetirementAccess: selection.preparedRetirementAccess,
     assertTargets: selection.assertTargets,
     maintenanceAccess: selection.maintenanceAccess,
     assertAccess: (...args) => engine(common.assertAccess(...args)),

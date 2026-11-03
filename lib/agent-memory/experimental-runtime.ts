@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
@@ -14,6 +14,7 @@ import { assertCurrent, MemoryEngineController, type OperationContext } from './
 import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
 import { MemoryLifetime } from './engine/lifetime.ts'
 import { type MaintenanceRequest, offlineMaintenance } from './engine/offline-maintenance.ts'
+import { offlineReset, type ResetRequest } from './engine/offline-reset.ts'
 import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from './engine/policy.ts'
 import type { Input, Method, Output } from './engine/protocol.ts'
 import { MemoryPublisher } from './engine/publisher.ts'
@@ -25,7 +26,12 @@ import { isOfflineMaintenanceSession } from './offline-bootstrap.ts'
 import { buildPalaceDiagnostic, type PalaceDiagnostic } from './palace-diagnostic.ts'
 import { buildPalaceHandoff, type PalaceHandoff } from './palace-handoff.ts'
 import { primaryDelegationDoctrine } from './prompt.ts'
-import { memoryFailure, memoryFailureCode } from './reasons.ts'
+import {
+  memoryFailure,
+  memoryFailureCode,
+  offlineResetFailure,
+  type OfflineResetFailureCode,
+} from './reasons.ts'
 import {
   reflectionPolicy,
   validReflectionStepCount,
@@ -56,6 +62,14 @@ import {
 import type { MemoryNode } from './runtime.ts'
 import type { TurnEpisode } from './store.ts'
 import { installedWriter, preflightWriterRoute } from './writer-route.ts'
+
+const resetCheck = <T>(enabled: boolean, code: OfflineResetFailureCode, check: () => T): T => {
+  try {
+    return check()
+  } catch (error) {
+    throw enabled ? offlineResetFailure(error, code) : error
+  }
+}
 
 const writerLifetimeMs = 240000
 const publicationReserveMs = 30000
@@ -127,6 +141,7 @@ const viewerReadActions = new Set([
   'palace',
   'migration-export',
   'offline-inspect',
+  'offline-reset-inspect',
   'offline-episode-inspect',
   'offline-draft-inspect',
   'offline-draft-park-inspect',
@@ -364,9 +379,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     releaseRuntime = releaseController = unregisterRetire = undefined
     retirement = (async () => {
       // A retired owner can only join native work/close handles, never finish publication.
-      await viewerDrain
-      await lifetime.drain()
-      if (engine) await engine.close() // data child LAST, after all parent continuations
+      const drains = await Promise.allSettled([viewerDrain, lifetime.drain()])
+      if (engine) await engine.close() // data child LAST, even if a native/viewer join failed
+      for (const result of drains) if (result.status === 'rejected') throw result.reason
       controllerRelease?.()
       runtimeRelease?.()
       unregister?.()
@@ -445,13 +460,16 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     operation: 'read' | 'write',
     signal?: AbortSignal,
     maintenance = false,
+    resetDiagnostics = false,
   ) => {
     const node = pinned
     const ownBinding = binding
     const abi = node?.managedMemory
     const tool = pi.getAllTools().find((entry) => entry.name === name)
     if (!active || !node || !ownBinding || abi?.version !== 2 || !tool || !abi.root)
-      throw Error('Experimental memory unavailable')
+      throw resetDiagnostics
+        ? offlineResetFailure(Error('Experimental memory unavailable'), 'reset-owner')
+        : Error('Experimental memory unavailable')
     const root = abi.root
     const token = epoch
     const manager = ctx.sessionManager
@@ -482,7 +500,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         )
           return false
         const access = maintenance
-          ? abi.maintenanceAccess(tool, ctx, root, operation, [])
+          ? resetCheck(resetDiagnostics, 'maintenance-authority', () =>
+              abi.maintenanceAccess(tool, ctx, root, operation, []),
+            )
           : abi.assertAccess(tool, ctx, root, operation)
         if (
           expected &&
@@ -493,16 +513,24 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         // Identical logical/physical target within this synchronous call is one PSS check, not a cache.
         const paths = [...new Set([...targets.physical, ...targets.logical.map((path) => join(root, path))])]
         for (let start = 0; start < paths.length; start += 32)
-          if (maintenance) abi.maintenanceAccess(tool, ctx, root, operation, paths.slice(start, start + 32))
+          if (maintenance)
+            resetCheck(resetDiagnostics, 'maintenance-authority', () =>
+              abi.maintenanceAccess(tool, ctx, root, operation, paths.slice(start, start + 32)),
+            )
           else abi.assertTargets(tool, ctx, root, operation, paths.slice(start, start + 32))
         return true
       },
     }
-    assertCurrent(context)
+    resetCheck(resetDiagnostics, 'reset-binding', () => assertCurrent(context))
     const access = maintenance
-      ? abi.maintenanceAccess(tool, ctx, root, operation, [])
+      ? resetCheck(resetDiagnostics, 'maintenance-authority', () =>
+          abi.maintenanceAccess(tool, ctx, root, operation, []),
+        )
       : abi.assertAccess(tool, ctx, root, operation)
     expected = access
+    // No automatic cohort provisioning. Only an actually supplied parent participant
+    // is inherited; installed legacy roots use the explicit offline handoff instead.
+    if (!maintenance && access.kind === 'worker') context.admission = access.value.admission
     if (access.kind === 'primary' && !primaryEngine) {
       releaseController = abi.hold({ controller: token })
       primaryEngine = new MemoryEngineController(root)
@@ -512,7 +540,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       engine.root !== root ||
       (access.kind === 'worker' && (access.value.version !== 2 || access.value.root !== root))
     )
-      throw Error('Opaque parent engine binding mismatch')
+      throw resetDiagnostics
+        ? offlineResetFailure(Error('Opaque parent engine binding mismatch'), 'reset-binding')
+        : Error('Opaque parent engine binding mismatch')
     let branchPrefix: SessionAnchor | undefined
     const barrier = async () => {
       assertCurrent(context)
@@ -1047,6 +1077,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       const value: EngineWorkerValue = {
         version: 2,
         engine: f.engine,
+        admission: f.context.admission,
         root: f.root,
         project: f.project,
         view: created.view,
@@ -1102,6 +1133,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         Date.now() < (publicationDeadline ?? value.deadline) &&
         !ctx.signal?.aborted
       const jobContext: OperationContext = {
+        admission: f.context.admission,
         hold: (identity) => f.abi.hold(identity),
         current(targets) {
           if (identityLive() !== true) return false
@@ -1300,15 +1332,17 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
             claimOutcome: true,
           },
         )
-        attempt.bind(() => service.getRecord(own.id!))
-        revoke = f.abi.bindWorker(f.tool, ctx, f.root, own.id, value, identityLive)
-        own.phase = 'running'
-        // Public native service join; inherited Root/runtime holds additionally pin each child.
+        // Reserve the actual native join immediately after spawn, BEFORE any fallible binding.
+        // The enclosing lifetime.track also pins reentrant retirement until spawn returns its id.
         void lifetime
-          .track(() => service.waitForAll())
+          .join(() => service.waitForAll())
           .catch(() => {
             if (token === epoch) lastError = 'native-drain-unavailable'
           })
+        if (stale() || job !== own) throw Error('Memory writer launch retired')
+        attempt.bind(() => service.getRecord(own.id!))
+        revoke = f.abi.bindWorker(f.tool, ctx, f.root, own.id, value, identityLive)
+        own.phase = 'running'
         void own.finish()
         return { job: own.id, status: 'native-dispatched', providerProof: false }
       } catch (error) {
@@ -1435,8 +1469,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     }
     if (
       name === 'agent_memory_manage' &&
-      objectShape(args, ['action', 'target', 'revision', 'offline']) &&
+      objectShape(args, ['action', 'target', 'revision', 'offline', 'destruction']) &&
       [
+        'offline-reset-inspect',
+        'offline-reset',
         'offline-inspect',
         'offline-adopt',
         'offline-resume',
@@ -1453,25 +1489,76 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
         'offline-draft-restore',
       ].includes(args.action as string)
     ) {
-      const f = owner(
-        ctx,
-        name,
-        viewerReadActions.has(args.action as string) ? 'read' : 'write',
-        signal,
-        true,
+      const reset = args.action === 'offline-reset-inspect' || args.action === 'offline-reset'
+      if (
+        reset &&
+        (!isOfflineMaintenanceSession(ctx.sessionManager.getSessionId()) ||
+          ctx.hasUI ||
+          ctx.sessionManager.getSessionFile() !== undefined)
+      )
+        throw offlineResetFailure(
+          memoryFailure(
+            'offline-only',
+            'Reset is available only through the explicit native offline operator',
+          ),
+          'offline-context',
+        )
+      if (!reset && 'destruction' in args) throw Error('Destruction belongs only to offline reset')
+      const f = resetCheck(reset, 'reset-owner', () =>
+        owner(
+          ctx,
+          name,
+          viewerReadActions.has(args.action as string) ? 'read' : 'write',
+          signal,
+          true,
+          reset,
+        ),
       )
       if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || starting || job || draft)
-        throw Error('Idle ephemeral primary maintenance owner required')
+        throw reset
+          ? offlineResetFailure(Error('Idle ephemeral primary maintenance owner required'), 'idle')
+          : Error('Idle ephemeral primary maintenance owner required')
       // No ordinary config/data barrier, cached recovered plan or manufactured current verdict.
       // Root maintenanceAccess rechecks the real manager, generation, tool and exact PSS targets.
-      const anchor = await branch(ctx)
+      const anchor = await branch(ctx).catch((error) => {
+        throw reset ? offlineResetFailure(error, 'branch') : error
+      })
       const current = f.context.current
       const context: OperationContext = {
         ...f.context,
         current: (targets) => appendedSuffixSync(ctx, anchor).ok && current(targets),
       }
-      assertCurrent(context)
+      resetCheck(reset, 'branch', () => assertCurrent(context))
+      if (reset) {
+        if (f.root !== join(resolveAgentDir(), 'memory'))
+          throw offlineResetFailure(Error('Exact standard profile root required'), 'standard-root')
+        return await offlineReset(f.engine, context, args as unknown as ResetRequest)
+      }
       return await offlineMaintenance(f.engine, context, args as unknown as MaintenanceRequest)
+    }
+    if (
+      name === 'agent_memory_manage' &&
+      objectShape(args, ['action']) &&
+      args.action === 'status' &&
+      Object.keys(args).length === 1
+    ) {
+      const f = owner(ctx, name, 'read', signal)
+      if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx))
+        throw Error('Primary management required')
+      await branch(ctx, undefined, () => assertCurrent(f.context))
+      assertCurrent(f.context, { physical: [f.root], logical: [], kind: 'data' })
+      try {
+        await lstat(f.root)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        assertCurrent(f.context, { physical: [f.root], logical: [], kind: 'data' })
+        return {
+          state: 'absent-uninitialized',
+          initialized: false,
+          lockPresent: false,
+          pendingOperation: false,
+        }
+      }
     }
     const manageRead = (action: unknown) =>
       action === 'status' || action === 'doctor' || action === 'palace' || action === 'migration-export'
@@ -1611,8 +1698,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
       }
       if (args.action === 'status') {
         if (latestAttempt && !latestAttempt.matches(ctx, f.configHash, f.project)) latestAttempt = undefined
+        const status = await f.request('status', {})
         return {
-          ...(await f.request('status', {})),
+          ...status,
           project: f.project,
           draft: draft ? 'open' : undefined,
           worker: starting || job ? 'active' : 'idle',
@@ -1620,7 +1708,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
           latestAttempt: latestAttempt?.value.snapshot() ?? null,
           historicalErasure: false,
           automatic: (await f.barrier()).config.automatic,
-          policyOperation: await memoryPolicyStatus(f.engine, f.context),
+          policyOperation: await memoryPolicyStatus(f.engine, f.context, status.pendingOperations),
           configHash: f.configHash,
           engineABI: 2,
           publication: draft ? 'private-draft-not-published' : 'committed-head',
@@ -1862,6 +1950,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
     if (serial !== bindingSerial) throw Error('Memory start retired')
     const next = nodes()?.get(ctx.sessionManager.getSessionId())
     if (next?.managedMemory?.version !== 2) throw Error('Experimental ABI2 required')
+    if (!next.managedMemory.live()) return // explicit kernel retirement is terminal for this generation
     bind(next, ctx)
   })
   pi.on('session_before_switch', retire)
@@ -2061,6 +2150,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI) {
   })
   pi.on('input', (event, ctx) =>
     admit(ctx, async () => {
+      // Input precedes before_agent_start. The registered offline operator must not
+      // enter resolve()/config observation here: attempting that read starts the
+      // primary controller before source filtering, defeating reset's fresh-idle exclusion.
+      if (
+        !ctx.hasUI &&
+        ctx.sessionManager.getSessionFile() === undefined &&
+        isOfflineMaintenanceSession(ctx.sessionManager.getSessionId())
+      )
+        return
       await closeViewer()
       const serial = ++admissionSerial
       launchFence++

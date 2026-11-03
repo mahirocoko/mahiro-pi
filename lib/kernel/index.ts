@@ -14,6 +14,7 @@ import { createOwnUIOwner } from './own-ui.ts'
 import { createUsageOwner } from './usage.ts'
 import { resolveAgentDir } from '../setup.ts'
 import { selectMemoryLease } from './memory-lease.ts'
+import { createMemoryRetirement } from './memory-retirement.ts'
 import { createInstalledMemoryOwner, readMemorySelection } from '../agent-memory/profile.ts'
 import { installedWriter, preflightWriterRoute } from '../agent-memory/writer-route.ts'
 import { resolveRunBinding } from '../execution-run/store.ts'
@@ -126,7 +127,7 @@ export default async function activateKernel(pi: ExtensionAPI) {
   type Lease = NonNullable<KernelRegistry['memoryLeases']> extends Map<string, infer L> ? L : never
   // Private validator function, not retained authority. Its lease result lives only on the caller's stack.
   let validateMemoryAccess: (
-    ...args: [...Parameters<ManagedMemoryABI['assertAccess']>, maintenance?: boolean]
+    ...args: [...Parameters<ManagedMemoryABI['assertAccess']>, maintenance?: boolean, retirement?: boolean]
   ) => {
     access: ReturnType<ManagedMemoryABI['assertAccess']>
     lease?: Lease
@@ -138,6 +139,8 @@ export default async function activateKernel(pi: ExtensionAPI) {
         live: () => boolean
         hold(owner: object): () => void
         onRetire(callback: () => Promise<void>): () => void
+        retireMemory: NonNullable<MemoryABIV2['retireMemory']>
+        preparedRetirementAccess: NonNullable<MemoryABIV2['preparedRetirementAccess']>
         assertTargets: MemoryABIV2['assertTargets']
         maintenanceAccess: MemoryABIV2['maintenanceAccess']
       }
@@ -146,8 +149,18 @@ export default async function activateKernel(pi: ExtensionAPI) {
   let memoryDisabled = false
   let memoryRetiring = false
   let memoryRootRelease: (() => void) | undefined
-  const memoryRetirements = new Set<() => Promise<void>>()
   let memoryDisposed: Promise<void> | undefined
+  const memoryLifetime = createMemoryRetirement(
+    () => {
+      memoryRetiring = true
+      installedMemoryOwner?.retire()
+    },
+    async () => {
+      memoryRootRelease?.()
+      memoryRootRelease = undefined
+      await installedMemoryOwner?.drain()
+    },
+  )
   const healthy = (id: string) => nodes.get(id)?.healthy?.() === true
   const ownsContext = (ctx: Pick<ExtensionContext, 'sessionManager'>) =>
     !!sessionId &&
@@ -393,7 +406,29 @@ export default async function activateKernel(pi: ExtensionAPI) {
             live: () => !memoryRetiring && source.live(),
             hold: (owner) => {
               if (memoryRetiring) throw Error('Memory Root retiring')
-              return source.hold(owner)
+              return memoryLifetime.hold(() => source.hold(owner))
+            },
+            onRetire: memoryLifetime.onRetire,
+            retireMemory(tool, ctx, root) {
+              // No healthy-node retirement, global job abort, operation adoption or permission grant.
+              const validate = () => {
+                requirePrimary(ctx, 'Memory retirement')
+                if (tool.name !== 'agent_memory_manage') throw Error('Memory management tool required')
+                validateMemoryAccess(tool, ctx, root, 'write', root, false, true)
+              }
+              validate()
+              const drain = memoryLifetime.retire() // synchronous fence; do not await before admission closes
+              return drain.then((result) => {
+                validate() // current generation/root/authority still owns the result, not just admission
+                return result
+              })
+            },
+            preparedRetirementAccess(tool, ctx, root, targets) {
+              requirePrimary(ctx, 'Prepared publication retirement')
+              if (tool.name !== 'agent_memory_manage' || !Array.isArray(targets) || targets.length > 32)
+                throw Error('Bounded memory management handoff required')
+              validateMemoryAccess(tool, ctx, root, 'read', root, true, true)
+              for (const target of targets) validateMemoryAccess(tool, ctx, root, 'read', target, true, true)
             },
             maintenanceAccess(tool, ctx, root, operation, targets) {
               // A genuine ephemeral headless primary only, not an offline caller verdict.
@@ -478,13 +513,6 @@ export default async function activateKernel(pi: ExtensionAPI) {
               if (!after.value || !('version' in after.value) || after.value.version !== 2)
                 throw Error('Memory batch ABI mismatch')
               return { kind: 'worker', value: after.value }
-            },
-            onRetire(callback) {
-              if (memoryRetiring) throw Error('Memory Root retiring')
-              memoryRetirements.add(callback)
-              return () => {
-                memoryRetirements.delete(callback)
-              }
             },
           }
         }
@@ -773,12 +801,16 @@ export default async function activateKernel(pi: ExtensionAPI) {
               operation = 'read',
               target = root,
               maintenance = false,
+              retirement = false,
             ) => {
               const expected =
                 memorySelection?.root ??
                 process.env.MAHIRO_AGENT_MEMORY_ROOT ??
                 join(resolveGoalProfile(), 'memory')
-              if (memoryDisabled || (memorySelection && !memorySelection.live()))
+              if (
+                memoryDisabled ||
+                (memorySelection && !memorySelection.live() && !(retirement && memoryRetiring))
+              )
                 throw Error('Memory engine off or retired')
               if (
                 !ownsContext(ctx) ||
@@ -804,6 +836,7 @@ export default async function activateKernel(pi: ExtensionAPI) {
               const primary = isPrimarySession(ctx)
               if (
                 maintenance &&
+                !retirement &&
                 (!memorySelection ||
                   !primary ||
                   ctx.hasUI ||
@@ -1082,30 +1115,16 @@ export default async function activateKernel(pi: ExtensionAPI) {
   )
   const dispose = () => {
     if (memoryDisposed) return memoryDisposed
-    // ABI2 retirement fences admission BEFORE node removal, independently of hook order.
-    // Callbacks must fence synchronously, then join only already-started work.
-    memoryRetiring = true
-    installedMemoryOwner?.retire()
-    const drains: Promise<void>[] = []
-    if (memorySelection)
-      for (const callback of memoryRetirements) {
-        try {
-          drains.push(callback())
-        } catch (error) {
-          drains.push(Promise.reject(error))
-        }
-      }
+    // The same memory-only fence runs BEFORE node removal, independently of hook order.
+    // Shutdown alone removes the foreground owner; explicit retirement never does.
+    const drain = memorySelection ? memoryLifetime.retire() : undefined
     registered = false
     if (nodes.get(sessionId)?.generation === generation) nodes.delete(sessionId)
     for (const [jobId, lease] of memoryLeases)
       if (lease.ownerId === sessionId && lease.generation === generation) memoryLeases.delete(jobId)
     for (const unsubscribe of unsubscribes.splice(0)) unsubscribe?.()
-    if (memorySelection) {
-      memoryDisposed = Promise.all(drains).then(async () => {
-        memoryRootRelease?.()
-        memoryRetirements.clear()
-        await installedMemoryOwner?.drain()
-      })
+    if (drain) {
+      memoryDisposed = drain.then(() => {})
       return memoryDisposed
     }
   }

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, rename, rmdir, unlink } from 'node:fs/promises'
+import { link, lstat, mkdir, open, readdir, rename, rmdir, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { assertCurrent, type MemoryEngineController, type OperationContext } from './controller.ts'
 import { engineEnvironment, privateDirectory, runGit, safePath } from './io.ts'
@@ -17,6 +17,7 @@ import {
 } from './schema.ts'
 import { draftArchiveMaintenance } from './offline-draft-archive.ts'
 import { episodeRecoveryMaintenance } from './offline-episode-recovery.ts'
+import { offlineResetFailure } from '../reasons.ts'
 
 // Explicit cooperative offline adoption only. This is NOT executor drain or normal reconciliation.
 export const maintenanceMarker = '.views/.maintenance-active.json'
@@ -43,9 +44,9 @@ interface Plan {
   entries: Entry[]
   head: string
   configSemantic: string
-  owner: LockOwner
-  operation: { immutableHash: string; sequence: number; view: string }
-  outcome: 'unknown' | 'not_committed_dirty'
+  owner: LockOwner | null
+  operation: { id: string; digest: string; immutableHash: string; sequence: number; view: string }
+  outcome: 'unknown' | 'not_committed_dirty' | 'prepared' | 'locked-prepared'
   moves: string[]
   worktree: { path: string; state: 'tracked' | 'untracked' }[]
   draft: string | null
@@ -107,7 +108,11 @@ interface State {
   version: 1
   phase: 'prepared' | 'archived' | 'quarantining' | 'completed'
   planHash: string
-  disposition: 'manually-adopted-prior-outcome-unknown' | 'manually-recovered-not-committed-dirty'
+  disposition:
+    | 'manually-adopted-prior-outcome-unknown'
+    | 'manually-recovered-not-committed-dirty'
+    | 'manually-retired-ownerless-prepared'
+    | 'manually-retired-locked-prepared'
 }
 export interface MaintenanceRequest {
   action:
@@ -355,7 +360,8 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
       throw Error('Offline operation root binding mismatch')
     records.push({ entry: e, record })
   }
-  let owner: LockOwner
+  let owner: LockOwner | null
+  let target: string
   let outcome: Plan['outcome']
   if (lockPresent) {
     owner = parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
@@ -367,33 +373,42 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
         .join() !== '.lock/owner.json'
     )
       throw Error('Offline adoption refuses incomplete or policy lock evidence')
-    outcome = 'unknown'
+    target = owner.operation
+    // Matching lock metadata is not a claim receipt or proof of executor drain.
+    const candidate = records.find(({ record }) => record.immutable.plan.id === target)?.record
+    outcome = candidate?.receipt.stage === 'prepared' ? 'locked-prepared' : 'unknown'
   } else {
     const candidates = records.filter(
       ({ record }) =>
-        record.receipt.stage === 'not_committed_dirty' &&
         record.immutable.plan.current === head &&
-        record.owner !== null,
+        ((record.receipt.stage === 'not_committed_dirty' && record.owner !== null) ||
+          (record.receipt.stage === 'prepared' && record.owner === null && record.sequence === 0)),
     )
     if (candidates.length !== 1)
-      throw Error('Offline recovery requires one exact terminal dirty operation without a lock')
-    owner = parseLockOwner(candidates[0].record.owner)
-    outcome = 'not_committed_dirty'
+      throw Error(
+        'Offline recovery requires one exact terminal dirty or ownerless prepared operation without a lock',
+      )
+    const candidate = candidates[0].record
+    owner = candidate.owner === null ? null : parseLockOwner(candidate.owner)
+    target = candidate.immutable.plan.id
+    outcome = owner === null ? 'prepared' : 'not_committed_dirty'
   }
   const moves = lockPresent ? ['.lock'] : []
   let operation: Plan['operation'] | undefined
   let operationRecord: ReturnType<typeof parseOperation> | undefined
   let draft: string | null = null
   for (const { entry: journalEntry, record } of records) {
-    if (record.immutable.plan.id === owner.operation) {
+    if (record.immutable.plan.id === target) {
       if (
-        record.immutable.plan.digest !== owner.digest ||
-        JSON.stringify(record.owner) !== JSON.stringify(owner) ||
+        (owner !== null && record.immutable.plan.digest !== owner.digest) ||
+        JSON.stringify(record.owner) !== JSON.stringify(outcome === 'locked-prepared' ? null : owner) ||
         record.immutable.plan.current !== head ||
-        record.receipt.stage !== outcome
+        record.receipt.stage !== (outcome === 'locked-prepared' ? 'prepared' : outcome)
       )
         throw Error('Offline recovery operation binding mismatch')
       operation = {
+        id: record.immutable.plan.id,
+        digest: record.immutable.plan.digest,
         immutableHash: record.immutableHash,
         sequence: record.sequence,
         view: record.immutable.plan.view,
@@ -413,7 +428,12 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
     } else if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
       throw Error('Offline adoption refuses additional unresolved operations')
   }
-  const casPath = `${journal}/${owner.operation}.json.cas`
+  const prepared = outcome === 'prepared' || outcome === 'locked-prepared'
+  if (outcome === 'locked-prepared' && records.length !== 1)
+    throw Error('Offline locked prepared recovery refuses additional journal entries')
+  if (prepared && journalEntries.some((e) => e.path.endsWith('.cas')))
+    throw Error('Offline prepared recovery refuses any CAS evidence')
+  const casPath = `${journal}/${target}.json.cas`
   if (entry(casPath)) {
     if (entry(casPath)?.kind !== 'directory' || entries.some((value) => value.path.startsWith(`${casPath}/`)))
       throw Error('Offline CAS is not empty')
@@ -421,11 +441,12 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
   }
   if (!operation || !operationRecord)
     throw Error('Offline adoption requires complete typed operation evidence')
-  const stagingPath = `.views/.engine-v2/staging/${owner.operation}`
+  const stagingPath = `.views/.engine-v2/staging/${target}`
   const stagingEntries = entries.filter((e) => e.path.startsWith('.views/.engine-v2/staging/'))
   if (stagingEntries.some((e) => !within(e.path, stagingPath)))
     throw Error('Offline adoption refuses staging from another operation')
   if (entry(stagingPath)) {
+    if (prepared) throw Error('Offline ownerless prepared recovery refuses staging evidence')
     if (entry(stagingPath)?.kind !== 'directory') throw Error('Offline operation staging is not a directory')
     moves.push(stagingPath)
   }
@@ -433,6 +454,44 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
     .toString('utf8')
     .split('\0')
     .filter(Boolean)
+  if (prepared) {
+    // Native execution artifacts remain ambiguous even when Git excludes hide them.
+    // Classify from the complete root inventory, never porcelain visibility.
+    if (entries.some((entry) => /^\.memory-engine-[a-f0-9-]{36}\.tmp$/.test(entry.path)))
+      throw Error('Offline ownerless prepared recovery refuses native orphan evidence')
+    if (
+      status.length !== 0 ||
+      operationRecord.sequence !== 0 ||
+      JSON.stringify(operationRecord.receipt) !== JSON.stringify({ stage: 'prepared' }) ||
+      operationRecord.immutable.plan.configHash !== configSemantic ||
+      operationRecord.immutable.plan.ledgerHash !==
+        hash(JSON.stringify(parseLedger(await read(root, '.memory.json', limits.ledger, context))))
+    )
+      throw Error('Offline ownerless prepared recovery requires unchanged clean prepared state')
+    // Status alone can hide assume-unchanged/skip-worktree paths. Compare every tracked
+    // byte with HEAD; no Git write-tree, commit, or inferred executor receipt is needed.
+    const tree = (await git(root, ['ls-tree', '-rz', '--full-tree', head], context))
+      .toString('utf8')
+      .split('\0')
+      .filter(Boolean)
+    const index = (await git(root, ['ls-files', '--stage', '-z'], context))
+      .toString('utf8')
+      .split('\0')
+      .filter(Boolean)
+      .map((line) => line.replace(/^([0-7]+) ([a-f0-9]+) 0\t/, '$1 blob $2\t'))
+    if (JSON.stringify([...tree].sort()) !== JSON.stringify(index.sort()))
+      throw Error('Offline ownerless prepared index differs from HEAD')
+    for (const line of tree) {
+      const match = /^(100644|100755) blob ([a-f0-9]{40,64})\t(.+)$/.exec(line)
+      if (!match) throw Error('Offline ownerless prepared tree unavailable')
+      const bytes = Buffer.from(await read(root, match[3], bounds.file, context))
+      const oid = createHash(head.length === 40 ? 'sha1' : 'sha256')
+        .update(`blob ${bytes.length}\0`)
+        .update(bytes)
+        .digest('hex')
+      if (oid !== match[2]) throw Error('Offline ownerless prepared tracked bytes differ from HEAD')
+    }
+  }
   const changes = new Map(operationRecord.immutable.plan.changes.map((change) => [change.path, change]))
   const worktree: Plan['worktree'] = []
   const orphans: string[] = []
@@ -500,6 +559,7 @@ export async function inspectHolders(
   engine: MemoryEngineController,
   context: OperationContext,
   allowControllerHolder = true,
+  requireNoHolders = false,
 ) {
   await gate(context, [root, join(root, '.git')])
   const executable =
@@ -551,8 +611,13 @@ export async function inspectHolders(
           if (!pid) return reject(Error('Offline holder inspection malformed'))
           found = true
           // These identities come only from this actual owner process and controller object.
-          if (pid !== process.pid && !(allowControllerHolder && pid === engine.pid))
-            return reject(Error('Unexpected kernel Root holder; close it explicitly, do not kill or adopt'))
+          if (requireNoHolders || (pid !== process.pid && !(allowControllerHolder && pid === engine.pid)))
+            return reject(
+              offlineResetFailure(
+                Error('Unexpected kernel Root holder; close it explicitly, do not kill or adopt'),
+                'holder-present',
+              ),
+            )
         } else return reject(Error('Offline holder inspection unknown field'))
       }
       if ((code === 1 && length !== 0) || (code === 0 && !found))
@@ -699,14 +764,12 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
   if (JSON.stringify(content(actual)) !== JSON.stringify(content(plan.entries)))
     throw Error('Archive full byte inventory verification failed')
   const root = join(work, 'snapshot')
-  const owner = plan.owner
+  const operation = plan.operation
   const archivedOwner =
-    plan.outcome === 'unknown'
+    plan.outcome === 'unknown' || plan.outcome === 'locked-prepared'
       ? parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
       : null
-  const record = parseOperation(
-    await read(root, `${journal}/${owner.operation}.json`, operationLimit, context),
-  )
+  const record = parseOperation(await read(root, `${journal}/${operation.id}.json`, operationLimit, context))
   const resolvedDraft = await proposalPath(root, actual, plan.operation.view, context)
   const draftRaw = await read(root, resolvedDraft, 2 * 1024 * 1024, context)
   const draft = parseDraft(draftRaw)
@@ -722,7 +785,7 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
     return entry?.kind === 'file' && entry.hash === change.hash && entry.size === change.size
   })
   if (
-    (plan.outcome === 'unknown'
+    (plan.outcome === 'unknown' || plan.outcome === 'locked-prepared'
       ? JSON.stringify(archivedOwner) !== JSON.stringify(plan.owner) ||
         archivedOwner?.directory !== plan.entries.find((e) => e.path === '.lock')?.identity
       : archivedOwner !== null || plan.entries.some((entry) => within(entry.path, '.lock'))) ||
@@ -730,10 +793,10 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
     record.immutable.rootIdentity !== plan.entries.find((e) => e.path === '.')?.identity ||
     record.immutableHash !== plan.operation.immutableHash ||
     record.sequence !== plan.operation.sequence ||
-    record.immutable.plan.digest !== owner.digest ||
-    record.immutable.plan.id !== owner.operation ||
-    JSON.stringify(record.owner) !== JSON.stringify(owner) ||
-    record.receipt.stage !== plan.outcome ||
+    record.immutable.plan.digest !== operation.digest ||
+    record.immutable.plan.id !== operation.id ||
+    JSON.stringify(record.owner) !== JSON.stringify(plan.outcome === 'locked-prepared' ? null : plan.owner) ||
+    record.receipt.stage !== (plan.outcome === 'locked-prepared' ? 'prepared' : plan.outcome) ||
     record.immutable.plan.current !== plan.head ||
     record.immutable.plan.view !== plan.operation.view ||
     resolvedDraft !== plan.draft ||
@@ -896,8 +959,79 @@ async function verifyActive(plan: Plan, work: string, context: OperationContext,
   const head = (await git(plan.root, ['rev-parse', '--verify', 'HEAD'], context)).toString().trim()
   if (head !== plan.head) throw Error('Offline HEAD changed')
 }
+// A link publishes complete, synced bytes exclusively. Only this exact two-name
+// publication seam may be repaired; arbitrary hardlinks and unknown temps remain refused.
+async function settleMarkerPublication(root: string, context: OperationContext, settle = false) {
+  const path = join(root, maintenanceMarker)
+  await gate(context, [path])
+  await safePath(dirname(path))
+  const before = await lstat(path)
+  if (before.nlink === 1) return
+  if (!before.isFile() || before.nlink !== 2 || before.mode & 0o077 || before.size > 1024)
+    throw Error('Offline marker publication identity unavailable')
+  const fd = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  let marker: { version?: unknown; id?: unknown }
+  let markerRaw: string
+  try {
+    const stat = await fd.stat()
+    if (identity(stat) !== identity(before) || stat.nlink !== 2 || stat.size !== before.size)
+      throw Error('Offline marker publication changed')
+    const bytes = await fd.readFile('utf8')
+    markerRaw = bytes
+    const after = await fd.stat()
+    if (
+      Buffer.byteLength(bytes) > 1024 ||
+      after.size !== stat.size ||
+      after.mtimeMs !== stat.mtimeMs ||
+      after.ctimeMs !== stat.ctimeMs ||
+      after.nlink !== 2
+    )
+      throw Error('Offline marker publication changed')
+    marker = JSON.parse(bytes)
+  } finally {
+    await fd.close()
+  }
+  if (marker?.version !== 1 || typeof marker.id !== 'string' || !uuidPattern.test(marker.id))
+    throw Error('Offline marker publication malformed')
+  const source = join(root, container, marker.id, 'marker-publication.json')
+  const raw = await read(root, `${container}/${marker.id}/plan.json`, 64 * 1024 * 1024, context)
+  const plan = JSON.parse(raw)
+  const state = JSON.parse(await read(root, `${container}/${marker.id}/state.json`, 2048, context))
+  if (
+    plan?.version !== 1 ||
+    plan.id !== marker.id ||
+    plan.root !== root ||
+    state?.version !== 1 ||
+    state.phase !== 'prepared' ||
+    state.planHash !== hash(raw)
+  )
+    throw Error('Offline marker publication transaction mismatch')
+  await gate(context, [path, source])
+  await safePath(dirname(source))
+  const original = await lstat(source)
+  if (!original.isFile() || original.nlink !== 2 || identity(original) !== identity(before))
+    throw Error('Offline marker publication source mismatch')
+  // Inspection validates and reports this seam without repairing either name.
+  if (!settle) return markerRaw
+  // Persist the admission barrier before removing its other name. A crash on either
+  // side leaves either this verifiable pair or the ordinary single-link marker.
+  await syncDirectory(dirname(path), context)
+  await gate(context, [path, source])
+  const current = await lstat(path)
+  const pending = await lstat(source)
+  if (
+    identity(current) !== identity(before) ||
+    identity(pending) !== identity(before) ||
+    current.nlink !== 2 ||
+    pending.nlink !== 2
+  )
+    throw Error('Offline marker publication changed')
+  await unlink(source)
+  await syncDirectory(dirname(source), context)
+}
 async function loadTransaction(root: string, context: OperationContext) {
-  const markerRaw = await read(root, maintenanceMarker, 1024, context)
+  const interruptedPublication = await settleMarkerPublication(root, context)
+  const markerRaw = interruptedPublication ?? (await read(root, maintenanceMarker, 1024, context))
   const marker = JSON.parse(markerRaw)
   if (
     marker?.version !== 1 ||
@@ -911,6 +1045,11 @@ async function loadTransaction(root: string, context: OperationContext) {
   const plan = JSON.parse(raw) as Plan
   if (!Object.hasOwn(plan, 'worktree')) plan.worktree = []
   if (!Object.hasOwn(plan, 'outcome')) plan.outcome = 'unknown'
+  // Existing typed-owner transactions predate explicit operation identity fields.
+  if (plan.owner && plan.operation) {
+    if (!Object.hasOwn(plan.operation, 'id')) plan.operation.id = plan.owner.operation
+    if (!Object.hasOwn(plan.operation, 'digest')) plan.operation.digest = plan.owner.digest
+  }
   const stateRaw = await read(root, relativeToRoot(root, join(work, 'state.json')), 2048, context)
   const state = JSON.parse(stateRaw) as State
   if (
@@ -944,33 +1083,49 @@ async function loadTransaction(root: string, context: OperationContext) {
     state.version !== 1 ||
     state.planHash !== hash(raw) ||
     !['prepared', 'archived', 'quarantining', 'completed'].includes(state.phase) ||
-    !['manually-adopted-prior-outcome-unknown', 'manually-recovered-not-committed-dirty'].includes(
-      state.disposition,
-    )
+    ![
+      'manually-adopted-prior-outcome-unknown',
+      'manually-recovered-not-committed-dirty',
+      'manually-retired-ownerless-prepared',
+      'manually-retired-locked-prepared',
+    ].includes(state.disposition)
   )
     throw Error('Offline maintenance checkpoint unavailable')
-  parseLockOwner(plan.owner)
+  if (plan.owner !== null) parseLockOwner(plan.owner)
   if (
     !/^[a-f0-9]{40,64}$/.test(plan.head) ||
     !/^[a-f0-9]{64}$/.test(plan.configSemantic) ||
     !plan.operation ||
+    !uuidPattern.test(plan.operation.id) ||
+    !/^[a-f0-9]{64}$/.test(plan.operation.digest) ||
     !/^[a-f0-9]{64}$/.test(plan.operation.immutableHash) ||
     !Number.isSafeInteger(plan.operation.sequence) ||
     plan.operation.sequence < 0 ||
     !uuidPattern.test(plan.operation.view) ||
     (plan.draft !== `${drafts}/${plan.operation.view}.json` &&
       plan.draft !== `${overflowDrafts}/${plan.operation.view}.json`) ||
-    !['unknown', 'not_committed_dirty'].includes(plan.outcome) ||
-    (plan.outcome === 'unknown' ? !plan.moves.includes('.lock') : plan.moves.includes('.lock')) ||
+    !['unknown', 'not_committed_dirty', 'prepared', 'locked-prepared'].includes(plan.outcome) ||
+    (plan.outcome === 'locked-prepared') !== (state.disposition === 'manually-retired-locked-prepared') ||
+    (plan.outcome === 'prepared') !== (plan.owner === null) ||
+    (plan.outcome === 'prepared') !== (state.disposition === 'manually-retired-ownerless-prepared') ||
+    (plan.owner !== null &&
+      (plan.owner.operation !== plan.operation.id || plan.owner.digest !== plan.operation.digest)) ||
+    (plan.outcome === 'prepared' &&
+      (plan.operation.sequence !== 0 || plan.worktree.length !== 0 || plan.moves.length !== 1)) ||
+    (plan.outcome === 'locked-prepared' &&
+      (plan.operation.sequence !== 0 || plan.worktree.length !== 0 || plan.moves.length !== 2)) ||
+    (plan.outcome === 'unknown' || plan.outcome === 'locked-prepared'
+      ? !plan.moves.includes('.lock')
+      : plan.moves.includes('.lock')) ||
     (plan.outcome === 'unknown') !== (state.disposition === 'manually-adopted-prior-outcome-unknown') ||
-    !plan.moves.includes(`${journal}/${plan.owner.operation}.json`) ||
+    !plan.moves.includes(`${journal}/${plan.operation.id}.json`) ||
     new Set(plan.moves).size !== plan.moves.length ||
     plan.moves.some(
       (path) =>
         path !== '.lock' &&
-        path !== `${journal}/${plan.owner.operation}.json` &&
-        path !== `${journal}/${plan.owner.operation}.json.cas` &&
-        path !== `.views/.engine-v2/staging/${plan.owner.operation}` &&
+        path !== `${journal}/${plan.operation.id}.json` &&
+        path !== `${journal}/${plan.operation.id}.json.cas` &&
+        path !== `.views/.engine-v2/staging/${plan.operation.id}` &&
         !/^\.memory-engine-[a-f0-9-]{36}\.tmp$/.test(path),
     ) ||
     plan.entries.some(
@@ -985,9 +1140,16 @@ async function loadTransaction(root: string, context: OperationContext) {
   )
     throw Error('Offline checkpoint is not the narrow typed adoption contract')
   const active = await inventory(root, context, [maintenanceMarker, relative(root, work)])
-  const workspace = await inventory(work, context)
+  const workspace = await inventory(work, context, interruptedPublication ? ['marker-publication.json'] : [])
   const digest = hash(
-    JSON.stringify({ marker: hash(markerRaw), plan: hash(raw), state: hash(stateRaw), active, workspace }),
+    JSON.stringify({
+      marker: hash(markerRaw),
+      plan: hash(raw),
+      state: hash(stateRaw),
+      active,
+      workspace,
+      ...(interruptedPublication ? { interruptedPublication: hash(interruptedPublication) } : {}),
+    }),
   )
   const children = (path: string) => active.filter((e) => dirname(e.path) === path)
   const counts = {
@@ -998,10 +1160,10 @@ async function loadTransaction(root: string, context: OperationContext) {
     staging: active.filter((e) => e.kind === 'file' && e.path.startsWith('.views/.engine-v2/staging/'))
       .length,
     unknownAdmission: children(journal).filter(
-      (e) => e.path.endsWith('.cas') || e.path === `${journal}/${plan.owner.operation}.json`,
+      (e) => e.path.endsWith('.cas') || e.path === `${journal}/${plan.operation.id}.json`,
     ).length,
   }
-  return { plan, state, work, digest, counts }
+  return { plan, state, work, digest, counts, interruptedPublication: !!interruptedPublication }
 }
 async function finish(
   plan: Plan,
@@ -1010,6 +1172,12 @@ async function finish(
   engine: MemoryEngineController,
   context: OperationContext,
 ) {
+  const markerPath = join(plan.root, maintenanceMarker)
+  await gate(context, [markerPath])
+  const markerIdentity = identity(await lstat(markerPath))
+  const markerRaw = await read(plan.root, maintenanceMarker, 1024, context)
+  const marker = JSON.parse(markerRaw)
+  if (marker?.version !== 1 || marker.id !== plan.id) throw Error('Offline marker owner mismatch')
   const save = async (phase: State['phase']) => {
     state = { ...state, phase }
     await durableJSON(join(work, 'state.json'), state, context)
@@ -1070,8 +1238,14 @@ async function finish(
     await verifyActive(plan, work, context, true)
     await save('completed') // durable disposition BEFORE releasing admission barrier
   }
-  await gate(context, [join(plan.root, maintenanceMarker)])
-  await unlink(join(plan.root, maintenanceMarker))
+  await gate(context, [markerPath])
+  if (
+    identity(await lstat(markerPath)) !== markerIdentity ||
+    (await read(plan.root, maintenanceMarker, 1024, context)) !== markerRaw
+  )
+    throw Error('Offline marker changed before release')
+  await gate(context, [markerPath])
+  await unlink(markerPath)
   await syncDirectory(join(plan.root, '.views'), context)
   return {
     target: plan.id,
@@ -1083,6 +1257,28 @@ async function finish(
     humanAcceptance: false,
   }
 }
+// Same strict owner/fingerprint classifier as offline adoption, without claiming that
+// foreground processes are globally quiescent. Returns no corpus, paths or lock nonce.
+export async function inspectPreparedPublication(root: string, context: OperationContext) {
+  if (await present(join(root, maintenanceMarker), context))
+    throw Error('Existing offline maintenance checkpoint requires offline-inspect/offline-resume')
+  const reviewed = await review(root, context)
+  if (reviewed.outcome !== 'prepared' && reviewed.outcome !== 'locked-prepared')
+    throw Error(
+      'Prepared retirement supports only strict ownerless-prepared or locked-prepared; use offline recovery',
+    )
+  return {
+    target: reviewed.operation.id,
+    revision: hash(JSON.stringify(reviewed)),
+    priorOutcome: reviewed.outcome,
+    operationDigest: reviewed.operation.digest,
+    legacyEvidence: true,
+    onlineEligible: false,
+    reason: 'complete-capability-cohort-unproven',
+    corpusReturned: false,
+  } as const
+}
+
 export async function offlineMaintenance(
   engine: MemoryEngineController,
   context: OperationContext,
@@ -1102,6 +1298,7 @@ export async function offlineMaintenance(
         head: tx.plan.head,
         revision: tx.digest,
         phase: tx.state.phase,
+        interruptedPublication: tx.interruptedPublication,
         counts: tx.counts,
         disposition: tx.state.disposition,
         next: 'explicit-reviewed-offline-resume',
@@ -1114,6 +1311,8 @@ export async function offlineMaintenance(
       request.offline !== offlineAssurance
     )
       throw Error('Explicit reviewed offline checkpoint resume required')
+    // Only an explicitly reviewed, write-authorized resume may repair an interrupted publication.
+    await settleMarkerPublication(root, context, true)
     return await finish(tx.plan, tx.state, tx.work, engine, context)
   }
   if (request.action === 'offline-resume') throw Error('Offline maintenance marker absent; no replay')
@@ -1122,7 +1321,7 @@ export async function offlineMaintenance(
   if (request.action === 'offline-inspect') {
     await inspectHolders(root, engine, context)
     return {
-      target: reviewed.owner.operation,
+      target: reviewed.operation.id,
       revision,
       head: reviewed.head,
       rootIdentity: reviewed.entries.find((e) => e.path === '.')!.identity,
@@ -1145,7 +1344,7 @@ export async function offlineMaintenance(
   }
   if (
     request.action !== 'offline-adopt' ||
-    request.target !== reviewed.owner.operation ||
+    request.target !== reviewed.operation.id ||
     request.revision !== revision ||
     request.offline !== offlineAssurance
   )
@@ -1172,13 +1371,18 @@ export async function offlineMaintenance(
     disposition:
       plan.outcome === 'unknown'
         ? 'manually-adopted-prior-outcome-unknown'
-        : 'manually-recovered-not-committed-dirty',
+        : plan.outcome === 'locked-prepared'
+          ? 'manually-retired-locked-prepared'
+          : plan.outcome === 'prepared'
+            ? 'manually-retired-ownerless-prepared'
+            : 'manually-recovered-not-committed-dirty',
   }
   await durableJSON(join(work, 'state.json'), state, context)
   const path = join(root, maintenanceMarker)
-  await gate(context, [path])
+  const source = join(work, 'marker-publication.json')
+  await gate(context, [path, source])
   const marker = await open(
-    path,
+    source,
     constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
     0o600,
   )
@@ -1188,7 +1392,10 @@ export async function offlineMaintenance(
   } finally {
     await marker.close()
   }
-  await syncDirectory(dirname(path), context)
+  await syncDirectory(work, context)
+  await gate(context, [source, path])
+  await link(source, path) // exclusive: never replace another transaction's barrier
+  await settleMarkerPublication(root, context, true)
   for (const path of [maintenanceMarker, relative(root, work)])
     await git(root, ['check-ignore', '--quiet', '--', path], context)
   return await finish(plan, state, work, engine, context)

@@ -6,6 +6,7 @@ import { memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
 import { createAgentMemoryRouter } from '../lib/agent-memory/runtime-router.ts'
 import { memoryReadSchema } from '../lib/agent-memory/retrieval.ts'
 import { publicMemoryError } from '../lib/agent-memory/reasons.ts'
+import { reportOfflineResetFailure } from '../lib/agent-memory/offline-bootstrap.ts'
 
 export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}) {
   registerWorkflowPresentation(pi)
@@ -24,6 +25,8 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           'help',
           'capacity',
           'retained-preview',
+          'retire',
+          'prepared-retire',
           'remember',
           'dream',
           'doctor',
@@ -36,14 +39,14 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         ].includes(subcommand)
       ) {
         ctx.ui.notify(
-          'Use /mh-memory [status|help|capacity|retained-preview|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
+          'Use /mh-memory [status|help|capacity|retained-preview|retire|prepared-retire [status]|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
           'warning',
         )
         return
       }
       if (subcommand === 'help') {
         ctx.ui.notify(
-          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory capacity is the idle count-only storage diagnostic and can run after a successful status; it returns no names, paths, record bodies, or cleanup handle. A model tool turn is not idle. /mh-memory retained-preview classifies retained draft manifests without archiving, unlinking, or proving another controller is idle; safe candidates stay zero while cross-controller exclusion is unproven. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It does not open a browser or expose memory bodies, diffs, authors or subjects. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory capacity is the idle count-only storage diagnostic and can run after a successful status; it returns no names, paths, record bodies, or cleanup handle. A model tool turn is not idle. /mh-memory retained-preview classifies retained draft manifests without archiving, unlinking, or proving another controller is idle; safe candidates stay zero while cross-controller exclusion is unproven. /mh-memory retire permanently fences this primary memory generation and waits for its actual registered continuations, controller, publication and holds, without stopping foreground work or unrelated agents. It does not prove global root quiescence or repair uncertain operations; ABI1 and older owners report unsupported. /mh-memory prepared-retire [status] accepts only strict ownerless-prepared or locked-prepared publication evidence. With no argument it drains this capable memory generation and returns an exact offline-required target/revision handoff, without a new maintenance marker, archive, quarantine or global-quiescence claim; status only inspects. Legacy/mixed-version roots still require coordinated offline recovery. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It does not open a browser or expose memory bodies, diffs, authors or subjects. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
           'info',
         )
         return
@@ -85,6 +88,28 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           }
           const result = await runtime.run('agent_memory_manage', { action: 'retained-preview' }, ctx)
           observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'prepared-retire') {
+          if (rest.length > 1 || (rest.length === 1 && rest[0] !== 'status')) {
+            ctx.ui.notify('Usage: /mh-memory prepared-retire [status]', 'warning')
+            return
+          }
+          const result = await runtime.run(
+            'agent_memory_manage',
+            { action: rest.length ? 'prepared-retire-status' : 'prepared-retire' },
+            ctx,
+          )
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'retire') {
+          if (rest.length) {
+            ctx.ui.notify('Usage: /mh-memory retire (no arguments)', 'warning')
+            return
+          }
+          const result = await runtime.retireMemory(ctx)
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
           return
         }
@@ -214,6 +239,8 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             'status',
             'capacity',
             'retained-preview',
+            'prepared-retire-status',
+            'prepared-retire',
             'doctor',
             'palace',
             'migration-export',
@@ -223,6 +250,8 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             'policy',
             'policy-reconcile',
             'offline-inspect',
+            'offline-reset-inspect',
+            'offline-reset',
             'offline-adopt',
             'offline-resume',
             'offline-episode-inspect',
@@ -248,6 +277,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         revision: string,
         configHash: string,
         offline: { type: 'string', enum: ['known-profile-closed-no-cooperative-writers-start'] },
+        destruction: { type: 'string', enum: ['destroy-entire-standard-memory-root-no-backup'] },
         paths: { type: 'array', items: string, maxItems: 128 },
         sources: { type: 'array', items: string, maxItems: 128 },
         target: string,
@@ -307,6 +337,12 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             details: result,
           }
         } catch (error) {
+          if (
+            name === 'agent_memory_manage' &&
+            'action' in args &&
+            ['offline-reset', 'offline-reset-inspect'].includes(args.action as string)
+          )
+            reportOfflineResetFailure(ctx.sessionManager.getSessionId(), _id, error)
           throw publicMemoryError(error, name === 'agent_memory_read')
         }
       },

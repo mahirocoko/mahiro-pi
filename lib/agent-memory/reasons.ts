@@ -1,16 +1,43 @@
 import { createRequire } from 'node:module'
 
-export type MemoryReason = 'capacity' | 'deadline' | 'branch' | 'CAS' | 'retention' | 'draft' | 'unknown'
+export type MemoryReason =
+  | 'capacity'
+  | 'deadline'
+  | 'branch'
+  | 'CAS'
+  | 'retention'
+  | 'draft'
+  | 'offline-only'
+  | 'unknown'
 export interface MemoryFailureCode {
   reason: MemoryReason
   readInvalidation?: 'forgetting' | 'revision'
 }
+export type OfflineResetFailureCode =
+  | 'holder-present'
+  | 'holder-inspection'
+  | 'unsafe-entry'
+  | 'scan'
+  | 'authority'
+  | 'reset-owner'
+  | 'reset-binding'
+  | 'offline-context'
+  | 'maintenance-authority'
+  | 'idle'
+  | 'branch'
+  | 'standard-root'
+  | 'reset-preflight'
+  | 'reset-controller-busy'
+  | 'reset-request-shape'
+  | 'fingerprint'
 const require = createRequire(import.meta.url)
 const native = require('./reasons.mjs') as {
   memoryFailure(reason: MemoryReason, message: string, readInvalidation?: 'forgetting' | 'revision'): Error
   memoryFailureCode(error: unknown): Readonly<MemoryFailureCode>
+  offlineResetFailure<T>(error: T, code: OfflineResetFailureCode): T
+  offlineResetFailureCode(error: unknown): OfflineResetFailureCode | undefined
 }
-export const { memoryFailure, memoryFailureCode } = native
+export const { memoryFailure, memoryFailureCode, offlineResetFailure, offlineResetFailureCode } = native
 
 // Fixed text only. In particular, an Error's message is NOT evidence of its source.
 export function publicMemoryError(error: unknown, read = false): Error {
@@ -29,6 +56,7 @@ export function publicMemoryError(error: unknown, read = false): Error {
     retention: 'lossless retention guard refused the proposal; published knowledge not replaced',
     draft:
       'primary draft expired, scope/configuration changed, or creation pending; proposal preserved; explicit owner review required',
+    'offline-only': 'reset requires the explicit native offline operator, not an active primary session',
     unknown: 'valid arguments, scope, CAS, separate permission and healthy native binding required',
   }
   return new Error(`Managed memory unavailable: ${text[code.reason]} (reason: ${code.reason})`)
@@ -49,7 +77,9 @@ export function decodeMemoryFailure(value: unknown): Error {
   const reason = descriptors.reason.value as unknown
   const readInvalidation = descriptors.readInvalidation?.value as unknown
   if (
-    !['capacity', 'deadline', 'branch', 'CAS', 'retention', 'draft', 'unknown'].includes(reason as string) ||
+    !['capacity', 'deadline', 'branch', 'CAS', 'retention', 'draft', 'offline-only', 'unknown'].includes(
+      reason as string,
+    ) ||
     (readInvalidation !== undefined &&
       !(
         (readInvalidation === 'forgetting' && reason === 'unknown') ||

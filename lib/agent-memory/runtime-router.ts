@@ -3,6 +3,11 @@ import { createAgentMemoryRuntime, type MemoryNode, type RuntimeConfig } from '.
 import { createExperimentalMemoryRuntime } from './experimental-runtime.ts'
 import { memoryReadiness } from './readiness.ts'
 import { memoryFailureCode } from './reasons.ts'
+import type { MemoryRetirementResult } from './experimental-contracts.ts'
+import { type OperationContext } from './engine/controller.ts'
+import { inspectPreparedPublication } from './engine/offline-maintenance.ts'
+import { retirePreparedPublication } from './engine/prepared-retirement.ts'
+import { appendedSuffixSync, sessionAnchor } from './session-branch.ts'
 
 type Handler = (event: never, ctx: ExtensionContext) => unknown
 // ExtensionAPI.on is overloaded; the proxy retains that public signature while
@@ -127,17 +132,87 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
       }
     }
   }
+  const preparedRetirement = async (ctx: ExtensionContext, statusOnly: boolean, signal?: AbortSignal) => {
+    const node = (config.nodes ?? (globalThis as Record<symbol, Map<string, MemoryNode>>)[key])?.get(
+      ctx.sessionManager.getSessionId(),
+    )
+    const abi = node?.managedMemory
+    const tool = pi.getAllTools().find((entry) => entry.name === 'agent_memory_manage')
+    if (
+      !node ||
+      node !== pinned ||
+      mode !== 2 ||
+      abi?.version !== 2 ||
+      !tool ||
+      node.generation !== abi.generation ||
+      !abi.retireMemory ||
+      !abi.preparedRetirementAccess
+    )
+      throw Error('Capable primary prepared publication retirement required; use explicit offline recovery')
+    const manager = ctx.sessionManager
+    const generation = node.generation
+    const root = abi.root
+    const anchor = sessionAnchor(ctx)
+    const context: OperationContext = {
+      signal,
+      current(targets) {
+        if (
+          ctx.sessionManager !== manager ||
+          !node.healthy() ||
+          node.managedMemory !== abi ||
+          node.generation !== generation ||
+          abi.generation !== generation ||
+          abi.root !== root ||
+          !abi.isPrimarySession(ctx) ||
+          !appendedSuffixSync(ctx, anchor).ok ||
+          ctx.signal?.aborted
+        )
+          return false
+        abi.preparedRetirementAccess!(tool, ctx, root, targets.physical)
+        return true
+      },
+    }
+    if (statusOnly) return await inspectPreparedPublication(root, context)
+    return await retirePreparedPublication(root, context, () => abi.retireMemory!(tool, ctx, root))
+  }
   return {
-    run: (...args: Parameters<typeof legacy.run>) =>
-      args[0] === 'agent_memory_manage' &&
-      args[1] &&
-      typeof args[1] === 'object' &&
-      'action' in args[1] &&
-      args[1].action === 'status' &&
-      Object.keys(args[1]).length === 1
+    run: (...args: Parameters<typeof legacy.run>) => {
+      if (
+        args[0] === 'agent_memory_manage' &&
+        args[1] &&
+        typeof args[1] === 'object' &&
+        'action' in args[1] &&
+        ['prepared-retire-status', 'prepared-retire'].includes(String(args[1].action))
+      ) {
+        if (Object.keys(args[1]).length !== 1) throw Error('Prepared retirement takes only its narrow action')
+        return preparedRetirement(args[2], args[1].action === 'prepared-retire-status', args[3])
+      }
+      return args[0] === 'agent_memory_manage' &&
+        args[1] &&
+        typeof args[1] === 'object' &&
+        'action' in args[1] &&
+        args[1].action === 'status' &&
+        Object.keys(args[1]).length === 1
         ? diagnose(args[2], true)
-        : selected().run(...args),
+        : selected().run(...args)
+    },
     diagnose,
+    retireMemory: (ctx: ExtensionContext): Promise<MemoryRetirementResult> => {
+      const node = (config.nodes ?? (globalThis as Record<symbol, Map<string, MemoryNode>>)[key])?.get(
+        ctx.sessionManager.getSessionId(),
+      )
+      if (!node?.healthy() || !node.managedMemory?.isPrimarySession(ctx))
+        throw Error('Primary memory retirement owner required')
+      const abi = node.managedMemory
+      if (abi.version !== 2 || typeof abi.retireMemory !== 'function')
+        return Promise.resolve({ state: 'unsupported', scope: 'memory-generation', globalQuiescence: false })
+      if (node !== pinned || mode !== 2 || node.generation !== abi.generation)
+        throw Error('Memory retirement generation changed')
+      const tool = pi.getAllTools().find((entry) => entry.name === 'agent_memory_manage')
+      if (!tool) throw Error('Memory management tool unavailable')
+      // Deliberately outside runtime.run/lifetime.track: never join our own retirement call.
+      return abi.retireMemory(tool, ctx, abi.root)
+    },
     capacityDiagnostic: (ctx: ExtensionContext, signal?: AbortSignal) => {
       if (mode !== 2) throw Error('ABI2 capacity diagnostic unavailable')
       return experimental.capacityDiagnostic(ctx, signal)

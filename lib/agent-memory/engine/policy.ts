@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
-import { constants } from 'node:fs'
-import { lstat, open, realpath, rename, unlink } from 'node:fs/promises'
+import { constants, type Stats } from 'node:fs'
+import { lstat, open, opendir, realpath, rename, unlink } from 'node:fs/promises'
 import { isDeepStrictEqual } from 'node:util'
 import { digest, objectShape } from '../../continuity/records.ts'
 import { parseConfig, revisionPattern, uuidPattern } from './schema.ts'
@@ -193,34 +193,220 @@ async function stagingMatches(
   )
 }
 
-// Diagnostic disk evidence NEVER proves quiescence. Unknown/non-policy locks are retained.
-export async function memoryPolicyStatus(engine: MemoryEngineController, context: OperationContext) {
-  try {
-    check(context, join(engine.root, '.lock'))
+export type LockObservation = 'absent' | 'directory-present' | 'other-entry-present' | 'unavailable'
+export type LockShape = 'empty' | 'owner-only' | 'other' | 'unavailable'
+
+// Cooperative pathname observation, NOT a descriptor-bound snapshot. Node opendir has
+// no no-follow flag: observed links/replacements fail closed, transient swaps may escape
+// detection. No entry contents or entry metadata are read; owner-only is a name only.
+async function observeLockShape(
+  root: string,
+  initial: Stats,
+  context: OperationContext,
+  discovered: string[],
+): Promise<LockShape> {
+  const lock = join(root, '.lock')
+  const bound = () => check(context, root, lock, ...discovered)
+  const fenced = async <T>(read: () => Promise<T>): Promise<T> => {
+    bound()
     try {
-      await lstat(join(engine.root, '.lock'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      assertCurrent(context)
-      return { state: 'idle', lockRetained: false, next: 'none' }
+      return await read()
+    } finally {
+      bound()
     }
-    const { record, reference } = await evidence(engine.root, context)
-    const actual = await observed(engine, context, record.identity)
+  }
+  const same = (a: typeof initial, b: typeof initial) =>
+    b.isDirectory() &&
+    !(b.mode & 0o077) &&
+    inode(a) === inode(b) &&
+    a.mode === b.mode &&
+    a.mtimeMs === b.mtimeMs &&
+    a.ctimeMs === b.ctimeMs
+  try {
+    await fenced(() => privateDirectory(root))
+    const rootBefore = await fenced(() => lstat(root))
+    await fenced(() => privateDirectory(lock))
+    const before = await fenced(() => lstat(lock))
+    if (!same(initial, before)) throw Error('Lock changed')
+    // bufferSize 1 and two explicit reads: never inventory the full directory.
+    // Acquire outside fenced so a post-open revocation cannot leak the Dir handle.
+    bound()
+    const directory = await opendir(lock, { bufferSize: 1 })
+    let shape: LockShape
+    try {
+      bound()
+      const first = await fenced(() => directory.read())
+      if (first) {
+        discovered.push(join(lock, first.name))
+        bound()
+      }
+      const second = first ? await fenced(() => directory.read()) : null
+      if (second) {
+        discovered.push(join(lock, second.name))
+        bound()
+      }
+      shape = !first ? 'empty' : !second && first.name === 'owner.json' ? 'owner-only' : 'other'
+    } finally {
+      // Closing the already-open handle must also happen on revoked authority.
+      try {
+        bound()
+      } finally {
+        try {
+          await directory.close()
+        } finally {
+          bound()
+        }
+      }
+    }
+    const after = await fenced(() => lstat(lock))
+    const rootAfter = await fenced(() => lstat(root))
+    if (!same(before, after) || !same(rootBefore, rootAfter)) throw Error('Directory changed')
+    bound()
+    return shape
+  } catch {
+    bound()
+    return 'unavailable'
+  }
+}
+
+export type LockOwnerPendingComparison = 'match' | 'mismatch' | 'unavailable'
+
+// Read-only, cooperative comparison with already-read pending metadata. This is
+// neither a policy/publication ownership check nor a recovery eligibility test.
+async function compareLockOwnerPending(
+  root: string,
+  initial: Stats,
+  pending: readonly { id: string; digest: string }[],
+  context: OperationContext,
+  discovered: string[],
+): Promise<LockOwnerPendingComparison> {
+  const lock = join(root, '.lock')
+  const ownerPath = join(lock, 'owner.json')
+  if (!discovered.includes(ownerPath)) discovered.push(ownerPath)
+  const bound = () => check(context, root, lock, ...discovered)
+  const fenced = async <T>(read: () => Promise<T>): Promise<T> => {
+    bound()
+    try {
+      return await read()
+    } finally {
+      bound()
+    }
+  }
+  const same = (a: Stats, b: Stats) =>
+    b.isDirectory() &&
+    !(b.mode & 0o077) &&
+    inode(a) === inode(b) &&
+    a.mode === b.mode &&
+    a.mtimeMs === b.mtimeMs &&
+    a.ctimeMs === b.ctimeMs
+  try {
+    await fenced(() => privateDirectory(root))
+    const rootBefore = await fenced(() => lstat(root))
+    await fenced(() => privateDirectory(lock))
+    const before = await fenced(() => lstat(lock))
+    if (!same(initial, before)) throw Error('Lock changed')
+    const raw = await fenced(() => readPrivate(ownerPath, 2048))
+    const owner = parseLockOwner(JSON.parse(raw.toString('utf8')))
+    const again = await fenced(() => readPrivate(ownerPath, 2048))
+    const after = await fenced(() => lstat(lock))
+    const rootAfter = await fenced(() => lstat(root))
+    if (!raw.equals(again) || !same(before, after) || !same(rootBefore, rootAfter))
+      throw Error('Comparison evidence changed')
+    bound()
+    return pending.some((entry) => entry.id === owner.operation && entry.digest === owner.digest)
+      ? 'match'
+      : 'mismatch'
+  } catch {
+    bound()
+    return 'unavailable'
+  }
+}
+
+// Point-in-time entry observation only, never ownership, quiescence or removal eligibility.
+// Diagnostic disk evidence NEVER proves quiescence. Unknown/non-policy locks are retained.
+interface MemoryPolicyStatus {
+  state: string
+  lockRetained: boolean
+  lockObservation: LockObservation
+  lockShape?: LockShape
+  lockOwnerPendingComparison?: LockOwnerPendingComparison
+  next: string
+  outcome?: string
+  target?: string
+  digest?: string
+  expectedRevision?: string
+  automatic?: boolean
+  configHash?: string
+}
+
+export async function memoryPolicyStatus(
+  engine: MemoryEngineController,
+  context: OperationContext,
+  pending?: readonly { id: string; digest: string }[],
+): Promise<MemoryPolicyStatus> {
+  const lock = join(engine.root, '.lock')
+  // Retain discovered exact targets through the entire status call, including error
+  // fallbacks. A child denial must not become a successful shape classification.
+  const discovered: string[] = []
+  const bound = () => check(context, engine.root, lock, ...discovered)
+  const fenced = async <T>(read: () => Promise<T>): Promise<T> => {
+    bound()
+    try {
+      return await read()
+    } finally {
+      bound()
+    }
+  }
+  let lockObservation: LockObservation = 'unavailable'
+  let lockShape: LockShape | undefined
+  let lockOwnerPendingComparison: LockOwnerPendingComparison = 'unavailable'
+  try {
+    bound()
+    await privateDirectory(engine.root)
+    bound()
+    try {
+      const stat = await lstat(lock)
+      bound()
+      lockObservation = stat.isDirectory() ? 'directory-present' : 'other-entry-present'
+      if (lockObservation === 'directory-present') {
+        lockShape = await observeLockShape(engine.root, stat, context, discovered)
+        if (pending)
+          lockOwnerPendingComparison = await compareLockOwnerPending(
+            engine.root,
+            stat,
+            pending,
+            context,
+            discovered,
+          )
+      }
+      bound()
+    } catch (error) {
+      bound()
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      lockObservation = 'absent'
+      return { state: 'idle', lockRetained: false, lockObservation, next: 'none' }
+    }
+    if (lockObservation !== 'directory-present') throw Error('Policy lock directory unavailable')
+    const { record, reference } = await fenced(() => evidence(engine.root, context))
+    const actual = await fenced(() => observed(engine, context, record.identity))
     const available =
       !reference.drained || reference.recovering
         ? false
         : actual.outcome !== 'unknown' &&
-          (await engine.request('status', {}, context)).revision === record.identity.revision &&
-          (await stagingMatches(engine.root, record, reference.staging, context))
+          (await fenced(() => engine.request('status', {}, context))).revision === record.identity.revision &&
+          (await fenced(() => stagingMatches(engine.root, record, reference.staging, context)))
     const state =
       !reference.drained || reference.recovering
         ? 'active/draining'
         : available
           ? 'retained+recoverable'
           : 'unknown/unavailable'
-    assertCurrent(context)
+    bound()
     return {
       state,
+      lockObservation,
+      ...(lockObservation === 'directory-present' ? { lockShape: lockShape ?? 'unavailable' } : {}),
+      ...(lockObservation === 'directory-present' ? { lockOwnerPendingComparison } : {}),
       target: record.identity.operation,
       digest: record.identity.digest,
       expectedRevision: record.identity.revision,
@@ -234,10 +420,13 @@ export async function memoryPolicyStatus(engine: MemoryEngineController, context
             : 'explicit-owner-review-no-lock-stealing',
     }
   } catch {
-    assertCurrent(context)
+    bound()
     return {
       state: 'unknown/unavailable',
       lockRetained: true,
+      lockObservation,
+      ...(lockObservation === 'directory-present' ? { lockShape: lockShape ?? 'unavailable' } : {}),
+      ...(lockObservation === 'directory-present' ? { lockOwnerPendingComparison } : {}),
       outcome: 'unknown',
       next: 'explicit-owner-review-no-lock-stealing',
     }
@@ -303,6 +492,21 @@ async function cleanup(
 // A fresh normally-authorized primary call only removes retained owned files.
 // No rename/reapply/revert, no old request context, no caller drain verdict.
 export async function reconcileMemoryPolicy(
+  engine: MemoryEngineController,
+  context: OperationContext,
+  target: string,
+  expectedDigest: string,
+) {
+  if (context.admission) {
+    if (context.admission.root !== engine.root) throw Error('Memory admission root mismatch')
+    return await context.admission.run(
+      () => reconcilePolicyAdmitted(engine, context, target, expectedDigest),
+      context,
+    )
+  }
+  return await reconcilePolicyAdmitted(engine, context, target, expectedDigest)
+}
+async function reconcilePolicyAdmitted(
   engine: MemoryEngineController,
   context: OperationContext,
   target: string,
@@ -401,6 +605,23 @@ function nextPolicyConfig(
 }
 
 export async function setMemoryAutomatic(
+  engine: MemoryEngineController,
+  context: OperationContext,
+  revision: string,
+  configHash: string,
+  automatic: boolean,
+  reflection?: { trigger: ReflectionTrigger; stepCount: number },
+) {
+  if (context.admission) {
+    if (context.admission.root !== engine.root) throw Error('Memory admission root mismatch')
+    return await context.admission.run(
+      () => setPolicyAdmitted(engine, context, revision, configHash, automatic, reflection),
+      context,
+    )
+  }
+  return await setPolicyAdmitted(engine, context, revision, configHash, automatic, reflection)
+}
+async function setPolicyAdmitted(
   engine: MemoryEngineController,
   context: OperationContext,
   revision: string,

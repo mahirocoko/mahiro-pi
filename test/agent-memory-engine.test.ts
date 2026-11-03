@@ -12,6 +12,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -64,6 +65,11 @@ import {
 import type { Episode } from '../lib/agent-memory/store.ts'
 import { allowedPath, createMemoryStore, type MemoryConfig, parseConfig } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
+import {
+  createMemoryAdmission,
+  beginMemoryBarrier,
+  joinMemoryBarrier,
+} from '../lib/agent-memory/engine/admission.ts'
 
 // Real child replies carry closed metadata, not the child's private exception text.
 // Each caller still supplies the forbidden operation/tamper and checks its storage outcome.
@@ -210,6 +216,79 @@ function fixture(count = 12, longPaths = false) {
     },
   }
 }
+test('admitted paused native publisher must drain before quarantine and cannot resurrect its journal', async () => {
+  const f = fixture(0)
+  mkdirSync(join(f.root, '.views'), { mode: 0o700 }) // explicit synthetic enrollment storage
+  let release!: () => void
+  const paused = new Promise<void>((yes) => {
+    release = yes
+  })
+  let entered!: () => void
+  const atFence = new Promise<void>((yes) => {
+    entered = yes
+  })
+  let publication: Promise<unknown> | undefined
+  const participant = createMemoryAdmission(f.root, f.context, async () => {
+    await publication
+    await f.engine.close()
+  })
+  const context: OperationContext = { ...f.context, admission: participant }
+  try {
+    const created = await f.engine.request('create', { project: 'project', shared: true }, context)
+    await f.engine.request(
+      'edit',
+      { view: created.view, path: 'global/paused.md', expectedHash: null, text: '# Paused\n', sources: [] },
+      context,
+    )
+    await f.engine.request('ready', { view: created.view }, context)
+    const prepared = await f.engine.request('prepare', { view: created.view, reviewed: [] }, context)
+    assert.ok('plan' in prepared)
+    const head = f.git('rev-parse', 'HEAD')
+    const path = join(f.root, '.views/.engine-v2/journal', `${prepared.plan.id}.json`)
+    const before = readFileSync(path)
+    context.barrier = async () => {
+      entered()
+      await paused
+    }
+    const publishing = new MemoryPublisher(f.engine, f.env).publish(prepared.plan, context)
+    publication = publishing
+    await atFence
+    const barrier = await beginMemoryBarrier(f.root, f.context, {
+      id: prepared.plan.id,
+      digest: prepared.plan.digest,
+    })
+    let drained = false
+    const joined = joinMemoryBarrier(f.root, f.context, barrier).then(() => {
+      drained = true
+    })
+    await new Promise((done) => setImmediate(done))
+    assert.equal(drained, false)
+    release()
+    const result = await publishing
+    await joined
+    assert.equal(result.mutated, false)
+    assert.equal(f.git('rev-parse', 'HEAD'), head)
+    assert.deepEqual(readFileSync(path), before)
+    // The real archive owner may relocate evidence only AFTER this actual join.
+    const quarantine = join(f.dir, 'quarantined-operation.json')
+    renameSync(path, quarantine)
+    await assert.rejects(
+      f.engine.request(
+        'journal',
+        { plan: prepared.plan.id, digest: prepared.plan.digest, receipt: { stage: 'unknown' } },
+        context,
+      ),
+      /retired|epoch/,
+    )
+    assert.equal(existsSync(path), false)
+    assert.deepEqual(readFileSync(quarantine), before)
+    assert.equal(existsSync(join(f.root, 'global/paused.md')), false)
+  } finally {
+    release()
+    await f.close()
+  }
+})
+
 function legacyText(
   store: ReturnType<typeof createMemoryStore>,
   view: Parameters<ReturnType<typeof createMemoryStore>['read']>[0],
@@ -797,6 +876,162 @@ async function fullOldDraftFixture(f: ReturnType<typeof fixture>, journalCount =
       evidence.set(join(directory, name), readFileSync(join(directory, name)))
   return { active, draftFolder, journal, folder, record, evidence }
 }
+
+test('paused empty-plan publisher blocks fresh-controller admission with a nonterminal journal', async () => {
+  const f = fixture(0)
+  const newer = new MemoryEngineController(f.root, f.env)
+  let resume!: () => void
+  let reached!: () => void
+  const paused = new Promise<void>((resolve) => {
+    reached = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    resume = resolve
+  })
+  let pending: ReturnType<MemoryPublisher['publish']> | undefined
+  try {
+    const newView = await newer.request('create', { project: 'project', shared: true }, f.context)
+    await newer.request(
+      'edit',
+      {
+        view: newView.view,
+        path: 'global/new.md',
+        expectedHash: null,
+        text: '# New canonical knowledge\n',
+        sources: [],
+      },
+      f.context,
+    )
+    await newer.request('ready', { view: newView.view }, f.context)
+    const oldView = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    const oldPlan = await ready(f, oldView.view)
+    assert.equal(oldPlan.changes.length, 0)
+    const journalPath = join(f.root, '.views', '.engine-v2', 'journal', `${oldPlan.id}.json`)
+    const before = readFileSync(journalPath)
+    assert.equal(parseOperation(before.toString()).receipt.stage, 'prepared')
+    let barriers = 0
+    pending = new MemoryPublisher(f.engine, f.env).publish(oldPlan, {
+      ...f.context,
+      barrier: async () => {
+        if (++barriers === 2) {
+          reached()
+          await gate
+        }
+      },
+    })
+    await paused // initial fence has passed; no lock has been attempted
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+    // The prepared record uses the same durable parser as retained legacy evidence.
+    // A second controller must not admit either a fresh draft or an already-ready draft.
+    await assert.rejects(
+      newer.request('create', { project: 'project', shared: true }, f.context),
+      engineError(),
+    )
+    await assert.rejects(
+      newer.request('prepare', { view: newView.view, reviewed: [] }, f.context),
+      engineError(),
+    )
+    assert.deepEqual(readFileSync(journalPath), before, 'refused admission preserves old intent')
+    assert.equal(f.git('rev-parse', 'HEAD'), oldPlan.current)
+    assert.equal(existsSync(join(f.root, 'global/new.md')), false)
+    resume()
+    const oldResult = await pending
+    assert.equal(oldResult.stage, 'reconciled_committed')
+    assert.equal(oldResult.mutated, false)
+    assert.equal(oldResult.commitStarted, false)
+    assert.equal(oldResult.lockRetained, false)
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+    assert.equal(f.git('rev-parse', 'HEAD'), oldPlan.current)
+    const record = parseOperation(readFileSync(journalPath, 'utf8'))
+    assert.equal(record.receipt.stage, 'reconciled_committed')
+    // Once the genuine no-op executor has drained, new publication can proceed.
+    const prepared = await newer.request('prepare', { view: newView.view, reviewed: [] }, f.context)
+    assert.ok('plan' in prepared)
+    const publication = await new MemoryPublisher(newer, f.env).publish(prepared.plan, f.context)
+    assert.equal(publication.stage, 'reconciled_committed')
+    assert.equal(publication.lockRetained, false)
+    assert.notEqual(f.git('rev-parse', 'HEAD'), oldPlan.current)
+    assert.equal(f.git('show', 'HEAD:global/new.md'), '# New canonical knowledge')
+    assert.equal(readFileSync(join(f.root, 'global/new.md'), 'utf8'), '# New canonical knowledge\n')
+    assert.equal(f.git('status', '--porcelain', '--untracked-files=no'), '')
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+  } finally {
+    resume()
+    await pending
+    await newer.close()
+    await f.close()
+  }
+})
+
+test('artificial exempt publication leaves paused empty-plan publisher unknown with its lock retained', async () => {
+  const f = fixture(0)
+  let resume!: () => void
+  let reached!: () => void
+  const paused = new Promise<void>((resolve) => {
+    reached = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    resume = resolve
+  })
+  let pending: ReturnType<MemoryPublisher['publish']> | undefined
+  try {
+    const oldView = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    const oldPlan = await ready(f, oldView.view)
+    assert.equal(oldPlan.changes.length, 0)
+    const journalPath = join(f.root, '.views', '.engine-v2', 'journal', `${oldPlan.id}.json`)
+    const before = readFileSync(journalPath)
+    assert.equal(parseOperation(before.toString()).receipt.stage, 'prepared')
+    let barriers = 0
+    pending = new MemoryPublisher(f.engine, f.env).publish(oldPlan, {
+      ...f.context,
+      barrier: async () => {
+        if (++barriers === 2) {
+          reached()
+          await gate
+        }
+      },
+    })
+    await paused
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+    // Deliberately artificial HEAD advancement in this disposable fixture only.
+    // The legacy store helper produces a valid corpus/ledger commit without implementing
+    // the hypothetical upgraded admission exemption or changing production admission.
+    const synthetic = f.store.createView('project', 120000, true)
+    f.store.edit(synthetic, 'global/new.md', null, '# New canonical knowledge\n', ['synthetic'])
+    f.store.integrate(synthetic)
+    const newHead = f.git('rev-parse', 'HEAD')
+    const newCore = readFileSync(join(f.root, 'Core.md'))
+    const newLedger = readFileSync(join(f.root, '.memory.json'))
+    assert.notEqual(newHead, oldPlan.current)
+    assert.equal(f.git('rev-parse', 'HEAD^'), oldPlan.current)
+    assert.deepEqual(readFileSync(journalPath), before, 'artificial publication preserves prepared intent')
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+    resume()
+    const result = await pending
+    assert.equal(result.stage, 'unknown')
+    assert.equal(result.mutated, false)
+    assert.equal(result.commitStarted, false)
+    assert.equal(result.lockRetained, true)
+    assert.equal(f.git('rev-parse', 'HEAD'), newHead)
+    assert.equal(f.git('show', 'HEAD:global/new.md'), '# New canonical knowledge')
+    assert.equal(readFileSync(join(f.root, 'global/new.md'), 'utf8'), '# New canonical knowledge\n')
+    assert.deepEqual(readFileSync(join(f.root, 'Core.md')), newCore)
+    assert.deepEqual(readFileSync(join(f.root, '.memory.json')), newLedger)
+    assert.equal(f.git('status', '--porcelain', '--untracked-files=no'), '')
+    const owner = JSON.parse(readFileSync(join(f.root, '.lock/owner.json'), 'utf8'))
+    assert.equal(owner.operation, oldPlan.id)
+    assert.equal(owner.digest, oldPlan.digest)
+    const record = parseOperation(readFileSync(journalPath, 'utf8'))
+    assert.equal(record.receipt.stage, 'unknown')
+    assert.equal(record.receipt.detail, 'HEAD differs from exact expected ancestry/tree/ledger')
+    assert.equal(record.sequence, 2, 'lock claim followed by unknown reconciliation journal')
+    assert.deepEqual(record.owner, owner)
+  } finally {
+    resume()
+    await pending
+    await f.close()
+  }
+})
 
 test('overflow admission preserves full old-format evidence and active handle; shared publication, cutoff and authority', async () => {
   const f = fixture(0)

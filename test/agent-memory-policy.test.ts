@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   existsSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -388,6 +389,295 @@ for (const change of ['HEAD', 'config'] as const) {
   })
 }
 
+test('lock observation distinguishes absent, malformed directory, file and symlink without recovery', async () => {
+  const f = fixture()
+  const lock = join(f.root, '.lock')
+  try {
+    const absent = await memoryPolicyStatus(f.engine, f.current)
+    assert.equal(absent.lockObservation, 'absent')
+    assert.equal('lockShape' in absent, false)
+    assert.equal(absent.state, 'idle')
+    assert.equal(absent.lockRetained, false)
+    for (const kind of ['directory', 'file', 'symlink'] as const) {
+      if (kind === 'directory') {
+        mkdirSync(lock, { mode: 0o700 })
+        writeFileSync(join(lock, 'policy.json'), 'malformed', { mode: 0o600 })
+      } else if (kind === 'file') writeFileSync(lock, 'untouched', { mode: 0o600 })
+      else symlinkSync(f.path, lock)
+      const before = lstatSync(lock)
+      const status = await memoryPolicyStatus(f.engine, f.current)
+      assert.equal(status.lockObservation, kind === 'directory' ? 'directory-present' : 'other-entry-present')
+      assert.equal(status.state, 'unknown/unavailable')
+      assert.equal(status.lockRetained, true)
+      if (kind === 'directory') assert.equal(status.lockShape, 'other')
+      else assert.equal('lockShape' in status, false)
+      await assert.rejects(reconcileMemoryPolicy(f.engine, f.current, randomUUID(), 'a'.repeat(64)))
+      assert.equal(lstatSync(lock).ino, before.ino)
+      if (kind === 'directory') assert.equal(readFileSync(join(lock, 'policy.json'), 'utf8'), 'malformed')
+      else if (kind === 'file') assert.equal(readFileSync(lock, 'utf8'), 'untouched')
+      assert.equal(f.automatic(), false)
+      rmSync(lock, { recursive: true, force: true })
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+test('owner comparison uses full pending UUID and digest, without granting recovery', async () => {
+  const f = fixture()
+  const lock = join(f.root, '.lock')
+  const operation = randomUUID()
+  const owner = { version: 1, operation, digest: 'a'.repeat(64), nonce: randomUUID(), directory: '1:2' }
+  try {
+    mkdirSync(lock, { mode: 0o700 })
+    writeFileSync(join(lock, 'owner.json'), JSON.stringify(owner), { mode: 0o600 })
+    for (const [pending, expected] of [
+      [[{ id: operation, digest: owner.digest }], 'match'],
+      [[{ id: operation, digest: 'b'.repeat(64) }], 'mismatch'],
+      [[{ id: randomUUID(), digest: owner.digest }], 'mismatch'],
+      [[], 'mismatch'],
+    ] as const) {
+      const status = await memoryPolicyStatus(f.engine, f.current, pending)
+      assert.equal(status.lockOwnerPendingComparison, expected)
+      assert.equal(status.lockShape, 'owner-only')
+      // No policy journal/executor exists even when the comparison matches.
+      assert.equal(status.state, 'unknown/unavailable')
+      assert.equal(status.next, 'explicit-owner-review-no-lock-stealing')
+      assert.equal(status.lockRetained, true)
+      for (const secret of [owner.nonce, owner.directory, f.root, 'owner.json'])
+        assert.equal(JSON.stringify(status).includes(secret), false)
+    }
+    for (const raw of ['{', JSON.stringify({ ...owner, nonce: 'invalid' }), 'x'.repeat(2049)]) {
+      writeFileSync(join(lock, 'owner.json'), raw, { mode: 0o600 })
+      assert.equal(
+        (await memoryPolicyStatus(f.engine, f.current, [])).lockOwnerPendingComparison,
+        'unavailable',
+      )
+    }
+    rmSync(join(lock, 'owner.json'))
+    assert.equal(
+      (await memoryPolicyStatus(f.engine, f.current, [])).lockOwnerPendingComparison,
+      'unavailable',
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+for (const denial of ['exact', 'revoke', 'fallback'] as const) {
+  test(`owner comparison retains exact target authority (${denial})`, async () => {
+    const f = fixture()
+    const lock = join(f.root, '.lock')
+    const ownerPath = join(lock, 'owner.json')
+    let reads = 0
+    let fallback = false
+    try {
+      mkdirSync(lock, { mode: 0o700 })
+      // Keep owner absent so the shape scan cannot supply its target binding.
+      const context: OperationContext = {
+        current: (targets) => {
+          if (targets.physical.includes(join(lock, 'policy.json'))) fallback = true
+          if (targets.physical.includes(ownerPath) && targets.physical.includes(f.root)) {
+            assert.equal(targets.physical.includes(lock), true)
+            reads++
+            return denial === 'exact' ? false : denial === 'revoke' ? reads < 5 : !fallback
+          }
+          return true
+        },
+      }
+      await assert.rejects(memoryPolicyStatus(f.engine, context, []), /authority required/)
+      assert.ok(reads > 0)
+      if (denial === 'fallback') assert.equal(fallback, true)
+    } finally {
+      await f.close()
+    }
+  })
+}
+
+test('bounded lock shape is name-only, read-only and never recovery evidence', async () => {
+  const f = fixture()
+  const lock = join(f.root, '.lock')
+  try {
+    mkdirSync(lock, { mode: 0o700 })
+    for (const shape of ['empty', 'owner-only', 'other'] as const) {
+      if (shape === 'owner-only') symlinkSync(f.path, join(lock, 'owner.json'))
+      if (shape === 'other') {
+        for (let i = 0; i < 5; i++) writeFileSync(join(lock, `extra-${i}`), 'not read', { mode: 0o600 })
+      }
+      const before = lstatSync(lock)
+      const status = await memoryPolicyStatus(f.engine, f.current)
+      assert.equal(status.lockObservation, 'directory-present')
+      assert.equal(status.lockShape, shape)
+      assert.equal(status.state, 'unknown/unavailable')
+      assert.equal(status.lockRetained, true)
+      assert.equal(status.next, 'explicit-owner-review-no-lock-stealing')
+      assert.equal(lstatSync(lock).ino, before.ino)
+      assert.equal(lstatSync(lock).mtimeMs, before.mtimeMs)
+      assert.equal(JSON.stringify(status).includes('owner.json'), false)
+      assert.equal(JSON.stringify(status).includes(f.root), false)
+      await assert.rejects(reconcileMemoryPolicy(f.engine, f.current, randomUUID(), 'a'.repeat(64)))
+    }
+  } finally {
+    await f.close()
+  }
+})
+
+for (const name of ['owner.json', 'nonowner']) {
+  for (const denial of ['exact', 'late-scan', 'late-status'] as const) {
+    test(`shape cannot expose an exact denied ${name} child (${denial})`, async () => {
+      const f = fixture()
+      const lock = join(f.root, '.lock')
+      const child = join(lock, name)
+      let childChecks = 0
+      let evidenceSeen = false
+      try {
+        mkdirSync(lock, { mode: 0o700 })
+        writeFileSync(child, 'not read by shape', { mode: 0o600 })
+        const context: OperationContext = {
+          current: (targets) => {
+            if (targets.physical.includes(join(lock, 'policy.json'))) evidenceSeen = true
+            // Match shape/status fences rather than the pre-existing evidence read's
+            // independent targets. Denying only a child must still block the fallback.
+            if (targets.physical.includes(f.root) && targets.physical.includes(child)) {
+              childChecks++
+              assert.equal(targets.physical.includes(lock), true)
+              return denial === 'exact' ? false : denial === 'late-scan' ? childChecks < 3 : !evidenceSeen
+            }
+            return true
+          },
+        }
+        await assert.rejects(memoryPolicyStatus(f.engine, context), /authority required/)
+        assert.ok(childChecks > 0)
+        if (denial === 'late-status') assert.equal(evidenceSeen, true)
+        assert.equal(readFileSync(child, 'utf8'), 'not read by shape')
+      } finally {
+        await f.close()
+      }
+    })
+  }
+}
+
+test('both discovered child targets remain bound through the status fallback', async () => {
+  const f = fixture()
+  const lock = join(f.root, '.lock')
+  const children = [join(lock, 'owner.json'), join(lock, 'extra')]
+  let bothSeen = false
+  let finalTargets: string[] = []
+  try {
+    mkdirSync(lock, { mode: 0o700 })
+    for (const child of children) writeFileSync(child, 'not read by shape', { mode: 0o600 })
+    const context: OperationContext = {
+      current: (targets) => {
+        if (targets.physical.includes(f.root) && targets.physical.includes(lock)) {
+          finalTargets = targets.physical
+          if (children.every((child) => targets.physical.includes(child))) bothSeen = true
+          if (bothSeen) assert.ok(children.every((child) => targets.physical.includes(child)))
+        }
+        return true
+      },
+    }
+    const status = await memoryPolicyStatus(f.engine, context)
+    assert.equal(status.lockShape, 'other')
+    assert.equal(status.state, 'unknown/unavailable')
+    assert.equal(bothSeen, true)
+    assert.deepEqual(new Set(finalTargets), new Set([f.root, lock, ...children]))
+  } finally {
+    await f.close()
+  }
+})
+
+test('non-private lock shape is unavailable and a sole non-owner entry is other', async () => {
+  const f = fixture()
+  const lock = join(f.root, '.lock')
+  try {
+    mkdirSync(lock, { mode: 0o700 })
+    writeFileSync(join(lock, 'unrecognized'), 'untouched', { mode: 0o600 })
+    assert.equal((await memoryPolicyStatus(f.engine, f.current)).lockShape, 'other')
+    chmodSync(lock, 0o755)
+    const status = await memoryPolicyStatus(f.engine, f.current)
+    assert.equal(status.lockObservation, 'directory-present')
+    assert.equal(status.lockShape, 'unavailable')
+    assert.equal(status.state, 'unknown/unavailable')
+    assert.equal(readFileSync(join(lock, 'unrecognized'), 'utf8'), 'untouched')
+  } finally {
+    await f.close()
+  }
+})
+
+for (const replacement of ['lock', 'root', 'symlink', 'revoke'] as const) {
+  test(`shape scan fails closed on observed ${replacement} during the open-directory boundary`, async () => {
+    const f = fixture()
+    const lock = join(f.root, '.lock')
+    let calls = 0
+    let replaced = false
+    try {
+      mkdirSync(lock, { mode: 0o700 })
+      const context: OperationContext = {
+        current: (targets) => {
+          // The thirteenth exact-target check is just after opendir resolves,
+          // before its first read. No production hook or injectable fs exists.
+          if (++calls === 13) {
+            assert.deepEqual(targets.physical, [f.root, lock])
+            replaced = true
+            if (replacement === 'root') {
+              renameSync(f.root, join(f.dir, 'old-root'))
+              mkdirSync(f.root, { mode: 0o700 })
+              mkdirSync(lock, { mode: 0o700 })
+            } else if (replacement !== 'revoke') {
+              renameSync(lock, join(f.root, '.old-lock'))
+              if (replacement === 'symlink') symlinkSync(join(f.root, '.old-lock'), lock)
+              else mkdirSync(lock, { mode: 0o700 })
+            }
+          }
+          return !(replacement === 'revoke' && replaced)
+        },
+      }
+      if (replacement === 'revoke')
+        await assert.rejects(memoryPolicyStatus(f.engine, context), /authority required/)
+      else {
+        const status = await memoryPolicyStatus(f.engine, context)
+        assert.equal(status.lockObservation, 'directory-present')
+        assert.equal(status.lockShape, 'unavailable')
+        assert.equal(status.state, 'unknown/unavailable')
+        assert.equal(status.lockRetained, true)
+      }
+      assert.equal(replaced, true)
+    } finally {
+      await f.close()
+    }
+  })
+}
+
+test('lock observation fails closed on unavailable root and revoked bound authority', async () => {
+  const f = fixture()
+  try {
+    mkdirSync(join(f.root, '.lock'), { mode: 0o700 })
+    for (const allowedChecks of [1, 3]) {
+      let calls = 0
+      const revoked: OperationContext = {
+        current: (targets) => {
+          assert.deepEqual(targets.physical, [f.root, join(f.root, '.lock')])
+          return ++calls <= allowedChecks
+        },
+      }
+      await assert.rejects(memoryPolicyStatus(f.engine, revoked), /authority required/)
+    }
+    const missingRoot = join(f.dir, 'missing')
+    const missing = new MemoryEngineController(missingRoot, f.env)
+    try {
+      const status = await memoryPolicyStatus(missing, f.current)
+      assert.equal(status.lockObservation, 'unavailable')
+      assert.equal(status.state, 'unknown/unavailable')
+      assert.equal(status.lockRetained, true)
+      assert.equal(existsSync(missingRoot), false)
+    } finally {
+      await missing.close()
+    }
+  } finally {
+    await f.close()
+  }
+})
+
 test('incomplete acquisition is unknown, never idle or PID-recoverable', async () => {
   const f = fixture()
   try {
@@ -421,6 +711,7 @@ test('restart has durable evidence but no actual ref; same-process source replac
       const root=${JSON.stringify(f.root)}, context={ current:()=>true }, engine={root};
       const status=await memoryPolicyStatus(engine,context);
       if(status.state!=='unknown/unavailable') throw Error('Restart falsely recovered');
+      if(status.lockObservation!=='directory-present') throw Error('Executor failure lost observation');
       try { await reconcileMemoryPolicy(engine,context,${JSON.stringify(p.record.identity.operation)},${JSON.stringify(p.record.identity.digest)}); throw Error('Unexpected recovery') }
       catch(error) { if(!/executor unavailable/.test(error.message)) throw error }
       console.log('restart-unknown-retained');

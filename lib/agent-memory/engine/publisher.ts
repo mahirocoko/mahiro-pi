@@ -29,6 +29,13 @@ export class MemoryPublisher {
     this.environment = environment
   }
   async publish(plan: Plan, context: OperationContext): Promise<PublicationResult> {
+    if (context.admission) {
+      if (context.admission.root !== this.engine.root) throw Error('Memory admission root mismatch')
+      return await context.admission.run(() => this.publishAdmitted(plan, context), context)
+    }
+    return await this.publishAdmitted(plan, context)
+  }
+  private async publishAdmitted(plan: Plan, context: OperationContext): Promise<PublicationResult> {
     if (this.busy) throw Error('Publication already in progress')
     if (!this.engine.ownsPlan(plan)) throw Error('Parent-owned prepared plan required')
     assertCurrent(context)
@@ -337,6 +344,13 @@ export class MemoryPublisher {
     }
   }
   async reconcileExisting(id: string, digest: string, context: OperationContext) {
+    if (context.admission) {
+      if (context.admission.root !== this.engine.root) throw Error('Memory admission root mismatch')
+      return await context.admission.run(() => this.reconcileAdmitted(id, digest, context), context)
+    }
+    return await this.reconcileAdmitted(id, digest, context)
+  }
+  private async reconcileAdmitted(id: string, digest: string, context: OperationContext) {
     assertCurrent(context)
     const release = context.hold?.({ reconciliation: this, id })
     try {

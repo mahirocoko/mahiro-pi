@@ -26,11 +26,17 @@ import {
 } from '../lib/agent-memory/engine/offline-maintenance.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
 import { parseOperation } from '../lib/agent-memory/engine/operation.ts'
+import { retirePreparedPublication } from '../lib/agent-memory/engine/prepared-retirement.ts'
+import { inspectPreparedPublication } from '../lib/agent-memory/engine/offline-maintenance.ts'
+import { createMemoryRetirement } from '../lib/kernel/memory-retirement.ts'
 
 // Disposable source fixture only. Production current comes from the real Root-bound runtime.
 async function fixture(
   options: {
     partialMutation?: boolean
+    ownerlessPrepared?: boolean
+    lockedPrepared?: boolean
+    excludeNativeOrphans?: boolean
     terminalDirty?: boolean
     largeOperation?: boolean
     overflow?: boolean
@@ -95,6 +101,10 @@ async function fixture(
     writeFileSync(ledgerPath, `${JSON.stringify(ledger)}\n`, { mode: 0o600 })
     execFileSync('git', ['add', '.memory.json'], { cwd: root })
     execFileSync('git', ['commit', '-m', 'Expand fixture provenance'], { cwd: root, stdio: 'ignore' })
+  }
+  if (options.excludeNativeOrphans) {
+    const exclude = join(root, '.git/info/exclude')
+    writeFileSync(exclude, `${readFileSync(exclude, 'utf8')}\n/.memory-engine-*.tmp\n`, { mode: 0o600 })
   }
   const context: OperationContext = { current: () => true }
   const preparing = new MemoryEngineController(root)
@@ -177,6 +187,13 @@ async function fixture(
   const orphan = `.memory-engine-${randomUUID()}.tmp`
   writeFileSync(join(root, orphan), 'original orphan bytes', { mode: 0o600 })
   mkdirSync(`${path}.cas`, { mode: 0o700 })
+  if (options.ownerlessPrepared || options.lockedPrepared) {
+    // Retain the actual prepare output, not a synthesized execution receipt.
+    writeFileSync(path, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+    if (!options.lockedPrepared) rmSync(join(root, '.lock'), { recursive: true })
+    rmSync(`${path}.cas`, { recursive: true })
+    rmSync(join(root, orphan))
+  }
   await preparing.close()
   const engine = new MemoryEngineController(root)
   const original = new Map<string, Buffer>()
@@ -224,6 +241,329 @@ const kernelAvailable =
   process.platform === 'darwin'
     ? existsSync('/usr/sbin/lsof')
     : process.platform === 'linux' && existsSync('/usr/bin/lsof')
+
+test('prepared product handoff refuses unknown/policy-shaped legacy evidence before retiring anything', async () => {
+  const f = await fixture()
+  let retired = false
+  try {
+    await assert.rejects(
+      retirePreparedPublication(f.root, f.context, async () => {
+        retired = true
+        return { state: 'drained', scope: 'memory-generation', globalQuiescence: false }
+      }),
+      /only strict|prepared retirement/i,
+    )
+    assert.equal(retired, false)
+    assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+  } finally {
+    await f.close()
+  }
+})
+
+for (const lockedPrepared of [false, true]) {
+  const preparedOptions = lockedPrepared ? { lockedPrepared: true } : { ownerlessPrepared: true }
+  const preparedDisposition = lockedPrepared
+    ? 'manually-retired-locked-prepared'
+    : 'manually-retired-ownerless-prepared'
+
+  test(`${lockedPrepared ? 'locked' : 'ownerless'} prepared product handoff drains the actual generation, creates no barrier and matches offline archive`, {
+    skip: !kernelAvailable,
+  }, async () => {
+    const f = await fixture(preparedOptions)
+    let release!: () => void
+    const native = new Promise<void>((yes) => {
+      release = yes
+    })
+    let fenced = false
+    const kernel = createMemoryRetirement(
+      () => {
+        fenced = true
+      },
+      async () => {},
+    )
+    kernel.onRetire(() => native) // f.engine is the separate cold offline maintenance owner
+    try {
+      const preview = await inspectPreparedPublication(f.root, f.context)
+      assert.equal(preview.onlineEligible, false)
+      assert.equal(preview.legacyEvidence, true)
+      let completed = false
+      const retiring = retirePreparedPublication(f.root, f.context, kernel.retire).then((result) => {
+        completed = true
+        return result
+      })
+      // Wait for the real generation fence, not an elapsed-time drain inference.
+      while (!fenced) await new Promise((done) => setImmediate(done))
+      assert.equal(completed, false)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+      release()
+      const handoff = await retiring
+      assert.equal(handoff.state, 'offline-required')
+      assert.equal(handoff.globalQuiescence, false)
+      assert.equal(handoff.barrier, 'not-created')
+      assert.ok('target' in handoff)
+      const offline = await f.inspect()
+      assert.equal(handoff.target, offline.target)
+      assert.equal(handoff.revision, offline.revision)
+      assert.equal(readFileSync(f.path).equals(f.original.get(f.path.slice(f.root.length + 1))!), true)
+      // Handoff does not invent assurance. Existing coordinated offline owner still publishes the archive.
+      const adopted = await f.apply(offline)
+      const work = join(f.root, '.views/.maintenance', adopted.target!)
+      for (const [path, bytes] of f.original)
+        assert.deepEqual(readFileSync(join(work, 'snapshot', path)), bytes, path)
+      assert.equal('disposition' in adopted && adopted.disposition, preparedDisposition)
+    } finally {
+      release()
+      await f.close()
+    }
+  })
+
+  test(`${lockedPrepared ? 'locked' : 'ownerless'} prepared recovery retains original evidence without claiming executor ownership`, {
+    skip: !kernelAvailable,
+  }, async () => {
+    const f = await fixture(preparedOptions)
+    try {
+      const preview = await f.inspect()
+      assert.deepEqual('owner' in preview && preview.owner, lockedPrepared ? f.owner : null)
+      assert.equal(
+        'priorOutcome' in preview && preview.priorOutcome,
+        lockedPrepared ? 'locked-prepared' : 'prepared',
+      )
+      assert.equal('operation' in preview && preview.operation?.sequence, 0)
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root })
+      await assert.rejects(f.apply({ ...preview, revision: '0'.repeat(64) }), /fingerprint/)
+      await assert.rejects(
+        offlineMaintenance(f.engine, f.context, {
+          action: 'offline-adopt',
+          target: preview.target,
+          revision: preview.revision,
+        }),
+        /assurance/,
+      )
+      const result = await f.apply(preview)
+      assert.equal('disposition' in result && result.disposition, preparedDisposition)
+      const work = join(f.root, '.views/.maintenance', result.target!)
+      for (const [path, bytes] of f.original)
+        assert.deepEqual(readFileSync(join(work, 'snapshot', path)), bytes, path)
+      assert.deepEqual(
+        readFileSync(join(work, 'quarantine', f.path.slice(f.root.length + 1))),
+        f.original.get(f.path.slice(f.root.length + 1)),
+      )
+      assert.equal(existsSync(f.path), false)
+      assert.equal(existsSync(join(f.root, '.lock')), false)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+      assert.deepEqual(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root }), head)
+      for (const path of ['Core.md', 'index.md', '.memory.json', '.git/index', '.git/config'])
+        assert.deepEqual(readFileSync(join(f.root, path)), f.original.get(path), path)
+      const view = 'operation' in preview ? preview.operation!.view : ''
+      const draft = join(f.root, '.views/.engine-v2/drafts', `${view}.json`)
+      assert.equal(JSON.parse(readFileSync(draft, 'utf8')).state, 'conflict')
+      const admitted = await f.engine.request('create', { project: 'fixture', shared: true }, f.context)
+      await f.engine.request('cancel', { view: admitted.view }, f.context)
+    } finally {
+      await f.close()
+    }
+  })
+
+  test('ownerless prepared recovery refuses ambiguous dirty/index/lock/CAS/staging and multiple pending evidence', async () => {
+    for (const scenario of [
+      'dirty',
+      'hidden-dirty',
+      'index',
+      'lock',
+      'cas',
+      'staging',
+      'orphan',
+      'multiple',
+      'sequence',
+      'proposal',
+      'config',
+      'ledger',
+      ...(lockedPrepared
+        ? [
+            'owner-operation',
+            'owner-digest',
+            'owner-directory',
+            'owner-malformed',
+            'policy',
+            'extra-lock',
+            'typed-record',
+          ]
+        : []),
+    ]) {
+      const f = await fixture(preparedOptions)
+      try {
+        if (scenario === 'dirty' || scenario === 'hidden-dirty') {
+          if (scenario === 'hidden-dirty')
+            execFileSync('git', ['update-index', '--assume-unchanged', 'Core.md'], { cwd: f.root })
+          writeFileSync(join(f.root, 'Core.md'), '# Unknown work\n')
+        }
+        if (scenario === 'index') {
+          writeFileSync(join(f.root, 'Core.md'), '# Staged work\n')
+          execFileSync('git', ['add', 'Core.md'], { cwd: f.root })
+        }
+        if (scenario === 'lock') {
+          if (lockedPrepared) rmSync(join(f.root, '.lock/owner.json'))
+          else mkdirSync(join(f.root, '.lock'), { mode: 0o700 })
+        }
+        if (scenario.startsWith('owner-')) {
+          const owner = { ...f.owner }
+          if (scenario === 'owner-operation') owner.operation = randomUUID()
+          if (scenario === 'owner-digest') owner.digest = '0'.repeat(64)
+          if (scenario === 'owner-directory') owner.directory = '0:0'
+          writeFileSync(
+            join(f.root, '.lock/owner.json'),
+            scenario === 'owner-malformed' ? '{}' : JSON.stringify(owner),
+          )
+        }
+        if (scenario === 'policy' || scenario === 'extra-lock')
+          writeFileSync(join(f.root, '.lock', scenario === 'policy' ? 'policy.json' : 'extra'), '{}')
+        if (scenario === 'cas') mkdirSync(`${f.path}.cas`, { mode: 0o700 })
+        if (scenario === 'staging')
+          mkdirSync(join(f.root, '.views/.engine-v2/staging', f.owner.operation), {
+            recursive: true,
+            mode: 0o700,
+          })
+        if (scenario === 'orphan') writeFileSync(join(f.root, f.orphan), 'unowned bytes')
+        const record = parseOperation(readFileSync(f.path, 'utf8'))
+        if (scenario === 'multiple') {
+          const immutable = { ...record.immutable, plan: { ...record.immutable.plan, id: randomUUID() } }
+          const { digest: _, ...metadata } = immutable.plan
+          immutable.plan.digest = createHash('sha256').update(JSON.stringify(metadata)).digest('hex')
+          const duplicate = {
+            ...record,
+            immutable,
+            immutableHash: createHash('sha256').update(JSON.stringify(immutable)).digest('hex'),
+          }
+          writeFileSync(join(dirname(f.path), `${immutable.plan.id}.json`), JSON.stringify(duplicate))
+        }
+        if (scenario === 'sequence') writeFileSync(f.path, JSON.stringify({ ...record, sequence: 1 }))
+        if (scenario === 'typed-record') writeFileSync(f.path, JSON.stringify({ ...record, owner: f.owner }))
+        if (scenario === 'proposal') {
+          const path = join(f.root, '.views/.engine-v2/drafts', `${record.immutable.plan.view}.json`)
+          const draft = JSON.parse(readFileSync(path, 'utf8'))
+          writeFileSync(path, JSON.stringify({ ...draft, state: 'conflict' }))
+        }
+        if (scenario === 'config' || scenario === 'ledger') {
+          const file = scenario === 'config' ? 'config.json' : '.memory.json'
+          const value = JSON.parse(readFileSync(join(f.root, file), 'utf8'))
+          if (scenario === 'config') value.automatic = !value.automatic
+          else value.sources['Core.md'] = ['changed-source']
+          writeFileSync(join(f.root, file), `${JSON.stringify(value)}\n`)
+          execFileSync('git', ['add', '-f', file], { cwd: f.root })
+          execFileSync('git', ['commit', '-m', 'Changed synthetic baseline'], {
+            cwd: f.root,
+            stdio: 'ignore',
+          })
+        }
+        const before = readFileSync(f.path)
+        await assert.rejects(f.inspect(), { name: 'Error' }, scenario)
+        assert.deepEqual(readFileSync(f.path), before, scenario)
+        assert.equal(existsSync(join(f.root, maintenanceMarker)), false, scenario)
+      } finally {
+        await f.close()
+      }
+    }
+  })
+
+  test(`${lockedPrepared ? 'locked' : 'ownerless'} prepared inspection refuses native orphans hidden by a pre-prepare Git exclude`, async () => {
+    const f = await fixture({ ...preparedOptions, excludeNativeOrphans: true })
+    try {
+      const journal = readFileSync(f.path)
+      const orphan = join(f.root, f.orphan)
+      const bytes = Buffer.from('unknown native work created after prepare\n')
+      writeFileSync(orphan, bytes, { mode: 0o600 })
+      assert.equal(
+        execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd: f.root })
+          .length,
+        0,
+      )
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+      await assert.rejects(f.inspect(), /native orphan evidence/)
+      assert.deepEqual(readFileSync(f.path), journal)
+      assert.deepEqual(readFileSync(orphan), bytes)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+      assert.equal(existsSync(join(f.root, '.views/.maintenance')), false)
+    } finally {
+      await f.close()
+    }
+  })
+
+  test(`${lockedPrepared ? 'locked' : 'ownerless'} prepared archive interruption requires exact reviewed resume and preserves journal`, {
+    skip: !kernelAvailable,
+  }, async () => {
+    const f = await fixture(preparedOptions)
+    try {
+      const preview = await f.inspect()
+      let interrupted = false
+      await assert.rejects(
+        f.apply(preview, {
+          current: (targets) => {
+            if (
+              !interrupted &&
+              targets.physical.some((path) => path.includes('/snapshot/') && path.endsWith('/Core.md'))
+            ) {
+              interrupted = true
+              return false
+            }
+            return true
+          },
+        }),
+        /authority/,
+      )
+      assert.deepEqual(readFileSync(f.path), f.original.get(f.path.slice(f.root.length + 1)))
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), true)
+      const checkpoint = await f.inspect()
+      const result = await offlineMaintenance(f.engine, f.context, {
+        action: 'offline-resume',
+        target: checkpoint.target,
+        revision: checkpoint.revision,
+        offline: offlineAssurance,
+      })
+      assert.equal('disposition' in result && result.disposition, preparedDisposition)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+    } finally {
+      await f.close()
+    }
+  })
+
+  test(`${lockedPrepared ? 'locked' : 'ownerless'} prepared resume after journal quarantine verifies original evidence before completing`, {
+    skip: !kernelAvailable,
+  }, async () => {
+    const f = await fixture(preparedOptions)
+    try {
+      const preview = await f.inspect()
+      let interrupted = false
+      await assert.rejects(
+        f.apply(preview, {
+          current: () => {
+            if (!interrupted && !existsSync(f.path)) {
+              interrupted = true
+              return false
+            }
+            return true
+          },
+        }),
+        /authority/,
+      )
+      assert.equal(interrupted, true)
+      const checkpoint = await f.inspect()
+      assert.equal('phase' in checkpoint && checkpoint.phase, 'quarantining')
+      const work = join(f.root, '.views/.maintenance', checkpoint.target!)
+      const path = f.path.slice(f.root.length + 1)
+      assert.deepEqual(readFileSync(join(work, 'snapshot', path)), f.original.get(path))
+      assert.deepEqual(readFileSync(join(work, 'quarantine', path)), f.original.get(path))
+      await offlineMaintenance(f.engine, f.context, {
+        action: 'offline-resume',
+        target: checkpoint.target,
+        revision: checkpoint.revision,
+        offline: offlineAssurance,
+      })
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+    } finally {
+      await f.close()
+    }
+  })
+}
 
 test('offline adoption archives ALL original bytes, quarantines typed blockers, preserves HEAD/config/history and proposals', {
   skip: !kernelAvailable,
@@ -710,6 +1050,102 @@ test('real process exit after first quarantine rename retains independent archiv
     await f.close()
   }
 })
+
+for (const seam of ['marker-linked', 'lock-quarantined', 'journal-quarantined']) {
+  test(`locked prepared process crash at ${seam} retains barrier and exact resumable evidence`, {
+    skip: !kernelAvailable,
+  }, async () => {
+    const f = await fixture({ lockedPrepared: true })
+    try {
+      const preview = await f.inspect()
+      const moduleURL = new URL('../lib/agent-memory/engine/offline-maintenance.ts', import.meta.url).href
+      const controllerURL = new URL('../lib/agent-memory/engine/controller.ts', import.meta.url).href
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--experimental-strip-types',
+          '--input-type=module',
+          '-e',
+          `
+          import { existsSync, lstatSync } from 'node:fs';
+          import { offlineMaintenance, offlineAssurance } from ${JSON.stringify(moduleURL)};
+          import { MemoryEngineController } from ${JSON.stringify(controllerURL)};
+          const root = ${JSON.stringify(f.root)};
+          const journal = ${JSON.stringify(f.path)};
+          const seam = ${JSON.stringify(seam)};
+          const marker = root + '/.views/.maintenance-active.json';
+          const context = { current() {
+            if (existsSync(marker) && (
+              (seam === 'marker-linked' && lstatSync(marker).nlink === 2) ||
+              (seam === 'lock-quarantined' && !existsSync(root + '/.lock') && existsSync(journal)) ||
+              (seam === 'journal-quarantined' && !existsSync(journal))
+            )) process.exit(73);
+            return true;
+          }};
+          await offlineMaintenance(new MemoryEngineController(root), context, {
+            action: 'offline-adopt', target: ${JSON.stringify(preview.target)},
+            revision: ${JSON.stringify(preview.revision)}, offline: offlineAssurance,
+          });
+        `,
+        ],
+        { cwd: '/', env: process.env, encoding: 'utf8', timeout: 30000 },
+      )
+      assert.equal(child.status, 73, child.stderr)
+      const markerPath = join(f.root, maintenanceMarker)
+      assert.equal(existsSync(markerPath), true)
+      const marker = JSON.parse(readFileSync(markerPath, 'utf8'))
+      const work = join(f.root, '.views/.maintenance', marker.id)
+      const publication = join(work, 'marker-publication.json')
+      const unknown = join(work, 'unknown-publication.tmp')
+      if (seam === 'marker-linked') {
+        assert.equal(lstatSync(markerPath).nlink, 2)
+        assert.equal(lstatSync(publication).ino, lstatSync(markerPath).ino)
+        assert.deepEqual(readFileSync(f.path), f.original.get(f.path.slice(f.root.length + 1)))
+        writeFileSync(unknown, 'retain unknown evidence', { mode: 0o600 })
+      }
+      const checkpoint = await f.inspect()
+      assert.equal(existsSync(markerPath), true, 'inspection never releases admission')
+      assert.equal(lstatSync(markerPath).nlink, seam === 'marker-linked' ? 2 : 1)
+      assert.ok('interruptedPublication' in checkpoint)
+      assert.equal(checkpoint.interruptedPublication, seam === 'marker-linked')
+      if (seam === 'marker-linked') {
+        assert.equal(existsSync(publication), true)
+        assert.equal(lstatSync(publication).nlink, 2)
+        assert.equal(lstatSync(publication).ino, lstatSync(markerPath).ino)
+        assert.equal(readFileSync(unknown, 'utf8'), 'retain unknown evidence')
+        await assert.rejects(
+          offlineMaintenance(f.engine, f.context, {
+            action: 'offline-resume',
+            target: checkpoint.target,
+            revision: '0'.repeat(64),
+            offline: offlineAssurance,
+          }),
+          /Explicit reviewed offline checkpoint resume required/,
+        )
+        assert.equal(lstatSync(markerPath).nlink, 2, 'unreviewed resume cannot settle either name')
+        assert.equal(lstatSync(publication).nlink, 2)
+      }
+      await offlineMaintenance(f.engine, f.context, {
+        action: 'offline-resume',
+        target: checkpoint.target,
+        revision: checkpoint.revision,
+        offline: offlineAssurance,
+      })
+      assert.equal(existsSync(markerPath), false)
+      assert.equal(existsSync(publication), false, 'authorized resume settles the publication pair')
+      if (seam === 'marker-linked') assert.equal(readFileSync(unknown, 'utf8'), 'retain unknown evidence')
+      assert.equal(existsSync(f.path), false)
+      for (const [path, bytes] of f.original)
+        assert.deepEqual(readFileSync(join(work, 'snapshot', path)), bytes, path)
+      assert.deepEqual(
+        readFileSync(join(work, 'quarantine/.lock/owner.json')),
+        f.original.get('.lock/owner.json'),
+      )
+    } finally {
+      await f.close()
+    }
+  })
+}
 
 test('fixed archive inventory resource ceilings refuse before marker or blocker removal', {
   skip: !kernelAvailable,

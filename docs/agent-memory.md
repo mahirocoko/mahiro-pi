@@ -201,7 +201,7 @@ loaded runtime actually advertises.
    a bounded, unverified continuity checkpoint is preserved for the next turn. This
    one-shot prompt context is separate from the metadata-only review records below.
 
-`agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. The command façade is separate from that model-callable action: `/mh-memory palace` opens the immutable ABI2 metadata viewer, `/mh-memory palace close` stops it and `/mh-memory palace json` returns the bounded structural report. The experimental local preview remains a separate synthetic page and does not own this command. A hidden compatibility diagnostic reports current committed revision/config identity, bounded public Pi context estimates, effective-system-prompt byte size and the last ABI2 projection-owner output receipt; it never returns prompt/memory text, root/session paths, exact provider consumption or fabricated category accounting. A projection receipt proves owner output only. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. Public help exposes `status`, `help`, `doctor`, `palace [close|json]`, `init`, `remember <text>` and `dream`; earlier context/history/HTML checkpoint commands remain hidden aliases. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+`agent_memory_manage` provides primary-only status/cancel, engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. The command façade is separate from that model-callable action: `/mh-memory palace` opens the immutable ABI2 metadata viewer, `/mh-memory palace close` stops it and `/mh-memory palace json` returns the bounded structural report. The experimental local preview remains a separate synthetic page and does not own this command. A hidden compatibility diagnostic reports current committed revision/config identity, bounded public Pi context estimates, effective-system-prompt byte size and the last ABI2 projection-owner output receipt; it never returns prompt/memory text, root/session paths, exact provider consumption or fabricated category accounting. A projection receipt proves owner output only. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. Public help exposes `status`, `help`, `doctor`, `palace [close|json]`, `retire`, `init`, `remember <text>` and `dream`; earlier context/history/HTML checkpoint commands remain hidden aliases. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
 Ordinary ABI2 branch checks record one operation-local anchor: the manager
 object, the session id, and the leaf id. A later read follows at most 8,192
@@ -563,6 +563,88 @@ Failed/cancelled/retired attempts and conflicts are not successful integration.
 `latestAttempt` reflects newly observed native metadata, not historical private
 attempt inspection or proof of semantic learning.
 
+**Prepared-publication retirement handoff (safe vertical slice).**
+`/mh-memory prepared-retire status` classifies only strict ownerless-prepared or
+locked-prepared publication evidence using the existing offline review/fingerprint
+owner. `/mh-memory prepared-retire` first reviews that exact operation, then fences
+and joins the capable current memory generation, and rereads the fingerprint after
+its actual continuations drain. The bounded result is `offline-required`, with the
+operation target and revision for coordinated offline inspection/adoption. Tool ABI:
+`agent_memory_manage` actions `prepared-retire-status` and `prepared-retire`, with
+no other arguments. This is not raw cleanup or a force-unlock endpoint.
+
+The command creates **no maintenance marker**, performs no archive/quarantine,
+and does not change corpus, policy, episodes or proposals. A legacy/mixed-version
+root has no proven complete capability cohort: a registry, installation, reload,
+PID, quiet interval or matching lock metadata cannot provide that proof. The
+handoff is not offline assurance; re-inspect with the existing offline owner and
+coordinate all unsupported/unaccounted owners before applying it. Existing full
+archive equality, quarantine, proposal-conflict, capacity and crash-resume gates
+remain unchanged. This is a practical retirement-to-offline handoff, **not online
+recovery completion**. If already-started work changes the strict prepared state
+while joining, review the resulting offline evidence rather than reusing an old
+fingerprint.
+
+Supported foreground sessions can remain open **only when their participating
+memory generations have actually drained**. Foreground health is separate from
+memory drain. This generation stays retired; installation/reload alone is not
+drain proof, and `globalQuiescence` remains false.
+
+The internal admission foundation at `engine/admission.ts` supports explicit,
+root/inode-bound serialized register→reread admission, durable monotonically
+advanced epochs, and barrier→enumerate→actual retire/join→revalidate ordering.
+Acknowledgements bind the exact operation transaction and are written only after
+joins. Serialized acknowledgement bytes alone are never drain references. It has
+same-process resume and explicit admission-only cancellation; cancellation keeps
+old epochs fenced. Foreign/malformed participants and interrupted serialization
+turns refuse with an offline boundary, without lock stealing. Construction and
+installed startup provision nothing; this foundation is **not automatically
+enrolled into installed primary roots**. Its optional admission context fences
+controller mutations, native publication and policy operations and propagates to
+inherited workers. Synthetic fixtures exercise that path, not live enrollment.
+
+Remaining online gate: a real complete-cohort enrollment owner and cross-process
+actual join channel must exist before a future enrolled root can authorize online
+archive/quarantine using the existing offline helpers. They are not implemented by
+this slice. Named TODO tests preserve those blocked completion/resume gates; no
+public command currently publishes the experimental admission barrier. Therefore
+the public handoff cannot strand writes behind a barrier lacking resume/cancel.
+
+**Explicit memory-only retirement.** `/mh-memory retire` (no arguments) uses the
+existing primary management façade, not a new model-callable tool action. The
+optional ABI2 kernel capability checks the actual primary manager/session,
+generation, registered `agent_memory_manage` tool, canonical selected root and
+existing PSS tool/root/path authority. It fences memory admission synchronously
+before invoking asynchronous retirement callbacks, then joins registered runtime
+continuations, the data controller, native publication and actual memory holds.
+The foreground kernel node and unrelated feature/tool ownership remain healthy;
+only the owned memory writer may be cancelled, never all foreground/native jobs.
+The public native service exposes an all-agent join, so retirement can conservatively
+wait behind unrelated native work without aborting it.
+
+A successful reply is exactly owner-local:
+`{state: "drained", scope: "memory-generation", globalQuiescence: false}`.
+Generation/root/primary/authority checks run again before returning that result.
+Missing retirement callbacks, ABI1 and capability-less older ABI2 owners never
+certify drain; the latter two return `unsupported` without cancelling their
+runtime. A rejected or absent native join/callback cannot certify drain. There
+is no timeout-to-success fallback: a blocked real Git hook or held continuation
+keeps retirement pending. A failed attempt on a capable owner remains fenced;
+it does not roll back the fence or release unproven ownership. Ordinary cancelled
+tool replies are not join proof: runtime/native close events and publication
+holds must still finish. Already-started native Git is not killed or rolled back
+and may finish, so drain also does not mean unchanged HEAD.
+
+This fence is terminal for that kernel memory generation: tree navigation,
+ordinary requests and repeated `session_start` do not reactivate it. It creates
+no store, changes no permission/policy/profile, adopts or cleans no durable
+operation, and returns no root path or recovery handle. It proves neither global
+root quiescence nor safety to delete/archive/recover uncertain records. Other
+controllers, processes and old writers remain outside its proof. Source changes
+alone do not add the capability to an already-loaded kernel or fix an existing
+prepared operation; installation/reload and any live-root action are separate
+explicit scopes.
+
 ABI2 tree navigation invalidates the pre-tree memory epoch before the leaf can
 change, cancels its writer and joins actual native-worker/engine continuations.
 Completed `session_tree` navigation rebinds the same healthy primary owner with a
@@ -616,6 +698,50 @@ status adds `policyOperation`, separate from publication/worker readiness:
 - `unknown/unavailable`: missing/corrupt/incomplete evidence, changed state or
   ownership, or no actual executor reference. Retain evidence for explicit owner
   review; never treat this as idle or use PID/session/dead-parent recovery.
+
+The additive `policyOperation.lockObservation` reports only a point-in-time,
+read-only `lstat` of the fixed `.lock` entry: `absent` (only an actual `ENOENT`),
+`directory-present`, `other-entry-present` (including regular files and symlinks),
+or `unavailable` when observation fails. It reads no lock contents or directory
+inventory and never follows a lock symlink. A successful observation survives later
+policy-evidence or executor failure; revoked authority cannot return a successful
+classification. This is not ownership, quiescence, or removal eligibility and does
+not change `state`, `lockRetained`, or reconciliation/refusal rules.
+
+Only when `lockObservation` is `directory-present`, the separate `policyOperation.lockShape`
+adds a bounded, read-only, **best-effort non-atomic pathname observation**: `empty`,
+`owner-only`, `other`, or `unavailable`. `owner-only` means the sole entry's name matches
+`owner.json`; it does not validate that entry's type, contents, owner, or authority.
+The scan reads at most two entries using `opendir` with a one-entry buffer. It outputs
+no entry names, paths, or contents. Each discovered child's exact path is authorized
+before deriving a classification and remains in subsequent and final authorization
+checks, including error fallbacks. Current exact root/lock authority is rechecked
+around awaits and before returning; revoked authority, including a targeted child
+deny, cannot return a successful classification.
+The root and lock must be private directories with no observed symlink. Observed
+identity, mode, or modification/change-time differences around the scan, and read or
+close errors, yield `unavailable`. The original `lockObservation` remains independent
+and retains its no-inventory `lstat` meaning even if the shape scan fails.
+
+This is a cooperative same-user diagnostic, **not a descriptor-bound snapshot**.
+Node's pathname `opendir` has no no-follow flag: checks reject observed symlinks and
+replacements but cannot prevent or detect every transient pathname swap, including a
+swap to a symlink and back between checks. Neither shape nor an empty directory proves
+ownership, drain, quiescence, abandonment, or recovery/removal eligibility. No mutation
+or recovery action is authorized by either observation.
+
+For a present lock directory, ABI2 status also adds
+`policyOperation.lockOwnerPendingComparison`: `match`, `mismatch`, or `unavailable`.
+It compares only the full owner operation UUID and digest with the pending-operation
+metadata already read by that status request. The bounded (2 KiB) private owner read
+uses the existing owner parser; missing, malformed, oversized, or observably changing
+evidence is `unavailable`. Exact root, lock, and `owner.json` target authority remains
+bound through final/error checks; denial or revocation fails the request rather than
+becoming a successful diagnostic. No owner nonce, path, directory identity, or raw
+bytes are returned. Directory identity/mode/time and repeated-byte checks detect
+observed changes, not every transient swap. This is a cooperative, non-atomic
+point-in-time comparison, not policy/publication ownership, drain, or recovery
+eligibility. A match with no policy journal still grants no recovery.
 
 After `retained+recoverable`, a **fresh explicit primary** call may use:
 
@@ -811,6 +937,46 @@ external or mismatched hardlinks, changed identities, exhausted bounds and other
 offline maintenance refuse without deleting evidence. No automatic quarantine pruning
 or general-purpose repair is provided.
 
+## Destructive offline reset (ABI2)
+
+The separate native [`memory-maintenance.mjs --reset` operator](bootstrap.md#destructive-reset-separate-human-authorization)
+requires explicit human authorization to destroy the entire canonical standard
+`<agentDir>/memory`, **without any backup or reinitialization**. It is not recovery,
+retirement, migration or logical forgetting. Existing recovery/retirement paths are
+unchanged. No source/startup action selects or performs it.
+
+`agent_memory_manage` actions `offline-reset-inspect` and `offline-reset` are available
+only to the registered ephemeral headless offline primary, with current manager,
+generation, exact-root PSS/DATA and per-target authority. Normal model calls, native
+children and persistent primary sessions cannot use this entry. Inspection returns
+only bounded root identity, opaque target/fingerprint, counts, presence state and
+`backupCreated:false`; no paths or corpus. Every hidden/untracked file and Git byte is
+included, including any old recovery archive. Symlinks, hardlinked files, special
+files, unsafe ownership, excessive inventory, changed bytes/selection/settings and
+uncertain kernel-holder checks refuse. Required installation metadata must be valid;
+corpus/journal completeness is deliberately not a prerequisite for destroying a
+partially deleted tree. A present tree is always labelled
+`present-unvalidated-or-partial`, never certified healthy or recovered.
+
+Apply additionally requires exact reviewed `target`, `revision`,
+`offline='known-profile-closed-no-cooperative-writers-start'` and
+`destruction='destroy-entire-standard-memory-root-no-backup'` (CLI
+`--apply --offline --destroy-no-backup`). It re-inventories full bytes, revalidates
+selection/settings and current authority, and runs fixed system `lsof` immediately
+before deletion. No holder is allowed, including the current process. Cooperative
+closure/no-new-writers assurance is mandatory; this is not a hostile same-user OS
+sandbox. Only reviewed entries are unlinked; directories use nonrecursive removal,
+so newly appearing children refuse rather than being silently destroyed.
+
+No archive, rename, checkpoint, tombstone, retained Git history or replacement store
+is created. Sessions, profile selection/settings, source and siblings remain untouched.
+Interruption can leave an arbitrary subset of the root. Fresh inspect and newly
+reviewed exact apply can complete deletion even after config or journals are gone;
+there is no replay of an old fingerprint. Success requires root absence. A subsequent
+status reports `absent-uninitialized`, `initialized:false`, no lock and no pending
+operation. Startup and status do not initialize it. Later explicit initialization is
+a separate action, not part of reset.
+
 ## Explicit offline maintenance recovery
 
 This separate ABI2 owner operation handles one exact interrupted publication: a
@@ -846,8 +1012,25 @@ operator process and actual data-controller child are exempt, not caller PID
 lists. This is cooperative offline maintenance, not a hostile same-user OS sandbox
 or a new way to infer lost executor drain.
 
+The same inspect/apply/resume transaction also accepts one strictly ownerless
+prepared operation: `owner: null`, receipt exactly `prepared`, sequence zero,
+and prepared HEAD, config, ledger and retained ready-proposal bindings unchanged.
+It requires a clean index and worktree, compares the index and every tracked file
+with HEAD (including paths hidden from status), and refuses any lock, CAS,
+operation staging, untracked native orphan or additional unresolved operation.
+Ambiguous prepared state is not reclassified as terminal dirty. The existing
+explicit cooperative offline assurance is still required; absence of a holder
+alone is not proof of quiescence or lost executor drain. No owner identity or
+executor receipt is fabricated. The original journal is archived and quarantined,
+the ready proposal is preserved in the snapshot and marked `conflict` in the
+active namespace, and completion reports `manually-retired-ownerless-prepared`.
+This is offline admission recovery, not evidence that a previously dispatched
+executor completed, a live-profile recovery instruction, or hostile-process
+exclusion. The same exact-root authority, revision CAS, copied full archive,
+marker and explicit reviewed crash-resume protocol below apply.
+
 Read-only `offline-inspect` returns bounded fingerprints, full HEAD, typed owner
-identity, operation immutable hash/sequence, artifact paths and active journal,
+identity (or null for strictly classified ownerless prepared state), operation immutable hash/sequence, artifact paths and active journal,
 draft, legacy-view, staging and uncertain-admission counts; never corpus, raw
 configuration or proposal bodies. Apply requires that exact reviewed target and
 fingerprint. All Root file bytes (including raw Git index/config, Core/index,

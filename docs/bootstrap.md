@@ -103,6 +103,39 @@ pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
   --target <reviewed-operation-UUID> --expect <exact-inspection-SHA256>
 ```
 
+### Destructive reset (separate human authorization)
+
+`--reset` is not recovery. After explicit human approval to destroy the **entire**
+standard `<agentDir>/memory` and closing every known holder/writer, inspect and review:
+
+```sh
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --reset --inspect
+pnpm memory:maintenance --agent-dir /absolute/canonical/profile \
+  --project /absolute/canonical/project --reset --apply --offline \
+  --target <reviewed-reset-target-SHA256> --expect <exact-inspection-SHA256> \
+  --destroy-no-backup
+```
+
+The result's `maintenance.target` and `maintenance.revision` are the reviewed pair.
+This **permanently removes** corpus, hidden/untracked files, `.git` history, locks,
+journals, drafts and old recovery archives inside that root. It creates **no backup,
+archive, quarantine, migration, tombstone or replacement store**. Selection/settings,
+sessions and siblings are preserved. Existing ABI2 selection and exact PSS/DATA
+permissions remain required. Ordinary model sessions cannot invoke reset: only the
+registered ephemeral native offline owner can. A fixed system `lsof` must find no
+holders, including the operator's own process. `--offline` is still the cooperative
+no-new-writers assurance, not a hostile same-user process guarantee.
+
+A crash/revocation can leave partial deletion; do not reuse the old fingerprint.
+Re-run `--reset --inspect`, review the remaining bytes' new fingerprint and explicitly
+apply again. Inspect labels a present root `present-unvalidated-or-partial`, not a
+healthy store. Full success and a later status report `absent-uninitialized`, with no
+lock or pending operation. Nothing auto-initializes; any later initialization needs
+its own explicit scope. See [reset contract](agent-memory.md#destructive-offline-reset-abi2).
+
+### Recovery selectors (non-reset)
+
 Terminal draft saturation uses the same operator with `--drafts`. It archives
 only strict cancelled or committed empty-overlay manifests that no journal
 references. `--rollback` is available only for draft checkpoint recovery. The `lsof`

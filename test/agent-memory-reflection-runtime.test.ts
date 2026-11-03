@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
@@ -23,6 +23,10 @@ import { observedEpisode } from '../lib/agent-memory/engine/episodes.ts'
 import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
 import { verificationPartLimit } from '../lib/agent-memory/verification-evidence.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
+import { registerOfflineMaintenanceSession } from '../lib/agent-memory/offline-bootstrap.ts'
+import { memoryFailureCode, offlineResetFailureCode } from '../lib/agent-memory/reasons.ts'
+import { destroyNoBackup } from '../lib/agent-memory/engine/offline-reset.ts'
+import { offlineAssurance } from '../lib/agent-memory/engine/offline-maintenance.ts'
 import type { EngineWorkerValue } from '../lib/agent-memory/experimental-contracts.ts'
 import { createMemoryStore, type Episode } from '../lib/agent-memory/store.ts'
 import { digest } from '../lib/continuity/records.ts'
@@ -128,6 +132,8 @@ function fixture() {
   const childManagers = new Set<ExtensionContext['sessionManager']>()
   const closeChildren: (() => Promise<void>)[] = []
   const service = {
+    // This double launches no native child. Real SDK/kernel retirement is covered separately.
+    waitForAll: async () => {},
     supportsInitialOutcomeClaim: true,
     getAgentType: () => ({
       name: 'managed-memory-writer',
@@ -237,6 +243,8 @@ function fixture() {
     branch,
     spawns,
     records,
+    service,
+    abi,
     holds,
     revoke() {
       granted = false
@@ -366,6 +374,85 @@ function fixture() {
   }
 }
 
+test('offline reset runtime requires registered ephemeral primary; absent status never initializes', async () => {
+  const f = fixture()
+  let unregister: (() => void) | undefined
+  try {
+    Object.assign(f.ctx, { hasUI: false })
+    const profile = dirname(f.root)
+    writeFileSync(
+      join(profile, '.mahiro-memory-engine.json'),
+      JSON.stringify({ version: 2, mode: 'engine', root: f.root }),
+      { mode: 0o600 },
+    )
+    writeFileSync(join(profile, 'settings.json'), JSON.stringify({ packages: ['synthetic-owner'] }), {
+      mode: 0o600,
+    })
+    await f.emit('session_start')
+    await assert.rejects(
+      f.runtime.run('agent_memory_manage', { action: 'offline-reset-inspect' }, f.ctx),
+      (error) => {
+        assert.equal(memoryFailureCode(error).reason, 'offline-only')
+        assert.equal(offlineResetFailureCode(error), 'offline-context')
+        return true
+      },
+    )
+    unregister = registerOfflineMaintenanceSession(f.ctx.sessionManager.getSessionId())
+    await f.emit('input', { text: 'Synthetic offline operator request', source: 'extension' })
+    assert.equal(f.runtime.status().pid, undefined, 'offline input must not start reflection data service')
+    assert.equal(f.spawns.length, 0)
+    const preview = (await f.runtime.run(
+      'agent_memory_manage',
+      { action: 'offline-reset-inspect' },
+      f.ctx,
+    )) as { target: string; revision: string; state: string }
+    const invalidBinding = {
+      ...f.ctx,
+      sessionManager: { ...f.ctx.sessionManager },
+    } as ExtensionContext
+    await assert.rejects(
+      f.runtime.run('agent_memory_manage', { action: 'offline-reset-inspect' }, invalidBinding),
+      (error) => {
+        assert.equal(offlineResetFailureCode(error), 'reset-binding')
+        return true
+      },
+    )
+    f.revoke()
+    await assert.rejects(
+      f.runtime.run('agent_memory_manage', { action: 'offline-reset-inspect' }, f.ctx),
+      (error) => {
+        assert.equal(offlineResetFailureCode(error), 'maintenance-authority')
+        return true
+      },
+    )
+    f.grant()
+    const result = (await f.runtime.run(
+      'agent_memory_manage',
+      {
+        action: 'offline-reset',
+        target: preview.target,
+        revision: preview.revision,
+        offline: offlineAssurance,
+        destruction: destroyNoBackup,
+      },
+      f.ctx,
+    )) as { state: string }
+    assert.equal(result.state, 'absent-uninitialized')
+    assert.equal(existsSync(f.root), false)
+    const status = await f.runtime.run('agent_memory_manage', { action: 'status' }, f.ctx)
+    assert.deepEqual(status, {
+      state: 'absent-uninitialized',
+      initialized: false,
+      lockPresent: false,
+      pendingOperation: false,
+    })
+    assert.equal(existsSync(f.root), false)
+  } finally {
+    unregister?.()
+    await f.close()
+  }
+})
+
 const episodeIds = (prompt: string) =>
   (JSON.parse(prompt) as { episodes: { id: string; kind?: string; actions?: unknown[] }[] }).episodes
 
@@ -376,6 +463,70 @@ async function until(ready: () => boolean) {
     await yieldTurn()
   }
 }
+
+for (const overlap of ['bind-failure', 'spawn-retirement'] as const)
+  test(`native join is reserved before ${overlap}; abort is not drain`, async (t) => {
+    const f = fixture()
+    let release!: () => void
+    const native = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let retirement: Promise<void> | undefined
+    let joinStarted = false
+    const aborted: string[] = []
+    const abort = f.service.abort
+    t.mock.method(f.service, 'abort', (id: string) => {
+      aborted.push(id)
+      return abort.call(f.service, id)
+    })
+    t.mock.method(f.service, 'waitForAll', () => {
+      joinStarted = true
+      return native
+    })
+    if (overlap === 'bind-failure')
+      t.mock.method(f.abi, 'bindWorker', () => {
+        assert.equal(joinStarted, true, 'join must precede fallible lease binding')
+        throw Error('synthetic bind failure')
+      })
+    else {
+      const spawn = f.service.spawn
+      t.mock.method(f.service, 'spawn', (...args: Parameters<typeof spawn>) => {
+        const id = spawn.apply(f.service, args)
+        retirement = f.runtime.cancel() // synchronous reentrancy, before spawn returns its id
+        return id
+      })
+    }
+    try {
+      await f.emit('session_start')
+      f.records.set('unrelated', {
+        id: 'unrelated',
+        type: 'foreground-worker',
+        status: 'running',
+        outputFile: 'unrelated-session',
+      })
+      await assert.rejects(
+        f.runtime.startWriter(f.ctx, 'Synthetic explicit work'),
+        /bind failure|launch retired/,
+      )
+      retirement ??= f.runtime.cancel()
+      let drained = false
+      const joined = retirement.then(() => {
+        drained = true
+      })
+      await yieldTurn()
+      assert.equal(joinStarted, true)
+      assert.equal(drained, false, 'queued native work without a child hold still pins retirement')
+      assert.deepEqual(aborted, [f.spawns[0]!.id], 'abort only the returned owned memory id')
+      assert.equal(f.records.get('unrelated')!.status, 'running')
+      release()
+      await joined
+      assert.equal(drained, true)
+    } finally {
+      release()
+      await retirement
+      await f.close()
+    }
+  })
 
 for (const overflow of [false, true])
   test(`ABI2 bound child tool execute marks ready and parent genuinely integrates (overflow=${overflow})`, async () => {
@@ -588,8 +739,7 @@ test('foreground input after ABI2 prepare retires only the exact drained never-p
     const before = f.store.snapshot()
     const selected = episodeIds(f.spawns[0]!.prompt).map((episode) => episode.id)
     assert.equal(selected.length, 1)
-    // This fixture omits native waitForAll; its existing diagnostic is not a handoff failure.
-    assert.equal(f.runtime.status().lastError, 'native-drain-unavailable')
+    assert.equal(f.runtime.status().lastError, undefined)
     await binding.value.engine.request('ready', { view: binding.value.view }, { current: () => true })
     binding.value.ready = true
     const gate = new Promise<void>((resolve) => {
@@ -630,7 +780,7 @@ test('foreground input after ABI2 prepare retires only the exact drained never-p
     await f.runtime.drain()
     const status = (await f.runtime.run('agent_memory_manage', { action: 'status' }, f.ctx)) as any
     assert.equal(status.latestAttempt.outcome, 'cancelled')
-    assert.equal(f.runtime.status().lastError, 'native-drain-unavailable')
+    assert.equal(f.runtime.status().lastError, undefined)
     assert.equal(f.spawns.length, 1, 'the cancelled completion cannot retry the writer')
     assert.deepEqual(f.store.snapshot(), before, 'HEAD, files and reviewed episodes remain unchanged')
     assert.ok(selected.every((id) => !f.store.snapshot().reviewed.includes(id)))

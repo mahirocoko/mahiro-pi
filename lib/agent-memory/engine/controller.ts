@@ -20,8 +20,11 @@ import {
   validateInput,
 } from './protocol.ts'
 import { validateReply } from './replies.ts'
+import type { MemoryAdmission } from './admission.ts'
 
 export interface OperationContext {
+  /** Actual root-bound generation participant; never a serialized acknowledgement. */
+  admission?: MemoryAdmission
   // Must close over actual runtime/Root/context/lease, never a deserialized verdict.
   // Strict synchronous true only. Phase B binds real canonical contexts here.
   current: (targets: Checkpoint) => boolean
@@ -80,6 +83,7 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
 }
 export function assertCurrent(context: OperationContext, targets: Checkpoint = empty) {
   context.signal?.throwIfAborted()
+  context.admission?.assertCurrent(context)
   if (context.current(targets) !== true) throw Error('Current parent authority required (strict boolean)')
 }
 
@@ -357,6 +361,41 @@ export class MemoryEngineController {
     }
   }
   request<M extends Method>(method: M, input: Input<M>, context: OperationContext): Promise<Output<M>> {
+    if (context.admission && context.admission.root !== this.root)
+      return Promise.reject(Error('Memory admission root mismatch'))
+    const readOnly =
+      [
+        'knowledgeHistory',
+        'palaceStructure',
+        'projection',
+        'config',
+        'capacityDiagnostic',
+        'retainedDraftPreview',
+        'status',
+        'offlineCertify',
+        'episodes',
+        'selectEpisodes',
+        'episodeBacklog',
+        'episodeCredit',
+        'conflicts',
+        'read',
+        'headRead',
+        'stats',
+        'chunk',
+        'fence',
+      ].includes(method) ||
+      (method === 'manage' &&
+        'action' in input &&
+        ['doctor', 'palace', 'migration-export'].includes(input.action))
+    if (context.admission && !readOnly)
+      return context.admission.run(() => this.requestAdmitted(method, input, context), context)
+    return this.requestAdmitted(method, input, context)
+  }
+  private requestAdmitted<M extends Method>(
+    method: M,
+    input: Input<M>,
+    context: OperationContext,
+  ): Promise<Output<M>> {
     try {
       assertCurrent(context)
       if (this.retired || this.failure) throw this.failure ?? Error('Engine retired')
