@@ -1,20 +1,30 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { starterCore } from '../lib/agent-memory/starter.ts'
+import { starterCore, starterPersona } from '../lib/agent-memory/starter.ts'
 import { memoryCurationDoctrine } from '../lib/agent-memory/guidance.ts'
 import { hasSecret } from '../lib/continuity/records.ts'
 
 test('fresh starter is bounded, generic and explicitly customizable without changing authority', () => {
+  assert.ok(starterCore.length <= 4000)
   assert.ok(Buffer.byteLength(starterCore) < 8192)
+  assert.ok(Buffer.byteLength(starterPersona) < 8192)
   assert.equal(hasSecret(starterCore), false)
+  assert.equal(hasSecret(starterPersona), false)
   for (const field of ['Name', 'Language', 'Tone', 'Detail', 'Specialties'])
     assert.match(starterCore, new RegExp(`- ${field}: `))
+  assert.match(starterCore, /Companion for now\. If they give me a better name, keep it\./)
+  assert.match(starterCore, /Memory is part of my mind\./)
+  assert.match(
+    starterPersona,
+    /^---\nname: persona\ndescription: Continuity, memory, and habits of attention/,
+  )
   assert.match(starterCore, /No personal identity, preferences, project facts or imported corpus/)
   assert.match(
     starterCore,
     /does\nnot create a new identity\/store, erase knowledge or change permissions\/model routes/,
   )
   assert.doesNotMatch(starterCore, /Mahiro|Letta|mahirocoko|\/Users\//)
+  assert.doesNotMatch(starterPersona, /Mahiro|Letta|mahirocoko|\/Users\//)
 })
 
 test('curation foundations are package-owned independently of editable persona', () => {

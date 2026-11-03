@@ -102,6 +102,7 @@ import {
   validateFile,
   withMigrationFrontmatter,
 } from './schema.ts'
+import { starterCore, starterPersona } from '../starter.ts'
 
 interface Prepared {
   plan: Plan
@@ -767,12 +768,11 @@ export class MemoryDataEngine {
         )
         const migrationTexts = await this.bodies(migrationEntries)
         if (!now.refs['system/persona.md']) {
-          await writeNewOverlay(
-            v,
-            'system/persona.md',
-            `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${migrationTexts['Core.md']}`,
-            [...now.refs['Core.md'].sources],
-          )
+          const personaText =
+            migrationTexts['Core.md'] === starterCore
+              ? starterPersona
+              : `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${migrationTexts['Core.md']}`
+          await writeNewOverlay(v, 'system/persona.md', personaText, [...now.refs['Core.md'].sources])
           added.push('system/persona.md')
         }
         for (const [p, ref] of migrationEntries) {

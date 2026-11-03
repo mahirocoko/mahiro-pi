@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.1 source release record](releases/0.12.1.md) — default Memo starter persona for fresh
+  maintained-memory initialization and Tiered v2 starter migration.
 - [v0.12.0 source release record](releases/0.12.0.md) — Letta-aligned maintained-memory
   discovery, session-scoped reflection scheduling, Palace Web viewer and unified Herdr observer.
 - [v0.11.0 source release record](releases/0.11.0.md) — bounded test state, path/index memory

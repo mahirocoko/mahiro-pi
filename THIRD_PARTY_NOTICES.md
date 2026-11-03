@@ -91,3 +91,14 @@ font fallbacks use the upstream Manrope/Fira Code stacks, and exact upstream dar
 tokens follow `prefers-color-scheme` rather than a JavaScript theme toggle. Static
 anchor navigation, definition lists, table captions and keyboard focus receive
 minimal mappings; no document callbacks, font files or routes are added.
+
+## Letta Code default Memo persona
+
+`lib/agent-memory/starter.ts` (`starterPersonaBody`, `starterPersona`, and the
+`## Persona and habits of attention` section of `starterCore`) adapts the public
+Letta Code default persona prompt
+[`src/agent/prompts/persona_memo.mdx`](https://github.com/letta-ai/letta-code/blob/8f72222dec142dfc2316692d68ada3ab2e439d46/src/agent/prompts/persona_memo.mdx)
+at commit `8f72222dec142dfc2316692d68ada3ab2e439d46` / `v0.34.36` (Apache-2.0,
+Copyright 2025, Letta authors; see [`letta-code-Apache-2.0.txt`](lib/agent-memory/local/palace-assets/letta-code-Apache-2.0.txt)).
+The adaptation replaces the upstream product name on the opening line with generic
+`Companion` and uses `name: persona` YAML frontmatter for Tiered v2 compatibility.

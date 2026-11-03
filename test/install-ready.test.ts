@@ -658,6 +658,20 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     fs.writeFileSync(policyFile, JSON.stringify(learningPolicy), { mode: 0o600 })
     // Both automatic owners receive one genuine observed idle settlement. They
     // share the exact native parent's bounded queue, not a last-child singleton.
+    const priorEpisodeId = sha(`${session.sessionId}:synthetic-prior-turn`)
+    store.recordEpisode(priorEpisodeId, {
+      id: priorEpisodeId,
+      project: sha(fs.realpathSync(projectB)),
+      session: session.sessionId,
+      evidence: 'observed-native-unverified',
+      observedAt: '2026-07-01T00:00:00.000Z',
+      entryHash: sha('synthetic-prior-entry'),
+      input: { text: 'Synthetic prior observation credit.', source: 'interactive' },
+      actions: [{ text: 'Prior synthetic assistant steps.' }],
+      results: [],
+      outcome: 'completed',
+      assistantSteps: 24,
+    })
     const automaticService = node.managedMemory.parentService()
     faux.setResponses(
       Array.from({ length: 64 }, () => (c: any) => {
