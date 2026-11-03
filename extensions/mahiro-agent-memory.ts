@@ -210,6 +210,49 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             ctx,
           )
           const migrated = await runtime.run('agent_memory_manage', { action: 'migrate-v2' }, ctx)
+          try {
+            const { existsSync, readdirSync, readFileSync } = await import('node:fs')
+            const { join } = await import('node:path')
+            const { hasSecret } = await import('../lib/continuity/records.ts')
+            const topEntries = readdirSync(ctx.cwd)
+              .filter((name) => !name.startsWith('.'))
+              .slice(0, 24)
+              .join(', ')
+            const snippets: string[] = []
+            if (topEntries) snippets.push(`Top-level entries: ${topEntries}`)
+            for (const candidate of [
+              'package.json',
+              'pyproject.toml',
+              'Cargo.toml',
+              'go.mod',
+              'AGENTS.md',
+              'CLAUDE.md',
+              'README.md',
+            ]) {
+              const filePath = join(ctx.cwd, candidate)
+              if (!existsSync(filePath)) continue
+              const raw = readFileSync(filePath, 'utf8')
+                .replace(/[\r\n\t]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 420)
+              if (raw && !hasSecret(raw)) snippets.push(`${candidate}: ${raw}`)
+            }
+            if (snippets.length) {
+              const summary = snippets.join(' | ').slice(0, 2400)
+              await runtime
+                .run(
+                  'agent_memory_reflect',
+                  {
+                    assignment: `Initialize this project's tiered memory (projects/<project>/system/overview.md and projects/<project>/system/conventions.md) and update index.md from these repository facts: ${summary}`,
+                  },
+                  ctx,
+                )
+                .catch(() => undefined)
+            }
+          } catch {
+            // Best-effort repository scan for /mh-memory init reflection.
+          }
           const result = { migrated, initialized: inited }
           observe('memory', result)
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
