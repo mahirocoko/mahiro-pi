@@ -282,6 +282,38 @@ test('Palace diff blocks reflect owner-returned additions/deletions, excluding f
   assert.match(cards[0], /class="db-minus">−2/)
   assert.match(cards[0], /class="diff-line diff-file-header">--- old/)
   assert.match(cards[0], /class="diff-line hunk">@@ hunk @@/)
+
+  const mixed = history()
+  mixed.entries = [
+    {
+      revision,
+      parent: '1'.repeat(40),
+      committedAt: '2026-01-01T00:01:00.000Z',
+      subject: 'Update memory',
+      changedFiles: 0,
+      diff: '',
+      diffTruncated: false,
+    },
+    {
+      revision: '1'.repeat(40),
+      parent: null,
+      committedAt: '2026-01-01T00:00:00.000Z',
+      subject: 'Curate Core.md',
+      changedFiles: 1,
+      diff: '+Core update\n',
+      diffTruncated: false,
+    },
+  ]
+  const filteredHtml = renderAbi2PalacePage(
+    buildPalaceHandoff({
+      diagnostic: value.diagnostic,
+      history: mixed,
+      expiresAt: new Date(value.delivery.expiresAt),
+    }),
+  )
+  assert.match(filteredHtml, /1 recent commit/)
+  assert.match(filteredHtml, /Curate Core\.md/)
+  assert.doesNotMatch(filteredHtml, /0 files changed/)
 })
 
 test('Palace deterministically budgets repeated workspace previews within 256 KiB', () => {

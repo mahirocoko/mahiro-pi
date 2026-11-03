@@ -660,8 +660,13 @@ function commitCards(
   previewLines: number,
   compact: boolean,
 ): string {
-  const entries = handoff.history.entries
-  if (!entries.length) return '<div class="panel"><p class="lede">No commits yet.</p></div>'
+  const allEntries = handoff.history.entries
+  if (!allEntries.length) return '<div class="panel"><p class="lede">No commits yet.</p></div>'
+  const meaningful = allEntries.filter(
+    (entry) =>
+      entry.changedFiles > 0 || Boolean(entry.diff) || entry.subject === 'Out-of-scope project update',
+  )
+  const entries = meaningful.length ? meaningful : allEntries
   return `<div class="history-toolbar"><span class="history-search-status">${entries.length} recent commit${entries.length === 1 ? '' : 's'}</span></div><div class="commit-list">${entries
     .map((entry, index) => {
       const preview = utf8Preview(entry.diff ?? '', previewBytes)

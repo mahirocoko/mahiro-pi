@@ -47,8 +47,12 @@ quality and must not create more work by themselves.
 - ABI2 remains the live maintained-memory authority and preserves the existing
   private corpus.
 - Source now includes bounded automatic reflection scheduling: 25 eligible assistant
-  messages trigger a frozen backlog, delivered in chunks of at most four episodes.
-  Only delivered episodes can be reviewed. Outstanding assistant credit is the
+  text messages trigger a frozen backlog, delivered in chunks of at most four episodes.
+  Assistant turns with empty text (tool-only steps) do not increment the step counter,
+  with a floor of 1 step per settled turn, and `step-count` triggers scope their
+  candidate backlog to the active session while `compaction` and manual `/mh-memory reflect`
+  review the broader backlog. Only delivered episodes can be reviewed.
+  Outstanding assistant credit is the
   sum of optional `assistantSteps` on turn episodes in the bounded episode
   directory, excluding committed reviewed and forgotten ids. Legacy episodes
   count as zero and compaction episodes have none. Admission is that one
@@ -63,10 +67,18 @@ quality and must not create more work by themselves.
   `pnpm check:*`, `pnpm test:*`, and `node --test` results stay result-only.
   Commandless records keep the previous read check. The recognizer does not
   prove that unlabeled text or other labeled credentials are free of secrets.
+- `agent_memory_write` enforces committed `read_only: true` frontmatter in `prepare`
+  and `publish`, refusing edits or frontmatter tampering before draft creation or
+  commit while allowing identical preservation.
+- Reflection and writer prompts include Tiered v2 curation guidance (`system/` core
+  blocks, `reference/` progressive leaves, `<dir>/index.md` upkeep, and `no_changes`
+  restraint when an episode contains no durable memory delta).
 - The disconnected `lib/agent-memory/local/**` Git/worktree service remains source
   experimentation. It is not silently combined with ABI2 or activated by this roadmap.
 - `/mh-memory palace`, `palace close` and `palace json` remain the public Palace
-  façade. The installed page now follows the pulled Letta memory-viewer visual grammar.
+  façade. The installed page now follows the pulled Letta memory-viewer visual grammar
+  and omits `.memory.json`-only ledger commits from the rendered commit list when
+  Markdown commits are present.
 - Palace visual work is complete for the current scope. Do not resume screenshot,
   zoom, score or taste-review loops unless Mahiro reports a real defect.
 - Existing migration/recovery experiments remain available as source history. They
