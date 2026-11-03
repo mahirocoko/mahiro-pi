@@ -31,6 +31,7 @@ import {
   applySurgicalEdit,
   assertLegacyArchiveCompatible,
   assertLosslessRetention,
+  assertReadOnlyFrontmatter,
   isAlwaysLoadedTieredPath,
   isCriticalLinkSource,
   legacyV1Migration,
@@ -825,6 +826,7 @@ export function createMemoryStore(
       const nextText = applySurgicalEdit(v.files[path]?.text, text, options)
       if (nextText === null && ['Core.md', 'index.md'].includes(path))
         throw new Error('Core and index cannot be removed')
+      assertReadOnlyFrontmatter(path, v.files[path]?.text, nextText)
       const next = copy(v)
       if (nextText === null) delete next.files[path]
       else next.files[path] = { text: nextText, sources: [...sources].sort() }

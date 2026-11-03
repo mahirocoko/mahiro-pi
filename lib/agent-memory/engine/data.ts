@@ -84,6 +84,7 @@ import {
   applySurgicalEdit,
   assertLegacyArchiveCompatible,
   assertLosslessRetention,
+  assertReadOnlyFrontmatter,
   fileLimit,
   idPattern,
   isAlwaysLoadedTieredPath,
@@ -436,11 +437,23 @@ export class MemoryDataEngine {
     }
     throw memoryFailure('capacity', 'Private overflow admission capacity exceeded')
   }
+  private isLocallyActiveDraft(id: string) {
+    const state = this.drafts.get(id)?.value.state
+    return state === 'open' || state === 'ready'
+  }
   private async save(v: Draft, initialPhysical?: string) {
     const raw = `${JSON.stringify(v)}\n`
     parseDraft(raw)
     await this.write(initialPhysical ?? (await this.manifest(v)), raw)
     this.drafts.set(v.id, { value: structuredClone(v), hash: digest(raw) })
+    if (this.drafts.size > limits.views) {
+      for (const [key, entry] of this.drafts) {
+        if (key !== v.id && (entry.value.state === 'cancelled' || entry.value.state === 'committed')) {
+          this.drafts.delete(key)
+          if (this.drafts.size <= limits.views) break
+        }
+      }
+    }
   }
   private async active(id: string, ready = false) {
     const stored = this.drafts.get(id)
@@ -1123,7 +1136,7 @@ export class MemoryDataEngine {
           first,
           second,
           referenced: referenced.has(id),
-          locallyActive: this.drafts.has(id),
+          locallyActive: this.isLocallyActiveDraft(id),
         })
         if (kind === 'unstable') observed.exact = false
         observed[kind]++
@@ -1149,7 +1162,7 @@ export class MemoryDataEngine {
         first,
         second,
         referenced: referenced.has(id),
-        locallyActive: this.drafts.has(id),
+        locallyActive: this.isLocallyActiveDraft(id),
       })
       if (kind === 'unstable') observed.exact = false
       observed[kind]++
@@ -2453,6 +2466,7 @@ export class MemoryDataEngine {
         })
         if (nextText === null && ['Core.md', 'index.md'].includes(args.path))
           throw Error('Core and index cannot be removed')
+        assertReadOnlyFrontmatter(args.path, oldText, nextText)
         const next = structuredClone(v)
         // A failed prepare retains the proposal as ready. A current primary may
         // revise it after the actionable diagnostic; worker runtimes refuse edits

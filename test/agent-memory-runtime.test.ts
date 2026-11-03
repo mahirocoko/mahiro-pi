@@ -264,7 +264,10 @@ test('memory help presents one Palace façade and hides checkpoint diagnostics',
       /\/mh-memory palace json for the legacy structural\/link\/view\/episode JSON diagnostic/,
     )
     assert.match(help, /explicitly non-atomic and non-replayable/)
-    assert.match(help, /does not open a browser or expose memory bodies, diffs, authors or subjects/)
+    assert.match(
+      help,
+      /best-effort opens the capability URL in the system browser and renders bounded committed file previews and sanitized history diffs/,
+    )
     assert.doesNotMatch(help, /\/mh-memory context/)
     assert.doesNotMatch(help, /palace-context|palace-history|palace-html/)
     await f.commands.get('mh-memory').handler('unknown', f.ctx)

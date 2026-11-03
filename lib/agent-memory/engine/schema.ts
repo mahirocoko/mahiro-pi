@@ -122,6 +122,40 @@ export const isProtectedRetentionPath = (path: string) =>
   path.startsWith('system/human/') ||
   /^projects\/[a-z0-9][a-z0-9-]{0,63}\/system\//.test(path)
 
+export function readOnlyFrontmatterValue(text: string | undefined | null): string | null {
+  if (typeof text !== 'string' || !text.startsWith('---\n')) return null
+  const lines = text.split('\n')
+  const closing = lines.indexOf('---', 1)
+  if (closing < 0) return null
+  const values = lines
+    .slice(1, closing)
+    .filter((line) => /^\s*read_only\s*:/.test(line))
+    .map((line) => line.slice(line.indexOf(':') + 1).trim())
+  return values.length ? values.join('\n') : null
+}
+
+export function assertReadOnlyFrontmatter(
+  path: string,
+  previousText: string | undefined,
+  nextText: string | null,
+) {
+  const previousValue = readOnlyFrontmatterValue(previousText)
+  if (previousValue === 'true') {
+    throw Error(`${path}: file is read_only and cannot be modified`)
+  }
+  if (nextText === null) return
+  const nextValue = readOnlyFrontmatterValue(nextText)
+  if (previousValue === null && nextValue !== null) {
+    throw Error(`${path}: 'read_only' is a protected field and cannot be set by the agent`)
+  }
+  if (previousValue !== null && nextValue === null) {
+    throw Error(`${path}: 'read_only' is a protected field and cannot be removed by the agent`)
+  }
+  if (previousValue !== null && nextValue !== null && previousValue !== nextValue) {
+    throw Error(`${path}: 'read_only' is a protected field and cannot be changed by the agent`)
+  }
+}
+
 export interface EditModeOptions {
   mode?: 'replace' | 'patch' | 'append'
   oldText?: string

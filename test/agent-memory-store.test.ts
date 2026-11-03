@@ -945,3 +945,103 @@ test('palace exhaustively reports advisory links beyond 64 files and refuses hea
     f.close()
   }
 })
+
+test('read_only YAML frontmatter protects locked files and blocks agent mutation of read_only field', () => {
+  const f = fixture()
+  try {
+    const primary = createMemoryStore(f.root, () => {}, 'primary')
+    // Seed a locked file and an unlocked file with read_only: false directly via initial view before read_only is set
+    mkdirSync(join(f.root, 'reference'), { recursive: true })
+    writeFileSync(
+      join(f.root, 'reference/locked-policy.md'),
+      '---\nname: locked-policy\ndescription: Locked reference\nread_only: true\n---\n# Locked\n\nOriginal locked text.\n',
+    )
+    writeFileSync(
+      join(f.root, 'reference/unlocked-policy.md'),
+      '---\nname: unlocked-policy\ndescription: Unlocked reference\nread_only: false\n---\n# Unlocked\n\nOriginal unlocked text.\n',
+    )
+    const ledgerPath = join(f.root, '.memory.json')
+    const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+    ledger.sources['reference/locked-policy.md'] = []
+    ledger.sources['reference/unlocked-policy.md'] = []
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger)}\n`)
+    execFileSync(
+      'git',
+      ['add', 'reference/locked-policy.md', 'reference/unlocked-policy.md', '.memory.json'],
+      {
+        cwd: f.root,
+      },
+    )
+    execFileSync('git', ['commit', '-m', 'Seed read_only fixtures'], { cwd: f.root })
+
+    const v = primary.createView('project')
+    const lockedRead = primary.read(v, 'reference/locked-policy.md')
+    assert.ok('hash' in lockedRead && lockedRead.hash)
+    assert.throws(
+      () =>
+        primary.edit(
+          v,
+          'reference/locked-policy.md',
+          lockedRead.hash,
+          '---\nname: locked-policy\ndescription: Locked reference\nread_only: true\n---\n# Locked\n\nModified.\n',
+          [],
+        ),
+      /reference\/locked-policy\.md: file is read_only and cannot be modified/,
+    )
+    assert.throws(
+      () => primary.edit(v, 'reference/locked-policy.md', lockedRead.hash, null, []),
+      /reference\/locked-policy\.md: file is read_only and cannot be modified/,
+    )
+
+    // Reject agent adding read_only to a new file
+    assert.throws(
+      () =>
+        primary.edit(
+          v,
+          'reference/new-readonly.md',
+          null,
+          '---\nname: new-readonly\ndescription: New file\nread_only: false\n---\n# New\n',
+          [],
+        ),
+      /reference\/new-readonly\.md: 'read_only' is a protected field and cannot be set by the agent/,
+    )
+
+    const unlockedRead = primary.read(v, 'reference/unlocked-policy.md')
+    assert.ok('hash' in unlockedRead && unlockedRead.hash)
+    // Reject changing read_only: false -> true
+    assert.throws(
+      () =>
+        primary.edit(
+          v,
+          'reference/unlocked-policy.md',
+          unlockedRead.hash,
+          '---\nname: unlocked-policy\ndescription: Unlocked reference\nread_only: true\n---\n# Unlocked\n\nOriginal unlocked text.\n',
+          [],
+        ),
+      /reference\/unlocked-policy\.md: 'read_only' is a protected field and cannot be changed by the agent/,
+    )
+    // Reject removing read_only field
+    assert.throws(
+      () =>
+        primary.edit(
+          v,
+          'reference/unlocked-policy.md',
+          unlockedRead.hash,
+          '---\nname: unlocked-policy\ndescription: Unlocked reference\n---\n# Unlocked\n\nOriginal unlocked text.\n',
+          [],
+        ),
+      /reference\/unlocked-policy\.md: 'read_only' is a protected field and cannot be removed by the agent/,
+    )
+    // Allow modifying content when read_only: false is preserved
+    const updatedHash = primary.edit(
+      v,
+      'reference/unlocked-policy.md',
+      unlockedRead.hash,
+      '---\nname: unlocked-policy\ndescription: Unlocked reference\nread_only: false\n---\n# Unlocked\n\nUpdated body.\n',
+      [],
+    )
+    assert.equal(typeof updatedHash, 'string')
+  } finally {
+    f.close()
+  }
+})
