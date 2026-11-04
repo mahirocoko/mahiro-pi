@@ -33,6 +33,7 @@ import {
   assertLegacyArchiveCompatible,
   assertLosslessRetention,
   assertReadOnlyFrontmatter,
+  ensureTieredFrontmatter,
   isAlwaysLoadedTieredPath,
   isCriticalLinkSource,
   legacyV1Migration,
@@ -321,10 +322,10 @@ export function createMemoryStore(
       )
         throw new Error('Unsafe memory content')
       const max = path === 'Core.md' ? c.coreBytes : path === 'index.md' ? c.indexBytes : c.fileBytes
-      if (bytes(file.text) > max) throw new Error('Memory file budget exceeded')
+      if (bytes(file.text) > max) throw memoryFailure('budget', 'Memory file budget exceeded')
       total += bytes(file.text)
     }
-    if (total > c.totalBytes) throw new Error('Memory total budget exceeded')
+    if (total > c.totalBytes) throw memoryFailure('budget', 'Memory total budget exceeded')
   }
   const head = (deadline?: number, returnFence = false) => {
     const rev = git(['rev-parse', '--verify', 'HEAD'], undefined, deadline, returnFence).trim()
@@ -794,10 +795,10 @@ export function createMemoryStore(
     read(v: View, path: string, offset = 0, limit = 4096) {
       return inspect(v, (files) => {
         const cleanDir = typeof path === 'string' ? path.replace(/\/+$/, '') : ''
-        if (allowedDirectory(cleanDir, v.project, v.scope === 'primary'))
+        if (allowedDirectory(cleanDir, v.project, v.scope === 'primary', Object.keys(files)))
           return directoryIndex(files, directoryPage(Object.keys(files), cleanDir, offset, limit))
         if (!allowedPath(path, v.scope === 'primary' ? undefined : v.project))
-          throw new Error('Memory path outside scope')
+          throw memoryFailure('out-of-scope', 'Memory path outside scope')
         const f = files[path]
         return f ? { ...copy(f), hash: digest(f.text) } : { missing: true, hash: null }
       })
@@ -805,19 +806,25 @@ export function createMemoryStore(
     edit(
       v: View,
       path: string,
-      expectedHash: string | null,
+      expectedHash: string | null | undefined,
       text: string | null | undefined,
       sources: string[] = [],
       options?: EditModeOptions,
     ) {
       checkView(v)
       if (!allowedPath(path, v.scope === 'primary' ? undefined : v.project))
-        throw new Error('Stale file or path outside scope')
-      if ((v.files[path] ? digest(v.files[path].text) : null) !== expectedHash)
-        throw memoryFailure('CAS', 'Stale file or path outside scope')
-      const nextText = applySurgicalEdit(v.files[path]?.text, text, options)
+        throw memoryFailure('out-of-scope', 'Stale file or path outside scope')
+      const currentHash = v.files[path] ? digest(v.files[path].text) : null
+      const resolvedExpectedHash =
+        expectedHash === undefined && options?.mode === 'append' ? currentHash : expectedHash
+      if (currentHash !== resolvedExpectedHash) throw memoryFailure('CAS', 'Stale file or path outside scope')
+      const rawNextText = applySurgicalEdit(v.files[path]?.text, text, options)
+      const nextText =
+        options?.mode === 'append' && !v.files[path]?.text && typeof rawNextText === 'string'
+          ? ensureTieredFrontmatter(path, rawNextText)
+          : rawNextText
       if (nextText === null && ['Core.md', 'index.md'].includes(path))
-        throw new Error('Core and index cannot be removed')
+        throw memoryFailure('invalid-arguments', 'Core and index cannot be removed')
       assertReadOnlyFrontmatter(path, v.files[path]?.text, nextText)
       const next = copy(v)
       if (nextText === null) delete next.files[path]
@@ -1077,10 +1084,7 @@ export function createMemoryStore(
           )
           for (const path of paths) current(join(root, path))
           const topics = topicMetadata(paths)
-          const { directories, directoriesTruncated } = projectedDirectoryIndexes(
-            paths,
-            shared ? undefined : project,
-          )
+          const { directories, directoriesTruncated } = projectedDirectoryIndexes(paths, project)
           // Config and all authority I/O (including head's safe()) must finish
           // before the final HEAD observation, just as for inspect above.
           if (!equal(config(), c) || head(undefined, true) !== revision)

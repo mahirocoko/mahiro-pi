@@ -198,9 +198,9 @@ export interface Operations {
     input: {
       view: string
       path: string
-      expectedHash: string | null
+      expectedHash?: string | null
       text?: string | null
-      sources: string[]
+      sources?: string[]
       mode?: 'replace' | 'patch' | 'append'
       oldText?: string
       newText?: string
@@ -378,6 +378,7 @@ export function validateInput(method: Method, input: unknown) {
     (typeof input.path !== 'string' ||
       !(
         input.expectedHash === null ||
+        (input.expectedHash === undefined && input.mode === 'append') ||
         (typeof input.expectedHash === 'string' && /^[a-f0-9]{64}$/.test(input.expectedHash))
       ) ||
       !(
@@ -385,7 +386,7 @@ export function validateInput(method: Method, input: unknown) {
         typeof input.text === 'string' ||
         (input.text === undefined && (input.mode === 'patch' || input.mode === 'append'))
       ) ||
-      !Array.isArray(input.sources) ||
+      !(input.sources === undefined || Array.isArray(input.sources)) ||
       (input.mode !== undefined && !['replace', 'patch', 'append'].includes(input.mode as string)) ||
       (input.oldText !== undefined && typeof input.oldText !== 'string') ||
       (input.newText !== undefined && typeof input.newText !== 'string') ||

@@ -1,11 +1,13 @@
 import { bytes, digest, objectShape } from '../continuity/records.ts'
 import {
+  allowedDirectory,
   allowedPath,
   isAlwaysLoadedTieredPath,
   isCriticalLinkSource,
   isProtectedRetentionPath,
   limits,
 } from './engine/schema.ts'
+import { memoryFailure } from './reasons.ts'
 import type { MemoryConfig, MemoryFile } from './store.ts'
 
 // Derived, operation-local metadata only. These selectors never select authority.
@@ -54,7 +56,7 @@ export type ReadSelection =
   | { mode: 'query'; query: string; offset: number; limit: number }
   | { mode: 'topic'; topic: string; offset: number; limit: number }
 const namespacePattern =
-  '^(?:\\*|global|procedures|system|system/human|reference|deferred/[a-z0-9][a-z0-9-]{0,63}|projects/[a-z0-9][a-z0-9-]{0,63}/(?:system|reference))?$'
+  '^(?:\\*|global|procedures|system|system/human|reference|deferred/[a-z0-9][a-z0-9-]{0,63}|projects/[a-z0-9][a-z0-9-]{0,63}(?:/(?:system|reference))?)?$'
 const pageProperties = (max: number) => ({
   offset: { type: 'integer', minimum: 0 },
   limit: { type: 'integer', minimum: 1, maximum: max },
@@ -79,7 +81,7 @@ export const memoryReadSchema = {
       type: 'object',
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 256 },
-        ...pageProperties(8),
+        ...pageProperties(4096),
       },
       required: ['query'],
       additionalProperties: false,
@@ -88,7 +90,7 @@ export const memoryReadSchema = {
       type: 'object',
       properties: {
         topic: { type: 'string', pattern: namespacePattern },
-        ...pageProperties(32),
+        ...pageProperties(4096),
       },
       required: ['topic'],
       additionalProperties: false,
@@ -98,7 +100,7 @@ export const memoryReadSchema = {
 const fold = (value: string) => value.normalize('NFKC').toLowerCase().replace(/ς/g, 'σ')
 const termsFor = (query: string) => {
   if (!query.trim() || bytes(query) > retrievalLimits.queryBytes || /[\x00-\x1f\x7f]/.test(query))
-    throw new Error('Invalid bounded memory query')
+    throw memoryFailure('invalid-arguments', 'Invalid bounded memory query')
   const terms = [
     ...new Set(
       [...new Intl.Segmenter('th', { granularity: 'word' }).segment(fold(query))]
@@ -106,35 +108,53 @@ const termsFor = (query: string) => {
         .map((part) => part.segment),
     ),
   ]
-  if (!terms.length || terms.length > retrievalLimits.terms) throw new Error('Invalid memory query terms')
+  if (!terms.length || terms.length > retrievalLimits.terms)
+    throw memoryFailure('invalid-arguments', 'Invalid memory query terms')
   return terms
 }
 export function parseMemoryRead(args: unknown): ReadSelection {
   if (!objectShape(args, ['path', 'query', 'topic', 'offset', 'limit']))
-    throw new Error('Invalid memory read arguments')
-  const selectors = ['path', 'query', 'topic'].filter((key) => Object.hasOwn(args, key))
+    throw memoryFailure('invalid-arguments', 'Invalid memory read arguments')
+  const rawSelectors = ['path', 'query', 'topic'].filter(
+    (key) => Object.hasOwn(args, key) && args[key] !== undefined,
+  )
+  const nonEmptySelectors = rawSelectors.filter(
+    (key) => typeof args[key] === 'string' && (args[key] as string).length > 0,
+  )
+  const selectors = nonEmptySelectors.length > 0 ? nonEmptySelectors : rawSelectors
   if (!selectors.length) {
-    if (Object.keys(args).length) throw new Error('Selector required for paging')
+    if (Object.keys(args).some((key) => args[key] !== undefined && args[key] !== ''))
+      throw memoryFailure('invalid-arguments', 'Selector required for paging')
     return { mode: 'list' }
   }
-  if (selectors.length !== 1) throw new Error('Memory read modes are mutually exclusive')
+  if (selectors.length !== 1)
+    throw memoryFailure('invalid-arguments', 'Memory read modes are mutually exclusive')
   const mode = selectors[0] as 'path' | 'query' | 'topic'
-  const value = args[mode]
+  const rawValue = args[mode]
   const offset = args.offset === undefined ? 0 : args.offset
-  const limit = args.limit === undefined ? (mode === 'path' ? 4096 : mode === 'query' ? 8 : 32) : args.limit
   const maximum = mode === 'path' ? 4096 : mode === 'query' ? 8 : 32
+  const limit = args.limit === undefined ? maximum : args.limit
   if (
-    typeof value !== 'string' ||
+    typeof rawValue !== 'string' ||
     !Number.isSafeInteger(offset) ||
     (offset as number) < 0 ||
     !Number.isSafeInteger(limit) ||
     (limit as number) < 1 ||
-    (limit as number) > maximum
+    (limit as number) > 4096
   )
-    throw new Error('Invalid memory read paging')
+    throw memoryFailure('invalid-arguments', 'Invalid memory read paging')
+  const stripped = mode === 'path' && rawValue.startsWith('/') ? rawValue.replace(/^\/+/, '') : rawValue
+  const value =
+    mode === 'path' &&
+    rawValue.startsWith('/') &&
+    (allowedPath(stripped) || allowedDirectory(stripped.replace(/\/+$/, ''), undefined, true))
+      ? stripped
+      : rawValue
+  const clampedLimit = Math.min(limit as number, maximum)
   if (mode === 'query') termsFor(value)
-  if (mode === 'topic' && !new RegExp(namespacePattern).test(value)) throw new Error('Invalid memory topic')
-  return { mode, [mode]: value, offset, limit } as ReadSelection
+  if (mode === 'topic' && !new RegExp(namespacePattern).test(value))
+    throw memoryFailure('invalid-arguments', 'Invalid memory topic')
+  return { mode, [mode]: value, offset, limit: clampedLimit } as ReadSelection
 }
 export const topicFor = (path: string) =>
   path.startsWith('deferred/')
@@ -356,7 +376,15 @@ function retrieveMemoryImpl(
       selection.topic === ''
         ? topicMetadata(paths)
         : paths
-            .filter((path) => selection.topic === '*' || topicFor(path) === selection.topic)
+            .filter(
+              (path) =>
+                selection.topic === '*' ||
+                topicFor(path) === selection.topic ||
+                (selection.topic.startsWith('projects/') &&
+                  !selection.topic.endsWith('/system') &&
+                  !selection.topic.endsWith('/reference') &&
+                  path.startsWith(`${selection.topic}/`)),
+            )
             .map((path) => {
               const meta = extractFrontmatterAndLinks(files[path].text)
               return {

@@ -52,7 +52,7 @@ const sources = (v: unknown) =>
   Array.isArray(v) && v.length <= 32 && new Set(v).size === v.length && v.every(validId)
 const topic = (v: unknown) =>
   typeof v === 'string' &&
-  /^(?:global|procedures|system|system\/human|reference|deferred\/[a-z0-9][a-z0-9-]{0,63}|projects\/[a-z0-9][a-z0-9-]{0,63}\/(?:system|reference))$/.test(
+  /^(?:global|procedures|system|system\/human|reference|deferred\/[a-z0-9][a-z0-9-]{0,63}|projects\/[a-z0-9][a-z0-9-]{0,63}(?:\/(?:system|reference))?)$/.test(
     v,
   )
 const documents = (value: unknown, prefix: string) => {
@@ -131,9 +131,16 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       const v = shape(value, ['hash'])
       // Surgical edits hash the resulting document, not the patch/append operand.
       // The parent has no complete prior body; validate its digest shape here.
-      // Replacement/deletion can still be bound exactly to the request text.
+      // Replacement/deletion can still be bound to the request text (or its newline-normalized form).
       if (input.mode === 'append' || input.mode === 'patch') ensure(hash(v.hash))
-      else ensure(v.hash === (input.text === null ? null : digest(input.text as string)))
+      else {
+        const raw = input.text === null ? null : (input.text as string)
+        const normalized = raw !== null && raw.length > 0 && !raw.endsWith('\n') ? `${raw}\n` : raw
+        ensure(
+          v.hash === (raw === null ? null : digest(raw)) ||
+            v.hash === (normalized === null ? null : digest(normalized)),
+        )
+      }
       return
     }
     case 'prepare':

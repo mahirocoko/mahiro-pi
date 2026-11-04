@@ -12,6 +12,7 @@ import {
   type TurnEpisode,
   type EditModeOptions,
 } from './store.ts'
+import { ensureTieredFrontmatter } from './engine/schema.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { resolveAgentDir } from '../setup.ts'
 import { directoryIndex, directoryPage, parseMemoryRead, retrieveMemory } from './retrieval.ts'
@@ -562,12 +563,12 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         if (selection.mode === 'query' || selection.mode === 'topic') return retrieveMemory(files, selection)
         const { path, offset, limit } = selection
         const cleanDir = path.replace(/\/+$/, '')
-        if (allowedDirectory(cleanDir, view.project, view.scope === 'primary')) {
+        if (allowedDirectory(cleanDir, view.project, view.scope === 'primary', Object.keys(files))) {
           const page = directoryPage(Object.keys(files), cleanDir, offset, limit)
           return directoryIndex(files, page)
         }
         if (!allowedPath(path, view.scope === 'primary' ? undefined : view.project))
-          throw new Error('Memory path outside scope')
+          throw memoryFailure('out-of-scope', 'Memory path outside scope')
         const file = files[path]
         if (!file) return { path, missing: true, hash: null }
         const chars = [...file.text]
@@ -596,19 +597,35 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           'section',
         ]) ||
         typeof args.path !== 'string' ||
-        !(typeof args.expectedHash === 'string' || args.expectedHash === null) ||
+        !(
+          typeof args.expectedHash === 'string' ||
+          args.expectedHash === null ||
+          (args.expectedHash === undefined && args.mode === 'append')
+        ) ||
         !(
           typeof args.text === 'string' ||
           args.text === null ||
           (args.text === undefined && (args.mode === 'patch' || args.mode === 'append'))
         ) ||
-        !Array.isArray(args.sources) ||
+        !(args.sources === undefined || Array.isArray(args.sources)) ||
         (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
         (args.oldText !== undefined && typeof args.oldText !== 'string') ||
         (args.newText !== undefined && typeof args.newText !== 'string') ||
         (args.section !== undefined && typeof args.section !== 'string')
       )
-        throw new Error('Invalid memory edit arguments')
+        throw memoryFailure('invalid-arguments', 'Invalid memory edit arguments')
+      const strippedPath = args.path.startsWith('/') ? args.path.replace(/^\/+/, '') : args.path
+      const normalizedPath =
+        args.path.startsWith('/') &&
+        (allowedPath(strippedPath) || allowedDirectory(strippedPath.replace(/\/+$/, ''), undefined, true))
+          ? strippedPath
+          : args.path
+      const normalizedText =
+        args.expectedHash === null &&
+        typeof args.text === 'string' &&
+        (args.mode === undefined || args.mode === 'replace')
+          ? ensureTieredFrontmatter(normalizedPath, args.text)
+          : args.text
       const editOptions: EditModeOptions = {
         ...(typeof args.mode === 'string' ? { mode: args.mode as EditModeOptions['mode'] } : {}),
         ...(typeof args.oldText === 'string' ? { oldText: args.oldText } : {}),
@@ -617,14 +634,14 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
       }
       const hash = f.store.edit(
         view,
-        args.path,
+        normalizedPath,
         args.expectedHash,
-        args.text,
-        args.sources as string[],
+        normalizedText,
+        (args.sources ?? []) as string[],
         editOptions,
       )
       return {
-        path: args.path,
+        path: normalizedPath,
         hash,
         draft: true,
         activeContextChanged: false,

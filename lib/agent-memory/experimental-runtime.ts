@@ -21,6 +21,7 @@ import { offlineReset, type ResetRequest } from './engine/offline-reset.ts'
 import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from './engine/policy.ts'
 import type { Input, Method, Output } from './engine/protocol.ts'
 import { MemoryPublisher } from './engine/publisher.ts'
+import { allowedDirectory, allowedPath, ensureTieredFrontmatter } from './engine/schema.ts'
 import type { EngineWorkerValue, MemoryABIV2 } from './experimental-contracts.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
 import { buildMemoryInvocationContext, type MemoryProjectionReceipt } from './invocation-context.ts'
@@ -2245,32 +2246,48 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           'section',
         ]) ||
         typeof args.path !== 'string' ||
-        !(typeof args.expectedHash === 'string' || args.expectedHash === null) ||
+        !(
+          typeof args.expectedHash === 'string' ||
+          args.expectedHash === null ||
+          (args.expectedHash === undefined && args.mode === 'append')
+        ) ||
         !(
           typeof args.text === 'string' ||
           args.text === null ||
           (args.text === undefined && (args.mode === 'patch' || args.mode === 'append'))
         ) ||
-        !Array.isArray(args.sources) ||
-        args.sources.some((source) => typeof source !== 'string') ||
+        !(args.sources === undefined || Array.isArray(args.sources)) ||
+        (Array.isArray(args.sources) && args.sources.some((source) => typeof source !== 'string')) ||
         (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
         (args.oldText !== undefined && typeof args.oldText !== 'string') ||
         (args.newText !== undefined && typeof args.newText !== 'string') ||
         (args.section !== undefined && typeof args.section !== 'string')
       )
-        throw Error('Invalid edit')
+        throw memoryFailure('invalid-arguments', 'Invalid memory edit arguments')
+      const strippedPath = args.path.startsWith('/') ? args.path.replace(/^\/+/, '') : args.path
+      const normalizedPath =
+        args.path.startsWith('/') &&
+        (allowedPath(strippedPath) || allowedDirectory(strippedPath.replace(/\/+$/, ''), undefined, true))
+          ? strippedPath
+          : args.path
+      const normalizedText =
+        args.expectedHash === null &&
+        typeof args.text === 'string' &&
+        (args.mode === undefined || args.mode === 'replace')
+          ? ensureTieredFrontmatter(normalizedPath, args.text)
+          : args.text
       const result = await f.request('edit', {
         view: selected.view,
-        path: args.path,
-        expectedHash: args.expectedHash,
-        ...(args.text !== undefined ? { text: args.text } : {}),
-        sources: args.sources as string[],
+        path: normalizedPath,
+        ...(args.expectedHash !== undefined ? { expectedHash: args.expectedHash } : {}),
+        ...(normalizedText !== undefined ? { text: normalizedText } : {}),
+        sources: (args.sources ?? []) as string[],
         ...(typeof args.mode === 'string' ? { mode: args.mode as 'replace' | 'patch' | 'append' } : {}),
         ...(typeof args.oldText === 'string' ? { oldText: args.oldText } : {}),
         ...(typeof args.newText === 'string' ? { newText: args.newText } : {}),
         ...(typeof args.section === 'string' ? { section: args.section } : {}),
       })
-      return { path: args.path, ...result, draft: true, activeContextChanged: false }
+      return { path: normalizedPath, ...result, draft: true, activeContextChanged: false }
     }
     if (
       name !== 'agent_memory_commit' ||

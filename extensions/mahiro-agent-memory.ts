@@ -730,7 +730,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         newText: string,
         section: string,
       },
-      required: ['path', 'expectedHash', 'sources'],
+      required: ['path'],
     },
     agent_memory_commit: {
       properties: {

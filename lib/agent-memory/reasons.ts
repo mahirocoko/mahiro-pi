@@ -8,6 +8,12 @@ export type MemoryReason =
   | 'retention'
   | 'draft'
   | 'offline-only'
+  | 'invalid-arguments'
+  | 'out-of-scope'
+  | 'read-only'
+  | 'patch-target-not-found'
+  | 'patch-target-ambiguous'
+  | 'budget'
   | 'unknown'
 export interface MemoryFailureCode {
   reason: MemoryReason
@@ -52,11 +58,21 @@ export function publicMemoryError(error: unknown, read = false): Error {
     capacity: 'capacity limit reached; retained state preserved; explicit owner review required',
     deadline: 'operation deadline reached; work may still be draining; publication unknown',
     branch: 'current branch changed; retained proposal preserved',
-    CAS: 'revision or hash conflict; retained proposal preserved',
-    retention: 'lossless retention guard refused the proposal; published knowledge not replaced',
+    CAS: 'revision or expectedHash conflict; retained proposal preserved — call agent_memory_read to get the current hash/revision',
+    retention:
+      'lossless retention guard refused the proposal; published knowledge not replaced — pass allowShrink: true to agent_memory_commit if intentional, or archive details to reference/',
     draft:
       'primary draft expired, scope/configuration changed, or creation pending; proposal preserved; explicit owner review required',
     'offline-only': 'reset requires the explicit native offline operator, not an active primary session',
+    'invalid-arguments':
+      'invalid arguments or mutually exclusive read selectors; check required fields and mode limits',
+    'out-of-scope': 'target path is outside the allowed memory layout or current project scope',
+    'read-only': 'target file has read_only: true frontmatter and cannot be modified or removed',
+    'patch-target-not-found':
+      'surgical patch oldText not found in current file; read the file again or use mode="replace"',
+    'patch-target-ambiguous':
+      'surgical patch oldText matches multiple locations; include more surrounding context',
+    budget: 'file size or total memory budget exceeded; keep files concise or move details to reference/',
     unknown: 'valid arguments, scope, CAS, separate permission and healthy native binding required',
   }
   return new Error(`Managed memory unavailable: ${text[code.reason]} (reason: ${code.reason})`)
@@ -77,9 +93,22 @@ export function decodeMemoryFailure(value: unknown): Error {
   const reason = descriptors.reason.value as unknown
   const readInvalidation = descriptors.readInvalidation?.value as unknown
   if (
-    !['capacity', 'deadline', 'branch', 'CAS', 'retention', 'draft', 'offline-only', 'unknown'].includes(
-      reason as string,
-    ) ||
+    ![
+      'capacity',
+      'deadline',
+      'branch',
+      'CAS',
+      'retention',
+      'draft',
+      'offline-only',
+      'invalid-arguments',
+      'out-of-scope',
+      'read-only',
+      'patch-target-not-found',
+      'patch-target-ambiguous',
+      'budget',
+      'unknown',
+    ].includes(reason as string) ||
     (readInvalidation !== undefined &&
       !(
         (readInvalidation === 'forgetting' && reason === 'unknown') ||

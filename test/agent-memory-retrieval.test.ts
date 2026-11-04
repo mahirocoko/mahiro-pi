@@ -190,6 +190,30 @@ test('selector parser retains legacy modes and rejects mixed, invalid, oversized
     offset: 0,
     limit: 4096,
   })
+  assert.deepEqual(parseMemoryRead({ path: '/Core.md', query: '' }), {
+    mode: 'path',
+    path: 'Core.md',
+    offset: 0,
+    limit: 4096,
+  })
+  assert.deepEqual(parseMemoryRead({ topic: '*', limit: 33 }), {
+    mode: 'topic',
+    topic: '*',
+    offset: 0,
+    limit: 32,
+  })
+  assert.deepEqual(parseMemoryRead({ query: 'violet', limit: 9 }), {
+    mode: 'query',
+    query: 'violet',
+    offset: 0,
+    limit: 8,
+  })
+  assert.deepEqual(parseMemoryRead({ topic: 'projects/mahiro-pi' }), {
+    mode: 'topic',
+    topic: 'projects/mahiro-pi',
+    offset: 0,
+    limit: 32,
+  })
   assert.ok(memoryReadSchema.oneOf.length === 4)
   for (const args of [
     null,
@@ -198,8 +222,8 @@ test('selector parser retains legacy modes and rejects mixed, invalid, oversized
     { offset: 0 },
     { path: 'Core.md', query: 'violet' },
     { query: 'violet', topic: '*' },
-    { topic: '*', limit: 33 },
-    { query: 'violet', limit: 9 },
+    { topic: '*', limit: 4097 },
+    { query: 'violet', limit: 0 },
     { query: 'violet', offset: -1 },
     { query: 'violet', offset: 0.5 },
     { query: '😀' },

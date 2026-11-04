@@ -44,6 +44,9 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.4 source release record](releases/0.12.4.md) — Palace history file headers and
+  single-commit banner, cross-project directory discovery, `init-project` index seeding,
+  reflection retry backoff and memory tool normalization/diagnostics.
 - [v0.12.3 source release record](releases/0.12.3.md) — `/mh` Control Center submenus,
   two-column `SelectList` alignment, keyboard Back navigation, unified Codex CLI quota toggle
   and maintained-memory curation/init refinements.

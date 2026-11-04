@@ -39,14 +39,26 @@ export const allowedPath = (path: string, project?: string) => {
     /^projects\/([a-z0-9][a-z0-9-]{0,63})\/(?:system|reference)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
   return !!tieredProject && (!project || tieredProject[1] === project)
 }
-export const allowedDirectory = (dir: string, project?: string, shared = false) => {
+export const allowedDirectory = (
+  dir: string,
+  project?: string,
+  shared = false,
+  activePaths?: readonly string[],
+) => {
   if (!dir || dir.endsWith('.md')) return false
   if (dir === 'system') return true
   if (dir === 'projects') return shared
   const projectDir = /^projects\/([a-z0-9][a-z0-9-]{0,63})$/.exec(dir)
   if (projectDir) return shared || !project || projectDir[1] === project
   if (dir.startsWith('archives/')) return shared && allowedPath(`${dir}/index.md`)
-  return allowedPath(`${dir}/index.md`, shared ? undefined : project)
+  if (!allowedPath(`${dir}/index.md`, shared ? undefined : project)) return false
+  if (
+    activePaths &&
+    (/^reference\/[a-z0-9][a-z0-9-]{0,63}$/.test(dir) || dir === 'system/human/prefs') &&
+    !activePaths.some((p) => p.startsWith(`${dir}/`))
+  )
+    return false
+  return true
 }
 export interface LegacyV1Migration {
   archivePath: string
@@ -150,19 +162,45 @@ export function assertReadOnlyFrontmatter(
 ) {
   const previousValue = readOnlyFrontmatterValue(previousText)
   if (previousValue === 'true') {
-    throw Error(`${path}: file is read_only and cannot be modified`)
+    throw memoryFailure('read-only', `${path}: file is read_only and cannot be modified`)
   }
   if (nextText === null) return
   const nextValue = readOnlyFrontmatterValue(nextText)
   if (previousValue === null && nextValue !== null) {
-    throw Error(`${path}: 'read_only' is a protected field and cannot be set by the agent`)
+    throw memoryFailure(
+      'read-only',
+      `${path}: 'read_only' is a protected field and cannot be set by the agent`,
+    )
   }
   if (previousValue !== null && nextValue === null) {
-    throw Error(`${path}: 'read_only' is a protected field and cannot be removed by the agent`)
+    throw memoryFailure(
+      'read-only',
+      `${path}: 'read_only' is a protected field and cannot be removed by the agent`,
+    )
   }
   if (previousValue !== null && nextValue !== null && previousValue !== nextValue) {
-    throw Error(`${path}: 'read_only' is a protected field and cannot be changed by the agent`)
+    throw memoryFailure(
+      'read-only',
+      `${path}: 'read_only' is a protected field and cannot be changed by the agent`,
+    )
   }
+}
+
+export function ensureTieredFrontmatter(path: string, text: string): string {
+  if (
+    ['Core.md', 'index.md'].includes(path) ||
+    path.endsWith('/index.md') ||
+    path.startsWith('global/') ||
+    path.startsWith('procedures/') ||
+    path.startsWith('deferred/') ||
+    path.startsWith('archives/') ||
+    /^---\n[\s\S]*?\n---\n/.test(text)
+  )
+    return text
+  const slug = path.split('/').pop()?.replace(/\.md$/, '') ?? 'notes'
+  const hasHeading = /^#\s+/m.test(text)
+  const body = hasHeading ? text : `# ${slug}\n\n${text}`
+  return `---\nname: ${slug}\ndescription: Durable memory notes for ${path}\n---\n${body}`
 }
 
 export interface EditModeOptions {
@@ -179,26 +217,28 @@ export function applySurgicalEdit(
 ): string | null {
   const mode = options?.mode ?? 'replace'
   if (mode === 'replace') {
-    if (text === undefined) throw Error('Surgical replace requires text or null')
+    if (text === undefined) throw memoryFailure('invalid-arguments', 'Surgical replace requires text or null')
+    if (typeof text === 'string' && text.length > 0 && !text.endsWith('\n')) return `${text}\n`
     return text
   }
   if (mode === 'patch') {
-    if (typeof currentText !== 'string') throw Error('Surgical patch requires an existing file')
+    if (typeof currentText !== 'string')
+      throw memoryFailure('patch-target-not-found', 'Surgical patch requires an existing file')
     const oldText = options?.oldText
     const newText = options?.newText ?? text
     if (typeof oldText !== 'string' || !oldText.length || typeof newText !== 'string')
-      throw Error('Surgical patch requires non-empty oldText and newText')
+      throw memoryFailure('invalid-arguments', 'Surgical patch requires non-empty oldText and newText')
     const first = currentText.indexOf(oldText)
-    if (first === -1) throw Error('Surgical patch target not found')
+    if (first === -1) throw memoryFailure('patch-target-not-found', 'Surgical patch target not found')
     if (currentText.indexOf(oldText, first + oldText.length) !== -1)
-      throw Error('Surgical patch target is ambiguous')
+      throw memoryFailure('patch-target-ambiguous', 'Surgical patch target is ambiguous')
     const patched = `${currentText.slice(0, first)}${newText}${currentText.slice(first + oldText.length)}`
     return patched.endsWith('\n') ? patched : `${patched}\n`
   }
   if (mode === 'append') {
     const addition = typeof text === 'string' ? text : options?.newText
     if (typeof addition !== 'string' || !addition.trim().length)
-      throw Error('Surgical append requires non-empty text')
+      throw memoryFailure('invalid-arguments', 'Surgical append requires non-empty text')
     const trimmed = addition.trimEnd()
     if (!currentText) {
       if (options?.section) {
@@ -245,13 +285,13 @@ export function applySurgicalEdit(
     const base = currentText.endsWith('\n') ? currentText : `${currentText}\n`
     return `${base}${trimmed}\n`
   }
-  throw Error('Invalid edit mode')
+  throw memoryFailure('invalid-arguments', 'Invalid edit mode')
 }
 
 const extractHeadings = (text: string): string[] =>
   text
     .split('\n')
-    .map((line) => /^(#{1,6}\s+.+?)\s*$/.exec(line)?.[1])
+    .map((line) => /^(#{1,2}\s+.+?)\s*$/.exec(line)?.[1])
     .filter((h): h is string => Boolean(h))
 
 export function assertLosslessRetention(
@@ -289,10 +329,10 @@ export function assertLosslessRetention(
         'retention',
         `Lossless retention guard: ${path} dropped section heading(s) (${dropped.join(', ')}) without archiving to reference/ or archives/`,
       )
-    if (before.length >= 160 && after.length < before.length * 0.8)
+    if (before.length >= 160 && after.length < before.length * 0.65)
       throw memoryFailure(
         'retention',
-        `Lossless retention guard: ${path} shrank by >20% (${before.length} -> ${after.length} bytes) without archiving to reference/ or archives/`,
+        `Lossless retention guard: ${path} shrank by >35% (${before.length} -> ${after.length} bytes) without archiving to reference/ or archives/`,
       )
   }
 }
@@ -406,7 +446,7 @@ export function validateFile(path: string, file: MemoryFile, c: MemoryConfig) {
     new Set(file.sources).size !== file.sources.length
   )
     throw Error('Unsafe memory content')
-  if (bytes(file.text) > fileLimit(path, c)) throw Error('Memory file budget exceeded')
+  if (bytes(file.text) > fileLimit(path, c)) throw memoryFailure('budget', 'Memory file budget exceeded')
 }
 export const suppressed = (ledger: Ledger, path: string, sources: string[]) =>
   ledger.forgottenPaths.includes(path) ||

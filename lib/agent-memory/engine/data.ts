@@ -86,6 +86,7 @@ import {
   assertLegacyArchiveCompatible,
   assertLosslessRetention,
   assertReadOnlyFrontmatter,
+  ensureTieredFrontmatter,
   fileLimit,
   idPattern,
   isAlwaysLoadedTieredPath,
@@ -2104,10 +2105,7 @@ export class MemoryDataEngine {
           paths,
         )
         const topics = topicMetadata(paths)
-        const { directories, directoriesTruncated } = projectedDirectoryIndexes(
-          paths,
-          args.shared ? undefined : args.project,
-        )
+        const { directories, directoriesTruncated } = projectedDirectoryIndexes(paths, args.project)
         if ((await this.config()).configHash !== configHash || (await this.head()) !== revision)
           throw Error('Memory projection unavailable: current state changed')
         const systemEntries = tieredPaths
@@ -2321,7 +2319,7 @@ export class MemoryDataEngine {
         if (selection.mode === 'list') result = { files: paths, project: v.project, state: v.state }
         else if (selection.mode === 'path') {
           const cleanDir = selection.path.replace(/\/+$/, '')
-          if (allowedDirectory(cleanDir, v.project, v.shared)) {
+          if (allowedDirectory(cleanDir, v.project, v.shared, paths)) {
             // Pin history to the view's committed base and restrict Git to already
             // authorized active paths; draft-only paths have an unknown timestamp.
             const committedPaths = paths.filter(
@@ -2414,7 +2412,7 @@ export class MemoryDataEngine {
             if (!allowedPath(selection.path, scope)) {
               // A missing extension can name one in-scope sibling. Other out-of-scope paths stay refused.
               const suggestions = memoryExtensionSuggestion(selection.path, paths)
-              if (!suggestions.length) throw Error('Memory path outside scope')
+              if (!suggestions.length) throw memoryFailure('out-of-scope', 'Memory path outside scope')
               result = missingAt(selection.path, suggestions)
             } else {
               const ref = refs[selection.path]
@@ -2486,18 +2484,24 @@ export class MemoryDataEngine {
         const { v, refs, config, revision, ledger } = await this.active(args.view, true)
         const old = refs[args.path]
         if (!allowedPath(args.path, v.shared ? undefined : v.project))
-          throw Error('Stale file or path outside scope')
-        if ((old?.hash ?? null) !== args.expectedHash)
+          throw memoryFailure('out-of-scope', 'Stale file or path outside scope')
+        const expectedHash =
+          args.expectedHash === undefined && args.mode === 'append' ? (old?.hash ?? null) : args.expectedHash
+        if ((old?.hash ?? null) !== expectedHash)
           throw memoryFailure('CAS', 'Stale file or path outside scope')
         const oldText = old ? await this.body(args.path, old) : undefined
-        const nextText = applySurgicalEdit(oldText, args.text, {
+        const rawNextText = applySurgicalEdit(oldText, args.text, {
           mode: args.mode,
           oldText: args.oldText,
           newText: args.newText,
           section: args.section,
         })
+        const nextText =
+          args.mode === 'append' && !oldText && typeof rawNextText === 'string'
+            ? ensureTieredFrontmatter(args.path, rawNextText)
+            : rawNextText
         if (nextText === null && ['Core.md', 'index.md'].includes(args.path))
-          throw Error('Core and index cannot be removed')
+          throw memoryFailure('invalid-arguments', 'Core and index cannot be removed')
         assertReadOnlyFrontmatter(args.path, oldText, nextText)
         const next = structuredClone(v)
         // A failed prepare retains the proposal as ready. A current primary may
@@ -2506,7 +2510,7 @@ export class MemoryDataEngine {
         next.state = 'open'
         if (nextText === null) next.overlay[args.path] = null
         else {
-          const sources = [...args.sources].sort()
+          const sources = [...(args.sources ?? [])].sort()
           validateFileText(args.path, nextText, sources, config)
           if (suppressed(ledger, args.path, sources)) throw Error('Forgotten knowledge cannot be revived')
           const blob = randomUUID()
@@ -2526,7 +2530,7 @@ export class MemoryDataEngine {
           Object.keys(all).length > limits.files ||
           Object.values(all).reduce((sum, ref) => sum + ref.size, 0) > config.totalBytes
         )
-          throw Error('Memory total/layout budget exceeded')
+          throw memoryFailure('budget', 'Memory total/layout budget exceeded')
         // Fail before manifest switch on any await-time data/authority change.
         await this.final(v, revision)
         await this.save(next)

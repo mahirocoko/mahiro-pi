@@ -15,7 +15,21 @@ import { applySurgicalEdit } from '../lib/agent-memory/engine/schema.ts'
 import type { Plan } from '../lib/agent-memory/engine/protocol.ts'
 
 const secret = '/private/not-a-real-root # Private heading stderr: never echo'
-const reasons = ['capacity', 'deadline', 'branch', 'CAS', 'retention', 'offline-only', 'unknown'] as const
+const reasons = [
+  'capacity',
+  'deadline',
+  'branch',
+  'CAS',
+  'retention',
+  'offline-only',
+  'invalid-arguments',
+  'out-of-scope',
+  'read-only',
+  'patch-target-not-found',
+  'patch-target-ambiguous',
+  'budget',
+  'unknown',
+] as const
 
 test('safe memory reasons are identity-bound across native and query-loaded wrappers, not tags or messages', async () => {
   const other = await import(`../lib/agent-memory/reasons.ts?test=${randomUUID()}`)

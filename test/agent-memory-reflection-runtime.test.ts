@@ -583,7 +583,7 @@ for (const overflow of [false, true])
           assert.ok(error instanceof Error)
           assert.equal(
             error.message,
-            'Managed memory unavailable: revision or hash conflict; retained proposal preserved (reason: CAS)',
+            'Managed memory unavailable: revision or expectedHash conflict; retained proposal preserved — call agent_memory_read to get the current hash/revision (reason: CAS)',
           )
           assert.ok(!error.message.includes(f.root))
           assert.ok(!error.message.includes('wrong-revision'))
@@ -2420,7 +2420,7 @@ test('agent_memory_edit allows omitted text in patch and append modes while reje
     }
     await assert.rejects(
       f.runtime.run('agent_memory_edit', { path: 'Core.md', expectedHash: core.hash, sources: [] }, f.ctx),
-      /Invalid edit/,
+      /Invalid memory edit arguments/,
     )
     const patched = (await f.runtime.run(
       'agent_memory_edit',
@@ -2430,7 +2430,6 @@ test('agent_memory_edit allows omitted text in patch and append modes while reje
         mode: 'patch',
         oldText: 'Synthetic reflection identity.',
         newText: 'Synthetic reflection identity (patched without text).',
-        sources: [],
       },
       f.ctx,
     )) as { hash: string; draft: boolean }
@@ -2439,10 +2438,8 @@ test('agent_memory_edit allows omitted text in patch and append modes while reje
       'agent_memory_edit',
       {
         path: 'Core.md',
-        expectedHash: patched.hash,
         mode: 'append',
-        newText: '- Appended note without text',
-        sources: [],
+        newText: '- Appended note without text or expectedHash',
       },
       f.ctx,
     )) as { hash: string; draft: boolean }
@@ -2451,7 +2448,25 @@ test('agent_memory_edit allows omitted text in patch and append modes while reje
       text: string
     }
     assert.match(reread.text, /Synthetic reflection identity \(patched without text\)\./)
-    assert.match(reread.text, /- Appended note without text/)
+    assert.match(reread.text, /- Appended note without text or expectedHash/)
+    const newTiered = (await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: '/system/human/auto-frontmatter.md',
+        expectedHash: null,
+        text: '- Auto frontmatter and trailing newline test',
+      },
+      f.ctx,
+    )) as { path: string; hash: string; draft: boolean }
+    assert.equal(newTiered.path, 'system/human/auto-frontmatter.md')
+    const rereadTiered = (await f.runtime.run(
+      'agent_memory_read',
+      { path: 'system/human/auto-frontmatter.md' },
+      f.ctx,
+    )) as { text: string }
+    assert.match(rereadTiered.text, /^---\nname: auto-frontmatter\ndescription:/)
+    assert.match(rereadTiered.text, /# auto-frontmatter/)
+    assert.ok(rereadTiered.text.endsWith('\n'))
   } finally {
     await f.close()
   }

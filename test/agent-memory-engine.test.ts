@@ -1560,7 +1560,7 @@ test('CAS, disjoint merge and overlapping conflict retain proposals; query/pagin
     assert.equal(page.text, [...f.store.snapshot().files['Core.md'].text].slice(2, 7).join(''))
     await assert.rejects(
       f.engine.request('read', { view: fresh.view, selection: { query: 'x'.repeat(257) } }, f.context),
-      engineError(),
+      engineError({ reason: 'invalid-arguments' }),
     )
     assert.equal((await read(f, fresh.view, 'Core.md')).text, f.store.snapshot().files['Core.md'].text)
   } finally {
@@ -2499,7 +2499,10 @@ test('management forgetting and rollback match old snapshot oracle without schem
       'source forgetting never tombstones a foreign project',
     )
     const scoped = await f.engine.request('create', { project: 'project' }, f.context)
-    await assert.rejects(read(f, scoped.view, 'deferred/other/keep.md'), engineError())
+    await assert.rejects(
+      read(f, scoped.view, 'deferred/other/keep.md'),
+      engineError({ reason: 'out-of-scope' }),
+    )
     assert.equal((await read(f, scoped.view)).text, f.store.snapshot().files['Core.md'].text)
     const shared = await f.engine.request('create', { project: 'project', shared: true }, f.context)
     assert.equal((await read(f, shared.view, 'deferred/other/keep.md')).text, '# Other project knowledge\n')
@@ -3793,7 +3796,7 @@ test('scoped memory read suggests an in-map path and withholds out-of-scope name
         assert.equal(error.message, 'Engine operation unavailable')
         assert.equal(error.message.includes('Did you mean'), false)
         assert.equal(error.message.includes('PRIVATE_'), false)
-        assert.deepEqual(memoryFailureCode(error), { reason: 'unknown' })
+        assert.deepEqual(memoryFailureCode(error), { reason: 'out-of-scope' })
         return true
       })
     }
