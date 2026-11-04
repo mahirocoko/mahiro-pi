@@ -2,7 +2,7 @@
 // No settings hooks, history DB, permission bypass or native usage mutation.
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
-import { registerWorkflowCommand } from './workflow-hub.ts'
+import { registerWorkflowCommand, selectHubMenu } from './workflow-hub.ts'
 import { registerWorkflowAttention } from './workflow-attention.ts'
 import { registerWorkflowPresentation, workflowRenderers } from './workflow-ui.ts'
 import {
@@ -363,35 +363,166 @@ export function registerRTK(
       }
     },
   })
-  registerWorkflowCommand(pi, 'mh-rtk', {
-    description:
-      'Native RTK status | mode <off|suggest|rewrite-safe|rewrite-rtk> <sequence> | rewrite <command> | log | doctor | guidance',
-    handler: async (input: string, ctx: any) => {
+  const openRTKMenu = async (ctx: any): Promise<boolean | void> => {
+    if (ctx.mode !== 'tui' || !ctx.hasUI) return
+    while (ctx.mode === 'tui' && ctx.hasUI) {
+      let currentStatus: any
       try {
-        if (
-          input.length > 8192 ||
-          // Only a blank spaces/tabs command bypasses the control guard.
-          // Newlines and other controls remain rejected, including alone.
-          (!/^[ \t]*$/.test(input) && /[\x00-\x1f\x7f]/.test(input))
-        )
-          throw Error('Bounded RTK command required')
-        const [operation, requested, sequence] = (input.trim() || 'status').split(/\s+/)
-        const args =
-          operation === 'mode'
-            ? {
-                operation,
-                mode: requested,
-                expected_sequence: /^\d+$/.test(sequence ?? '') ? Number(sequence) : -1,
-              }
-            : operation === 'rewrite'
-              ? { operation, command: input.slice(input.indexOf(' ') + 1) }
-              : { operation }
-        ctx.ui.notify(JSON.stringify(await run(args, ctx)), 'info')
+        currentStatus = await run({ operation: 'status' }, ctx)
+        attention.capture(ctx)('rtk', currentStatus)
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : 'RTK failed', 'error')
+        return
+      }
+      const modeRow = `Mode · ${currentStatus.mode} [profile]`
+      const rewriteRow = 'Test command rewrite… (/mh-rtk rewrite)'
+      const logRow = 'Recent rewrite log (/mh-rtk log)'
+      const doctorRow = 'Diagnostics (/mh-rtk doctor)'
+      const statusRow = 'Inspect full status JSON (/mh-rtk status)'
+      const backRow = '← Back to /mh'
+      const choice = await selectHubMenu(
+        ctx,
+        `Mahiro RTK · preview-only (mode: ${currentStatus.mode} · never intercepts Bash)`,
+        [
+          {
+            value: modeRow,
+            label: `Compatibility mode  ${currentStatus.mode}`,
+            description: 'Configure profile compatibility mode (never intercepts native Bash execution)',
+          },
+          {
+            value: rewriteRow,
+            label: 'Test rewrite  input',
+            description:
+              'Preview how rtk rewrite transforms a command without executing it · /mh-rtk rewrite',
+          },
+          {
+            value: logRow,
+            label: 'Rewrite log  view',
+            description: 'Inspect recent non-executing rewrite previews from this session · /mh-rtk log',
+          },
+          {
+            value: doctorRow,
+            label: 'Diagnostics  doctor',
+            description: 'Inspect RTK helper bounds and resolver configuration · /mh-rtk doctor',
+          },
+          {
+            value: statusRow,
+            label: 'Full status JSON  view',
+            description: 'Inspect complete RTK status and sequence metadata · /mh-rtk status',
+          },
+          {
+            value: backRow,
+            label: '← Back to /mh  esc',
+            description: 'Return to Mahiro Control Center',
+          },
+        ],
+        { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+      )
+      if (!choice || choice === backRow) return true
+      try {
+        if (choice === modeRow) {
+          const modeDescriptions: Record<string, string> = {
+            off: 'Disable RTK compatibility mode in profile state (default)',
+            suggest: 'Record suggest compatibility mode in profile state (preview-only)',
+            'rewrite-safe': 'Record rewrite-safe compatibility mode in profile state (preview-only)',
+            'rewrite-rtk': 'Record rewrite-rtk compatibility mode in profile state (preview-only)',
+          }
+          const modeOptions = rtkModes.map((m) => ({
+            mode: m,
+            label: `${m}${m === currentStatus.mode ? ' (current)' : ''} [profile]`,
+            shortLabel: `Mode  ${m}`,
+            description: `${modeDescriptions[m] ?? 'Compatibility state only'}${m === currentStatus.mode ? ' · current' : ''}`,
+          }))
+          const backOpt = '← Back'
+          const picked = await selectHubMenu(
+            ctx,
+            `RTK compatibility mode · current: ${currentStatus.mode} [profile, preview-only]`,
+            [
+              ...modeOptions.map((o) => ({
+                value: o.label,
+                label: o.shortLabel,
+                description: o.description,
+              })),
+              {
+                value: backOpt,
+                label: '← Back  esc',
+                description: 'Return to RTK controls without changing mode',
+              },
+            ],
+            { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+          )
+          if (!picked || picked === backOpt) continue
+          const target = modeOptions.find((o) => o.label === picked)
+          if (!target) continue
+          const updated = await run(
+            {
+              operation: 'mode',
+              mode: target.mode,
+              expected_sequence: currentStatus.sequence,
+            },
+            ctx,
+          )
+          attention.capture(ctx)('rtk', updated)
+          ctx.ui.notify(JSON.stringify(updated), 'info')
+        } else if (choice === rewriteRow) {
+          const cmd =
+            typeof ctx.ui.input === 'function'
+              ? await ctx.ui.input('Command to preview with rtk rewrite (never executed)')
+              : undefined
+          if (cmd?.trim()) {
+            const res = await run({ operation: 'rewrite', command: cmd.trim() }, ctx)
+            ctx.ui.notify(JSON.stringify(res), 'info')
+          }
+        } else if (choice === logRow) {
+          ctx.ui.notify(JSON.stringify(await run({ operation: 'log' }, ctx)), 'info')
+        } else if (choice === doctorRow) {
+          ctx.ui.notify(JSON.stringify(await run({ operation: 'doctor' }, ctx)), 'info')
+        } else if (choice === statusRow) {
+          ctx.ui.notify(JSON.stringify(currentStatus), 'info')
+        }
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : 'RTK failed', 'error')
       }
+    }
+  }
+  registerWorkflowCommand(
+    pi,
+    'mh-rtk',
+    {
+      description:
+        'Native RTK status | menu | mode <off|suggest|rewrite-safe|rewrite-rtk> <sequence> | rewrite <command> | log | doctor | guidance',
+      handler: async (input: string, ctx: any) => {
+        try {
+          if (
+            input.length > 8192 ||
+            // Only a blank spaces/tabs command bypasses the control guard.
+            // Newlines and other controls remain rejected, including alone.
+            (!/^[ \t]*$/.test(input) && /[\x00-\x1f\x7f]/.test(input))
+          )
+            throw Error('Bounded RTK command required')
+          const [operation, requested, sequence] = (input.trim() || 'status').split(/\s+/)
+          if (operation === 'menu') {
+            await openRTKMenu(ctx)
+            return
+          }
+          const args =
+            operation === 'mode'
+              ? {
+                  operation,
+                  mode: requested,
+                  expected_sequence: /^\d+$/.test(sequence ?? '') ? Number(sequence) : -1,
+                }
+              : operation === 'rewrite'
+                ? { operation, command: input.slice(input.indexOf(' ') + 1) }
+                : { operation }
+          ctx.ui.notify(JSON.stringify(await run(args, ctx)), 'info')
+        } catch (e) {
+          ctx.ui.notify(e instanceof Error ? e.message : 'RTK failed', 'error')
+        }
+      },
     },
-  })
+    { open: openRTKMenu },
+  )
   return {
     initialize(ctx: any) {
       if (!alive || !isCurrent(ctx)) return

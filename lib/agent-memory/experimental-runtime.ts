@@ -2032,6 +2032,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           latestAttempt: latestAttempt?.value.snapshot() ?? null,
           historicalErasure: false,
           automatic: config.automatic,
+          reflectionTrigger: mode.trigger,
+          reflectionStepCount: mode.stepCount,
           policyOperation: await memoryPolicyStatus(f.engine, f.context, status.pendingOperations),
           configHash: f.configHash,
           engineABI: 2,

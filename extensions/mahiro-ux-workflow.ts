@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { registerWorkflowCommand } from '../lib/workflow-hub.ts'
+import { registerWorkflowCommand, selectHubMenu } from '../lib/workflow-hub.ts'
 import { registerWorkflowAttention } from '../lib/workflow-attention.ts'
 import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 import {
@@ -51,15 +51,83 @@ export default function mahiroUXWorkflow(pi: ExtensionAPI) {
         }
       },
     })
-  registerWorkflowCommand(pi, 'mh-ux', {
-    description:
-      'UX metadata status/help and public-UI-confirmed human direction/review/reopen/clear gates; no force unlock or moves',
-    async handler(args, ctx) {
+  const handler = async (args: string, ctx: any) => {
+    try {
+      ctx.ui.notify(await runtime.command(args, ctx), 'info')
+    } catch (error) {
+      ctx.ui.notify(error instanceof Error ? error.message : 'UX unavailable', 'error')
+    }
+  }
+  const openUXMenu = async (ctx: any): Promise<boolean | void> => {
+    while (ctx.mode === 'tui' && ctx.hasUI) {
+      let rawStatus: string
       try {
-        ctx.ui.notify(await runtime.command(args, ctx), 'info')
+        rawStatus = await runtime.command('status', ctx)
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : 'UX unavailable', 'error')
+        return
       }
+      type UXSummary = { id?: string; revision?: number; stage?: string }
+      let wf: UXSummary | null = null
+      try {
+        const parsed = JSON.parse(rawStatus) as { workflow?: UXSummary | null }
+        wf = parsed?.workflow ?? null
+      } catch {
+        // Fallback if non-JSON status string is returned.
+      }
+      const summary = wf
+        ? `stage: ${wf.stage ?? 'active'} (rev ${wf.revision ?? '?'})`
+        : 'no active UX workflow in this session'
+      const statusRow = 'Inspect UX workflow status (/mh-ux status)'
+      const clearRow =
+        typeof wf?.revision === 'number'
+          ? `Clear UX workflow (rev ${wf.revision})… [session, confirm]`
+          : undefined
+      const helpRow = 'Help & human gate commands (/mh-ux help)'
+      const backRow = '← Back'
+      const options = [
+        {
+          value: statusRow,
+          label: 'UX status  view',
+          description: 'Inspect current UX workflow stage, brief, blockers and gates · /mh-ux status',
+        },
+        ...(clearRow
+          ? [
+              {
+                value: clearRow,
+                label: `Clear workflow  rev ${wf?.revision}`,
+                description: 'Clear the current UX workflow after UI confirmation · /mh-ux clear',
+              },
+            ]
+          : []),
+        {
+          value: helpRow,
+          label: 'UX help  view',
+          description: 'Show UX workflow subcommands and human gate syntax · /mh-ux help',
+        },
+        {
+          value: backRow,
+          label: '← Back  esc',
+          description: 'Return to the previous workflow menu',
+        },
+      ]
+      const choice = await selectHubMenu(ctx, `Mahiro UX Workflow · ${summary}`, options, {
+        hint: '↑/↓ focus · Enter/Space select · Esc/← back',
+      })
+      if (!choice || choice === backRow) return true
+      if (choice === statusRow) ctx.ui.notify(rawStatus, 'info')
+      else if (clearRow && choice === clearRow && wf?.revision) await handler(`clear ${wf.revision}`, ctx)
+      else if (choice === helpRow) await handler('help', ctx)
+    }
+  }
+  registerWorkflowCommand(
+    pi,
+    'mh-ux',
+    {
+      description:
+        'UX metadata status/help and public-UI-confirmed human direction/review/reopen/clear gates; no force unlock or moves',
+      handler,
     },
-  })
+    { open: openUXMenu },
+  )
 }

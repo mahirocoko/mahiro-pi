@@ -193,7 +193,7 @@ test('public SDK usage command and hub are cache-only UI, not transcript/model t
   try {
     await f.textTurn('ordinary native usage fixture turn')
     const before = f.runtime.session.sessionManager.getEntries().length
-    await f.command('mh', ['Usage'])
+    await f.command('mh', ['Usage', 'Display style · bar [runtime]', '← Back to /mh', undefined])
     assert.ok(f.widgets.has(USAGE_WIDGET))
     const rows = f.widgets.get(USAGE_WIDGET)!.render(80)
     assert.ok(rows.some((row) => row.includes('Mahiro Usage')))

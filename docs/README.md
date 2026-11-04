@@ -44,6 +44,9 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.3 source release record](releases/0.12.3.md) — `/mh` Control Center submenus,
+  two-column `SelectList` alignment, keyboard Back navigation, unified Codex CLI quota toggle
+  and maintained-memory curation/init refinements.
 - [v0.12.2 source release record](releases/0.12.2.md) — reflection statusline progress,
   leased-view worker prompt injection, turn-budget ready integration and readable project slugs.
 - [v0.12.1 source release record](releases/0.12.1.md) — default Memo starter persona for fresh

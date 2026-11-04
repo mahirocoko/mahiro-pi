@@ -23,10 +23,10 @@ four workflow features above, not those session-local utilities.
 
 ## On-demand workflow inspector
 
-`/mh` opens a bounded navigation picker in the primary interactive session. Session
-steps, staging, usage, appearance and workflow entries delegate their existing
-owner handlers. Goal, Code Evidence, UX, Execution Run, RTK and maintained-memory
-status entries use the **same existing feature command handler** with `status`;
+`/mh` opens a bounded control-center picker in the primary interactive session. Session
+steps, staging, usage, appearance, RTK, maintained memory and workflow entries delegate their existing
+owner handlers and interactive submenus (with `← Back` navigation and scope labels). Goal, Code Evidence, UX, Execution Run, RTK and maintained-memory
+entries use the **same existing feature command owner** for status and owner-authorized controls;
 steps/staging open their existing picker and appearance opens its existing settings. The feature owner still
 performs its own authorization/read path; the hub does not read state files,
 execute tools, send slash strings to the model or maintain a second database.

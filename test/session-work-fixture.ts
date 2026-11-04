@@ -212,8 +212,6 @@ export async function sessionWorkFixture(
       // restores text with setText (which resets a real Editor's insertion point).
       const savedText = composerEditor.getText()
       let overlay: ReturnType<typeof screen.showOverlay> | undefined
-      const keys = modalKeys.shift()
-      assert.ok(keys, 'Unscripted modal')
       let resolved = false
       const result = await new Promise<unknown>(async (done, reject) => {
         try {
@@ -237,6 +235,27 @@ export async function sessionWorkFixture(
               done(value)
             },
           )
+          let keys: string[] | undefined
+          let fromChoices = false
+          if (
+            'menuValues' in component &&
+            Array.isArray((component as { menuValues?: unknown }).menuValues)
+          ) {
+            fromChoices = true
+            const values = (component as unknown as { menuValues: readonly string[] }).menuValues
+            assert.ok(choices.length, `Unscripted selector: ${values.join(', ')}`)
+            const choice = choices.shift()
+            if (choice === undefined) keys = ['\x1b']
+            else {
+              const target = values.findIndex((s) => s === choice || s.startsWith(choice))
+              assert.notEqual(target, -1, `Missing selection ${choice}: ${values.join(', ')}`)
+              await waitAtUI('select', choice)
+              keys = [...Array(target).fill('\x1b[B'), '\r']
+            }
+          } else {
+            keys = modalKeys.shift()
+          }
+          assert.ok(keys, 'Unscripted modal')
           if (options?.overlay)
             overlay = screen.showOverlay(
               component,
@@ -247,7 +266,7 @@ export async function sessionWorkFixture(
           else screen.setFocus(component)
           for (const width of [24, 48, 80, 120])
             for (const line of component.render(width)) assert.ok(tui.visibleWidth(line) <= width)
-          await waitAtUI('editor')
+          if (!fromChoices) await waitAtUI('editor')
           for (const key of keys) component.handleInput?.(key)
           assert.ok(resolved, 'Modal did not save/cancel')
         } catch (error) {

@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from '@e
 import { routeLabel, sessionTotals, type Geometry } from './footer.ts'
 import { quotaSegments, type quotaController, type QuotaSnapshot } from './quota.ts'
 import { text } from './status.ts'
-import { registerWorkflowSurface } from './workflow-hub.ts'
+import { registerWorkflowSurface, selectHubMenu } from './workflow-hub.ts'
 import { usageOwner, type UsageOwner, type UsageStoredPreferences } from './usage-owner.ts'
 import { UsageStorageError } from './usage-state.ts'
 
@@ -263,8 +263,12 @@ export function initUsage(pi: ExtensionAPI, clock: () => number = () => performa
   })
   const handler = async (raw: string, ctx: ExtensionCommandContext) => {
     if (retired || !active || !matches(ctx)) return
-    close()
     const args = raw.trim().toLowerCase().replace(/\s+/g, ' ')
+    if (args === 'menu') {
+      await openUsageMenu(ctx)
+      return
+    }
+    close()
     if (args === 'close') return
     let page = 0
     let notice = ''
@@ -302,12 +306,71 @@ export function initUsage(pi: ExtensionAPI, clock: () => number = () => performa
     }, USAGE_TTL)
     timer.unref?.()
   }
+  const openUsageMenu = async (ctx: ExtensionCommandContext): Promise<boolean | void> => {
+    if (retired || !active || !matches(ctx) || !ctx.hasUI) return
+    await handler('status', ctx)
+    while (!retired && active && matches(ctx) && ctx.hasUI) {
+      const snap = active.quota.snapshot()
+      const codexOn = display.quota && snap.source === 'codex-cli'
+      const codexRow = `Codex CLI quota · ${codexOn ? 'on' : 'off'}`
+      const styleRow = `Display style · ${display.style} [runtime]`
+      const showRow = 'Show / refresh usage widget above editor'
+      const closeRow = 'Close usage widget (/mh-usage close)'
+      const backRow = '← Back to /mh'
+      const choice = await selectHubMenu(
+        ctx,
+        `Mahiro Usage · codex: ${codexOn ? 'on' : 'off'} · style: ${display.style}`,
+        [
+          {
+            value: codexRow,
+            label: `Codex CLI quota  ${codexOn ? 'on' : 'off'}`,
+            description: 'Toggle Codex CLI quota display and save preference · /mh-usage codex on|off',
+          },
+          {
+            value: styleRow,
+            label: `Display style  ${display.style}`,
+            description:
+              'Toggle between bar and compact usage footer for this runtime session (not saved to disk)',
+          },
+          {
+            value: showRow,
+            label: 'Usage widget  refresh',
+            description:
+              'Show or refresh the bounded usage and quota snapshot above the editor · /mh-usage status',
+          },
+          {
+            value: closeRow,
+            label: 'Usage widget  close',
+            description: 'Close the active usage snapshot widget above the editor · /mh-usage close',
+          },
+          {
+            value: backRow,
+            label: '← Back to /mh  esc',
+            description: 'Return to Mahiro Control Center',
+          },
+        ],
+        { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+      )
+      if (retired || !active || !matches(ctx)) return
+      if (!choice || choice === backRow) return true
+      if (choice === codexRow) {
+        await handler(codexOn ? 'codex off' : 'codex on', ctx)
+      } else if (choice === styleRow) {
+        await handler(display.style === 'bar' ? 'compact' : 'bar', ctx)
+      } else if (choice === showRow) {
+        await handler('status', ctx)
+      } else if (choice === closeRow) {
+        await handler('close', ctx)
+        return
+      }
+    }
+  }
   pi.registerCommand('mh-usage', {
     description:
-      'Cached usage; codex on/off saves profile-wide Codex CLI selection; runtime source/style controls',
+      'Cached usage; menu; codex on/off saves profile-wide Codex CLI selection; runtime source/style controls',
     handler,
   })
-  registerWorkflowSurface(pi, { id: 'usage', label: 'Usage', open: (ctx) => handler('status', ctx) })
+  registerWorkflowSurface(pi, { id: 'usage', label: 'Usage', open: openUsageMenu })
   return {
     handler,
     display: () => ({ ...display }),

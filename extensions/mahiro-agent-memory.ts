@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { registerWorkflowCommand } from '../lib/workflow-hub.ts'
+import { registerWorkflowCommand, selectHubMenu } from '../lib/workflow-hub.ts'
 import { registerWorkflowAttention } from '../lib/workflow-attention.ts'
 import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 import { memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
@@ -12,9 +12,51 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
   registerWorkflowPresentation(pi)
   const attention = registerWorkflowAttention(pi)
   const runtime = createAgentMemoryRouter(pi, config)
-  registerWorkflowCommand(pi, 'mh-memory', {
+  const updateMemoryPolicy = async (
+    ctx: any,
+    next: {
+      automatic: boolean
+      reflectionTrigger?: 'off' | 'step-count' | 'compaction-event'
+      reflectionStepCount?: number
+    },
+  ) => {
+    const observe = attention.capture(ctx)
+    const status = (await runtime.run('agent_memory_manage', { action: 'status' }, ctx)) as Record<
+      string,
+      unknown
+    >
+    if (typeof status?.revision !== 'string' || typeof status?.configHash !== 'string')
+      throw Error('Authorized ABI2 memory status required before updating policy')
+    const currentSteps = typeof status.reflectionStepCount === 'number' ? status.reflectionStepCount : 25
+    const currentTrigger =
+      typeof status.reflectionTrigger === 'string' &&
+      ['off', 'step-count', 'compaction-event'].includes(status.reflectionTrigger)
+        ? (status.reflectionTrigger as 'off' | 'step-count' | 'compaction-event')
+        : status.automatic
+          ? 'step-count'
+          : 'off'
+    const reflectionTrigger =
+      next.reflectionTrigger ??
+      (next.automatic ? (currentTrigger === 'off' ? 'step-count' : currentTrigger) : 'off')
+    const reflectionStepCount = next.reflectionStepCount ?? currentSteps
+    const result = await runtime.run(
+      'agent_memory_manage',
+      {
+        action: 'policy',
+        revision: status.revision,
+        configHash: status.configHash,
+        automatic: next.automatic,
+        reflectionTrigger,
+        reflectionStepCount,
+      },
+      ctx,
+    )
+    observe('memory', result)
+    return result
+  }
+  const memoryCommand: Parameters<typeof registerWorkflowCommand>[2] = {
     description:
-      'Memory readiness, one bounded ABI2 Palace viewer, diagnostics, remember, dream and tiered v2 init',
+      'Memory readiness, one bounded ABI2 Palace viewer, policy controls, diagnostics, remember, dream and tiered v2 init',
     handler: async (args, ctx) => {
       const trimmed = args.trim()
       const [subcommand, ...rest] = trimmed ? trimmed.split(/\s+/) : ['status']
@@ -22,6 +64,8 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       if (
         ![
           'status',
+          'menu',
+          'policy',
           'help',
           'capacity',
           'retained-preview',
@@ -39,7 +83,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         ].includes(subcommand)
       ) {
         ctx.ui.notify(
-          'Use /mh-memory [status|help|capacity|retained-preview|retire|prepared-retire [status]|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
+          'Use /mh-memory [status|menu|policy [on|off|step-count <1..100000>|compaction-event]|help|capacity|retained-preview|retire|prepared-retire [status]|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
           'warning',
         )
         return
@@ -289,11 +333,389 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
           return
         }
+        if (subcommand === 'policy') {
+          if (!rest.length) {
+            await openMemoryMenu(ctx)
+            return
+          }
+          const modeArg = rest[0].toLowerCase()
+          if (modeArg === 'on' || modeArg === 'off') {
+            const result = await updateMemoryPolicy(ctx, { automatic: modeArg === 'on' })
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+            return
+          }
+          if (modeArg === 'compaction-event' || modeArg === 'compaction') {
+            const result = await updateMemoryPolicy(ctx, {
+              automatic: true,
+              reflectionTrigger: 'compaction-event',
+            })
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+            return
+          }
+          if (modeArg === 'step-count') {
+            const steps = rest[1] ? Number(rest[1]) : 25
+            if (!Number.isInteger(steps) || steps < 1 || steps > 100000) {
+              ctx.ui.notify('Usage: /mh-memory policy step-count <1..100000>', 'warning')
+              return
+            }
+            const result = await updateMemoryPolicy(ctx, {
+              automatic: true,
+              reflectionTrigger: 'step-count',
+              reflectionStepCount: steps,
+            })
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+            return
+          }
+          ctx.ui.notify(
+            'Usage: /mh-memory policy [on|off|step-count <1..100000>|compaction-event]',
+            'warning',
+          )
+          return
+        }
+        if (subcommand === 'menu') {
+          await openMemoryMenu(ctx)
+          return
+        }
       } catch (error) {
         ctx.ui.notify(publicMemoryError(error).message, 'warning')
       }
     },
-  })
+  }
+  const openDiagnosticsMenu = async (ctx: any): Promise<boolean> => {
+    while (ctx.mode === 'tui' && ctx.hasUI) {
+      const statusRow = 'Inspect full status JSON (/mh-memory status)'
+      const doctorRow = 'Run Doctor (/mh-memory doctor)'
+      const capacityRow = 'Check Capacity (/mh-memory capacity) [idle only]'
+      const retainedRow = 'Retained drafts preview (/mh-memory retained-preview)'
+      const preparedRow = 'Prepared retirement status (/mh-memory prepared-retire status)'
+      const retireRow = 'Retire memory generation… (/mh-memory retire) [confirm]'
+      const backRow = '← Back to Managed Memory'
+      const choice = await selectHubMenu(
+        ctx,
+        'Managed Memory · diagnostics & maintenance',
+        [
+          {
+            value: statusRow,
+            label: 'Full status JSON  view',
+            description: 'Inspect complete managed memory status and policy diagnostics · /mh-memory status',
+          },
+          {
+            value: doctorRow,
+            label: 'Memory Doctor  run',
+            description: 'Audit managed memory health, scope and repository state · /mh-memory doctor',
+          },
+          {
+            value: capacityRow,
+            label: 'Check capacity  idle',
+            description: 'Run count-only idle primary capacity diagnostic · /mh-memory capacity',
+          },
+          {
+            value: retainedRow,
+            label: 'Retained drafts  view',
+            description: 'Preview retained unpublished memory drafts · /mh-memory retained-preview',
+          },
+          {
+            value: preparedRow,
+            label: 'Prepared retire  status',
+            description: 'Inspect prepared retirement status · /mh-memory prepared-retire status',
+          },
+          {
+            value: retireRow,
+            label: 'Retire generation  confirm',
+            description:
+              'Permanently fence this primary memory generation and drain continuations · /mh-memory retire',
+          },
+          {
+            value: backRow,
+            label: '← Back to Memory  esc',
+            description: 'Return to Managed Memory controls',
+          },
+        ],
+        { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+      )
+      if (!choice || choice === backRow) return true
+      if (choice === statusRow) await memoryCommand.handler('status', ctx)
+      else if (choice === doctorRow) await memoryCommand.handler('doctor', ctx)
+      else if (choice === capacityRow) await memoryCommand.handler('capacity', ctx)
+      else if (choice === retainedRow) await memoryCommand.handler('retained-preview', ctx)
+      else if (choice === preparedRow) await memoryCommand.handler('prepared-retire status', ctx)
+      else if (choice === retireRow) {
+        const confirmed =
+          typeof ctx.ui.confirm === 'function'
+            ? await ctx.ui.confirm(
+                'Retire this primary memory generation?',
+                'Permanently fences this generation and drains its active memory continuations.',
+              )
+            : false
+        if (confirmed) await memoryCommand.handler('retire', ctx)
+      }
+    }
+    return false
+  }
+  const openMemoryMenu = async (ctx: any): Promise<boolean | void> => {
+    if (ctx.mode !== 'tui' || !ctx.hasUI) return
+    while (ctx.mode === 'tui' && ctx.hasUI) {
+      let diag: Record<string, unknown>
+      try {
+        diag = (await runtime.diagnose(ctx)) as Record<string, unknown>
+        attention.capture(ctx)('memory', diag)
+      } catch (error) {
+        ctx.ui.notify(publicMemoryError(error).message, 'warning')
+        return
+      }
+      const readiness = typeof diag.readiness === 'string' ? diag.readiness : 'Needs setup'
+      const storage = diag.storage === 'authorized'
+      const backHub = '← Back to /mh'
+      if (!storage) {
+        const causes = Array.isArray(diag.causes) ? (diag.causes as Array<{ cause?: string }>) : []
+        const reason =
+          causes[0]?.cause ?? (typeof diag.storageReason === 'string' ? diag.storageReason : 'unavailable')
+        const statusRow = 'Inspect readiness & causes (/mh-memory status)'
+        const initRow = 'Initialize project memory (/mh-memory init)'
+        const helpRow = 'Help (/mh-memory help)'
+        const choice = await selectHubMenu(
+          ctx,
+          `Managed Memory · ${readiness} (${reason})`,
+          [
+            {
+              value: statusRow,
+              label: 'Readiness & causes  view',
+              description: 'Inspect storage authority readiness and diagnostic causes · /mh-memory status',
+            },
+            {
+              value: initRow,
+              label: 'Initialize memory  init',
+              description: 'Seed absent managed memory root for the current project · /mh-memory init',
+            },
+            {
+              value: helpRow,
+              label: 'Memory help  view',
+              description: 'Show available /mh-memory subcommands and usage · /mh-memory help',
+            },
+            {
+              value: backHub,
+              label: '← Back to /mh  esc',
+              description: 'Return to Mahiro Control Center',
+            },
+          ],
+          { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+        )
+        if (!choice || choice === backHub) return true
+        if (choice === statusRow) await memoryCommand.handler('status', ctx)
+        else if (choice === initRow) await memoryCommand.handler('init', ctx)
+        else if (choice === helpRow) await memoryCommand.handler('help', ctx)
+        continue
+      }
+      const abi = typeof diag.engineABI === 'number' ? diag.engineABI : 1
+      const project = typeof diag.project === 'string' ? diag.project : undefined
+      const auto = typeof diag.automatic === 'boolean' ? diag.automatic : false
+      const trigger =
+        typeof diag.reflectionTrigger === 'string' ? diag.reflectionTrigger : auto ? 'step-count' : 'off'
+      const stepCount = typeof diag.reflectionStepCount === 'number' ? diag.reflectionStepCount : 25
+      const worker = typeof diag.worker === 'string' ? diag.worker : 'idle'
+      if (abi !== 2) {
+        const statusRow = 'Inspect status (/mh-memory status)'
+        const doctorRow = 'Run Doctor (/mh-memory doctor)'
+        const choice = await selectHubMenu(
+          ctx,
+          `Managed Memory · ${readiness} (ABI${abi})`,
+          [
+            {
+              value: statusRow,
+              label: 'Memory status  view',
+              description: 'Inspect current managed memory status · /mh-memory status',
+            },
+            {
+              value: doctorRow,
+              label: 'Memory Doctor  run',
+              description: 'Audit managed memory health and scope · /mh-memory doctor',
+            },
+            {
+              value: backHub,
+              label: '← Back to /mh  esc',
+              description: 'Return to Mahiro Control Center',
+            },
+          ],
+          { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+        )
+        if (!choice || choice === backHub) return true
+        if (choice === statusRow) await memoryCommand.handler('status', ctx)
+        else if (choice === doctorRow) await memoryCommand.handler('doctor', ctx)
+        continue
+      }
+      const autoRow = `Automatic reflection · ${auto ? 'ON' : 'OFF'} [memory policy]`
+      const triggerDetail = trigger === 'step-count' ? `step-count (${stepCount} turns)` : String(trigger)
+      const triggerRow = `Reflection trigger · ${triggerDetail} [memory policy]`
+      const dreamRow = 'Run reflection now (/mh-memory dream)'
+      const palaceOpenRow = 'Open Palace viewer · 10m browser snapshot'
+      const palaceCloseRow = 'Close Palace viewer'
+      const rememberRow = 'Remember a note… (/mh-memory remember)'
+      const initRow = 'Initialize project memory (/mh-memory init)'
+      const diagRow = 'Diagnostics & Maintenance ▸'
+      const triggerShort =
+        trigger === 'step-count' ? `${stepCount}t` : trigger === 'compaction-event' ? 'compact' : 'off'
+      const choice = await selectHubMenu(
+        ctx,
+        `Managed Memory · ${readiness} (ABI2${project ? ` · ${project}` : ''} · worker: ${worker})`,
+        [
+          {
+            value: autoRow,
+            label: `Auto reflection  ${auto ? 'on' : 'off'}`,
+            description: 'Toggle automatic background reflection in memory policy (not host settings)',
+          },
+          {
+            value: triggerRow,
+            label: `Reflection trigger  ${triggerShort}`,
+            description: `Current trigger: ${triggerDetail}. Configure step-count, compaction or off in memory policy`,
+          },
+          {
+            value: dreamRow,
+            label: 'Run reflection  dream',
+            description: 'Launch an explicit on-demand memory reflection pass now · /mh-memory dream',
+          },
+          {
+            value: palaceOpenRow,
+            label: 'Palace viewer  open',
+            description: 'Open the 10-minute loopback Memory Palace browser snapshot · /mh-memory palace',
+          },
+          {
+            value: palaceCloseRow,
+            label: 'Palace viewer  close',
+            description: 'Close the active loopback Memory Palace preview server · /mh-memory palace close',
+          },
+          {
+            value: rememberRow,
+            label: 'Remember a note  input',
+            description: 'Record a concise durable note into system/human/notes.md · /mh-memory remember',
+          },
+          {
+            value: initRow,
+            label: 'Initialize memory  init',
+            description:
+              'Seed absent project memory starter files without overwriting existing roots · /mh-memory init',
+          },
+          {
+            value: diagRow,
+            label: 'Diagnostics  more ▸',
+            description: 'Status JSON, Doctor, idle capacity, retained drafts and generation retirement',
+          },
+          {
+            value: backHub,
+            label: '← Back to /mh  esc',
+            description: 'Return to Mahiro Control Center',
+          },
+        ],
+        { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+      )
+      if (!choice || choice === backHub) return true
+      try {
+        if (choice === autoRow) {
+          const result = await updateMemoryPolicy(ctx, { automatic: !auto })
+          ctx.ui.notify(
+            `Automatic reflection ${!auto ? 'ON' : 'OFF'} [memory policy].\n${JSON.stringify(result, null, 2)}`,
+            'info',
+          )
+        } else if (choice === triggerRow) {
+          const stepDefault = `step-count · every 25 turns [memory policy]`
+          const stepCustom = `step-count · custom turn interval (current: ${stepCount})… [memory policy]`
+          const compactionOpt = 'compaction-event · on context compaction [memory policy]'
+          const offOpt = 'off · disable automatic reflection [memory policy]'
+          const backOpt = '← Back'
+          const picked = await selectHubMenu(
+            ctx,
+            `Reflection trigger · current: ${triggerDetail}`,
+            [
+              {
+                value: stepDefault,
+                label: 'Step count  25 turns',
+                description: 'Enable automatic reflection every 25 turns in memory policy',
+              },
+              {
+                value: stepCustom,
+                label: `Custom interval  ${stepCount}t`,
+                description:
+                  'Set a custom turn interval (1..100000) for automatic reflection in memory policy',
+              },
+              {
+                value: compactionOpt,
+                label: 'Compaction event  auto',
+                description: 'Trigger automatic reflection when context compaction occurs in memory policy',
+              },
+              {
+                value: offOpt,
+                label: 'Disable trigger  off',
+                description: 'Turn off automatic reflection trigger in memory policy',
+              },
+              {
+                value: backOpt,
+                label: '← Back  esc',
+                description: 'Return to Managed Memory controls without changing trigger policy',
+              },
+            ],
+            { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
+          )
+          if (!picked || picked === backOpt) continue
+          if (picked === stepDefault) {
+            const result = await updateMemoryPolicy(ctx, {
+              automatic: true,
+              reflectionTrigger: 'step-count',
+              reflectionStepCount: 25,
+            })
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          } else if (picked === stepCustom) {
+            const raw =
+              typeof ctx.ui.input === 'function'
+                ? await ctx.ui.input('Reflection turn interval (1..100000)', String(stepCount))
+                : undefined
+            if (!raw?.trim()) continue
+            const steps = Number(raw.trim())
+            if (!Number.isInteger(steps) || steps < 1 || steps > 100000) {
+              ctx.ui.notify('Reflection step count must be an integer between 1 and 100000.', 'warning')
+              continue
+            }
+            const result = await updateMemoryPolicy(ctx, {
+              automatic: true,
+              reflectionTrigger: 'step-count',
+              reflectionStepCount: steps,
+            })
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          } else if (picked === compactionOpt) {
+            const result = await updateMemoryPolicy(ctx, {
+              automatic: true,
+              reflectionTrigger: 'compaction-event',
+            })
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          } else if (picked === offOpt) {
+            const result = await updateMemoryPolicy(ctx, {
+              automatic: false,
+              reflectionTrigger: 'off',
+            })
+            ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          }
+        } else if (choice === dreamRow) {
+          await memoryCommand.handler('dream', ctx)
+        } else if (choice === palaceOpenRow) {
+          await memoryCommand.handler('palace', ctx)
+        } else if (choice === palaceCloseRow) {
+          await memoryCommand.handler('palace close', ctx)
+        } else if (choice === rememberRow) {
+          const note =
+            typeof ctx.ui.input === 'function'
+              ? await ctx.ui.input('Concise durable note to remember (system/human/notes.md)')
+              : undefined
+          if (note?.trim()) await memoryCommand.handler(`remember ${note.trim()}`, ctx)
+        } else if (choice === initRow) {
+          await memoryCommand.handler('init', ctx)
+        } else if (choice === diagRow) {
+          const backToMemory = await openDiagnosticsMenu(ctx)
+          if (!backToMemory) return
+        }
+      } catch (error) {
+        ctx.ui.notify(publicMemoryError(error).message, 'warning')
+      }
+    }
+  }
+  registerWorkflowCommand(pi, 'mh-memory', memoryCommand, { open: openMemoryMenu })
   const string = { type: 'string' }
   const schemas = {
     agent_memory_read: memoryReadSchema,

@@ -45,8 +45,8 @@ test('public hub delegates the real usage handler, widgets stay busy-safe, foote
         widget = content
       },
       select: async (_title: string, entries: string[]) => {
-        assert.ok(entries.includes('Usage'))
-        return 'Usage'
+        if (!widget && entries.includes('Usage')) return 'Usage'
+        return undefined
       },
     },
     // Any accidental turn, idle wait or composer mutation fails immediately.
