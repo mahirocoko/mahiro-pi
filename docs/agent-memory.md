@@ -106,7 +106,7 @@ root-bound tools and retention rules remain required; upstream advice to omit
 provenance or move procedures into skills grants no native mutation authority.
 [Role dispositions](agents.md#memory-guidance-and-selective-skill-admission) own
 the six-job assignment; the [roadmap](letta-parity-roadmap.md#r2--selective-memory-skill-admission-and-guidance-quality)
-owns review and delivery gates.
+owns the current direct-upstream direction, not a mandatory R2 delivery ladder.
 
 For a request to diagnose memory/context behavior, use this bounded procedure:
 
@@ -138,7 +138,8 @@ missing historical projection yields inconclusive/no-edit even when current
 storage is healthy; a successful control is evidence, not permission for live
 replay. `test/agent-memory-starter.test.ts` guards the shared doctrine text against
 these specific omissions; it does not execute a model, prove future retrieval or
-establish installed/human outcomes. Those remain R2-S/I/O/H gates.
+establish installed/human outcomes. Those evidence layers remain distinct, but
+the historical R2-S/I/O/H labels do not require additional phases.
 
 ## Read and discover
 
@@ -471,8 +472,10 @@ user entry is not authenticated human identity. Failed or cancelled attempts do
 not establish successful learning or integration.
 
 While automatic policy is on, this runtime counts eligible finalized assistant
-messages in an observed episode, including messages the stored action list later
-drops. The count is the optional `assistantSteps` field on that turn episode.
+messages with nonempty text in an observed episode, including messages the stored
+action list later drops. An admitted settled turn has a floor of one step even
+when its assistant messages are tool-only. The count is the optional
+`assistantSteps` field on that turn episode.
 Legacy episodes omit it and count as zero. Compaction episodes have none.
 Outstanding credit is the sum of those fields on the bounded episode directory
 for the same project and session, excluding ids already reviewed or forgotten
@@ -481,8 +484,9 @@ count from truncated actions, and does not take the publication lock. Two
 controllers admit different episode files; an existing id is not rewritten.
 A continuation after publication keeps the launch fence captured for that writer
 and does not dispatch if a foreground start advances the fence while the
-outstanding sum is read. Turns, aborted work, and reviewed or forgotten ids do
-not count. At 25 it freezes the
+outstanding sum is read. Only admitted completed episodes supply credit; aborted
+work and reviewed or forgotten ids do not count. At the configured threshold
+(25 by default) it freezes the
 new episode ids plus one bounded oldest page of still-pending ids, including
 compaction and episodes left by a restart or a failed window. That page is not
 extended while the drain runs. The writer receives at most four ids at a time.
@@ -527,7 +531,10 @@ an ordinary observe capacity failure. If the paired compaction itself cannot
 be stored because the episode directory is full, the same captured fence still
 opens one bounded drain of the episodes already stored. The unwritten
 compaction id is not delivered or reviewed. An explicit reflect still runs
-immediately.
+immediately. Failed automatic reflection uses an in-memory retry backoff, starting
+at 60 seconds and doubling to at most 30 minutes. Eligible automatic launches wait
+for that window; explicit reflection is not deferred. Successful integration or
+schedule reset clears the backoff.
 ABI1 still follows `automatic` only. It does not apply the ABI2 step-count or
 compaction-event dispatch.
 
@@ -1589,14 +1596,12 @@ is labelled not live authority. Its provenance defaults to synthetic. A caller
 may pass `private-shadow` so the same page says it shows migrated real memory
 in a private shadow; that label does not read private state or change live
 authority. Live publication remains ABI2. Any wiring to the live coordinator
-requires the roadmap's separately approved integration and evidence gates; an
-accepted preview alone does not authorize it. Roadmap direction was accepted on
-2026-10-30 for continued repository write/test/checkpoint execution. R0–R7 bounded
-source milestones and the [R8 source audit](letta-parity-r8.md) are recorded;
-installed/observed/human gates remain open, not an active R0 implementation plan.
-Phase H continuation and Phase I remain paused until their own gates pass. Push,
-tag, release, profile/install mutation, live cutover, Phase I and later human-only
-product/visual acceptance are not authorized by that direction acceptance.
+requires separately approved integration scope; an accepted preview alone does
+not authorize it. The R0–R7 bounded source milestones and the
+[R8 source audit](letta-parity-r8.md) are historical records, not an active
+implementation or evidence ladder. Push, tag, release, profile/install mutation,
+live cutover and Phase I still require their own explicit action scope; source
+experimentation does not establish installed behavior or human product acceptance.
 
 ## Historical recall and quoted notes
 
@@ -1715,10 +1720,11 @@ no model-callable management action, HTML/HTTP route, `local/**` authority, prof
 activation or Phase I wiring. Future changes should follow the current Letta owner
 or address a concrete Mahiro defect rather than reopen a general evidence ladder.
 
-## R7-09 source-only immutable Palace HTML handoff
+## R7-09 immutable Palace HTML handoff
 
 The immutable handoff is exposed publicly by `/mh-memory palace`. It is ABI2-only
-and TUI-only in source. It does not use or
+and TUI-only. Source availability alone does not establish installed activation.
+It does not use or
 import the disconnected `lib/agent-memory/local/**` Palace. One idle-primary
 operation captures the existing owner-certified committed structure, public
 invocation metadata and exactly the offset-zero eight-row knowledge-history page,

@@ -76,11 +76,12 @@ recurring job is genuinely underserved; existing role/runtime/docs ownership and
 zero new skills are valid outcomes. Preserve reasons, contradictions, examples,
 synthesis-not-logs and future-request discoverability rather than counting files.
 
-The [roadmap G-SKILL gate](letta-parity-roadmap.md#g-skill-admission-gate) owns
-candidate admission: user job, existing owner, disposition, preserved upstream
-contract, named deltas, trigger/refusal tests, truthful tools/authority and explicit
-scope approval. The R2 source decision on 2026-10-30 admits **zero new package
-skills**. These six job dispositions retain existing delivery owners:
+The [roadmap admission rule](letta-parity-roadmap.md#g-skill-admission-gate) requires
+explicit Mahiro direction for a distinct reusable workflow that existing owners
+cannot cover. Matching upstream behavior alone does not justify another skill or
+proof matrix. The R2 source decision on 2026-10-30 admitted **zero new package
+skills**. Its six job dispositions below record the existing delivery owners,
+not a new admission checklist:
 
 | Job / representative request | Disposition and delivery boundary |
 | --- | --- |
@@ -101,8 +102,9 @@ separately requested. No skill-mutation authority is inherited.
 requires descriptor byte-match except the explicitly paired model/thinking route
 slots. R2 updates shared doctrine and docs, not installed role bytes, package
 discovery, installer/profile state or selected routes. See the
-[roadmap decision](letta-parity-roadmap.md#candidate-dispositions) for adaptation
-provenance and the still-open evidence gates.
+[roadmap direction](letta-parity-roadmap.md#candidate-dispositions) for current
+follow/adapt/exclude choices. Historical R2 evidence labels do not impose new
+verification phases.
 
 ## Commit skill
 

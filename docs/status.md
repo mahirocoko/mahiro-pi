@@ -34,7 +34,11 @@ semantic rows as needed. A 48-column layout retains known quota percentages;
 compact or exceptionally tiny widths may drop bars before truncating values.
 Compaction-off warnings and exceptional virtual-route evidence retain priority. Very small widths truncate with public grapheme-aware geometry rather
 than splitting Thai marks, emoji or ANSI sequences. Other extensions' status
-cells are retained once and may add rows beyond the two core rows.
+cells are retained once, sorted by status key and packed as a right-aligned group.
+When the first packed status row fits beside the first usage row with at least
+three columns of separation, it sits on that row beneath the model/thinking area.
+Otherwise it joins the remaining status rows below the core fields, still
+right-aligned. Wrapping can add rows beyond the two core rows.
 
 Full paths, session names, activity, ordinary provider labels, capacity/default
 compaction labels, cache details and cost no longer crowd the main footer. Native

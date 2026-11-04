@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.5 source release record](releases/0.12.5.md) — right-aligned extension footer
+  statuses and current permission, memory, RTK and integration documentation corrections.
 - [v0.12.4 source release record](releases/0.12.4.md) — Palace history file headers and
   single-commit banner, cross-project directory discovery, `init-project` index seeding,
   reflection retry backoff and memory tool normalization/diagnostics.

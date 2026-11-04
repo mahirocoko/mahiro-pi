@@ -86,7 +86,8 @@ Image-bearing results and image-path reads also delegate to native rendering.
 Own session/workflow tools supply their separate
 [structured cards and inspector](workflows.md#on-demand-workflow-inspector);
 this native-tool adapter does not replace those renderers or execute their actions.
-PowerShell presentation does not override [Root's execution restriction](guards.md).
+PowerShell presentation adds no execution wrapper or authority; availability and
+permissions remain with the [native host and public PSS](guards.md#file-access-and-command-policy-are-different).
 
 Each call has its own title/path or command and result arm. Pending/partial
 results never display success. Completed output remains stable, including

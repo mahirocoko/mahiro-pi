@@ -107,6 +107,29 @@ for (const width of [48, 160]) {
   assert.ok(lines.some((row) => row.includes('↑10 ↓3')))
   if (width === 160) assert.match(lines[1], /ctx .* \| Codex Weekly/)
 }
+const status = 'yolo | tools 3 | agents 2'
+const statusData = { ...data, getExtensionStatuses: () => new Map([['permission-system', status]]) }
+for (const width of [12, 40, 60, 80, 120, 160]) {
+  const output = renderFooter(ctx, {}, statusData, state, width, geometry)
+  assert.ok(
+    output.every((row) => geometry.visibleWidth(row) <= width),
+    `${width}: status overflow`,
+  )
+  if (width >= 80) {
+    assert.ok(plain(output[1]).endsWith(status), `${width}: status beneath model`)
+    assert.equal(geometry.visibleWidth(output[1]), width)
+  } else if (width >= status.length) {
+    assert.ok(plain(output.at(-1)!).endsWith(status))
+    assert.equal(geometry.visibleWidth(output.at(-1)!), width)
+  } else {
+    const packed = pack([{ text: status, color: COLORS.label }], width, geometry)
+    assert.deepEqual(
+      output.slice(-packed.length).map(plain),
+      packed.map((row) => ' '.repeat(width - geometry.visibleWidth(row)) + plain(row)),
+    )
+    assert.equal(packed.map(plain).join(''), status)
+  }
+}
 const value = 'กิ👩🏽‍💻שלום'.repeat(30)
 const rows = pack([{ text: value, color: COLORS.folder }], 4, geometry)
 assert.ok(rows.every((row) => geometry.visibleWidth(row) <= 4))

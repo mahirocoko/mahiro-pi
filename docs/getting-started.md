@@ -129,7 +129,7 @@ The package registers a rendering-only UI adapter and optional dark themes
 Live preview, **Apply for this runtime** and `/mh-ui theme` commands are
 **runtime-only**; they never autosave. **Save preferences** explicitly persists
 only the supported own-UI appearance choices after the installer provisions the
-exact own-UI DATA grant and the Root owner authorizes access. Authorized TUI
+exact own-UI DATA grant and the kernel's own-UI owner authorizes access. Authorized TUI
 startup/resume/reload loads that record. Missing, denied or corrupt storage is
 unavailable, never reported saved. `/mh-ui live-tail` is not saved, and own-UI
 Save does not persist the host's global theme selection or arbitrary themes.
@@ -188,12 +188,14 @@ See [bootstrap](bootstrap.md); source loading never provisions a profile.
    an installed canonical writer's selected route, Core/customization, data,
    automatic policy and explicit engine off/legacy. Non-route role differences block.
 5. Fresh-load only intended sessions; run `/mh-memory status`. A prior cached
-   session or an installation receipt is not proof of activation. Read the
-   [candidate limitations](releases/0.5.0.md) before relying on the new policy action.
+   session or an installation receipt is not proof of activation. Read the current
+   [policy interruption limits](agent-memory.md#policy-interruption-limit) before
+   relying on policy recovery.
 
-A cached old guard paired with a new package can correctly refuse version-bound
-feature provenance. Align source/dependencies/profile and fresh-load intentionally;
-do not forge identity or relax the guard. A reload banner alone does not prove
+Cached old extensions can retain retired checks or incompatible feature ABIs after
+source/dependency updates. Current Root does not require version-bound package
+provenance for ordinary native execution. Align source/dependencies/profile and
+fresh-load intentionally; do not forge identity or relax Root/PSS. A reload banner alone does not prove
 that transitive helper modules were replaced. If native tool health still fails,
 stop and intentionally close/reopen Pi, resuming the intended conversation when
 appropriate, before retrying a harmless native check. Do not repeatedly reload,

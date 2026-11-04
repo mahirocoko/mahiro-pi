@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.12.4.md)
+[← Documentation](README.md) · [Source release record](releases/0.12.5.md)
 
 ## Dependencies and checks
 
@@ -273,7 +273,7 @@ operator paths, project-only policy and runtime incident reports out of public
 guides. Local reports belong only under ignored `.agent-state/runtime/`.
 
 `check:docs` checks local links/anchors, navigability, manifest-to-guide ownership,
-version/provenance alignment, public-document hygiene and selected security
+README/version alignment, architecture reminders, public-document hygiene and selected security
 boundaries. It does not validate external websites or prove semantic truth.
 Source/test changes still require contract review. Dated release notes remain
 source records, not rewritten histories or current activation instructions.
@@ -309,8 +309,8 @@ request does not authorize authentication, profile, model or runtime changes.
    existing tags; preserve local work and reconcile concurrent changes normally.
    Do not reset others' work, rewrite history or force push.
 2. Choose a version from actual release history. Align `package.json`, package
-   validation, every exact guard provenance pin, README and a dated release note.
-   Do not widen provenance to accept arbitrary versions.
+   validation, README and a dated release note. Preserve the immutable upstream
+   oracle hashes; they identify test evidence, not runtime package-version grants.
 3. Update current guides and third-party notices as needed. With explicit release-gate
    authorization, run `pnpm check:release` serially and obtain independent review against
    the final source, not an earlier checkpoint. Report any suspended/unrun tier truthfully;

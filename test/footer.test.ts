@@ -321,6 +321,35 @@ test('full-session stats count each native usage type once across compaction, la
   assert.equal(usageStats(entries).cacheHit, undefined)
 })
 
+test('extension status group is right-aligned below model without losing cells at narrow widths', () => {
+  const f = fixture()
+  const status = 'yolo | tools 3 | agents 2'
+  f.data.getExtensionStatuses = () => new Map([['permission-system', status]])
+  for (const width of [12, 40, 60, 80, 120, 160]) {
+    const rows = renderFooter(f.ctx, {}, f.data, f.state, width, geometry)
+    assert.ok(
+      rows.every((row) => geometry.visibleWidth(row) <= width),
+      `${width}: overflow`,
+    )
+    const statusRows = rows.slice(-Math.ceil(status.length / width))
+    if (width >= 80) {
+      assert.ok(plain(rows[1]).endsWith(status), `${width}: status beneath model`)
+      assert.equal(geometry.visibleWidth(rows[1]), width)
+    } else if (width >= status.length) {
+      assert.ok(plain(rows.at(-1)!).endsWith(status))
+      assert.equal(geometry.visibleWidth(rows.at(-1)!), width)
+    } else {
+      const packed = pack([{ text: status, color: COLORS.label }], width, geometry)
+      assert.deepEqual(
+        statusRows.map(plain),
+        packed.map((row) => ' '.repeat(width - geometry.visibleWidth(row)) + plain(row)),
+      )
+      assert.equal(packed.map(plain).join(''), status)
+      assert.ok(statusRows.every((row) => geometry.visibleWidth(row) === width))
+    }
+  }
+})
+
 test('minimal core rows retain native input/output, context semantics, palette and status ownership', () => {
   const f = fixture()
   f.data.getExtensionStatuses = () =>
@@ -331,7 +360,9 @@ test('minimal core rows retain native input/output, context semantics, palette a
     ])
   const rows = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry)
   const all = rows.map(plain).join('\n')
-  assert.equal(rows.length, 3, 'two core rows plus the other extension')
+  assert.equal(rows.length, 2, 'other extension sits beneath the model on the right')
+  assert.ok(plain(rows[1]).endsWith('another extension'))
+  assert.equal(geometry.visibleWidth(rows[1]), 160)
   for (const fragment of [
     '🌿 main ?2 ~1 ↑3 ↓4',
     'gpt-6.1-sol | medium',
@@ -910,10 +941,12 @@ test('mahiro-memory reflection status renders inline before RTK without duplicat
         ['other', 'another extension'],
       ])
     const rows = renderFooter(f.ctx, {}, f.data, f.state, 160, geometry).map(plain)
-    assert.equal(rows.length, 3)
+    assert.equal(rows.length, 2)
     assert.match(
       rows[1],
-      new RegExp(`↑10 ↓3 \\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| RTK rewrite-rtk$`),
+      new RegExp(
+        `↑10 ↓3 \\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| RTK rewrite-rtk +another extension$`,
+      ),
     )
     assert.equal(rows.join('\n').split(label).length - 1, 1)
   }

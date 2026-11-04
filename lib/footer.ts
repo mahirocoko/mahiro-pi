@@ -378,6 +378,20 @@ export function renderFooter(
     .filter(([key]) => key !== 'mahiro-status' && key !== 'mahiro-memory' && key !== 'mahiro-rtk')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, value]) => cell(text(value, 4096)))
-  rows.push(...pack(others, width, geometry))
+  const statusRows = pack(others, width, geometry)
+  const firstStatus = statusRows[0]
+  const usageRow = width >= 80 ? 1 : 2
+  if (
+    firstStatus &&
+    geometry.visibleWidth(rows[usageRow]) + geometry.visibleWidth(firstStatus) + 3 <= width
+  ) {
+    const left = rows[usageRow]
+    rows[usageRow] =
+      left +
+      ' '.repeat(width - geometry.visibleWidth(left) - geometry.visibleWidth(firstStatus)) +
+      firstStatus
+    statusRows.shift()
+  }
+  rows.push(...statusRows.map((row) => ' '.repeat(width - geometry.visibleWidth(row)) + row))
   return rows
 }

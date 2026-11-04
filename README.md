@@ -3,11 +3,11 @@
 <img src="assets/identity/mahiro-black-cat/mahiro-black-cat-mark.svg" alt="Mahiro black cat character" width="128" height="128">
 
 A native [Pi](https://pi.dev) extension for a persistent coding companion:
-terminal presentation, private maintained knowledge, guarded command rewriting
+terminal presentation, private maintained knowledge, explicit command-rewrite previews
 and explicit workflow tools. Pi keeps ownership of models, authentication,
 native tools and subagent lifecycle.
 
-**v0.12.4 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
+**v0.12.5 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
 
 [Install and upgrade](docs/getting-started.md) · [Documentation](docs/README.md) ·
 [Source releases](https://github.com/mahirocoko/mahiro-pi/releases) ·
@@ -57,13 +57,13 @@ profile selection, restriction failures and upgrades.
 | --- | --- |
 | [UI and theme](docs/claude-ui.md) | Neko-Stack header, individual tool rows, historical edit diffs, submitted-content write previews and explicit appearance controls |
 | [Status and notifications](docs/status.md) | Compact statusline, cache-only usage inspector, Git/context/RTK status, streaming activity and completion voice |
-| [RTK](docs/rtk.md) | Visible modes, bounded resolver proposals and policy checks before execution |
+| [RTK](docs/rtk.md) | Compatibility modes and bounded, non-executing rewrite previews; no automatic Bash interception |
 | [Memory and recall](docs/agent-memory.md) | Private Markdown/Git knowledge, scoped drafts, bounded lexical retrieval and separately screened historical quotations |
 | [Letta memory roadmap](docs/letta-parity-roadmap.md) | Direct current-upstream implementation plan; historical scores and proof ladders are not work drivers |
 | [Guards and permissions](docs/guards.md) | One Root guard, public permission resolution, final-argument checks and filtered configuration helpers |
 | [Workflow tools](docs/workflows.md) | Readable tool cards, owner-delegating inspector, Goals, Code Evidence, UX handoffs and execution coordination metadata |
 | [Utilities](docs/utilities.md) | Naturally chosen multi-step tracking, branch-local steps, editable staging, response copying, realignment, clock and Code Map |
-| [Integrations](docs/integrations.md) | Optional parent-scoped Herdr worker counts and session-opt-in private Web receipts |
+| [Integrations](docs/integrations.md) | Optional parent-scoped Herdr worker counts and private Web receipts enabled by one-time profile setup |
 | [Identity assets](docs/identity-assets.md) | Human-selected black-cat mark, production mascot poses, fixed-size exports and usage boundaries |
 
 ## Useful controls
@@ -109,7 +109,7 @@ The native `/settings` → Quiet startup → `header` setting persists independe
 
 This package remains `private: true` and `UNLICENSED`. GitHub source releases
 are not npm publication or a license grant. See [third-party notices](THIRD_PARTY_NOTICES.md)
-for palette attribution and [v0.12.0 source release notes](docs/releases/0.12.0.md) for the dated
+for palette attribution and [v0.12.5 source release notes](docs/releases/0.12.5.md) for the dated
 source scope and verification boundaries; current contracts live in the guides above.
 Existing memory retains bounded [policy interruption recovery and retained-evidence limits](docs/agent-memory.md#policy-interruption-limit).
 Source publication does not install or activate memory in an existing profile.

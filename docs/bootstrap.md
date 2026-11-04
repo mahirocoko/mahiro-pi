@@ -229,7 +229,8 @@ certification remains cancellable and fully fenced. Ordinary read-only engine
 requests are also completion-driven and caller-cancellable; mutation/publication
 methods keep their 30-second deadline. See the [engine contract](agent-memory.md#ordinary-memory-engine)
 for the exact read-only method set and drain limits. The native writer's separate
-120-second lease is unchanged. Success is the validated maintenance receipt; a
+ABI2 240-second lease and bounded parent-only publication reserve are separate
+from these engine request deadlines. Success is the validated maintenance receipt; a
 separate profile reload/runtime check owns later projection and activation proof.
 
 ## Grants and retained restrictions
@@ -291,7 +292,7 @@ The installer registers public permission/subagent packages before this package.
 Children retain guards and permission ownership; duplicate/conflicting owners,
 unsupported aliases and required-resource exclusions refuse. The exact optional
 git-commit skill exclusion above is preserved unless explicitly changed. A source path change
-must align with public native-factory provenance, not be bypassed with a second guard.
+must align with canonical public package registrations, not be bypassed with a second guard.
 
 Standard installation writes a private 0600 `<profile>/.mahiro-memory-engine.json`
 with exactly `version: 2`, `root: <profile>/memory` and `mode: "engine"`. It is
