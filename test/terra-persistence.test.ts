@@ -130,9 +130,25 @@ test('advisory encodes checkpoint positives and question/stop/approval negatives
     'partial completion, blockers, important boundaries and actual side effects',
     'Do not list unrelated things not done unless asked or necessary for understanding',
     'unrun checks or human acceptance',
+    "match the existing owner's shape",
+    'new invariant, identity gate, or test matrix',
+    'failing check requires it',
+    'drop that new rule',
+    'one focused check for the behavior you changed',
+    'neighboring path, such as a render path',
+    'prove caution',
+    'Protected repository fences stay in force',
+    'real case it must support',
+    'restored session or a replaced process',
+    'passing fixture that only matches a new assumption',
+    'whole-collection work on every render row',
+    'load check, a unit test, or an expectation as a live render',
+    'visible behavior that is still unverified',
+    'requested user-facing control',
+    'calls it a sub-feature',
   ])
     assert.ok(guidance.includes(phrase), phrase)
-  assert.ok(guidance.length < 2400)
+  assert.ok(guidance.length < 3200)
 })
 
 test('public SDK/Faux: section survives memory-like replacement then real Todos override; switches and reload are clean', async () => {

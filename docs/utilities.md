@@ -17,7 +17,21 @@ promises or permission questions. It asks the model to assess actual actions and
 evidence, investigate uncertainty safely within scope rather than invent a blocker
 or approval gate, and preserve questions, plan/research-only requests, explicit
 stops, actual blockers, safety boundaries and required approvals. Uncertainty is
-not permission to bypass a boundary. Reporting focuses on the outcome, work done
+not permission to bypass a boundary. For a local behavior fix it says to match the
+existing owner's shape: do not add a new invariant, identity gate, or test matrix
+unless a current contract or a failing check requires it. If that new rule would
+block the change or contradict a repository rule, drop that new rule. Use one
+focused check for the behavior that changed. Do not copy a fence into a
+neighboring path, such as a render path, to prove caution. Protected repository
+fences stay in force. Start from the behavior that already works and the real
+case it must support. Drop a new check that rejects a normal lifecycle, such as
+a restored session or a replaced process. A passing fixture that only matches a
+new assumption does not prove that case. Do not repeat whole-collection work on
+every render row, or treat a load check, a unit test, or an expectation as a
+live render. Before handoff, name the visible behavior that is still unverified.
+Do not drop a requested user-facing control because an internal label calls it a
+sub-feature.
+Reporting focuses on the outcome, work done
 and decision-relevant limitations or risks, including partial completion, blockers,
 important boundaries and actual side effects. Unrelated non-actions need not be
 listed unless asked for or needed for understanding. It grants no extra scope,
