@@ -70,6 +70,15 @@ test('projected directory indexes follow scoped indexed ancestry and bounded dis
   validateReply('projection', { project: 'project', shared: true }, envelope)
   for (const forged of [
     { directories: [{ path: 'projects/other/reference/', index: 'projects/other/reference/index.md' }] },
+  ])
+    assert.throws(() =>
+      validateReply(
+        'projection',
+        { project: 'project', shared: false },
+        { ...envelope, discovery: { ...envelope.discovery, ...forged } },
+      ),
+    )
+  for (const forged of [
     { directories: [{ path: 'archives/project/', index: 'archives/project/index.md' }] },
     { directories: result.directories.slice().reverse() },
     { directories: result.directories, directoriesTruncated: true },

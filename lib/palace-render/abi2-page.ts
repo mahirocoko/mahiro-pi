@@ -401,7 +401,7 @@ ${viewInputs}
 type PalaceFile = PalaceHandoff['diagnostic']['structure']['files'][number]
 
 function isCore(file: PalaceFile): boolean {
-  return file.alwaysLoaded || file.layer === 'core' || file.path.startsWith('system/')
+  return file.layer === 'core' || file.layer === 'index' || file.path.startsWith('system/')
 }
 
 function frontmatter(body: string): { text: string; badges: [string, string][] } {
@@ -494,7 +494,8 @@ function fileWorkspace(
   const node = (): Tree => ({ folders: new Map(), files: [], count: 0 })
   const root = node()
   files.forEach((file, index) => {
-    const displayPath = group === 'core' ? file.path.replace(/^system\//, '') : file.path
+    const displayPath =
+      group === 'core' ? file.path.replace(/^system\//, '') : file.path.replace(/^projects\//, '')
     const parts = displayPath.split('/')
     let current = root
     current.count++
@@ -531,9 +532,15 @@ function fileWorkspace(
     )
   }
   const structure = handoff.diagnostic.structure
-  const latest = handoff.history.entries[0]
+  const historyEntries = visibleHistoryEntries(handoff)
+  const commitForFile = (path: string) =>
+    historyEntries.find((entry) => {
+      const lines = (entry.diff ?? '').split('\n')
+      return lines.includes(`+++ ${path}`) || lines.includes(`--- ${path}`)
+    }) ?? historyEntries[0]
   const documents = (compact ? [] : files)
     .map((file, index) => {
+      const latest = commitForFile(file.path)
       const body = file.body === undefined ? undefined : utf8Preview(file.body, previewBytes)
       const parsed = frontmatter(body ?? '')
       const pills = [
@@ -654,19 +661,21 @@ function contextView(
   return `<div class="panel context-panel"><div class="context-layout"><div class="context-grid-area"><div class="context-grid" aria-hidden="true">${grid}</div></div><aside class="context-sidebar"><div class="ctx-model">${escape(model)}</div><div class="ctx-model-sub">${escape(structure.project)} · ${escape(structure.revision.slice(0, 7))}</div><div class="ctx-usage-label">${escape(usageLabel)}</div><div class="ctx-bar-track" aria-hidden="true"><div class="ctx-bar-fill ctx-fill-${fillStep}"></div></div><div class="ctx-bar-text">${escape(barText)}</div><div class="ctx-legend-title">Composition</div>${legendItems}</aside></div></div>`
 }
 
+function visibleHistoryEntries(handoff: PalaceHandoff) {
+  return handoff.history.entries.filter(
+    (entry) =>
+      entry.changedFiles > 0 || Boolean(entry.diff) || entry.subject === 'Out-of-scope project update',
+  )
+}
+
 function commitCards(
   handoff: PalaceHandoff,
   previewBytes: number,
   previewLines: number,
   compact: boolean,
 ): string {
-  const allEntries = handoff.history.entries
-  if (!allEntries.length) return '<div class="panel"><p class="lede">No commits yet.</p></div>'
-  const meaningful = allEntries.filter(
-    (entry) =>
-      entry.changedFiles > 0 || Boolean(entry.diff) || entry.subject === 'Out-of-scope project update',
-  )
-  const entries = meaningful.length ? meaningful : allEntries
+  const entries = visibleHistoryEntries(handoff)
+  if (!entries.length) return '<div class="panel"><p class="lede">No commits yet.</p></div>'
   return `<div class="history-toolbar"><span class="history-search-status">${entries.length} recent commit${entries.length === 1 ? '' : 's'}</span></div><div class="commit-list">${entries
     .map((entry, index) => {
       const preview = utf8Preview(entry.diff ?? '', previewBytes)

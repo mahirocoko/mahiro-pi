@@ -128,8 +128,11 @@ test('bounded committed previews survive immutable handoff and render escaped wi
   for (const path of [
     'projects/other/reference/private.md',
     'archives/other/private.md',
-    'global/private.md',
     'archives/legacy-v1-abcdef123456/deferred/other/private.md',
+  ])
+    assert.equal(palaceScopedPath(path, 'project'), true)
+  for (const path of [
+    'global/private.md',
     'archives/legacy-v1-pretend/global/private.md',
     'archives/legacy-v1-abcdef123456/unknown/private.md',
     'projects/project/../private.md',
@@ -146,17 +149,27 @@ test('Palace uses native radio workspaces, inert Markdown/raw, and honest contex
     { ...s.files[0], body, bodyTruncated: false, bytes: Buffer.byteLength(body) },
     {
       ...s.files[0],
-      path: 'reference/guide.md',
-      layer: 'reference',
+      path: 'projects/other/reference/guide.md',
+      layer: 'projectReference',
       alwaysLoaded: false,
       protectedRetention: false,
       body: '## Deferred\n\nText',
       bodyTruncated: false,
       bytes: 17,
     },
+    {
+      ...s.files[0],
+      path: 'projects/project/system/conventions.md',
+      layer: 'projectSystem',
+      alwaysLoaded: true,
+      protectedRetention: true,
+      body: '## Project System\n\nText',
+      bodyTruncated: false,
+      bytes: 23,
+    },
   ]
   s.bodyInspection = 'bounded-committed-preview'
-  s.output = { total: 2, returned: 2, omitted: 0, truncated: false }
+  s.output = { total: 3, returned: 3, omitted: 0, truncated: false }
   s.structureDigest = structureDigest(s.files)
   s.snapshotDigest = snapshotDigest(s)
   const html = renderAbi2PalacePage(
@@ -170,8 +183,11 @@ test('Palace uses native radio workspaces, inert Markdown/raw, and honest contex
   assert.match(html, /id="view-context" checked/)
   assert.match(
     html,
-    /for="view-context">Context<\/label><\/li><li><label class="tab" for="view-core">Core Memory \(1\)<\/label><\/li><li><label class="tab" for="view-external">External Memory \(1\)<\/label><\/li><li><label class="tab" for="view-history">History<\/label>/,
+    /for="view-context">Context<\/label><\/li><li><label class="tab" for="view-core">Core Memory \(1\)<\/label><\/li><li><label class="tab" for="view-external">External Memory \(2\)<\/label><\/li><li><label class="tab" for="view-history">History<\/label>/,
   )
+  assert.match(html, /<span class="tree-file-name">project\/<\/span>/)
+  assert.match(html, /<span class="tree-file-name">other\/<\/span>/)
+  assert.doesNotMatch(html, /<span class="tree-file-name">projects\/<\/span>/)
   assert.match(html, /class="header-brand"/)
   assert.match(html, /class="product-mark"[^>]*><svg /)
   assert.match(html, /<span class="product-name">Mahiro Pi<\/span>/)
@@ -313,6 +329,11 @@ test('Palace diff blocks reflect owner-returned additions/deletions, excluding f
   )
   assert.match(filteredHtml, /1 recent commit/)
   assert.match(filteredHtml, /Curate Core\.md/)
+  assert.match(
+    filteredHtml,
+    /<span class="lc-hash">1111111<\/span><span class="lc-msg">Curate Core\.md<\/span>/,
+  )
+  assert.doesNotMatch(filteredHtml, /Update memory/)
   assert.doesNotMatch(filteredHtml, /0 files changed/)
 })
 
@@ -355,9 +376,9 @@ test('Palace deterministically budgets repeated workspace previews within 256 Ki
   assert.match(html, /reference\/file-031\.md/)
 })
 
-test('Palace archive scope recognizes only canonical shared and project-attributed migrations', () => {
+test('Palace archive scope recognizes canonical shared and cross-project migrations', () => {
   const collision = 'legacy-v1-abcdef123456'
-  assert.equal(palaceScopedPath(`archives/${collision}/deferred/other/private.md`, collision), false)
+  assert.equal(palaceScopedPath(`archives/${collision}/deferred/other/private.md`, collision), true)
   assert.equal(palaceScopedPath(`archives/${collision}/unknown/private.md`, collision), false)
   assert.equal(palaceScopedPath('archives/legacy-v1-pretend/global/private.md', 'legacy-v1-pretend'), false)
   assert.equal(palaceScopedPath(`archives/${collision}/deferred/${collision}/own.md`, collision), true)

@@ -645,7 +645,7 @@ test('tiered v2 schema, surgical patch/append, lossless retention guard, directo
     )
     const init = f.store.initProject('project')
     assert.equal(init.initialized, true)
-    assert.equal(init.changed, 2)
+    assert.equal(init.changed, 3)
 
     const v1 = f.store.createView('project')
     const currentOverview = f.store.read(v1, 'projects/project/system/overview.md')

@@ -27,6 +27,7 @@ import { configRecordVersion, reflectionSelectionValid } from './reflection-conf
 import { assertPrivatePath } from '../continuity/store.ts'
 import {
   type EditModeOptions,
+  allowedDirectory,
   allowedPath,
   applySurgicalEdit,
   assertLegacyArchiveCompatible,
@@ -55,7 +56,7 @@ import {
 } from './retrieval.ts'
 import { observedEpisode } from './engine/episodes.ts'
 
-export { allowedPath, type EditModeOptions }
+export { allowedDirectory, allowedPath, type EditModeOptions }
 
 export interface MemoryConfig {
   version: 1 | 2
@@ -793,16 +794,7 @@ export function createMemoryStore(
     read(v: View, path: string, offset = 0, limit = 4096) {
       return inspect(v, (files) => {
         const cleanDir = typeof path === 'string' ? path.replace(/\/+$/, '') : ''
-        const allowedDirs = new Set([
-          'system',
-          'system/human',
-          'reference',
-          `projects/${v.project}/system`,
-          `projects/${v.project}/reference`,
-        ])
-        const archiveDirectory =
-          v.scope === 'primary' && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
-        if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory))
+        if (allowedDirectory(cleanDir, v.project, v.scope === 'primary'))
           return directoryIndex(files, directoryPage(Object.keys(files), cleanDir, offset, limit))
         if (!allowedPath(path, v.scope === 'primary' ? undefined : v.project))
           throw new Error('Memory path outside scope')
@@ -814,7 +806,7 @@ export function createMemoryStore(
       v: View,
       path: string,
       expectedHash: string | null,
-      text: string | null,
+      text: string | null | undefined,
       sources: string[] = [],
       options?: EditModeOptions,
     ) {
@@ -1085,7 +1077,10 @@ export function createMemoryStore(
           )
           for (const path of paths) current(join(root, path))
           const topics = topicMetadata(paths)
-          const { directories, directoriesTruncated } = projectedDirectoryIndexes(paths, project)
+          const { directories, directoriesTruncated } = projectedDirectoryIndexes(
+            paths,
+            shared ? undefined : project,
+          )
           // Config and all authority I/O (including head's safe()) must finish
           // before the final HEAD observation, just as for inspect above.
           if (!equal(config(), c) || head(undefined, true) !== revision)
@@ -1252,9 +1247,14 @@ export function createMemoryStore(
         if ((p.startsWith('reference/') || /^projects\/[^/]+\/reference\//.test(p)) && !meta.description) {
           missingDescriptions.push(p)
         }
+        const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : ''
         for (const link of meta.links ?? []) {
           const normalized = link.endsWith('.md') ? link : `${link}.md`
-          if (!now.files[link] && !now.files[normalized]) {
+          if (
+            !now.files[link] &&
+            !now.files[normalized] &&
+            !(dir && !link.includes('/') && (now.files[`${dir}${link}`] || now.files[`${dir}${normalized}`]))
+          ) {
             brokenLinks.push({ source: p, target: link })
           }
         }
@@ -1342,6 +1342,7 @@ export function createMemoryStore(
         const next = copy(now)
         const overviewPath = `projects/${project}/system/overview.md`
         const conventionsPath = `projects/${project}/system/conventions.md`
+        const indexPath = `projects/${project}/system/index.md`
         let changed = 0
         if (!next.files[overviewPath]) {
           next.files[overviewPath] = {
@@ -1353,6 +1354,13 @@ export function createMemoryStore(
         if (!next.files[conventionsPath]) {
           next.files[conventionsPath] = {
             text: `---\nname: ${project}-conventions\ndescription: Coding conventions and workflow rules for ${project}\n---\n# Project Conventions (${project})\n\n## Rules\n\n- Follow repository-local contracts and verification gates.\n`,
+            sources: [],
+          }
+          changed++
+        }
+        if (!next.files[indexPath]) {
+          next.files[indexPath] = {
+            text: `---\nname: ${project}-system-index\ndescription: System memory index for ${project}\n---\n# ${project} System Memory\n\n- [[overview.md]] — Architecture and project overview for ${project}\n- [[conventions.md]] — Coding conventions and workflow rules for ${project}\n`,
             sources: [],
           }
           changed++

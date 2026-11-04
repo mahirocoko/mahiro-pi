@@ -80,6 +80,7 @@ import type {
 } from './protocol.ts'
 import { legacyView, recoveryCeiling, validateFiles } from './recovery.ts'
 import {
+  allowedDirectory,
   allowedPath,
   applySurgicalEdit,
   assertLegacyArchiveCompatible,
@@ -729,7 +730,8 @@ export class MemoryDataEngine {
       if (
         (args.action === 'init-project' &&
           now.refs[`projects/${scope}/system/overview.md`] &&
-          now.refs[`projects/${scope}/system/conventions.md`]) ||
+          now.refs[`projects/${scope}/system/conventions.md`] &&
+          now.refs[`projects/${scope}/system/index.md`]) ||
         (args.action === 'migrate-v2' && now.refs['system/persona.md'] && !legacyEntries.length)
       )
         return { revision: now.revision, added: [], changed: false }
@@ -744,6 +746,7 @@ export class MemoryDataEngine {
       if (args.action === 'init-project') {
         const overviewPath = `projects/${scope}/system/overview.md`
         const conventionsPath = `projects/${scope}/system/conventions.md`
+        const indexPath = `projects/${scope}/system/index.md`
         if (!now.refs[overviewPath]) {
           await writeNewOverlay(
             v,
@@ -761,6 +764,15 @@ export class MemoryDataEngine {
             [],
           )
           added.push(conventionsPath)
+        }
+        if (!now.refs[indexPath]) {
+          await writeNewOverlay(
+            v,
+            indexPath,
+            `---\nname: ${scope}-system-index\ndescription: System memory index for ${scope}\n---\n# ${scope} System Memory\n\n- [[overview.md]] — Architecture and project overview for ${scope}\n- [[conventions.md]] — Coding conventions and workflow rules for ${scope}\n`,
+            [],
+          )
+          added.push(indexPath)
         }
       } else {
         const migrationEntries = Object.entries(now.refs).filter(
@@ -1911,11 +1923,33 @@ export class MemoryDataEngine {
               ],
               details.paths,
             )
-            // Retain only hunks; Git headers (including arbitrary attribute/helper metadata) never leave.
+            // Retain only canonical in-scope file headers and hunks; raw Git/helper metadata never leaves.
+            const allowed = new Set(details.paths)
             let inHunk = false
+            let pendingHeader = ''
             for (const line of rawPatch.toString('utf8').split('\n')) {
-              if (line.startsWith('diff --git ')) inHunk = false
-              if (line.startsWith('@@ ')) inHunk = true
+              if (line.startsWith('diff --git ')) {
+                inHunk = false
+                pendingHeader = ''
+                continue
+              }
+              if (!inHunk && line.startsWith('--- a/')) {
+                const candidate = line.slice(6)
+                if (allowed.has(candidate)) pendingHeader = `--- ${candidate}\n`
+                continue
+              }
+              if (!inHunk && line.startsWith('+++ b/')) {
+                const candidate = line.slice(6)
+                if (allowed.has(candidate)) pendingHeader = `+++ ${candidate}\n`
+                continue
+              }
+              if (line.startsWith('@@ ')) {
+                inHunk = true
+                if (pendingHeader) {
+                  patch += pendingHeader
+                  pendingHeader = ''
+                }
+              }
               if (inHunk && /^(?:@@ |[ +\\-])/.test(line)) patch += `${line}\n`
             }
           }
@@ -2070,7 +2104,10 @@ export class MemoryDataEngine {
           paths,
         )
         const topics = topicMetadata(paths)
-        const { directories, directoriesTruncated } = projectedDirectoryIndexes(paths, args.project)
+        const { directories, directoriesTruncated } = projectedDirectoryIndexes(
+          paths,
+          args.shared ? undefined : args.project,
+        )
         if ((await this.config()).configHash !== configHash || (await this.head()) !== revision)
           throw Error('Memory projection unavailable: current state changed')
         const systemEntries = tieredPaths
@@ -2284,16 +2321,7 @@ export class MemoryDataEngine {
         if (selection.mode === 'list') result = { files: paths, project: v.project, state: v.state }
         else if (selection.mode === 'path') {
           const cleanDir = selection.path.replace(/\/+$/, '')
-          const allowedDirs = new Set([
-            'system',
-            'system/human',
-            'reference',
-            `projects/${v.project}/system`,
-            `projects/${v.project}/reference`,
-          ])
-          const archiveDirectory =
-            v.shared && cleanDir.startsWith('archives/') && allowedPath(`${cleanDir}/index.md`)
-          if (cleanDir && !cleanDir.endsWith('.md') && (allowedDirs.has(cleanDir) || archiveDirectory)) {
+          if (allowedDirectory(cleanDir, v.project, v.shared)) {
             // Pin history to the view's committed base and restrict Git to already
             // authorized active paths; draft-only paths have an unknown timestamp.
             const committedPaths = paths.filter(

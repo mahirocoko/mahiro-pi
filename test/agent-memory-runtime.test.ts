@@ -392,7 +392,29 @@ test('safe memory reasons expose authentic registered CAS and retention, never p
     await f.emit('session_start')
     const execute = (name: string, args: object) =>
       f.tools.find((tool) => tool.name === name).execute('test', args, undefined, undefined, f.ctx)
+    assert.deepEqual(f.tools.find((tool) => tool.name === 'agent_memory_edit')?.parameters.required, [
+      'path',
+      'expectedHash',
+      'sources',
+    ])
     const read = await execute('agent_memory_read', { path: 'Core.md' })
+    await assert.rejects(
+      execute('agent_memory_edit', {
+        path: 'Core.md',
+        expectedHash: read.details.hash,
+        sources: [],
+      }),
+      /Invalid memory edit arguments/,
+    )
+    const patchedWithoutText = await execute('agent_memory_edit', {
+      path: 'Core.md',
+      expectedHash: read.details.hash,
+      mode: 'patch',
+      oldText: 'Core',
+      newText: 'Core',
+      sources: [],
+    })
+    assert.equal(patchedWithoutText.details.hash, read.details.hash)
     await assert.rejects(
       execute('agent_memory_edit', {
         path: 'Core.md',

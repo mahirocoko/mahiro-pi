@@ -39,6 +39,15 @@ export const allowedPath = (path: string, project?: string) => {
     /^projects\/([a-z0-9][a-z0-9-]{0,63})\/(?:system|reference)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
   return !!tieredProject && (!project || tieredProject[1] === project)
 }
+export const allowedDirectory = (dir: string, project?: string, shared = false) => {
+  if (!dir || dir.endsWith('.md')) return false
+  if (dir === 'system') return true
+  if (dir === 'projects') return shared
+  const projectDir = /^projects\/([a-z0-9][a-z0-9-]{0,63})$/.exec(dir)
+  if (projectDir) return shared || !project || projectDir[1] === project
+  if (dir.startsWith('archives/')) return shared && allowedPath(`${dir}/index.md`)
+  return allowedPath(`${dir}/index.md`, shared ? undefined : project)
+}
 export interface LegacyV1Migration {
   archivePath: string
   targetPath: string
@@ -165,11 +174,14 @@ export interface EditModeOptions {
 
 export function applySurgicalEdit(
   currentText: string | undefined,
-  text: string | null,
+  text: string | null | undefined,
   options?: EditModeOptions,
 ): string | null {
   const mode = options?.mode ?? 'replace'
-  if (mode === 'replace') return text
+  if (mode === 'replace') {
+    if (text === undefined) throw Error('Surgical replace requires text or null')
+    return text
+  }
   if (mode === 'patch') {
     if (typeof currentText !== 'string') throw Error('Surgical patch requires an existing file')
     const oldText = options?.oldText

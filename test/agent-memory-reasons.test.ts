@@ -142,19 +142,30 @@ test('edit reply hashes represent resulting content, not the append or patch ope
   const digest = (text: string) => createHash('sha256').update(text).digest('hex')
   for (const [current, text, options] of [
     [undefined, '- synthetic note', { mode: 'append' as const }],
+    [undefined, undefined, { mode: 'append' as const, newText: '- synthetic note' }],
     ['# Notes\n- previous\n', '- synthetic note', { mode: 'append' as const }],
     ['# Notes\n- previous\n', '- synthetic note', { mode: 'append' as const, section: 'Facts' }],
     ['# Notes\n- previous\n', 'new', { mode: 'patch' as const, oldText: 'previous' }],
     ['# Notes\n- previous\n', null, { mode: 'patch' as const, oldText: 'previous', newText: 'new' }],
+    ['# Notes\n- previous\n', undefined, { mode: 'patch' as const, oldText: 'previous', newText: 'new' }],
   ] as const) {
     const result = applySurgicalEdit(current, text, options)
     assert.equal(typeof result, 'string')
-    validateReply('edit', { text, ...options }, { hash: digest(result!) })
+    validateReply('edit', { ...(text !== undefined ? { text } : {}), ...options }, { hash: digest(result!) })
     for (const hash of [null, '', 'not-a-hash', 'A'.repeat(64), 1])
-      assert.throws(() => validateReply('edit', { text, ...options }, { hash }))
-    assert.throws(() => validateReply('edit', { text, ...options }, { hash: digest(result!), extra: true }))
+      assert.throws(() =>
+        validateReply('edit', { ...(text !== undefined ? { text } : {}), ...options }, { hash }),
+      )
+    assert.throws(() =>
+      validateReply(
+        'edit',
+        { ...(text !== undefined ? { text } : {}), ...options },
+        { hash: digest(result!), extra: true },
+      ),
+    )
   }
-  for (const mode of [undefined, 'replace']) {
+  for (const mode of [undefined, 'replace'] as const) {
+    assert.throws(() => applySurgicalEdit('# Notes\n', undefined, mode ? { mode } : undefined))
     validateReply('edit', { text: 'replacement', mode }, { hash: digest('replacement') })
     validateReply('edit', { text: null, mode }, { hash: null })
     assert.throws(() => validateReply('edit', { text: 'replacement', mode }, { hash: digest('different') }))

@@ -4,7 +4,14 @@ import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
 import { selectedVerification, verificationResultText } from './verification-evidence.ts'
-import { createMemoryStore, allowedPath, type View, type TurnEpisode, type EditModeOptions } from './store.ts'
+import {
+  createMemoryStore,
+  allowedDirectory,
+  allowedPath,
+  type View,
+  type TurnEpisode,
+  type EditModeOptions,
+} from './store.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { resolveAgentDir } from '../setup.ts'
 import { directoryIndex, directoryPage, parseMemoryRead, retrieveMemory } from './retrieval.ts'
@@ -429,10 +436,22 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         stopJob()
         const view = p.store.createView(p.project, 60000, true)
         const currentFile = p.store.read(view, targetPath)
-        const expectedHash = 'missing' in currentFile && currentFile.missing ? null : currentFile.hash
-        p.store.edit(view, targetPath, expectedHash, `- ${text}`, [], {
+        const isMissing = 'missing' in currentFile && currentFile.missing
+        const expectedHash = isMissing ? null : currentFile.hash
+        const slug = targetPath.split('/').pop()!.replace(/\.md$/, '')
+        const newEntry =
+          isMissing && !['Core.md', 'index.md'].includes(targetPath)
+            ? `---\nname: ${slug}\ndescription: Durable remembered notes for ${targetPath}\n---\n# ${slug}\n\n${
+                typeof args.section === 'string'
+                  ? `${args.section.startsWith('#') ? args.section : `## ${args.section}`}\n\n- ${text}`
+                  : `- ${text}`
+              }`
+            : `- ${text}`
+        p.store.edit(view, targetPath, expectedHash, newEntry, [], {
           mode: 'append',
-          ...(typeof args.section === 'string' ? { section: args.section } : {}),
+          ...(typeof args.section === 'string' && (!isMissing || ['Core.md', 'index.md'].includes(targetPath))
+            ? { section: args.section }
+            : {}),
         })
         const integrated = p.store.integrate(view)
         draft = undefined
@@ -543,13 +562,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         if (selection.mode === 'query' || selection.mode === 'topic') return retrieveMemory(files, selection)
         const { path, offset, limit } = selection
         const cleanDir = path.replace(/\/+$/, '')
-        if (
-          cleanDir === 'system' ||
-          cleanDir === 'system/human' ||
-          cleanDir === 'reference' ||
-          cleanDir === `projects/${view.project}/system` ||
-          cleanDir === `projects/${view.project}/reference`
-        ) {
+        if (allowedDirectory(cleanDir, view.project, view.scope === 'primary')) {
           const page = directoryPage(Object.keys(files), cleanDir, offset, limit)
           return directoryIndex(files, page)
         }
@@ -584,7 +597,11 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         ]) ||
         typeof args.path !== 'string' ||
         !(typeof args.expectedHash === 'string' || args.expectedHash === null) ||
-        !(typeof args.text === 'string' || args.text === null) ||
+        !(
+          typeof args.text === 'string' ||
+          args.text === null ||
+          (args.text === undefined && (args.mode === 'patch' || args.mode === 'append'))
+        ) ||
         !Array.isArray(args.sources) ||
         (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
         (args.oldText !== undefined && typeof args.oldText !== 'string') ||

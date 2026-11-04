@@ -28,7 +28,7 @@ interface HistoryEntry {
 }
 type HistoryIdentity = Omit<HistoryEntry, 'subject' | 'changedFiles'>
 
-// No historical path leaves this owner, including unknown or cross-project paths.
+// No historical path leaves this owner, including unknown paths.
 export function historyDetails(subject: Buffer, paths: Buffer, project: string) {
   const { subject: clean, changedFiles } = historyClassification(subject, paths, project)
   return { subject: clean, changedFiles }
@@ -39,7 +39,7 @@ export function historyClassification(subject: Buffer, paths: Buffer, project: s
   const names = paths.length ? paths.toString('utf8').slice(0, -1).split('\0') : []
   ensure(names.length <= 32768 && names.every((path) => path.length > 0))
   const scoped = (path: string) => palaceScopedPath(path, project)
-  const changed = names.filter((path) => path !== '.memory.json')
+  const changed = names.filter((path) => path !== '.memory.json' && path !== '.gitignore')
   const redacted = changed.some((path) => !scoped(path))
   let clean = ''
   for (const char of subject.toString('utf8').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')) {

@@ -9,6 +9,8 @@
 export const assistantReflectionSteps = 25
 export const reflectionDeliveryLimit = 4
 export const reflectionBacklogLimit = 32
+export const initialReflectionRetryDelayMs = 60_000
+export const maxReflectionRetryDelayMs = 30 * 60_000
 
 export interface ReflectionDrain {
   id: number
@@ -23,10 +25,21 @@ export interface ReflectionWindow {
   pendingIds: string[]
   drainSerial: number
   drain: ReflectionDrain | null
+  retryDelayMs: number
+  retryAt: number
 }
 
 export function createReflectionWindow(): ReflectionWindow {
-  return { project: null, steps: 0, stepsAtCapture: 0, pendingIds: [], drainSerial: 0, drain: null }
+  return {
+    project: null,
+    steps: 0,
+    stepsAtCapture: 0,
+    pendingIds: [],
+    drainSerial: 0,
+    drain: null,
+    retryDelayMs: 0,
+    retryAt: 0,
+  }
 }
 
 const tracked = (window: ReflectionWindow, id: string) =>
@@ -184,6 +197,28 @@ export function stopReflectionDrain(window: ReflectionWindow, drainId: number) {
   return true
 }
 
+export function isReflectionRetryDeferred(window: ReflectionWindow, now = Date.now()): boolean {
+  return now < window.retryAt
+}
+
+export function recordReflectionRetryOutcome(
+  window: ReflectionWindow,
+  success: boolean,
+  now = Date.now(),
+): void {
+  if (success) {
+    window.retryDelayMs = 0
+    window.retryAt = 0
+    return
+  }
+  const delayMs =
+    window.retryDelayMs > 0
+      ? Math.min(window.retryDelayMs * 2, maxReflectionRetryDelayMs)
+      : initialReflectionRetryDelayMs
+  window.retryDelayMs = delayMs
+  window.retryAt = now + delayMs
+}
+
 export function resetReflectionWindow(window: ReflectionWindow) {
   const drainSerial = window.drainSerial
   window.project = null
@@ -191,5 +226,7 @@ export function resetReflectionWindow(window: ReflectionWindow) {
   window.stepsAtCapture = 0
   window.pendingIds = []
   window.drain = null
+  window.retryDelayMs = 0
+  window.retryAt = 0
   window.drainSerial = drainSerial
 }

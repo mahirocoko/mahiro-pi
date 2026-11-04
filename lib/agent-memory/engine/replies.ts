@@ -703,7 +703,7 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
             typeof entry.index === 'string' &&
               entry.index.endsWith('/index.md') &&
               !entry.index.startsWith('archives/') &&
-              allowedPath(entry.index, input.project as string) &&
+              allowedPath(entry.index, input.shared ? undefined : (input.project as string)) &&
               entry.index > previous &&
               entry.path === `${entry.index.slice(0, -'/index.md'.length)}/`,
           )

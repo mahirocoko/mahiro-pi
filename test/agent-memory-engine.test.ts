@@ -332,7 +332,9 @@ test('knowledge history follows current first-parent details, bounds pages and r
     assert.ok(!merged.entries.some((e) => e.revision === side))
     assert.equal(merged.entries[0].subject, 'PRIVATE_MERGE')
     assert.equal(merged.entries[0].changedFiles, 0)
-    assert.doesNotMatch(JSON.stringify(merged), /Synthetic|Core.md|fixture@example/)
+    assert.equal(merged.entries[2].subject, 'Initialize private managed memory')
+    assert.equal(merged.entries[2].changedFiles, 2)
+    assert.doesNotMatch(JSON.stringify(merged), /PRIVATE_SIDE|fixture@example/)
     f.git('replace', merged.revision, main)
     await assert.rejects(request(), engineError())
     f.git('replace', '-d', merged.revision)
@@ -378,12 +380,25 @@ test('knowledge history resolves Git subjects and scoped counts, redacting cross
     let result = await request()
     assert.equal(result.entries[0].subject, 'Scoped update')
     assert.equal(result.entries[0].changedFiles, 1)
+    assert.match(result.entries[0].diff!, /\+\+\+ projects\/project\/reference\/history\.md/)
     assert.match(result.entries[0].diff!, /\+synthetic/)
-    assert.doesNotMatch(result.entries[0].diff!, /diff --git|--- |\+\+\+ /)
+    assert.doesNotMatch(result.entries[0].diff!, /diff --git|--- a\/|\+\+\+ b\//)
     for (const path of [
       'projects/other/reference/private.md',
       'archives/other/private.md',
       'archives/legacy-v1-abcdef123456/deferred/other/private.md',
+    ]) {
+      mkdirSync(join(f.root, path, '..'), { recursive: true })
+      writeFileSync(join(f.root, path), 'synthetic')
+      writeFileSync(join(f.root, scopedPath), path)
+      f.git('add', path, scopedPath)
+      f.git('commit', '-m', `Cross-project subject ${path}`)
+      result = await request()
+      assert.equal(result.entries[0].subject, `Cross-project subject ${path}`)
+      assert.equal(result.entries[0].changedFiles, 2)
+      assert.match(result.entries[0].diff!, /\+synthetic/)
+    }
+    for (const path of [
       'archives/legacy-v1-pretend/global/private.md',
       'system/private.txt',
       'projects/project/arbitrary.bin',
@@ -399,10 +414,7 @@ test('knowledge history resolves Git subjects and scoped counts, redacting cross
       assert.equal(result.entries[0].changedFiles, 1)
       assert.equal(result.entries[0].diff, '')
       assert.equal(result.entries[0].diffTruncated, false)
-      assert.doesNotMatch(
-        JSON.stringify(result),
-        /PRIVATE|projects\/other|archives\/other|private\.txt|arbitrary\.bin|unknown\//,
-      )
+      assert.doesNotMatch(JSON.stringify(result), /PRIVATE|private\.txt|arbitrary\.bin|unknown\//)
     }
   } finally {
     await f.close()
@@ -434,13 +446,14 @@ test('knowledge history bounds multibyte diffs and redacts cross-scope renames a
     const result = await request()
     assert.equal(result.entries.length, 8)
     assert.ok(result.entries.reduce((n, e) => n + Buffer.byteLength(e.diff!), 0) <= 8192)
+    assert.match(result.entries[0].diff!, /\+\+\+ projects\/project\/reference\/large\.md/)
     for (const entry of result.entries) {
       assert.ok(Buffer.byteLength(entry.diff!) <= 4096)
       assert.equal(entry.diffTruncated, true)
-      assert.doesNotMatch(entry.diff!, /\ufffd|diff --git|--- |\+\+\+ /)
+      assert.doesNotMatch(entry.diff!, /\ufffd|diff --git|--- a\/|\+\+\+ b\//)
     }
     assert.deepEqual(await request(), result)
-    const other = 'projects/other/reference/PRIVATE.md'
+    const other = 'unknown/other/reference/PRIVATE.md'
     mkdirSync(join(f.root, other, '..'), { recursive: true })
     f.git('mv', path, other)
     f.git('commit', '-m', 'PRIVATE rename')
@@ -3525,7 +3538,7 @@ test('aborted first chunk retains private staging evidence without untracked can
   }
 })
 
-test('Palace committed previews bound files and aggregate UTF-8 bodies and never expose other projects', async () => {
+test('Palace committed previews bound files and aggregate UTF-8 bodies while including cross-project corpus', async () => {
   const f = fixture(0)
   try {
     const view = f.store.createView('project', 120000, true)
@@ -3537,12 +3550,12 @@ test('Palace committed previews bound files and aggregate UTF-8 bodies and never
         '😀'.repeat(2000) + '\n',
         [],
       )
-    f.store.edit(view, 'projects/other/reference/private.md', null, 'PRIVATE_OTHER_PROJECT\n', [])
+    f.store.edit(view, 'projects/other/reference/shared.md', null, 'CROSS_PROJECT_REFERENCE\n', [])
     f.store.edit(
       view,
-      'archives/legacy-v1-abcdef123456/deferred/other/private.md',
+      'archives/legacy-v1-abcdef123456/deferred/other/shared.md',
       null,
-      'PRIVATE_ARCHIVE\n',
+      'CROSS_PROJECT_ARCHIVE\n',
       [],
     )
     f.store.edit(view, 'archives/legacy-v1-pretend/global/private.md', null, 'PRIVATE_LEGACY_PREFIX\n', [])
@@ -3551,7 +3564,7 @@ test('Palace committed previews bound files and aggregate UTF-8 bodies and never
     const args = { project: 'project', expectedConfigHash: configHash }
     const result = await f.engine.request('palaceStructure', args, f.context)
     assert.ok(result.files.length <= 32)
-    assert.equal(result.output.total, 42)
+    assert.equal(result.output.total, 44)
     assert.equal(result.output.truncated, true)
     assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 16384)
     assert.ok(result.files.reduce((n, file) => n + Buffer.byteLength(file.body!), 0) <= 8192)
@@ -3560,10 +3573,9 @@ test('Palace committed previews bound files and aggregate UTF-8 bodies and never
       assert.equal(file.bodyTruncated, Buffer.byteLength(file.body!) < file.bytes)
       assert.doesNotMatch(file.body!, /\ufffd/)
     }
-    assert.doesNotMatch(
-      JSON.stringify(result),
-      /PRIVATE_OTHER|PRIVATE_ARCHIVE|PRIVATE_LEGACY|legacy-v1|projects\/other/,
-    )
+    assert.match(JSON.stringify(result), /CROSS_PROJECT_REFERENCE/)
+    assert.match(JSON.stringify(result), /CROSS_PROJECT_ARCHIVE/)
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_LEGACY|legacy-v1-pretend/)
     assert.deepEqual(await f.engine.request('palaceStructure', args, f.context), result)
   } finally {
     await f.close()

@@ -126,16 +126,17 @@ test('history details sanitize and byte-bound subjects, count only scoped paths 
       'system/persona.md',
       'reference/a.md',
       'archives/project/a.md',
+      'archives/other/a.md',
       'projects/project/reference/a.md',
+      'projects/other/reference/a.md',
       '.memory.json',
+      '.gitignore',
     ]),
-    { subject: 'Safe subject', changedFiles: 6 },
+    { subject: 'Safe subject', changedFiles: 8 },
   )
   assert.equal(details('😀'.repeat(100), []).subject, '😀'.repeat(64))
-  assert.deepEqual(details('ledger', ['.memory.json']), { subject: 'ledger', changedFiles: 0 })
+  assert.deepEqual(details('ledger', ['.memory.json', '.gitignore']), { subject: 'ledger', changedFiles: 0 })
   for (const path of [
-    'projects/other/reference/private.md',
-    'archives/other/private.md',
     'system/private.txt',
     'projects/project/arbitrary.bin',
     'projects/project/reference/arbitrary.bin',

@@ -557,9 +557,18 @@ export function buildMemoryPalace(input: PalaceInput) {
       else uninspectedNonArchive++
     }
     const meta = typeof text === 'string' ? extractFrontmatterAndLinks(text, limits.file) : { links: [] }
+    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : ''
     for (const link of meta.links) {
       const normalized = link.endsWith('.md') ? link : `${link}.md`
-      if (!activeSet.has(link) && !activeSet.has(normalized)) {
+      if (
+        !activeSet.has(link) &&
+        !activeSet.has(normalized) &&
+        !(
+          dir &&
+          !link.includes('/') &&
+          (activeSet.has(`${dir}${link}`) || activeSet.has(`${dir}${normalized}`))
+        )
+      ) {
         brokenLinksTotal++
         if (isCriticalLinkSource(p, input.project)) criticalBrokenLinksTotal++
         else advisoryBrokenLinksTotal++

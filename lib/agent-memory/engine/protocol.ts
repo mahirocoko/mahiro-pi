@@ -199,7 +199,7 @@ export interface Operations {
       view: string
       path: string
       expectedHash: string | null
-      text: string | null
+      text?: string | null
       sources: string[]
       mode?: 'replace' | 'patch' | 'append'
       oldText?: string
@@ -380,7 +380,11 @@ export function validateInput(method: Method, input: unknown) {
         input.expectedHash === null ||
         (typeof input.expectedHash === 'string' && /^[a-f0-9]{64}$/.test(input.expectedHash))
       ) ||
-      !(input.text === null || typeof input.text === 'string') ||
+      !(
+        input.text === null ||
+        typeof input.text === 'string' ||
+        (input.text === undefined && (input.mode === 'patch' || input.mode === 'append'))
+      ) ||
       !Array.isArray(input.sources) ||
       (input.mode !== undefined && !['replace', 'patch', 'append'].includes(input.mode as string)) ||
       (input.oldText !== undefined && typeof input.oldText !== 'string') ||

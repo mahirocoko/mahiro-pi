@@ -4,10 +4,14 @@ import {
   assistantReflectionSteps,
   completeReflectionDelivery,
   createReflectionWindow,
+  initialReflectionRetryDelayMs,
+  isReflectionRetryDeferred,
+  maxReflectionRetryDelayMs,
   nextReflectionDelivery,
   openReflectionBacklog,
   openReflectionDrain,
   recordFinalizedAssistantWork,
+  recordReflectionRetryOutcome,
   reflectionBacklogLimit,
   reflectionDeliveryLimit,
   resetReflectionWindow,
@@ -102,4 +106,29 @@ test('reflection schedule keeps prototype names as ordinary project and episode 
   assert.equal(recordFinalizedAssistantWork(window, 'constructor', 'constructor', 25), true)
   assert.deepEqual(openReflectionDrain(window, []), ['constructor'])
   assert.equal(Object.hasOwn(window, 'constructor'), false)
+})
+
+test('reflection retry backoff doubles from 60s to 30m and clears on success or reset', () => {
+  const window = createReflectionWindow()
+  const base = 1_000_000
+  assert.equal(initialReflectionRetryDelayMs, 60_000)
+  assert.equal(maxReflectionRetryDelayMs, 30 * 60_000)
+  assert.equal(isReflectionRetryDeferred(window, base), false)
+
+  recordReflectionRetryOutcome(window, false, base)
+  assert.equal(window.retryDelayMs, 60_000)
+  assert.equal(isReflectionRetryDeferred(window, base + 59_999), true)
+  assert.equal(isReflectionRetryDeferred(window, base + 60_000), false)
+
+  recordReflectionRetryOutcome(window, false, base + 60_000)
+  assert.equal(window.retryDelayMs, 120_000)
+  assert.equal(isReflectionRetryDeferred(window, base + 179_999), true)
+  assert.equal(isReflectionRetryDeferred(window, base + 180_000), false)
+
+  for (let i = 0; i < 10; i++) recordReflectionRetryOutcome(window, false, base)
+  assert.equal(window.retryDelayMs, maxReflectionRetryDelayMs)
+
+  recordReflectionRetryOutcome(window, true, base)
+  assert.equal(window.retryDelayMs, 0)
+  assert.equal(isReflectionRetryDeferred(window, base), false)
 })

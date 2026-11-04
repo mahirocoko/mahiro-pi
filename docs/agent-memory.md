@@ -1692,13 +1692,14 @@ Each row contains the commit OID, its first parent or `null`, a canonical UTC
 commit timestamp, a sanitized single-line subject (at most 256 UTF-8 bytes), and an
 in-scope changed-file count resolved from that commit against its first parent
 (or the empty tree for a root commit). Scope is `Core.md`, `index.md`, `system/`,
-`reference/`, `archives/` and `projects/<mapped-project>/`, intersected with the
-existing `allowedPath(path, mappedProject)` authority. Prefix membership alone grants
-nothing: other-project archives and unknown system/project filenames are excluded.
-`.memory.json` is ignored. Any other changed path, including unknown paths, replaces the subject with
+`reference/`, `archives/` and `projects/`, intersected with the
+existing shared `allowedPath(path)` authority. Prefix membership alone grants
+nothing: unknown archive prefixes and unknown system/project filenames are excluded.
+`.memory.json` and `.gitignore` are ignored. Any other changed path, including unknown paths, replaces the subject with
 `Out-of-scope project update` and makes its diff empty. Each row also carries a
 bounded patch-hunk preview (4 KiB per commit, 8 KiB aggregate per eight-row page),
-with explicit `diffTruncated`. Only in-scope commits can supply hunks. Git headers
+with explicit `diffTruncated`. Only in-scope commits can supply hunks. Canonical in-scope
+`+++`/`---` file headers are retained while raw Git headers
 are stripped; rename/copy detection, external diff and textconv helpers are disabled.
 No changed path list, author, email, historical ledger, ref or arbitrary commit
 selector is returned. Any current forgotten path or source makes history unavailable because

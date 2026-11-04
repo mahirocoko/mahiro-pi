@@ -53,10 +53,12 @@ import {
   applyDerivedAssistantCredit,
   completeReflectionDelivery,
   createReflectionWindow,
+  isReflectionRetryDeferred,
   nextReflectionDelivery,
   openReflectionBacklog,
   openReflectionCapture,
   openReflectionDrain,
+  recordReflectionRetryOutcome,
   reflectionBacklogLimit,
   reflectionDeliveryLimit,
   resetReflectionWindow,
@@ -1419,7 +1421,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           if (job === own) job = undefined
         },
         cancel(result = 'cancelled') {
-          if (requested) retireDrain(drainId)
+          if (requested) {
+            retireDrain(drainId)
+            if (result === 'deadline') recordReflectionRetryOutcome(reflection, false)
+          }
           attempt.finish(result)
           const id = own.id
           own.stop()
@@ -1466,9 +1471,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
               assertCurrent(jobContext)
               attempt.finish('integrated')
               integrated = true
+              recordReflectionRetryOutcome(reflection, true)
               if (token === epoch) lastError = undefined
             } catch {
-              if (requested) retireDrain(drainId)
+              if (requested) {
+                retireDrain(drainId)
+                if (token === epoch && job === own) recordReflectionRetryOutcome(reflection, false)
+              }
               attempt.finish('integration-unavailable')
               if (token === epoch && job === own) lastError = 'worker-integration-unavailable'
               // Foreground cancellation revokes job authority, not permission to adopt an
@@ -1988,20 +1997,36 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         if (!text) throw Error('Bounded remember text required')
         const targetPath = typeof args.path === 'string' ? args.path : 'system/human/notes.md'
         job?.cancel()
+        if (draft) {
+          await f.request('cancel', { view: draft.view }).catch(() => undefined)
+          draft = undefined
+        }
         const created = await f.request('create', { project: f.project, shared: true, ttlMs: 60000 })
         const currentFile = (await f.request('read', {
           view: created.view,
           selection: { path: targetPath, offset: 0, limit: 1 },
         })) as { missing?: boolean; hash?: string | null }
         const expectedHash = currentFile.missing ? null : (currentFile.hash ?? null)
+        const slug = targetPath.split('/').pop()!.replace(/\.md$/, '')
+        const newEntry =
+          currentFile.missing && !['Core.md', 'index.md'].includes(targetPath)
+            ? `---\nname: ${slug}\ndescription: Durable remembered notes for ${targetPath}\n---\n# ${slug}\n\n${
+                typeof args.section === 'string'
+                  ? `${args.section.startsWith('#') ? args.section : `## ${args.section}`}\n\n- ${text}`
+                  : `- ${text}`
+              }`
+            : `- ${text}`
         await f.request('edit', {
           view: created.view,
           path: targetPath,
           expectedHash,
-          text: `- ${text}`,
+          text: newEntry,
           sources: [],
           mode: 'append',
-          ...(typeof args.section === 'string' ? { section: args.section } : {}),
+          ...(typeof args.section === 'string' &&
+          (!currentFile.missing || ['Core.md', 'index.md'].includes(targetPath))
+            ? { section: args.section }
+            : {}),
         })
         await f.request('ready', { view: created.view })
         const prepared = await f.request('prepare', { view: created.view, reviewed: [] })
@@ -2221,7 +2246,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         ]) ||
         typeof args.path !== 'string' ||
         !(typeof args.expectedHash === 'string' || args.expectedHash === null) ||
-        !(typeof args.text === 'string' || args.text === null) ||
+        !(
+          typeof args.text === 'string' ||
+          args.text === null ||
+          (args.text === undefined && (args.mode === 'patch' || args.mode === 'append'))
+        ) ||
         !Array.isArray(args.sources) ||
         args.sources.some((source) => typeof source !== 'string') ||
         (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
@@ -2234,7 +2263,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         view: selected.view,
         path: args.path,
         expectedHash: args.expectedHash,
-        text: args.text,
+        ...(args.text !== undefined ? { text: args.text } : {}),
         sources: args.sources as string[],
         ...(typeof args.mode === 'string' ? { mode: args.mode as 'replace' | 'patch' | 'append' } : {}),
         ...(typeof args.oldText === 'string' ? { oldText: args.oldText } : {}),
@@ -2381,7 +2410,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           !observation.current() ||
           job ||
           starting ||
-          reflection.drain
+          reflection.drain ||
+          isReflectionRetryDeferred(reflection)
         )
           return
         const mode = reflectionPolicy((await f.barrier()).config)
@@ -2659,7 +2689,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             !starting &&
             settledLaunchCurrent()
           ) {
-            if (!reflection.drain && !capacityDrainHeld) {
+            if (!reflection.drain && !capacityDrainHeld && !isReflectionRetryDeferred(reflection)) {
               const serial = admissionSerial
               const backlog = await f.request('episodeBacklog', {
                 project: f.project,
@@ -2713,7 +2743,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         )
         publishStatus(ctx, mode, reflection.steps)
         if (!settledLaunchCurrent()) return
-        if (mode.trigger === 'step-count' && crossed && !reflection.drain && !job && !starting) {
+        if (
+          mode.trigger === 'step-count' &&
+          crossed &&
+          !isReflectionRetryDeferred(reflection) &&
+          !reflection.drain &&
+          !job &&
+          !starting
+        ) {
           const serial = admissionSerial
           let backlogIds: string[] = []
           try {

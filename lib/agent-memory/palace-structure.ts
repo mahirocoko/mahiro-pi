@@ -10,27 +10,26 @@ import {
 import { palaceLayerFor } from './retrieval.ts'
 
 // Shared validation only; committed reads remain exclusively in engine/data.ts.
-export function palaceScopedPath(path: string, project: string) {
+export function palaceScopedPath(path: string, project = 'default') {
+  if (typeof project !== 'string' || !idPattern.test(project)) return false
   if (path.startsWith('archives/')) {
     const parts = path.split('/')
-    // Classify reserved legacy namespaces before project equality: a mapped
-    // project can itself have a legacy-looking ID but cannot adopt an archive.
     if (parts[1]?.startsWith('legacy-v1')) {
       if (!/^legacy-v1-[a-f0-9]{12}$/.test(parts[1])) return false
       if (
         !(parts.length === 4 && parts[2] === 'global') &&
-        !(parts.length === 5 && parts[2] === 'deferred' && parts[3] === project)
+        !(parts.length === 5 && parts[2] === 'deferred' && idPattern.test(parts[3] ?? ''))
       )
         return false
-    } else if (parts[1] !== project) return false
+    } else if (!idPattern.test(parts[1] ?? '')) return false
   }
   return (
-    allowedPath(path, project) &&
+    allowedPath(path) &&
     !path.split('/').some((part) => !part || part === '.' || part === '..') &&
     !/[\u0000-\u001f\u007f-\u009f\\]/.test(path) &&
     (path === 'Core.md' ||
       path === 'index.md' ||
-      ['system/', 'reference/', 'archives/', `projects/${project}/`].some((p) => path.startsWith(p)))
+      ['system/', 'reference/', 'archives/', 'projects/'].some((p) => path.startsWith(p)))
   )
 }
 export function utf8Preview(text: string, cap: number) {

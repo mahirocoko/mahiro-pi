@@ -2409,3 +2409,82 @@ test('init-project registers custom projectId, updates statusline, and respects 
     await f.close()
   }
 })
+
+test('agent_memory_edit allows omitted text in patch and append modes while rejecting omitted replace text', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const core = (await f.runtime.run('agent_memory_read', { path: 'Core.md' }, f.ctx)) as {
+      hash: string
+      text: string
+    }
+    await assert.rejects(
+      f.runtime.run('agent_memory_edit', { path: 'Core.md', expectedHash: core.hash, sources: [] }, f.ctx),
+      /Invalid edit/,
+    )
+    const patched = (await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'Core.md',
+        expectedHash: core.hash,
+        mode: 'patch',
+        oldText: 'Synthetic reflection identity.',
+        newText: 'Synthetic reflection identity (patched without text).',
+        sources: [],
+      },
+      f.ctx,
+    )) as { hash: string; draft: boolean }
+    assert.equal(patched.draft, true)
+    const appended = (await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'Core.md',
+        expectedHash: patched.hash,
+        mode: 'append',
+        newText: '- Appended note without text',
+        sources: [],
+      },
+      f.ctx,
+    )) as { hash: string; draft: boolean }
+    assert.equal(appended.draft, true)
+    const reread = (await f.runtime.run('agent_memory_read', { path: 'Core.md' }, f.ctx)) as {
+      text: string
+    }
+    assert.match(reread.text, /Synthetic reflection identity \(patched without text\)\./)
+    assert.match(reread.text, /- Appended note without text/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('failed automatic reflection backs off before relaunch while manual reflect remains available', async (t) => {
+  const f = fixture()
+  try {
+    let now = Date.now()
+    t.mock.method(Date, 'now', () => now)
+    await f.emit('session_start')
+    await f.turn('threshold', 25)
+    assert.equal(f.spawns.length, 1)
+    await f.finish('failed')
+    assert.equal(f.spawns.length, 1)
+
+    await f.turn('during-backoff', 1)
+    assert.equal(f.spawns.length, 1, 'step-count launch is deferred during 60s retry backoff')
+
+    await f.runtime.startWriter(f.ctx, 'Manual dream during backoff')
+    assert.equal(f.spawns.length, 2, 'manual reflection is not deferred by automatic retry backoff')
+    await f.finish('completed')
+    assert.equal(f.store.snapshot().reviewed.length, 2)
+
+    await f.turn('after-manual-reset', 25)
+    assert.equal(f.spawns.length, 3, 'successful integration clears retry backoff')
+    await f.finish('failed')
+
+    now += 60_000
+    await f.turn('after-backoff-window', 1)
+    assert.equal(f.spawns.length, 4, 'automatic step-count reflection retries once backoff expires')
+  } finally {
+    t.mock.restoreAll()
+    await f.close()
+  }
+})
