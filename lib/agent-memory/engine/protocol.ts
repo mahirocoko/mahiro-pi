@@ -1,5 +1,5 @@
 import { objectShape, validId } from '../../continuity/records.ts'
-import { reflectionBacklogLimit } from '../reflection-schedule.ts'
+import { reflectionBacklogLimit, reflectionDeliveryLimit } from '../reflection-schedule.ts'
 import { migrationExportPageLimit, migrationExportSections } from '../migration-export.ts'
 import type { MemoryFailureCode } from '../reasons.ts'
 import type { Episode, MemoryConfig } from '../store.ts'
@@ -402,7 +402,7 @@ export function validateInput(method: Method, input: unknown) {
       !idPattern.test(input.project) ||
       !Array.isArray(ids) ||
       ids.length < 1 ||
-      ids.length > 4 ||
+      ids.length > reflectionDeliveryLimit ||
       new Set(ids).size !== ids.length ||
       ids.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id))
     )

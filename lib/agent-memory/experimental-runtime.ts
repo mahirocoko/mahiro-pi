@@ -1511,12 +1511,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
               drainId !== undefined &&
               reflection.drain?.id === drainId
             ) {
-              const next = completeReflectionDelivery(
-                reflection,
-                drainId,
-                requested,
-                episodes.map((episode) => episode.id),
-              )
               const session = episodes.find((episode) => typeof episode.session === 'string')?.session
               if (session && reflectionLaunchLive(ctx, launch)) {
                 try {
@@ -1526,9 +1520,13 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
                   // The ledger already excludes published ids. The next observation reads that sum.
                 }
               }
+              completeReflectionDelivery(
+                reflection,
+                drainId,
+                requested,
+                episodes.map((episode) => episode.id),
+              )
               if (!reflection.drain) capacityDrainHeld = false
-              if (next.length && reflection.drain?.id === drainId && reflectionLaunchLive(ctx, launch))
-                await launchReflection(ctx, next, launch.fence)
             }
             if (integrated && isPrimaryTui(ctx)) {
               try {

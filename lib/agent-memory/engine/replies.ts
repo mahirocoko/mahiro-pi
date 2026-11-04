@@ -11,7 +11,7 @@ import {
 } from '../retrieval.ts'
 import { observedEpisode } from './episodes.ts'
 import { assertRetainedDraftPreview } from './retained-preview.ts'
-import { reflectionBacklogLimit } from '../reflection-schedule.ts'
+import { reflectionBacklogLimit, reflectionDeliveryLimit } from '../reflection-schedule.ts'
 import { operationLimit, parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
 import type { Method } from './protocol.ts'
 import {
@@ -433,7 +433,12 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       return
     case 'selectEpisodes': {
       const ids = input.ids
-      ensure(Array.isArray(ids) && ids.length <= 4 && Array.isArray(value) && value.length <= ids.length)
+      ensure(
+        Array.isArray(ids) &&
+          ids.length <= reflectionDeliveryLimit &&
+          Array.isArray(value) &&
+          value.length <= ids.length,
+      )
       const seen = new Set<string>()
       for (const episode of value) {
         const parsed = observedEpisode(episode)

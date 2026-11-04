@@ -1188,7 +1188,7 @@ test('ready writer completed after its 240-second deadline is not revived', asyn
   }
 })
 
-test('automatic runtime counts assistant messages, chains bounded chunks, and stops after failure', async () => {
+test('automatic runtime counts assistant messages, delivers the frozen batch in one writer run, and does not chain follow-up writers', async () => {
   const f = fixture()
   try {
     await f.emit('session_start')
@@ -1205,32 +1205,18 @@ test('automatic runtime counts assistant messages, chains bounded chunks, and st
     assert.equal(f.spawns.length, 1)
     assert.equal(f.spawns[0]?.options.foreground, false)
     const first = episodeIds(f.spawns[0]?.prompt ?? '')
-    assert.equal(first.length, 4)
+    assert.equal(first.length, 7)
     assert.equal(first[0]?.kind, 'compaction')
     assert.ok((first.find((episode) => episode.kind !== 'compaction')?.actions?.length ?? 0) <= 4)
     await f.finish('completed')
-    assert.equal(f.spawns.length, 2)
-    const second = episodeIds(f.spawns[1]?.prompt ?? '')
-    assert.equal(second.length, 3)
-    assert.equal(
-      second.some((episode) => first.some((delivered) => delivered.id === episode.id)),
-      false,
-    )
+    assert.equal(f.spawns.length, 1)
     const reviewed = new Set(f.store.snapshot().reviewed)
     assert.deepEqual(
       first.map((episode) => episode.id).every((id) => reviewed.has(id)),
       true,
     )
-    assert.equal(
-      second.some((episode) => reviewed.has(episode.id)),
-      false,
-    )
     assert.equal(f.store.snapshot().files['Core.md']?.text, core)
-    await f.finish('failed')
-    const afterFailure = new Set(f.store.snapshot().reviewed)
-    assert.deepEqual([...afterFailure], [...reviewed])
     assert.equal(f.runtime.status().worker, false)
-    assert.equal(f.spawns.length, 2)
   } finally {
     await f.close()
   }
@@ -1378,10 +1364,10 @@ test('a full unreviewed directory launches one bounded backlog writer without ne
     await f.turn('blocked', 1)
     assert.equal(f.spawns.length, 1)
     const delivered = episodeIds(f.spawns[0]?.prompt ?? '')
-    assert.equal(delivered.length, 4)
+    assert.equal(delivered.length, 32)
     assert.deepEqual(
       delivered.map((episode) => episode.id),
-      seeded.slice(0, 4).map((episode) => episode.id),
+      seeded.slice(0, 32).map((episode) => episode.id),
     )
     assert.deepEqual(f.store.snapshot().reviewed, [])
     assert.equal(f.spawns.length, 1)
@@ -1411,18 +1397,37 @@ test('ABI2 backlog drain delivers later sessions after reviewing the first batch
     const first = episodeIds(f.spawns[0]?.prompt ?? '').map((episode) => episode.id)
     assert.deepEqual(
       first,
-      seeded.slice(0, 4).map((episode) => episode.id),
+      seeded.slice(0, 32).map((episode) => episode.id),
     )
+    assert.ok(first.includes(seeded[4]!.id))
     await f.finish('completed')
     assert.deepEqual(f.store.snapshot().reviewed.slice().sort(), first.slice().sort())
+    assert.equal(f.spawns.length, 1)
+    for (const id of first) rmSync(join(f.root, '.episodes', `${id}.json`))
+    for (let index = 256; index < 288; index++) {
+      const episode: Episode = {
+        id: digest(`cross-session-backlog-${index}`),
+        project: 'project',
+        session: 'session-b',
+        evidence: 'observed-native-unverified',
+        observedAt: `2026-01-01T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+        entryHash: digest(`cross-session-entry-${index}`),
+        input: { text: `Settled note ${index}`, source: 'rpc' },
+        actions: [{ text: 'Verified outcome' }],
+        results: [],
+        outcome: 'completed',
+      }
+      f.store.recordEpisode(episode.id, episode)
+    }
+    await f.turn('next-capacity-trigger', 1)
     assert.equal(f.spawns.length, 2)
     const second = episodeIds(f.spawns[1]?.prompt ?? '').map((episode) => episode.id)
     assert.deepEqual(
       second,
-      seeded.slice(4, 8).map((episode) => episode.id),
+      seeded.slice(32, 64).map((episode) => episode.id),
     )
-    assert.ok(second.includes(seeded[4]!.id))
-    assert.equal(f.store.snapshot().reviewed.includes(seeded[4]!.id), false)
+    assert.ok(second.includes(seeded[32]!.id))
+    assert.equal(f.store.snapshot().reviewed.includes(seeded[32]!.id), false)
   } finally {
     await f.close()
   }
@@ -1457,7 +1462,7 @@ test('a cancelled capacity writer can launch one later backlog drain without rev
     const recovered = episodeIds(f.spawns[1]?.prompt ?? '')
     assert.deepEqual(
       recovered.map((episode) => episode.id),
-      seeded.slice(0, 4).map((episode) => episode.id),
+      seeded.slice(0, 32).map((episode) => episode.id),
     )
     assert.deepEqual(f.store.snapshot().reviewed, [])
     assert.deepEqual(
@@ -1663,7 +1668,7 @@ test('paired compaction at capacity delivers the stored backlog and not the unwr
     const compactId = digest('primary:compact:compact-one')
     assert.deepEqual(
       delivered,
-      seeded.slice(0, 4).map((episode) => episode.id),
+      seeded.slice(0, 32).map((episode) => episode.id),
     )
     assert.equal(delivered.includes(compactId), false)
     assert.equal(readdirSync(join(f.root, '.episodes')).includes(`${compactId}.json`), false)
@@ -1780,7 +1785,7 @@ test('a high step threshold recovers tracked episodes after the directory fills'
     await f.turn('blocked', 1)
     assert.equal(f.spawns.length, 1)
     const delivered = episodeIds(f.spawns[0]?.prompt ?? '').map((episode) => episode.id)
-    assert.deepEqual(delivered, ids.slice(0, 4))
+    assert.deepEqual(delivered, ids.slice(0, 32))
     assert.deepEqual(f.store.snapshot().reviewed, [])
     await f.emit('input', { source: 'rpc', text: 'cancel the capacity writer' })
     await f.runtime.drain()
@@ -1789,7 +1794,7 @@ test('a high step threshold recovers tracked episodes after the directory fills'
     const recovered = episodeIds(f.spawns[1]?.prompt ?? '').map((episode) => episode.id)
     // The first capture freezes pending ids 0..31. Cancellation retires that drain
     // without reviewing them, so the next capture continues at the following pending ids.
-    assert.deepEqual(recovered, ids.slice(32, 36))
+    assert.deepEqual(recovered, ids.slice(32, 64))
     assert.deepEqual(f.store.snapshot().reviewed, [])
     const files = readdirSync(join(f.root, '.episodes')).filter((name) => name.endsWith('.json'))
     assert.equal(files.length, 256)

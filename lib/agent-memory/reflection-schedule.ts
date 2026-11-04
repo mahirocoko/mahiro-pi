@@ -7,7 +7,7 @@
 // later episodes are not appended. Unseen ids are not marked reviewed.
 
 export const assistantReflectionSteps = 25
-export const reflectionDeliveryLimit = 4
+export const reflectionDeliveryLimit = 32
 export const reflectionBacklogLimit = 32
 export const initialReflectionRetryDelayMs = 60_000
 export const maxReflectionRetryDelayMs = 30 * 60_000
@@ -65,15 +65,14 @@ export function openReflectionDrain(
   if (window.drain || window.steps < threshold || window.pendingIds.length === 0) return []
   const ids: string[] = []
   const seen = new Set<string>()
-  const take = (id: string, capped: boolean) => {
-    if (seen.has(id)) return
-    if (capped && ids.length >= reflectionBacklogLimit) return
+  const take = (id: string) => {
+    if (seen.has(id) || ids.length >= reflectionBacklogLimit) return
     seen.add(id)
     ids.push(id)
   }
-  for (const id of backlogIds) take(id, true)
-  for (const id of window.pendingIds) take(id, false)
-  window.pendingIds = []
+  for (const id of backlogIds) take(id)
+  for (const id of window.pendingIds) take(id)
+  window.pendingIds = window.pendingIds.filter((id) => !seen.has(id))
   return freeze(window, ids, true)
 }
 
@@ -177,11 +176,6 @@ export function completeReflectionDelivery(
   if (!same || !subset) {
     stopReflectionDrain(window, drainId)
     return []
-  }
-  const next = window.drain.next + requested.length
-  if (next < window.drain.ids.length) {
-    window.drain = { id: window.drain.id, ids: window.drain.ids, next }
-    return nextReflectionDelivery(window)
   }
   window.steps = Math.max(0, window.steps - window.stepsAtCapture)
   window.stepsAtCapture = 0

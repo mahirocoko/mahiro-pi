@@ -27,7 +27,7 @@ const fill = (window: ReturnType<typeof createReflectionWindow>, events: number[
 
 test('reflection schedule counts assistant events and freezes backlog without a moving tail', () => {
   assert.equal(assistantReflectionSteps, 25)
-  assert.equal(reflectionDeliveryLimit, 4)
+  assert.equal(reflectionDeliveryLimit, 32)
   assert.equal(reflectionBacklogLimit, 32)
   const window = createReflectionWindow()
   assert.equal(fill(window, [5, 5, 5, 5, 4]), false)
@@ -37,7 +37,16 @@ test('reflection schedule counts assistant events and freezes backlog without a 
   const opened = openReflectionDrain(window, ['compaction', 'older'])
   const drainId = window.drain?.id
   assert.equal(typeof drainId, 'number')
-  assert.deepEqual(opened, ['compaction', 'older', 'episode-0', 'episode-1'])
+  assert.deepEqual(opened, [
+    'compaction',
+    'older',
+    'episode-0',
+    'episode-1',
+    'episode-2',
+    'episode-3',
+    'episode-4',
+    'episode-5',
+  ])
   assert.equal(window.steps, 25)
   assert.equal(recordFinalizedAssistantWork(window, 'project', 'late', 1), false)
   assert.equal(window.drain?.ids.includes('late'), false)
@@ -45,18 +54,20 @@ test('reflection schedule counts assistant events and freezes backlog without a 
   const reviewed = opened.slice(0, 2)
   const second = completeReflectionDelivery(window, drainId ?? 0, opened, reviewed)
   assert.deepEqual(reviewed, ['compaction', 'older'])
-  assert.equal(second.includes('late'), false)
-  assert.equal(second.includes('episode-5'), true)
+  assert.deepEqual(second, [])
+  assert.equal(window.drain, null)
+  assert.equal(window.steps, 1)
   const stale = drainId ?? 0
-  assert.equal(stopReflectionDrain(window, stale), true)
+  assert.equal(stopReflectionDrain(window, stale), false)
   for (let index = 0; index < 24; index++)
     recordFinalizedAssistantWork(window, 'project', `fresh-${index}`, 1)
   const replacement = openReflectionDrain(window, [])
-  const replacementId = window.drain?.id
-  assert.equal(replacement.length, 4)
+  const currentDrain = window.drain as { id: number } | null
+  const replacementId = currentDrain?.id
+  assert.equal(replacement.length, 25)
   assert.notEqual(replacementId, stale)
   assert.equal(stopReflectionDrain(window, stale), false)
-  assert.equal(window.drain?.id, replacementId)
+  assert.equal(currentDrain?.id, replacementId)
   assert.equal(replacement.includes('episode-5'), false)
   assert.deepEqual(nextReflectionDelivery(window), replacement)
 })
@@ -66,7 +77,7 @@ test('reflection schedule cancellation drops only the named drain', () => {
   assert.equal(fill(window, [5, 5, 5, 5, 5]), true)
   const opened = openReflectionDrain(window, [])
   const drainId = window.drain?.id ?? 0
-  assert.equal(opened.length, 4)
+  assert.equal(opened.length, 5)
   assert.equal(window.drain?.ids.length, 5)
   assert.equal(stopReflectionDrain(window, drainId), true)
   assert.deepEqual(nextReflectionDelivery(window), [])

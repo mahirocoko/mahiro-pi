@@ -4098,7 +4098,10 @@ test('selectEpisodes returns only requested unreviewed ids and publication revie
     await assert.rejects(
       f.engine.request(
         'selectEpisodes',
-        { project: 'project', ids: episodes.map((episode) => episode.id) },
+        {
+          project: 'project',
+          ids: Array.from({ length: 33 }, (_, i) => digest(`select-over-limit-${i}`)),
+        },
         f.context,
       ),
       /Invalid episode selection/,

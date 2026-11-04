@@ -47,7 +47,8 @@ quality and must not create more work by themselves.
 - ABI2 remains the live maintained-memory authority and preserves the existing
   private corpus.
 - Source now includes bounded automatic reflection scheduling: 25 eligible assistant
-  text messages trigger a frozen backlog, delivered in chunks of at most four episodes.
+  text messages trigger a frozen backlog of at most 32 episodes delivered in one writer
+  run without chaining follow-up writers.
   Assistant turns with empty text (tool-only steps) do not increment the step counter,
   with a floor of 1 step per settled turn, and `step-count` triggers scope their
   candidate backlog to the active session while `compaction` and manual `/mh-memory reflect`
