@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { registerWorkflowCommand, selectHubMenu } from '../lib/workflow-hub.ts'
-import { registerWorkflowAttention } from '../lib/workflow-attention.ts'
+import { registerWorkflowAttention, workflowAttention } from '../lib/workflow-attention.ts'
 import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 import { memoryTools, type RuntimeConfig } from '../lib/agent-memory/runtime.ts'
 import { createAgentMemoryRouter } from '../lib/agent-memory/runtime-router.ts'
@@ -122,7 +122,10 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           }
           const result = await runtime.run('agent_memory_manage', { action: 'capacity' }, ctx)
           observe('memory', result)
-          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          ctx.ui.notify(
+            JSON.stringify(result, null, 2),
+            workflowAttention('memory', result) ? 'warning' : 'info',
+          )
           return
         }
         if (subcommand === 'retained-preview') {
@@ -160,7 +163,10 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         if (subcommand === 'doctor') {
           const result = await runtime.run('agent_memory_manage', { action: 'doctor' }, ctx)
           observe('memory', result)
-          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          ctx.ui.notify(
+            JSON.stringify(result, null, 2),
+            workflowAttention('memory', result) ? 'warning' : 'info',
+          )
           return
         }
         if (subcommand === 'palace') {

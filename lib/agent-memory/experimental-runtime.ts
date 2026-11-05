@@ -1505,6 +1505,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
                     cleanupCurrent(targets)
                   assertCurrent(cleanup.context)
                   await f.engine.retireUnpublished(value.view, cleanup.context)
+                  await f.engine.request('cancel', { view: value.view }, cleanup.context).catch(() => {})
                 }
               } catch {
                 // Lost authority/CAS/channel/operation evidence remains unknown, never replayed.

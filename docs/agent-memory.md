@@ -253,6 +253,17 @@ published. Slots are never reused or automatically reclaimed; cancellation and c
 also retain the slot and manifest. This is bounded extra runway, not a garbage
 collector or an unlimited remedy. Overflow metadata inventories are separately
 bounded; unknown entries, duplicate identities and unreserved manifests fail closed.
+Before enforcing the original-directory or journal cutoffs, `initializeNamespace()`
+automatically reclaims terminal `committed` drafts, expired non-conflict drafts (`open`,
+`ready`, `cancelled`) that are not locally active or referenced by an active nonterminal
+journal, expired `conflict` drafts that have been explicitly recorded in `discarded/<id>.json`,
+unreferenced overlay blobs in `blobs/`, `reconciled_committed` journal entries for
+reclaimed/expired-overflow/orphaned views, and ownerless `not_committed_dirty` journal
+entries for reclaimed drafts. Active drafts, unreviewed `conflict` proposals and
+nonterminal journals remain preserved. `/mh-memory doctor` and `/mh-memory capacity`
+emit `warning`-level notifications and `aboveEditor` workflow attention when conflicts,
+budget overruns, capacity blockers, high view/episode backlogs (`views >= 48`,
+`episodes >= 192`), missing reference descriptions or unmigrated v1 paths are observed.
 
 Overflow allocation requires fewer than 32 entries in the **shared** operation
 journal. Preparation repeats that check at entry and immediately before writing its

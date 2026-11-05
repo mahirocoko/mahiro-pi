@@ -239,6 +239,14 @@ export class MemoryEngineController {
             const input = JSON.parse(p.frame.toString('utf8')).input
             if (p.method === 'prepare' && targets.preparing.view !== input.view)
               throw Error('Preparation view mismatch')
+            if (this.preparations.size >= 64) {
+              for (const [key, entry] of this.preparations) {
+                if (key !== targets.preparing.id && (entry.retired || (entry.published && entry.drained))) {
+                  this.preparations.delete(key)
+                  if (this.preparations.size < 64) break
+                }
+              }
+            }
             if (this.preparations.has(targets.preparing.id) || this.preparations.size >= 64)
               throw Error('Preparation ownership capacity blocked')
             const plan = targets.preparing

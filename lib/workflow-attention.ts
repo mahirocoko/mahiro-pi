@@ -53,10 +53,26 @@ export function workflowAttention(feature: AttentionFeature, result: unknown): s
     if (
       data.state === 'conflict' ||
       data.draft === 'conflict' ||
+      (typeof data.conflicts === 'number' && data.conflicts > 0) ||
       (Array.isArray(data.conflict) && data.conflict.length) ||
       (Array.isArray(data.conflicts) && data.conflicts.length)
     )
       return 'memory conflict retained'
+    if (data.healthy === false) return 'memory budget exceeded'
+    const blockers = object(data.blockers)
+    if (
+      blockers &&
+      ((Array.isArray(blockers.status) && blockers.status.length > 0) ||
+        (Array.isArray(blockers.doctor) && blockers.doctor.length > 0) ||
+        (Array.isArray(blockers.admission) && blockers.admission.length > 0))
+    )
+      return 'storage capacity pressure'
+    if (typeof data.views === 'number' && data.views >= 48) return 'high retained view count'
+    if (typeof data.episodes === 'number' && data.episodes >= 192) return 'high episode backlog'
+    if (Array.isArray(data.missingDescriptions) && data.missingDescriptions.length)
+      return `${data.missingDescriptions.length} missing reference description${data.missingDescriptions.length === 1 ? '' : 's'}`
+    if (Array.isArray(data.unmigratedV1Paths) && data.unmigratedV1Paths.length)
+      return `${data.unmigratedV1Paths.length} unmigrated v1 path${data.unmigratedV1Paths.length === 1 ? '' : 's'}`
     const outcome = object(data.latestAttempt)?.outcome
     if (
       typeof outcome === 'string' &&

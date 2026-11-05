@@ -4318,3 +4318,83 @@ test('reopened engine reads assistant credit persisted by the closed engine', as
     await f.close()
   }
 })
+
+test('create automatically reclaims committed and expired non-conflict drafts plus reconciled journals at capacity', async () => {
+  const f = fixture(0)
+  let reopened: MemoryEngineController | undefined
+  try {
+    const active = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    const committed = await f.engine.request('create', { project: 'project', shared: true }, f.context)
+    await f.engine.request(
+      'edit',
+      {
+        view: committed.view,
+        path: 'global/reclaim.md',
+        expectedHash: null,
+        text: '# Reclaimable committed overlay\n',
+        sources: [],
+      },
+      f.context,
+    )
+    await f.engine.request('ready', { view: committed.view }, f.context)
+    const prepared = await f.engine.request('prepare', { view: committed.view, reviewed: [] }, f.context)
+    assert.ok('plan' in prepared)
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(prepared.plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    const folder = join(f.root, '.views', '.engine-v2')
+    const draftFolder = join(folder, 'drafts')
+    const journalFolder = join(folder, 'journal')
+    const blobFolder = join(folder, 'blobs')
+    const committedDraft = parseDraft(readFileSync(join(draftFolder, `${committed.view}.json`), 'utf8'))
+    const committedBlob = (committedDraft.overlay['global/reclaim.md'] as { blob: string }).blob
+    assert.equal(existsSync(join(blobFolder, committedBlob)), true)
+    const template = parseDraft(readFileSync(join(draftFolder, `${active.view}.json`), 'utf8'))
+    const conflictDraft = {
+      ...template,
+      id: randomUUID(),
+      state: 'conflict' as const,
+      deadline: Date.now() - 60000,
+    }
+    writeFileSync(join(draftFolder, `${conflictDraft.id}.json`), `${JSON.stringify(conflictDraft)}\n`, {
+      mode: 0o600,
+    })
+    while (readdirSync(draftFolder).length < 64) {
+      const draft = {
+        ...template,
+        id: randomUUID(),
+        state: 'open' as const,
+        deadline: Date.now() - 60000,
+      }
+      writeFileSync(join(draftFolder, `${draft.id}.json`), `${JSON.stringify(draft)}\n`, { mode: 0o600 })
+    }
+    const journalTemplate = parseOperation(
+      readFileSync(join(journalFolder, `${prepared.plan.id}.json`), 'utf8'),
+    )
+    while (readdirSync(journalFolder).length < 36) {
+      const copy = structuredClone(journalTemplate)
+      const { digest: ignored, ...metadata } = copy.immutable.plan
+      metadata.id = randomUUID()
+      copy.immutable.plan = { ...metadata, digest: digest(JSON.stringify(metadata)) }
+      copy.immutableHash = digest(JSON.stringify(copy.immutable))
+      copy.owner = null
+      const raw = `${JSON.stringify(copy)}\n`
+      parseOperation(raw)
+      writeFileSync(join(journalFolder, `${metadata.id}.json`), raw, { mode: 0o600 })
+    }
+    assert.equal(readdirSync(draftFolder).length, 64)
+    assert.equal(readdirSync(journalFolder).length, 36)
+    reopened = new MemoryEngineController(f.root, f.env)
+    const next = await reopened.request('create', { project: 'project', shared: true }, f.context)
+    assert.equal(existsSync(join(draftFolder, `${next.view}.json`)), true)
+    assert.equal(existsSync(join(draftFolder, `${committed.view}.json`)), false)
+    assert.equal(existsSync(join(blobFolder, committedBlob)), false)
+    assert.equal(existsSync(join(draftFolder, `${conflictDraft.id}.json`)), true)
+    assert.equal(existsSync(join(draftFolder, `${active.view}.json`)), true)
+    assert.equal(readdirSync(journalFolder).length, 0)
+  } finally {
+    if (reopened) assert.equal((await reopened.close()).code, 0)
+    await f.close()
+  }
+})

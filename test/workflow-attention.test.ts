@@ -78,6 +78,24 @@ test('attention uses actual nested owner output shapes and fixed safe wording on
     'latest attempt: integration-unavailable',
   )
   assert.equal(workflowAttention('memory', { conflict: ['PRIVATE'] }), 'memory conflict retained')
+  assert.equal(workflowAttention('memory', { conflicts: 2, healthy: true }), 'memory conflict retained')
+  assert.equal(workflowAttention('memory', { healthy: false, conflicts: 0 }), 'memory budget exceeded')
+  assert.equal(
+    workflowAttention('memory', {
+      blockers: { status: [], doctor: ['retainedViews'], admission: [] },
+    }),
+    'storage capacity pressure',
+  )
+  assert.equal(workflowAttention('memory', { healthy: true, views: 48 }), 'high retained view count')
+  assert.equal(workflowAttention('memory', { healthy: true, episodes: 192 }), 'high episode backlog')
+  assert.equal(
+    workflowAttention('memory', { healthy: true, missingDescriptions: ['reference/a.md'] }),
+    '1 missing reference description',
+  )
+  assert.equal(
+    workflowAttention('memory', { healthy: true, unmigratedV1Paths: ['global/a.md', 'deferred/b.md'] }),
+    '2 unmigrated v1 paths',
+  )
   assert.equal(workflowAttention('rtk', { status: 'unavailable', executed: false }), 'preview unavailable')
   for (const feature of ['goal', 'evidence', 'ux', 'run', 'memory', 'rtk'] as const) {
     assert.equal(workflowAttention(feature, { status: 'empty' }), undefined)

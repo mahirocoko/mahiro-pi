@@ -44,6 +44,9 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.6 source release record](releases/0.12.6.md) — automatic ABI2 namespace capacity
+  reclamation, bounded certificate/preparation eviction, worker draft cancellation and
+  workflow attention warnings for `/mh-memory doctor` and `/mh-memory capacity`.
 - [v0.12.5 source release record](releases/0.12.5.md) — tiered `system/**` and
   `projects/<id>/system/**` prompt projection, six built-in memory and skill-authoring
   skills, natural-language/`OR` query retrieval, one-step `agent_memory_edit` commit
