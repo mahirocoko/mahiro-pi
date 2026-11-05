@@ -2,9 +2,15 @@
 
 [← Documentation](README.md) · [Memory](agent-memory.md) · [Installation](bootstrap.md)
 
-The package owns three role descriptors and a commit skill. Other workflow
-roles and their model preferences belong to the user's local configuration.
-Pi package resource loading does not automatically install agent roles.
+The package owns three role descriptors, a commit skill, and six built-in memory
+and skill-authoring skills ([`maintaining-core-memory`](../skills/maintaining-core-memory/SKILL.md),
+[`maintaining-deferred-memory`](../skills/maintaining-deferred-memory/SKILL.md),
+[`initializing-memory`](../skills/initializing-memory/SKILL.md),
+[`context-doctor`](../skills/context-doctor/SKILL.md),
+[`syncing-memory-filesystem`](../skills/syncing-memory-filesystem/SKILL.md), and
+[`creating-skills`](../skills/creating-skills/SKILL.md)).
+Other workflow roles and their model preferences belong to the user's local
+configuration. Pi package resource loading does not automatically install agent roles.
 
 ## Package roles
 
@@ -65,10 +71,17 @@ Historical quotation and maintained-knowledge authority remain separate.
 
 ## Memory guidance and selective skill admission
 
-The repository currently ships only the `git-commit` skill. The managed writer
-already contains substantial guidance for curation, synthesis, discovery and
-scoped publication; dedicated memory skills are candidates, not installed package
-capabilities. User-local skills do not establish what this package ships.
+The repository ships the `git-commit` skill plus six built-in memory and
+skill-authoring skills (`maintaining-core-memory`, `maintaining-deferred-memory`,
+`initializing-memory`, `context-doctor`, `syncing-memory-filesystem`, and
+`creating-skills`) admitted under
+`G-SKILL` to guide in-place core curation (`system/human/identity.md`,
+`system/human/prefs/*.md`, `projects/<id>/system/*.md`), indexed deferred
+reference storage (`reference/**`, `projects/<id>/reference/**`), memory
+initialization (`/mh-memory init`), context auditing (`/mh-memory doctor`),
+CAS/draft conflict repair, and reusable skill authoring (`~/.pi/agent/skills` or
+`.pi/skills`). User-local skills
+do not establish what this package ships.
 
 Do not bulk-import every Letta skill or over-customize useful upstream guidance
 until it becomes weaker. Prefer close adoption or minimal adaptation when a
@@ -85,12 +98,12 @@ not a new admission checklist:
 
 | Job / representative request | Disposition and delivery boundary |
 | --- | --- |
-| Compact core / "remember this correction" | Existing writer and shared package doctrine: synthesize reasons, resolve contradictions, shrink before growth and replace examples, not logs. |
-| Deferred detail / "find our rollback constraints" | Existing writer, root-bound reads and index owners: one home, request-shaped cues and future-request discovery checks; an uncued file is discoverability debt, not proof of absent storage. |
-| Initialization / "set up memory" | Existing installer/manage/docs owners: explicit initialization only for absent roots; no overwrite, personal corpus import or new setup skill. |
-| Sync/repair / "why is publication pending?" | Existing runtime/manage/recovery/docs owners: distinguish drafts, committed and published state; hosted/shared sync is excluded. A diagnosis is not repair authorization. |
-| Context diagnosis / "why was this memory not used?" | Existing source/runtime diagnostics and the [bounded procedure](agent-memory.md#curation-guidance-and-bounded-context-diagnosis): separate structural from causal evidence, require successful controls, and allow healthy, inconclusive and no-edit outcomes. No package `context-doctor` is installed or claimed. |
-| Reusable procedures / "make this a skill" | Separate native procedure/skill owner; a separately authorized proposal, not writer authoring/install authority. |
+| Compact core / "remember this correction" | Existing writer, shared package doctrine, and [`maintaining-core-memory`](../skills/maintaining-core-memory/SKILL.md): synthesize reasons, resolve contradictions, shrink before growth and replace examples, not logs. |
+| Deferred detail / "find our rollback constraints" | Existing writer, root-bound reads, index owners, and [`maintaining-deferred-memory`](../skills/maintaining-deferred-memory/SKILL.md): one home, request-shaped cues and future-request discovery checks; an uncued file is discoverability debt, not proof of absent storage. |
+| Initialization / "set up memory" | Existing installer/manage/docs owners and [`initializing-memory`](../skills/initializing-memory/SKILL.md): explicit initialization only for absent roots; no overwrite or personal corpus import. |
+| Sync/repair / "why is publication pending?" | Existing runtime/manage/recovery/docs owners and [`syncing-memory-filesystem`](../skills/syncing-memory-filesystem/SKILL.md): distinguish drafts, committed and published state; hosted/shared sync is excluded. A diagnosis is not repair authorization. |
+| Context diagnosis / "why was this memory not used?" | Existing source/runtime diagnostics, [`context-doctor`](../skills/context-doctor/SKILL.md), and the [bounded procedure](agent-memory.md#curation-guidance-and-bounded-context-diagnosis): separate structural from causal evidence, require successful controls, and allow healthy, inconclusive and no-edit outcomes. |
+| Reusable procedures / "make this a skill" | Separate native procedure/skill owner and [`creating-skills`](../skills/creating-skills/SKILL.md); a separately authorized proposal, not writer authoring/install authority. |
 
 The delivery gaps remain explicit: source guidance cannot prove installed
 triggers, historical projection, causal behavior or future-request utility.

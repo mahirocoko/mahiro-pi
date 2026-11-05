@@ -98,19 +98,103 @@ export const memoryReadSchema = {
   ],
 }
 const fold = (value: string) => value.normalize('NFKC').toLowerCase().replace(/ς/g, 'σ')
+const queryStopwords = new Set([
+  'อะไร',
+  'ไหม',
+  'มั้ย',
+  'หรือ',
+  'เปล่า',
+  'ใคร',
+  'ไหน',
+  'ที่ไหน',
+  'เมื่อไหร่',
+  'ทำไม',
+  'อย่างไร',
+  'ยังไง',
+  'ของ',
+  'ฉัน',
+  'ผม',
+  'เรา',
+  'คุณ',
+  'คือ',
+  'มี',
+  'เป็น',
+  'ใน',
+  'ที่',
+  'และ',
+  'กับ',
+  'ให้',
+  'ได้',
+  'นะ',
+  'ครับ',
+  'ค่ะ',
+  'what',
+  'who',
+  'where',
+  'when',
+  'why',
+  'how',
+  'is',
+  'are',
+  'was',
+  'were',
+  'do',
+  'does',
+  'did',
+  'my',
+  'your',
+  'our',
+  'the',
+  'a',
+  'an',
+  'of',
+  'in',
+  'on',
+  'for',
+  'to',
+  'with',
+  'and',
+])
+const segmentTerms = (value: string) => [
+  ...new Set(
+    [...new Intl.Segmenter('th', { granularity: 'word' }).segment(fold(value))]
+      .filter((part) => part.isWordLike)
+      .map((part) => part.segment),
+  ),
+]
 const termsFor = (query: string) => {
   if (!query.trim() || bytes(query) > retrievalLimits.queryBytes || /[\x00-\x1f\x7f]/.test(query))
     throw memoryFailure('invalid-arguments', 'Invalid bounded memory query')
-  const terms = [
-    ...new Set(
-      [...new Intl.Segmenter('th', { granularity: 'word' }).segment(fold(query))]
-        .filter((part) => part.isWordLike)
-        .map((part) => part.segment),
-    ),
-  ]
+  const terms = segmentTerms(query)
   if (!terms.length || terms.length > retrievalLimits.terms)
     throw memoryFailure('invalid-arguments', 'Invalid memory query terms')
   return terms
+}
+const clausesFor = (query: string): string[][] => {
+  const allTerms = termsFor(query)
+  const rawClauses = query
+    .split(/\s*(?:\||\bOR\b)\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+  const clauses = (rawClauses.length > 1 ? rawClauses.map(segmentTerms) : [allTerms])
+    .filter((clause) => clause.length > 0)
+    .map((clause) => {
+      const content = clause.filter((term) => !queryStopwords.has(term))
+      return content.length > 0 ? content : clause
+    })
+  return clauses.length > 0 ? clauses : [allTerms]
+}
+const matchesQueryClauses = (
+  clauses: readonly (readonly string[])[],
+  pathText: string,
+  text: string,
+): string[] | null => {
+  for (const clause of clauses) {
+    const matched = clause.filter((term) => pathText.includes(term) || text.includes(term))
+    const required = clause.length <= 2 ? clause.length : Math.max(2, Math.ceil(clause.length * 0.5))
+    if (matched.length >= required) return matched
+  }
+  return null
 }
 export function parseMemoryRead(args: unknown): ReadSelection {
   if (!objectShape(args, ['path', 'query', 'topic', 'offset', 'limit']))
@@ -404,7 +488,7 @@ function retrieveMemoryImpl(
       ...(offset + limit < entries.length ? { nextOffset: offset + limit } : {}),
     }
   }
-  const terms = termsFor(selection.query)
+  const clauses = clausesFor(selection.query)
   const results: {
     path: string
     hash: string
@@ -426,9 +510,10 @@ function retrieveMemoryImpl(
     const pathText = fold(path)
     // Fast literal presence check first; build the original-offset map only for hits.
     const text = fold(file.text)
-    if (!terms.every((term) => pathText.includes(term) || text.includes(term))) continue
+    const matchedTerms = matchesQueryClauses(clauses, pathText, text)
+    if (!matchedTerms) continue
     const mapped = searchable(file.text)
-    const positions = terms.map((term) => mapped.folded.indexOf(term)).filter((at) => at >= 0)
+    const positions = matchedTerms.map((term) => mapped.folded.indexOf(term)).filter((at) => at >= 0)
     const start = positions.length ? Math.max(0, mapped.starts[Math.min(...positions)] - 48) : 0
     const characters = [...file.text]
     const hash = digest(file.text)

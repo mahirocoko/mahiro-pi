@@ -1182,6 +1182,38 @@ test('public conflict paging recovers complete Unicode proposals and rejects mal
     )) as any
     assert.equal(forgotten.suppressedByForgetting, true)
     assert.equal(forgotten.text, undefined)
+    await assert.rejects(
+      f.runtime.run(
+        'agent_memory_manage',
+        { action: 'remember', path: 'projects/other/system/notes.md', text: 'Foreign project path' },
+        f.ctx,
+      ),
+      /Memory path outside scope/,
+    )
+    const beforeIdx = (await f.runtime.run(
+      'agent_memory_read',
+      { path: 'system/human/index.md' },
+      f.ctx,
+    )) as any
+    await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'system/human/index.md',
+        expectedHash: null,
+        text: '---\nname: human-index\ndescription: Human memory index\n---\n# Human Memory\n',
+        sources: [],
+      },
+      f.ctx,
+    )
+    await f.runtime.run('agent_memory_commit', { revision: beforeIdx.revision }, f.ctx)
+    const remembered = (await f.runtime.run(
+      'agent_memory_manage',
+      { action: 'remember', text: 'First remembered fact' },
+      f.ctx,
+    )) as any
+    assert.equal(remembered.remembered, true)
+    assert.match(f.store.snapshot().files['index.md'].text, /\[\[system\/human\/notes\.md\]\]/)
+    assert.match(f.store.snapshot().files['system/human/index.md'].text, /\[\[system\/human\/notes\.md\]\]/)
   } finally {
     f.close()
   }
@@ -3619,6 +3651,40 @@ test('ABI1 commandless coverage and Windows-path results still enumerate another
     assert.deepEqual(readdirSync(folder).sort(), before)
   } finally {
     await engine.close()
+    f.close()
+  }
+})
+
+test('ABI1 agent_memory_edit with commit=true auto-syncs index links and integrates immediately', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    const result: any = await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'reference/ops/runbook.md',
+        expectedHash: null,
+        text: '---\nname: runbook\ndescription: On-call incident response and escalation steps.\n---\n# Runbook\nCheck service health first.\n',
+        sources: [],
+        commit: true,
+      },
+      f.ctx,
+    )
+    assert.equal(result.path, 'reference/ops/runbook.md')
+    assert.ok(typeof result.revision === 'string' && result.revision.length > 0)
+    const snap = f.store.snapshot()
+    assert.match(snap.files['reference/ops/runbook.md']?.text ?? '', /Check service health first/)
+    assert.match(
+      snap.files['reference/ops/index.md']?.text ?? '',
+      /\[\[reference\/ops\/runbook\.md\]\] — On-call incident response and escalation steps\./,
+    )
+    assert.match(
+      snap.files['index.md']?.text ?? '',
+      /\[\[reference\/ops\/runbook\.md\]\] — On-call incident response and escalation steps\./,
+    )
+    const projection = f.store.projection('project')
+    assert.ok(projection.discovery.directories?.some((d) => d.index === 'reference/ops/index.md'))
+  } finally {
     f.close()
   }
 })

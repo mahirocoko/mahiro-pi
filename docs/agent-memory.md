@@ -43,20 +43,21 @@ is a synthetic scaffold and is not the installed writer, live prompt, or Palace 
 | `Core.md` | Concise identity, confirmed preferences and reusable methods |
 | `index.md` | Navigation to selectively read detail |
 | `system/persona.md` | Tiered v2 always-loaded agent identity |
-| `system/human/<name>.md` | On-demand human context and `prefs/<name>.md`; protected retention |
-| `projects/<project-id>/system/<name>.md` | Protected project context; only current-project `overview.md` and `conventions.md` are always loaded |
-| `projects/<project-id>/reference/<name>.md` | Tiered v2 on-demand project reference detail |
-| `reference/<name>.md` | Tiered v2 on-demand global reference detail |
+| `system/human/<name>.md` | Tiered v2 always-loaded human context and `prefs/<name>.md` (except `<dir>/index.md`); protected retention |
+| `projects/<project-id>/system/<name>.md` | Protected project context; current-project non-index files (`overview.md`, `conventions.md`, etc.) are always loaded |
+| `projects/<project-id>/reference/<name>.md` | Tiered v2 on-demand project reference detail (including `<group>/<name>.md`) |
+| `reference/<name>.md` | Tiered v2 on-demand global reference detail (including `<group>/<name>.md`) |
 | `archives/<slug>/<name>.md` | Historical provenance material (never projected into prompt) |
 | `global/<name>.md` | Shared detailed knowledge (legacy compatible) |
 | `deferred/<project-id>/<name>.md` | Project-owned detail (legacy compatible) |
 | `procedures/<name>.md` | Reusable workflows (legacy compatible) |
 
-The exact automatic set is committed `Core.md`, `index.md`, optional
-`system/persona.md`, and optional current-project `system/overview.md` plus
-`system/conventions.md`, read from one revision in a single batched Git object
-read. Every other maintained-memory path is deferred or excluded; archives are
-never automatic prompt content and skills remain separate. Authenticated primary
+The exact automatic set is committed `Core.md`, `index.md`, optional non-index
+`system/**` (`system/persona.md`, `system/human/identity.md`, `system/human/prefs/*.md`,
+etc.), and optional current-project non-index `projects/<project-id>/system/*.md`
+(`overview.md`, `conventions.md`, etc.), read from one revision in a single batched
+Git object read. Every other maintained-memory path is deferred or excluded; archives
+are never automatic prompt content and skills remain separate. Authenticated primary
 views can discover authorized deferred knowledge across canonical projects; native
 workers and retained legacy views remain scoped. Unmapped projects derive
 collision-checked path identities without rewriting the project map. Source
@@ -95,8 +96,10 @@ authority and curation fundamentals separately from editable persona.
 
 ## Curation guidance and bounded context diagnosis
 
-R2 source decision (2026-10-30): use the existing package-owned
-`memoryCurationDoctrine` in `lib/agent-memory/guidance.ts`, not new package skills.
+Package-owned curation uses `memoryCurationDoctrine` in `lib/agent-memory/guidance.ts`
+plus five built-in memory skills (`maintaining-core-memory`,
+`maintaining-deferred-memory`, `initializing-memory`, `context-doctor`, and
+`syncing-memory-filesystem`) and `creating-skills` admitted under `G-SKILL`.
 The native adaptation preserves upstream core/deferred synthesis: shrink before
 adding, replace weaker examples, keep one authoritative home per subject, and
 write request-shaped index cues. Trace a natural future request from the advertised
@@ -152,7 +155,7 @@ the historical R2-S/I/O/H labels do not require additional phases.
 | `{topic: "", offset?, limit?}` | Namespace/count discovery, limit 1–32 |
 | `{topic: "*", offset?, limit?}` | All authorized files with YAML frontmatter `name`/`description` and `[[wiki-links]]`, limit 1–32 |
 | `{topic: "global"}`, `"procedures"`, `"deferred/<id>"`, `"system"`, `"reference"` | A selected namespace |
-| `{query, offset?, limit?}` | Lexical AND search, limit 1–8 results |
+| `{query, offset?, limit?}` | Lexical search with English/Thai stopword stripping, multi-term coverage, and optional `\|` / `OR` clauses, limit 1–8 results |
 
 A directory page still lists authorized descendant files. It also names at most 32
 immediate child directories from that same scoped path list. A child description
@@ -191,6 +194,8 @@ loaded runtime actually advertises.
    Supply its exact whole-file `expectedHash` (`null` for a new file), text and
    relevant observed episode source IDs. Optional `mode: "replace" | "patch" | "append"`
    supports surgical edits (`oldText`/`newText` for `patch`, optional `section` heading for `append`).
+   Optional `commit: true` (and `allowShrink?: boolean`) auto-syncs `[[path]] — <description>`
+   into the parent `<dir>/index.md` and root `index.md` and publishes/integrates in one step.
    `text: null` removes a detail/procedure file; Core/index cannot be removed.
 3. `agent_memory_commit` integrates against the base revision. A Lossless Retention Guard
    rejects commits that remove protected files (`Core.md`, `system/persona.md`, `system/human/**`,

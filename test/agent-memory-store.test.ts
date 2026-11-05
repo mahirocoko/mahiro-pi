@@ -887,9 +887,9 @@ test('palace exhaustively reports advisory links beyond 64 files and refuses hea
       'all non-archive files precede archives in palace.files',
     )
     assert.equal(palace.files[lastEntryIdx].name, 'human-zz-last')
-    assert.equal(palace.files[lastEntryIdx].alwaysLoaded, false)
+    assert.equal(palace.files[lastEntryIdx].alwaysLoaded, true)
     const projection = f.store.projection('project')
-    assert.equal(projection.system?.['system/human/zz-last.md'], undefined)
+    assert.match(projection.system?.['system/human/zz-last.md'] ?? '', /# Last File/)
     assert.equal(projection.projectSystem?.['projects/other/system/foreign.md'], undefined)
     assert.equal(
       palace.budget.alwaysLoadedBytes,

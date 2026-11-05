@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { bytes, digest } from '../lib/continuity/records.ts'
 import {
+  allowedDirectory,
   allowedPath,
   assertLegacyArchiveCompatible,
   isAlwaysLoadedTieredPath,
@@ -96,4 +97,55 @@ test('legacy migration archive reuse requires exact body and provenance identity
       ),
     /Legacy migration archive collision/,
   )
+})
+
+test('built-in maintaining-core-memory and maintaining-deferred-memory skills align with tiered projection', () => {
+  assert.equal(isAlwaysLoadedTieredPath('system/persona.md', 'project'), true)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/identity.md', 'project'), true)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/notes.md', 'project'), true)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/prefs/coding.md', 'project'), true)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/index.md', 'project'), false)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/prefs/index.md', 'project'), false)
+  assert.equal(isAlwaysLoadedTieredPath('projects/project/system/overview.md', 'project'), true)
+  assert.equal(isAlwaysLoadedTieredPath('projects/project/system/conventions.md', 'project'), true)
+  assert.equal(isAlwaysLoadedTieredPath('projects/project/system/index.md', 'project'), false)
+  assert.equal(isAlwaysLoadedTieredPath('projects/other/system/overview.md', 'project'), false)
+  assert.equal(isAlwaysLoadedTieredPath('reference/topic.md', 'project'), false)
+  assert.equal(allowedPath('projects/project/reference/group/note.md', 'project'), true)
+  assert.equal(allowedPath('projects/project/reference/group/index.md', 'project'), true)
+  assert.equal(allowedPath('projects/project/system/nested/overview.md', 'project'), false)
+  assert.equal(
+    allowedDirectory('projects/project/reference/group', 'project', false, [
+      'projects/project/reference/group/note.md',
+    ]),
+    true,
+  )
+
+  const coreSkill = readFileSync(
+    join(import.meta.dirname, '../skills/maintaining-core-memory/SKILL.md'),
+    'utf8',
+  )
+  const deferredSkill = readFileSync(
+    join(import.meta.dirname, '../skills/maintaining-deferred-memory/SKILL.md'),
+    'utf8',
+  )
+  assert.match(coreSkill, /^---\nname: maintaining-core-memory\ndescription: /)
+  assert.match(coreSkill, /system\/human\/identity\.md/)
+  assert.match(coreSkill, /agent_memory_edit/)
+  assert.match(deferredSkill, /^---\nname: maintaining-deferred-memory\ndescription: /)
+  assert.match(deferredSkill, /reference\/\*\*/)
+  assert.match(deferredSkill, /agent_memory_commit/)
+
+  for (const skillName of [
+    'maintaining-core-memory',
+    'maintaining-deferred-memory',
+    'initializing-memory',
+    'context-doctor',
+    'syncing-memory-filesystem',
+    'creating-skills',
+  ]) {
+    const content = readFileSync(join(import.meta.dirname, `../skills/${skillName}/SKILL.md`), 'utf8')
+    assert.match(content, new RegExp(`^---\\nname: ${skillName}\\ndescription: `))
+    assert.doesNotMatch(content, /letta/i)
+  }
 })

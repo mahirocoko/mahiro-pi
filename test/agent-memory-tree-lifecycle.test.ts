@@ -412,11 +412,25 @@ test('ABI2 invocation context separates current revision, public estimates and o
     assert.equal(projected.categoryTokenAccounting, 'unavailable')
     assert.doesNotMatch(JSON.stringify(projected), /SYNTHETIC_TREE_CORE|memory-tree-|\/memory/)
 
+    await assert.rejects(
+      f.runtime.run(
+        'agent_memory_manage',
+        { action: 'remember', path: 'projects/other/system/notes.md', text: 'Foreign project path' },
+        f.ctx,
+      ),
+      /Memory path outside scope/,
+    )
     const changed = (await f.runtime.run(
       'agent_memory_manage',
       { action: 'remember', text: 'New committed diagnostic revision' },
       f.ctx,
     )) as { revision: string }
+    const rootIndexRead = (await f.runtime.run(
+      'agent_memory_read',
+      { path: 'index.md', offset: 0, limit: 4096 },
+      f.ctx,
+    )) as { text: string }
+    assert.match(rootIndexRead.text, /\[\[system\/human\/notes\.md\]\]/)
     const staleProjection = await f.runtime.captureInvocation(f.ctx)
     assert.equal(staleProjection.binding.revision, changed.revision)
     assert.notEqual(staleProjection.binding.revision, staleProjection.memoryProjection?.revision)
@@ -1633,6 +1647,46 @@ test('automatic off stays off and explicit reflect does not wait for assistant s
       assert.doesNotMatch(error.message, /automatic-off|assistant step|reflection/)
       return true
     })
+  } finally {
+    await f.close()
+  }
+})
+
+test('ABI2 agent_memory_edit with commit=true auto-syncs parent and root index.md and publishes in one step', async () => {
+  const f = fixture(true)
+  try {
+    await f.emit('session_start')
+    const committed: any = await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'projects/synthetic/reference/api/rollbacks.md',
+        expectedHash: null,
+        text: '---\nname: rollbacks\ndescription: API deployment rollback playbook and checks.\n---\n# Rollbacks\nVerify migration state before rolling back.\n',
+        sources: [],
+        commit: true,
+      },
+      f.ctx,
+    )
+    assert.equal(committed.path, 'projects/synthetic/reference/api/rollbacks.md')
+    assert.ok(typeof committed.revision === 'string' && committed.revision.length > 0)
+
+    const snapshot = f.store.snapshot()
+    assert.match(
+      snapshot.files['projects/synthetic/reference/api/rollbacks.md']?.text ?? '',
+      /Verify migration state before rolling back/,
+    )
+    assert.match(
+      snapshot.files['projects/synthetic/reference/api/index.md']?.text ?? '',
+      /\[\[projects\/synthetic\/reference\/api\/rollbacks\.md\]\] — API deployment rollback playbook and checks\./,
+    )
+    assert.match(
+      snapshot.files['index.md']?.text ?? '',
+      /\[\[projects\/synthetic\/reference\/api\/rollbacks\.md\]\] — API deployment rollback playbook and checks\./,
+    )
+    const projection = f.store.projection('synthetic')
+    assert.ok(
+      projection.discovery.directories?.some((d) => d.index === 'projects/synthetic/reference/api/index.md'),
+    )
   } finally {
     await f.close()
   }

@@ -36,7 +36,9 @@ export const allowedPath = (path: string, project?: string) => {
   const deferred = /^deferred\/([a-z0-9][a-z0-9-]{0,63})\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
   if (deferred) return !project || deferred[1] === project
   const tieredProject =
-    /^projects\/([a-z0-9][a-z0-9-]{0,63})\/(?:system|reference)\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
+    /^projects\/([a-z0-9][a-z0-9-]{0,63})\/(?:system\/[a-z0-9][a-z0-9-]{0,63}|reference\/(?:[a-z0-9][a-z0-9-]{0,63}\/)?[a-z0-9][a-z0-9-]{0,63})\.md$/.exec(
+      path,
+    )
   return !!tieredProject && (!project || tieredProject[1] === project)
 }
 export const allowedDirectory = (
@@ -54,7 +56,8 @@ export const allowedDirectory = (
   if (!allowedPath(`${dir}/index.md`, shared ? undefined : project)) return false
   if (
     activePaths &&
-    (/^reference\/[a-z0-9][a-z0-9-]{0,63}$/.test(dir) || dir === 'system/human/prefs') &&
+    (/^(?:reference|projects\/[a-z0-9][a-z0-9-]{0,63}\/reference)\/[a-z0-9][a-z0-9-]{0,63}$/.test(dir) ||
+      dir === 'system/human/prefs') &&
     !activePaths.some((p) => p.startsWith(`${dir}/`))
   )
     return false
@@ -130,12 +133,17 @@ export function withMigrationFrontmatter(text: string, migration: LegacyV1Migrat
 }
 
 export const isAlwaysLoadedTieredPath = (path: string, project?: string) => {
+  if (path.endsWith('/index.md')) return false
   if (path === 'system/persona.md') return true
+  if (/^system\/human\/(?:prefs\/)?[a-z0-9][a-z0-9-]{0,63}\.md$/.test(path)) return true
+  const m = /^projects\/([a-z0-9][a-z0-9-]{0,63})\/system\/[a-z0-9][a-z0-9-]{0,63}\.md$/.exec(path)
+  return !!m && m[1] === project
+}
+export const isCriticalLinkSource = (path: string, project?: string) => {
+  if (path === 'Core.md' || path === 'index.md' || path === 'system/persona.md') return true
   const m = /^projects\/([a-z0-9][a-z0-9-]{0,63})\/system\/(?:overview|conventions)\.md$/.exec(path)
   return !!m && m[1] === project
 }
-export const isCriticalLinkSource = (path: string, project?: string) =>
-  path === 'Core.md' || path === 'index.md' || isAlwaysLoadedTieredPath(path, project)
 
 export const isProtectedRetentionPath = (path: string) =>
   path === 'Core.md' ||

@@ -150,7 +150,7 @@ test('palace health follows discovery sources, not detail links or foreign proje
   const input = inputFor([...critical, ...advisory, 'archives/old/topic.md'], '[[missing]]')
   const palace = buildMemoryPalace(input)
   assert.equal(palace.coverage.brokenLinksTotal, critical.length + advisory.length)
-  assert.equal(palace.budget.alwaysLoadedBytes, critical.length * Buffer.byteLength('[[missing]]'))
+  assert.equal(palace.budget.alwaysLoadedBytes, (critical.length + 2) * Buffer.byteLength('[[missing]]'))
   checkReply(palace)
   input.project = 'other'
   const other = buildMemoryPalace(input)
@@ -161,6 +161,9 @@ test('palace health follows discovery sources, not detail links or foreign proje
   )
   assert.equal(isAlwaysLoadedTieredPath('projects/project/system/overview.md'), false)
   assert.equal(isAlwaysLoadedTieredPath('projects/project/system/conventions.md'), false)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/identity.md'), true)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/prefs/editor.md'), true)
+  assert.equal(isAlwaysLoadedTieredPath('system/human/index.md'), false)
 
   const partial = inputFor(['Core.md', 'reference/uninspected.md'])
   delete partial.fileTexts['reference/uninspected.md']
@@ -175,6 +178,7 @@ test('palace validates canonical retention and project-dependent always-loaded f
     'Core.md',
     'index.md',
     'system/persona.md',
+    'system/human/index.md',
     'system/human/prefs/editor.md',
     'projects/project/system/work.md',
     'projects/other/system/work.md',
@@ -187,8 +191,9 @@ test('palace validates canonical retention and project-dependent always-loaded f
     ['Core.md', true, true],
     ['index.md', false, true],
     ['system/persona.md', true, true],
-    ['system/human/prefs/editor.md', true, false],
-    ['projects/project/system/work.md', true, false],
+    ['system/human/index.md', true, false],
+    ['system/human/prefs/editor.md', true, true],
+    ['projects/project/system/work.md', true, true],
     ['projects/other/system/work.md', true, false],
     ['reference/topic.md', false, false],
     ['archives/legacy/topic.md', false, false],

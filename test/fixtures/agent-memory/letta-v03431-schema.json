@@ -17,14 +17,20 @@
     },
     {
       "letta": "root persona.md and other root Markdown core files are compiled into the prompt",
-      "mahiro": ["Core.md", "system/persona.md"],
+      "mahiro": [
+        "Core.md",
+        "system/persona.md",
+        "system/human/identity.md",
+        "system/human/communication.md",
+        "system/human/prefs/coding.md"
+      ],
       "placement": "baseline",
       "classification": "adapted"
     },
     {
       "letta": "indexed child MEMORY.md files and their descendants are deferred until Memory(path) reads",
       "mahiro": [
-        "system/human/communication.md",
+        "system/human/index.md",
         "reference/context/diagnosis.md",
         "projects/project/reference/decisions.md"
       ],

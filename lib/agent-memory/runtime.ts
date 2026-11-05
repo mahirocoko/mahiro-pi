@@ -15,7 +15,13 @@ import {
 import { ensureTieredFrontmatter } from './engine/schema.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { resolveAgentDir } from '../setup.ts'
-import { directoryIndex, directoryPage, parseMemoryRead, retrieveMemory } from './retrieval.ts'
+import {
+  directoryIndex,
+  directoryPage,
+  extractFrontmatterAndLinks,
+  parseMemoryRead,
+  retrieveMemory,
+} from './retrieval.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
 import type { ManagedMemoryABI } from './experimental-contracts.ts'
 
@@ -454,6 +460,31 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
             ? { section: args.section }
             : {}),
         })
+        if (!['Core.md', 'index.md'].includes(targetPath) && !targetPath.endsWith('/index.md')) {
+          const indexTargets = ['index.md']
+          if (targetPath.includes('/')) {
+            const parentIndex = `${targetPath.slice(0, targetPath.lastIndexOf('/'))}/index.md`
+            if (allowedPath(parentIndex, p.project)) indexTargets.unshift(parentIndex)
+          }
+          for (const indexPath of indexTargets) {
+            const idxFile = p.store.read(view, indexPath)
+            if (
+              !('missing' in idxFile && idxFile.missing) &&
+              'text' in idxFile &&
+              idxFile.hash &&
+              !idxFile.text.includes(`[[${targetPath}]]`)
+            ) {
+              p.store.edit(
+                view,
+                indexPath,
+                idxFile.hash,
+                `- [[${targetPath}]] — Durable remembered notes for ${targetPath}`,
+                [],
+                { mode: 'append' },
+              )
+            }
+          }
+        }
         const integrated = p.store.integrate(view)
         draft = undefined
         if ('conflict' in integrated) return integrated
@@ -595,6 +626,8 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           'oldText',
           'newText',
           'section',
+          'commit',
+          'allowShrink',
         ]) ||
         typeof args.path !== 'string' ||
         !(
@@ -611,7 +644,9 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
         (args.oldText !== undefined && typeof args.oldText !== 'string') ||
         (args.newText !== undefined && typeof args.newText !== 'string') ||
-        (args.section !== undefined && typeof args.section !== 'string')
+        (args.section !== undefined && typeof args.section !== 'string') ||
+        (args.commit !== undefined && typeof args.commit !== 'boolean') ||
+        (args.allowShrink !== undefined && typeof args.allowShrink !== 'boolean')
       )
         throw memoryFailure('invalid-arguments', 'Invalid memory edit arguments')
       const strippedPath = args.path.startsWith('/') ? args.path.replace(/^\/+/, '') : args.path
@@ -640,6 +675,100 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         (args.sources ?? []) as string[],
         editOptions,
       )
+      if (args.commit === true) {
+        if (
+          normalizedText !== null &&
+          !['Core.md', 'index.md'].includes(normalizedPath) &&
+          !normalizedPath.endsWith('/index.md')
+        ) {
+          const scope = view.scope === 'primary' ? undefined : view.project
+          const indexEntries: { indexPath: string; targetPath: string; summary: string }[] = []
+          const draftTarget = f.store.read(view, normalizedPath)
+          const targetBody =
+            'text' in draftTarget && typeof draftTarget.text === 'string'
+              ? draftTarget.text
+              : typeof normalizedText === 'string'
+                ? normalizedText
+                : undefined
+          const description =
+            (targetBody ? extractFrontmatterAndLinks(targetBody).description : undefined) ??
+            `Maintained memory notes for ${normalizedPath}`
+          if (normalizedPath.includes('/')) {
+            const dirParts = normalizedPath.slice(0, normalizedPath.lastIndexOf('/')).split('/')
+            for (let i = 1; i < dirParts.length; i++) {
+              const ancestorDir = dirParts.slice(0, i).join('/')
+              const childDir = dirParts.slice(0, i + 1).join('/')
+              const ancestorIndex = `${ancestorDir}/index.md`
+              const childIndex = `${childDir}/index.md`
+              if (allowedPath(ancestorIndex, scope) && allowedPath(childIndex, scope)) {
+                indexEntries.push({
+                  indexPath: ancestorIndex,
+                  targetPath: childIndex,
+                  summary: `Index for ${childDir}`,
+                })
+              }
+            }
+            const parentIndex = `${dirParts.join('/')}/index.md`
+            if (allowedPath(parentIndex, scope)) {
+              indexEntries.push({
+                indexPath: parentIndex,
+                targetPath: normalizedPath,
+                summary: description,
+              })
+            }
+          }
+          indexEntries.push({
+            indexPath: 'index.md',
+            targetPath: normalizedPath,
+            summary: description,
+          })
+          for (const { indexPath, targetPath, summary } of indexEntries) {
+            const idxFile = f.store.read(view, indexPath)
+            if ('missing' in idxFile && idxFile.missing) {
+              const title = indexPath.endsWith('/index.md')
+                ? `${indexPath.slice(0, -'/index.md'.length)} index`
+                : 'Index'
+              f.store.edit(
+                view,
+                indexPath,
+                null,
+                `# ${title}\n\n- [[${targetPath}]] — ${summary}\n`,
+                (args.sources ?? []) as string[],
+              )
+            } else if ('text' in idxFile && idxFile.hash && !idxFile.text.includes(`[[${targetPath}]]`)) {
+              f.store.edit(
+                view,
+                indexPath,
+                idxFile.hash,
+                `- [[${targetPath}]] — ${summary}`,
+                (args.sources ?? []) as string[],
+                { mode: 'append' },
+              )
+            }
+          }
+        }
+        if (value) {
+          value.ready = true
+          return {
+            path: normalizedPath,
+            hash,
+            draft: false,
+            readyForIntegration: true,
+            activeContextChanged: false,
+          }
+        }
+        const integrated = f.store.integrate(view, [], { allowShrink: args.allowShrink === true })
+        draft = undefined
+        if ('conflict' in integrated) return { path: normalizedPath, hash, ...integrated }
+        return {
+          path: normalizedPath,
+          hash,
+          draft: false,
+          committed: true,
+          ...integrated,
+          contextActivation: 'next-primary-request',
+        }
+      }
       return {
         path: normalizedPath,
         hash,

@@ -2454,9 +2454,9 @@ test('engine migration publishes segmented archives then initializes and diagnos
     )
     assert.ok(foreignAbi2Entry, 'foreign project file is visible in shared-primary ABI2 palace')
     assert.equal(foreignAbi2Entry.alwaysLoaded, false)
-    assert.equal(bulkPalace.files[trailingIdx].alwaysLoaded, false)
+    assert.equal(bulkPalace.files[trailingIdx].alwaysLoaded, true)
     const projection = await f.engine.request('projection', { project: 'project', shared: true }, f.context)
-    assert.equal(projection.system?.['system/human/zz-beyond-64.md'], undefined)
+    assert.match(projection.system?.['system/human/zz-beyond-64.md'] ?? '', /# Trailing File/)
     assert.equal(projection.projectSystem?.['projects/other/system/foreign-abi2.md'], undefined)
   } finally {
     await f.close()

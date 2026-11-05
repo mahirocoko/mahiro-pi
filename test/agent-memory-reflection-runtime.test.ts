@@ -130,7 +130,12 @@ function fixture() {
   const holds: { count: number } = { count: 0 }
   const retirements = new Set<() => Promise<void>>()
   const records = new Map<string, { id: string; type: string; status: string; outputFile: string }>()
-  const spawns: { id: string; name: string; prompt: string; options: { foreground?: boolean } }[] = []
+  const spawns: {
+    id: string
+    name: string
+    prompt: string
+    options: { foreground?: boolean; description?: string }
+  }[] = []
   let binding: { id: string; value: EngineWorkerValue } | undefined
   const generation = {}
   const childManagers = new Set<ExtensionContext['sessionManager']>()
@@ -156,7 +161,7 @@ function fixture() {
       if (record) record.status = 'stopped'
       return true
     },
-    spawn(name: string, prompt: string, options: { foreground?: boolean }) {
+    spawn(name: string, prompt: string, options: { foreground?: boolean; description?: string }) {
       const id = `job-${spawns.length + 1}`
       const record = { id, type: name, status: 'running', outputFile: 'authoritative-native-session-file' }
       records.set(id, record)
@@ -2354,35 +2359,40 @@ test('reflection statusline publishes step counter, policy modes, and retirement
 })
 
 test('ready writer finishing on final turn budget integrates committed view and marks episodes reviewed', async () => {
-  const f = fixture()
-  try {
-    await f.emit('session_start')
-    await f.turn('budget-turn', 25)
-    assert.equal(f.spawns.length, 1)
-    const spawned = f.spawns[0]!
-    const bound = f.binding()
-    assert.ok(bound)
-    const child = await f.child()
-    const promptResults = await child.emit('before_agent_start', {
-      systemPrompt: '<active_agent name="managed-memory-writer"/>',
-    })
-    const writerPrompt =
-      (promptResults.find(Boolean) as { systemPrompt?: string } | undefined)?.systemPrompt ?? ''
-    assert.match(writerPrompt, /<mahiro-managed-memory-view>/)
-    assert.match(writerPrompt, /Synthetic reflection identity\./)
-    await bound.value.engine.request('ready', { view: bound.value.view }, { current: () => true })
-    bound.value.ready = true
-    const record = f.records.get(spawned.id) as {
-      status: string
-      turnBudget?: { used: number; maxTurns: number; phase: string }
+  for (const terminalStatus of ['error', 'aborted', 'failed'] as const) {
+    const f = fixture()
+    try {
+      await f.emit('session_start')
+      await f.turn('budget-turn', 25)
+      assert.equal(f.spawns.length, 1)
+      const spawned = f.spawns[0]!
+      assert.equal(spawned.options.description, 'Curate memory (1 episode)')
+      const bound = f.binding()
+      assert.ok(bound)
+      const child = await f.child()
+      const promptResults = await child.emit('before_agent_start', {
+        systemPrompt: '<active_agent name="managed-memory-writer"/>',
+      })
+      const writerPrompt =
+        (promptResults.find(Boolean) as { systemPrompt?: string } | undefined)?.systemPrompt ?? ''
+      assert.match(writerPrompt, /<mahiro-managed-memory-view>/)
+      assert.match(writerPrompt, /Synthetic reflection identity\./)
+      assert.match(writerPrompt, /"hashes":\{"Core\.md":"[a-f0-9]{64}"/)
+      assert.match(writerPrompt, /Turn-budget discipline \(max 8 turns\):/)
+      await bound.value.engine.request('ready', { view: bound.value.view }, { current: () => true })
+      bound.value.ready = true
+      const record = f.records.get(spawned.id) as {
+        status: string
+        turnBudget?: { used: number; maxTurns: number; phase: string }
+      }
+      record.status = terminalStatus
+      record.turnBudget = { used: 8, maxTurns: 8, phase: 'exhausted' }
+      f.nativeEvent('subagents:failed', { id: spawned.id, type: 'managed-memory-writer' })
+      await f.runtime.drain()
+      assert.equal(f.store.snapshot().reviewed.length, 1, `terminalStatus=${terminalStatus}`)
+    } finally {
+      await f.close()
     }
-    record.status = 'failed'
-    record.turnBudget = { used: 8, maxTurns: 8, phase: 'exhausted' }
-    f.nativeEvent('subagents:failed', { id: spawned.id, type: 'managed-memory-writer' })
-    await f.runtime.drain()
-    assert.equal(f.store.snapshot().reviewed.length, 1)
-  } finally {
-    await f.close()
   }
 })
 

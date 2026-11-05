@@ -22,6 +22,7 @@ import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from '.
 import type { Input, Method, Output } from './engine/protocol.ts'
 import { MemoryPublisher } from './engine/publisher.ts'
 import { allowedDirectory, allowedPath, ensureTieredFrontmatter } from './engine/schema.ts'
+import { extractFrontmatterAndLinks } from './retrieval.ts'
 import type { EngineWorkerValue, MemoryABIV2 } from './experimental-contracts.ts'
 import { memoryCurationDoctrine } from './guidance.ts'
 import { buildMemoryInvocationContext, type MemoryProjectionReceipt } from './invocation-context.ts'
@@ -1360,7 +1361,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         ready: boolean,
       ) => {
         if (record?.status === 'completed') return true
-        if (!ready || record?.status !== 'failed') return false
+        if (
+          !ready ||
+          (record?.status !== 'failed' &&
+            record?.status !== 'error' &&
+            record?.status !== 'aborted' &&
+            record?.status !== 'stopped')
+        )
+          return false
         const budget =
           record.turnBudget && typeof record.turnBudget === 'object'
             ? (record.turnBudget as { used?: unknown; maxTurns?: unknown; phase?: unknown })
@@ -1590,6 +1598,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             evidence: 'observed-native-unverified; user role/source is not authenticated human identity',
           }),
           {
+            description: assignment
+              ? `Reflect memory (${f.project})`
+              : `Curate memory (${episodes.length} episode${episodes.length === 1 ? '' : 's'})`,
             model: route.model,
             thinkingLevel: route.thinking,
             foreground: false,
@@ -1995,6 +2006,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         const text = bounded(args.text, 4096)
         if (!text) throw Error('Bounded remember text required')
         const targetPath = typeof args.path === 'string' ? args.path : 'system/human/notes.md'
+        if (!allowedPath(targetPath, f.project)) throw Error('Memory path outside scope')
         job?.cancel()
         if (draft) {
           await f.request('cancel', { view: draft.view }).catch(() => undefined)
@@ -2027,6 +2039,34 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             ? { section: args.section }
             : {}),
         })
+        if (!['Core.md', 'index.md'].includes(targetPath) && !targetPath.endsWith('/index.md')) {
+          const indexTargets = ['index.md']
+          if (targetPath.includes('/')) {
+            const parentIndex = `${targetPath.slice(0, targetPath.lastIndexOf('/'))}/index.md`
+            if (allowedPath(parentIndex, f.project)) indexTargets.unshift(parentIndex)
+          }
+          for (const indexPath of indexTargets) {
+            const idxFile = (await f.request('read', {
+              view: created.view,
+              selection: { path: indexPath, offset: 0, limit: 4096 },
+            })) as { missing?: boolean; hash?: string | null; text?: string }
+            if (
+              !idxFile.missing &&
+              idxFile.hash &&
+              typeof idxFile.text === 'string' &&
+              !idxFile.text.includes(`[[${targetPath}]]`)
+            ) {
+              await f.request('edit', {
+                view: created.view,
+                path: indexPath,
+                expectedHash: idxFile.hash,
+                text: `- [[${targetPath}]] — Durable remembered notes for ${targetPath}`,
+                sources: [],
+                mode: 'append',
+              })
+            }
+          }
+        }
         await f.request('ready', { view: created.view })
         const prepared = await f.request('prepare', { view: created.view, reviewed: [] })
         if ('conflict' in prepared) return prepared
@@ -2242,6 +2282,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           'oldText',
           'newText',
           'section',
+          'commit',
+          'allowShrink',
         ]) ||
         typeof args.path !== 'string' ||
         !(
@@ -2259,7 +2301,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         (args.mode !== undefined && !['replace', 'patch', 'append'].includes(args.mode as string)) ||
         (args.oldText !== undefined && typeof args.oldText !== 'string') ||
         (args.newText !== undefined && typeof args.newText !== 'string') ||
-        (args.section !== undefined && typeof args.section !== 'string')
+        (args.section !== undefined && typeof args.section !== 'string') ||
+        (args.commit !== undefined && typeof args.commit !== 'boolean') ||
+        (args.allowShrink !== undefined && typeof args.allowShrink !== 'boolean')
       )
         throw memoryFailure('invalid-arguments', 'Invalid memory edit arguments')
       const strippedPath = args.path.startsWith('/') ? args.path.replace(/^\/+/, '') : args.path
@@ -2285,6 +2329,120 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         ...(typeof args.newText === 'string' ? { newText: args.newText } : {}),
         ...(typeof args.section === 'string' ? { section: args.section } : {}),
       })
+      if (args.commit === true) {
+        if (
+          normalizedText !== null &&
+          !['Core.md', 'index.md'].includes(normalizedPath) &&
+          !normalizedPath.endsWith('/index.md')
+        ) {
+          const scope = f.access.kind === 'primary' ? undefined : f.project
+          const indexEntries: { indexPath: string; targetPath: string; summary: string }[] = []
+          const draftTarget = (await f.request('read', {
+            view: selected.view,
+            selection: { path: normalizedPath, offset: 0, limit: 4096 },
+          })) as { text?: string }
+          const targetBody =
+            typeof draftTarget.text === 'string'
+              ? draftTarget.text
+              : typeof normalizedText === 'string'
+                ? normalizedText
+                : undefined
+          const description =
+            (targetBody ? extractFrontmatterAndLinks(targetBody).description : undefined) ??
+            `Maintained memory notes for ${normalizedPath}`
+          if (normalizedPath.includes('/')) {
+            const dirParts = normalizedPath.slice(0, normalizedPath.lastIndexOf('/')).split('/')
+            for (let i = 1; i < dirParts.length; i++) {
+              const ancestorDir = dirParts.slice(0, i).join('/')
+              const childDir = dirParts.slice(0, i + 1).join('/')
+              const ancestorIndex = `${ancestorDir}/index.md`
+              const childIndex = `${childDir}/index.md`
+              if (allowedPath(ancestorIndex, scope) && allowedPath(childIndex, scope)) {
+                indexEntries.push({
+                  indexPath: ancestorIndex,
+                  targetPath: childIndex,
+                  summary: `Index for ${childDir}`,
+                })
+              }
+            }
+            const parentIndex = `${dirParts.join('/')}/index.md`
+            if (allowedPath(parentIndex, scope)) {
+              indexEntries.push({
+                indexPath: parentIndex,
+                targetPath: normalizedPath,
+                summary: description,
+              })
+            }
+          }
+          indexEntries.push({
+            indexPath: 'index.md',
+            targetPath: normalizedPath,
+            summary: description,
+          })
+          for (const { indexPath, targetPath, summary } of indexEntries) {
+            const idxFile = (await f.request('read', {
+              view: selected.view,
+              selection: { path: indexPath, offset: 0, limit: 4096 },
+            })) as { missing?: boolean; hash?: string | null; text?: string }
+            if (idxFile.missing) {
+              const title = indexPath.endsWith('/index.md')
+                ? `${indexPath.slice(0, -'/index.md'.length)} index`
+                : 'Index'
+              await f.request('edit', {
+                view: selected.view,
+                path: indexPath,
+                expectedHash: null,
+                text: `# ${title}\n\n- [[${targetPath}]] — ${summary}\n`,
+                sources: (args.sources ?? []) as string[],
+              })
+            } else if (
+              idxFile.hash &&
+              typeof idxFile.text === 'string' &&
+              !idxFile.text.includes(`[[${targetPath}]]`)
+            ) {
+              await f.request('edit', {
+                view: selected.view,
+                path: indexPath,
+                expectedHash: idxFile.hash,
+                text: `- [[${targetPath}]] — ${summary}`,
+                sources: (args.sources ?? []) as string[],
+                mode: 'append',
+              })
+            }
+          }
+        }
+        await f.request('ready', { view: selected.view })
+        if (f.access.kind === 'worker') {
+          assertCurrent(f.context)
+          f.access.value.ready = true
+          return {
+            path: normalizedPath,
+            ...result,
+            draft: false,
+            readyForIntegration: true,
+            activeContextChanged: false,
+          }
+        }
+        const prepared = await f.request('prepare', {
+          view: selected.view,
+          reviewed: [],
+          ...(args.allowShrink === true ? { allowShrink: true } : {}),
+        })
+        draft = undefined
+        if ('conflict' in prepared) return { path: normalizedPath, ...result, ...prepared }
+        const published = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        if (published.stage !== 'reconciled_committed')
+          throw Error('Publication unavailable; proposal retained')
+        return {
+          path: normalizedPath,
+          ...result,
+          draft: false,
+          committed: true,
+          revision: published.revision,
+          changed: prepared.plan.changes.filter((change) => change.path !== '.memory.json').length,
+          contextActivation: 'next-primary-request',
+        }
+      }
       return { path: normalizedPath, ...result, draft: true, activeContextChanged: false }
     }
     if (
@@ -2489,8 +2647,24 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           const workerProjection = await f
             .request('projection', { project: f.access.value.project, shared: false })
             .catch(() => undefined)
-          const viewBlock = workerProjection
-            ? `\n<mahiro-managed-memory-view>\n${JSON.stringify(workerProjection).replace(/</g, '\\u003c')}\n</mahiro-managed-memory-view>`
+          const workerView =
+            workerProjection && workerProjection.revision === f.access.value.base
+              ? {
+                  ...workerProjection,
+                  hashes: {
+                    'Core.md': digest(workerProjection.core),
+                    'index.md': digest(workerProjection.index),
+                    ...Object.fromEntries(
+                      Object.entries(workerProjection.system ?? {}).map(([k, v]) => [k, digest(v)]),
+                    ),
+                    ...Object.fromEntries(
+                      Object.entries(workerProjection.projectSystem ?? {}).map(([k, v]) => [k, digest(v)]),
+                    ),
+                  },
+                }
+              : undefined
+          const viewBlock = workerView
+            ? `\n<mahiro-managed-memory-view>\n${JSON.stringify(workerView).replace(/</g, '\\u003c')}\n</mahiro-managed-memory-view>\nTurn-budget discipline (max 8 turns): <mahiro-managed-memory-view> already contains current Core.md, index.md, system/*, and projectSystem/* texts plus their expectedHash values in hashes. Do not re-read those projected files. Batch multiple agent_memory_read calls in one turn, batch all agent_memory_edit calls (target note, directory index.md, and root index.md) in one turn, and call agent_memory_commit before using your final turn (or immediately when a turn-budget warning appears; skip optional post-edit query checks when 2 or fewer turns remain).`
             : ''
           observeAttemptTiming(ctx, 'start')
           return {

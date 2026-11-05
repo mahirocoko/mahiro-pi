@@ -680,3 +680,46 @@ test('return-boundary HEAD/config/backing/authority changes fail closed without 
     }
   }
 })
+
+test('query retrieval strips English/Thai question stopwords and supports multi-term coverage and OR clauses', () => {
+  const files = {
+    'Core.md': { text: '# Companion\nConcise helper.\n', sources: [] },
+    'index.md': { text: '# Index\n- [[system/human/identity.md]] — User identity\n', sources: [] },
+    'system/human/identity.md': {
+      text: '---\nname: identity\ndescription: User identity and pets.\n---\n# Identity\n- แมวชื่อ อลิน (Alin)\n- ชอบดื่มมัทฉะ\n',
+      sources: ['ep-1'],
+    },
+    'reference/deploy.md': {
+      text: '---\nname: deploy\ndescription: Production deployment rollback steps.\n---\n# Deploy\nRun rollback command when release fails.\n',
+      sources: ['ep-2'],
+    },
+  }
+
+  const thaiQuestion = retrieveMemory(files, select({ query: 'แมวของฉันชื่ออะไร' }))
+  assert.equal(thaiQuestion.outcome, 'matches')
+  assert.deepEqual(
+    thaiQuestion.results?.map((r) => r.path),
+    ['system/human/identity.md'],
+  )
+
+  const multiTermCoverage = retrieveMemory(files, select({ query: 'สัตว์เลี้ยง แมว อลิน' }))
+  assert.equal(multiTermCoverage.outcome, 'matches')
+  assert.deepEqual(
+    multiTermCoverage.results?.map((r) => r.path),
+    ['system/human/identity.md'],
+  )
+
+  const orClause = retrieveMemory(files, select({ query: 'สัตว์เลี้ยง | แมว' }))
+  assert.equal(orClause.outcome, 'matches')
+  assert.deepEqual(
+    orClause.results?.map((r) => r.path),
+    ['system/human/identity.md'],
+  )
+
+  const englishQuestion = retrieveMemory(files, select({ query: 'how do I rollback a release' }))
+  assert.equal(englishQuestion.outcome, 'matches')
+  assert.deepEqual(
+    englishQuestion.results?.map((r) => r.path),
+    ['reference/deploy.md'],
+  )
+})

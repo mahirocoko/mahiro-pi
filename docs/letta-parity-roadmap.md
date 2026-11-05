@@ -74,6 +74,11 @@ quality and must not create more work by themselves.
 - Reflection and writer prompts include Tiered v2 curation guidance (`system/` core
   blocks, `reference/` progressive leaves, `<dir>/index.md` upkeep, and `no_changes`
   restraint when an episode contains no durable memory delta).
+- `agent_memory_edit` supports optional one-step `commit: true` with automatic
+  `<dir>/index.md` and `index.md` link synchronization, `agent_memory_read({ query })`
+  strips English/Thai question stopwords while supporting multi-term coverage and
+  `|` / `OR` clauses, and `projects/<id>/reference/<group>/<slug>.md` supports nested
+  project reference groups.
 - The disconnected `lib/agent-memory/local/**` Git/worktree service remains source
   experimentation. It is not silently combined with ABI2 or activated by this roadmap.
 - `/mh-memory palace`, `palace close` and `palace json` remain the public Palace
@@ -188,7 +193,11 @@ directly.
 
 Add a memory-specific skill only when Mahiro explicitly wants a distinct reusable
 workflow and existing repository guidance cannot own it. Matching Letta behavior alone
-is not a reason to add another skill.
+is not a reason to add another skill. Six built-in skills (`maintaining-core-memory`,
+`maintaining-deferred-memory`, `initializing-memory`, `context-doctor`,
+`syncing-memory-filesystem`, and `creating-skills`) were admitted under `skills/` by
+explicit Mahiro request to align conversational core/deferred curation, initialization,
+diagnostics, repair, and skill authoring with Letta Code's MemFS workflow.
 
 ### Candidate dispositions
 

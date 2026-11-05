@@ -17,11 +17,11 @@ memory, and indexed child directories as deferred memory read through
 | Letta v0.34.31 contract | Mahiro owner | Placement | Decision |
 | --- | --- | --- | --- |
 | Root `MEMORY.md` overview/index | `index.md` | Baseline prompt | Adapt the discovery job; do not rename the private corpus. |
-| Root `persona.md` and other root core Markdown | `Core.md` plus optional `system/persona.md` | Baseline prompt | Adapt identity/core ownership while preserving required Core. |
-| Indexed child `MEMORY.md` and descendant Markdown | `system/human/**`, `reference/**`, `projects/<id>/reference/**`, `procedures/**` and compatible legacy detail | Deferred | Adapt to bounded path/topic/query discovery; Mahiro does not accept arbitrary nested Markdown. |
-| Project context discovered from indexes | Current project's `system/overview.md` and `system/conventions.md` | Baseline prompt | Intentional native project tier; other project files remain deferred. |
+| Root `persona.md` and `system/**` core Markdown | `Core.md` plus non-index `system/**` (`system/persona.md`, `system/human/identity.md`, `system/human/prefs/*.md`) | Baseline prompt | Match Letta MemFS `system/**` always-loaded projection while preserving required Core. |
+| Indexed child `MEMORY.md` and descendant Markdown | `<dir>/index.md`, `reference/**`, `projects/<id>/reference/**`, `procedures/**` and compatible legacy detail | Deferred | Adapt to bounded path/topic/query discovery; Mahiro does not accept arbitrary nested Markdown. |
+| Project context discovered from indexes | Current project's non-index `projects/<id>/system/*.md` (`overview.md`, `conventions.md`, etc.) | Baseline prompt | Intentional native project tier; other project files remain deferred. |
 | Attached shared-memory repositories | No equivalent maintained-memory path | Excluded | Intentional non-parity; no hosted/shared authority by analogy. |
-| Agent-owned skills under memory | Package/runtime skill owners | Separate | Skills are not memory files and R2 selected zero new package skills. |
+| Agent-owned skills under memory | Package/runtime skill owners (`maintaining-core-memory`, `maintaining-deferred-memory`, `initializing-memory`, `context-doctor`, `syncing-memory-filesystem`, `creating-skills`) | Separate | Skills live under package `skills/`, `~/.pi/agent/skills/`, or `.pi/skills/`, not inside the private memory Git root. |
 
 `test/fixtures/agent-memory/letta-v03431-schema.json` records the executable
 comparison sources and representative mapping. `test/agent-memory-schema-parity.test.ts`
@@ -50,13 +50,12 @@ silently.
 
 ## Projection and state identity
 
-The automatic set for one project is exactly:
+The automatic set for one project is:
 
 1. required committed `Core.md`;
 2. required committed `index.md`;
-3. optional committed `system/persona.md`;
-4. optional committed `projects/<project>/system/overview.md`;
-5. optional committed `projects/<project>/system/conventions.md`.
+3. optional committed non-index `system/**` (`system/persona.md`, `system/human/*.md`, `system/human/prefs/*.md`);
+4. optional committed current-project non-index `projects/<project>/system/*.md` (`overview.md`, `conventions.md`, etc.).
 
 Everything else is deferred or excluded. Archives are retained evidence and are
 never automatic prompt content. Skills remain separate. The numbered list defines
