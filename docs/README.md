@@ -44,6 +44,9 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.7 source release record](releases/0.12.7.md) — readable diff and content previews for
+  maintained-memory tools, specific call/result metadata across workflow tools, and unified
+  `workflowRenderers` presentation for `recall_search`, `recall_read` and `mh_code_map`.
 - [v0.12.6 source release record](releases/0.12.6.md) — automatic ABI2 namespace capacity
   reclamation, bounded certificate/preparation eviction, worker draft cancellation and
   workflow attention warnings for `/mh-memory doctor` and `/mh-memory capacity`.

@@ -48,7 +48,8 @@ the feature label. Its state is `Partial · pending`, `Error`, or neutral
 `Returned · not acceptance`; partial errors retain both facts. An ordinary return
 is not green workflow success, worker completion or human acceptance.
 
-Collapsed results have a state row and at most one summary or fallback-text row.
+Collapsed results have a state row and at most one summary or fallback-text row
+(plus a bounded diff or content preview for successful memory edits).
 Structured errors/reasons and nonzero blockers/issues/conflicts take priority over
 state, revision, next action and optional identifiers/counts, independent of field
 order. Nested paths remain internal ordering keys; visible facts use leaf labels

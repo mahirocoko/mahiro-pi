@@ -1,8 +1,10 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { createController } from '../lib/continuity/controller.ts'
 import { createRuntime, type IRuntimeConfig } from '../lib/continuity/runtime.ts'
+import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 
 export function activateWith(pi: ExtensionAPI, config: IRuntimeConfig = {}) {
+  registerWorkflowPresentation(pi)
   const runtime = createRuntime(config)
   createController(pi, config)
   const lookup = (name: string) => pi.getAllTools().find((tool) => tool.name === name)
@@ -39,6 +41,7 @@ export function activateWith(pi: ExtensionAPI, config: IRuntimeConfig = {}) {
               },
         required: [name === 'recall_search' ? 'query' : 'recordId'],
       },
+      ...workflowRenderers(name),
       async execute(_id, args, signal, _update, ctx) {
         const result = await runtime.run(name, args, lookup(name), ctx, signal)
         return {

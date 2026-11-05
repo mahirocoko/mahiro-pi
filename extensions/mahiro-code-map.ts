@@ -1,11 +1,13 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { codeMapParameters, formatCodeMap } from '../lib/code-map.ts'
+import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
 
 // Versioned, Code-Map-only contract published by the Root-owned native Pi guard.
 // This is not a policy copy or authority derived from caller metadata.
 const guardKey = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
 
 export default function mahiroCodeMap(pi: ExtensionAPI) {
+  registerWorkflowPresentation(pi)
   pi.registerTool({
     name: 'mh_code_map',
     label: 'Code Map',
@@ -19,6 +21,7 @@ export default function mahiroCodeMap(pi: ExtensionAPI) {
       idempotentHint: true,
       openWorldHint: false,
     },
+    ...workflowRenderers('mh_code_map'),
     async execute(_id, args, signal, _update, ctx) {
       const nodes = (globalThis as any)[guardKey]
       const node = nodes?.get(ctx.sessionManager.getSessionId())

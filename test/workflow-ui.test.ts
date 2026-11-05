@@ -253,3 +253,358 @@ test('requested state precedes long subjects, while HTML-like replay calls stay 
     ['blockers: 1 · review', 'status: blocked', 'rev: 4', 'base rev: 3', 'current rev: 5'],
   )
 })
+
+test('memory tool renderers display path, mode and readable diff/written content preview', async () => {
+  await initializeWorkflowUI()
+  const editRenderer = workflowRenderers('agent_memory_edit')
+  const patchArgs = {
+    path: 'system/human/prefs/coding.md',
+    mode: 'patch',
+    commit: true,
+    oldText: '- Design authority: Only Gemini 3.1 Pro, Kimi K2.6, or Grok 4.2 may make visual decisions.',
+    newText:
+      '- Design authority: Only Gemini 3.1 Pro, Kimi K2.6, Grok 4.2, or Claude Opus 4.7 may make visual decisions.',
+  }
+  const patchDetails = {
+    path: 'system/human/prefs/coding.md',
+    hash: '7368352ddca6c6f60000000000000000',
+    draft: false,
+    committed: true,
+    revision: '3236ad96d544f0001111222233334444',
+    changed: 1,
+    contextActivation: 'next_request',
+  }
+  const patchResult = {
+    content: [{ type: 'text', text: JSON.stringify(patchDetails) }],
+    details: patchDetails,
+  } as any
+  const callLines = editRenderer.renderCall!(patchArgs, theme, context).render(120)
+  assert.deepEqual(callLines, ['● Memory · Edit · patch + commit · system/human/prefs/coding.md'])
+
+  const tones: string[] = []
+  const observedTheme = {
+    fg: (tone: string, text: string) => {
+      tones.push(tone)
+      return text
+    },
+  } as any
+  const collapsed = editRenderer.renderResult!(
+    patchResult,
+    { expanded: false, isPartial: false },
+    observedTheme,
+    { ...context, args: patchArgs },
+  ).render(120)
+  assert.equal(collapsed[0], '⎿ Returned · not acceptance')
+  assert.equal(collapsed[1], '  path: system/human/prefs/coding.md · committed: true · rev: 3236ad96…')
+  assert.ok(collapsed.some((line) => line.startsWith('  - - Design authority:')))
+  assert.ok(
+    collapsed.some((line) => line.startsWith('  + - Design authority:') && line.includes('Claude Opus 4.7')),
+  )
+  assert.ok(
+    tones.every((tone) =>
+      ['toolTitle', 'accent', 'muted', 'dim', 'warning', 'error', 'toolOutput'].includes(tone),
+    ),
+  )
+
+  const expanded = editRenderer.renderResult!(patchResult, { expanded: true, isPartial: false }, theme, {
+    ...context,
+    args: patchArgs,
+  }).render(120)
+  assert.ok(expanded.includes('  Changes'))
+  assert.ok(expanded.some((line) => line.startsWith('  + - Design authority:')))
+
+  const styleCalls: Array<{ text: string; options: Record<string, unknown> }> = []
+  const richTheme = {
+    appearance: 'dark',
+    colors: {
+      toolPendingBg: { kind: 'rgb', r: 30, g: 34, b: 42 },
+      toolDiffRemoved: { kind: 'rgb', r: 210, g: 80, b: 80 },
+      toolDiffAdded: { kind: 'rgb', r: 70, g: 180, b: 100 },
+    },
+    fg: (_tone: string, text: string) => text,
+    getFgAnsi: () => '\u001b[38;2;230;230;230m',
+    getColorMode: () => 'truecolor',
+    style: (text: string, options: Record<string, unknown>) => {
+      styleCalls.push({ text, options })
+      return options.bold ? `[W:${text}]` : `[R:${text}]`
+    },
+  } as any
+  const richRows = editRenderer.renderResult!(patchResult, { expanded: false, isPartial: false }, richTheme, {
+    ...context,
+    args: patchArgs,
+  }).render(120)
+  assert.ok(richRows.some((line) => line.includes('[R:- - Design authority:')))
+  assert.ok(richRows.some((line) => line.includes('[W:Claude]') && line.includes('[W:Opus]')))
+  assert.ok(styleCalls.some((entry) => entry.options.bold === true && entry.options.bg !== undefined))
+  assert.ok(styleCalls.some((entry) => entry.options.fg === 'text' && entry.options.bg !== undefined))
+
+  const appendArgs = {
+    path: 'system/human/prefs/coding.md',
+    mode: 'append',
+    section: 'Notes',
+    text: '- Always use -E when installing dependencies',
+  }
+  assert.deepEqual(editRenderer.renderCall!(appendArgs, theme, context).render(120), [
+    '● Memory · Edit · append · system/human/prefs/coding.md #Notes',
+  ])
+  const appendOut = editRenderer.renderResult!(
+    { content: [], details: { path: 'system/human/prefs/coding.md', draft: true } } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    { ...context, args: appendArgs },
+  ).render(120)
+  assert.ok(appendOut.includes('  § Notes'))
+  assert.ok(appendOut.includes('  + - Always use -E when installing dependencies'))
+
+  const removeArgs = { path: 'reference/obsolete.md', text: null, commit: true }
+  assert.deepEqual(editRenderer.renderCall!(removeArgs, theme, context).render(120), [
+    '● Memory · Edit · remove + commit · reference/obsolete.md',
+  ])
+  const removeOut = editRenderer.renderResult!(
+    { content: [], details: { path: 'reference/obsolete.md', committed: true } } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    { ...context, args: removeArgs },
+  ).render(120)
+  assert.ok(removeOut.includes('  - (removed reference/obsolete.md)'))
+
+  const readRenderer = workflowRenderers('agent_memory_read')
+  assert.deepEqual(
+    readRenderer.renderCall!({ path: 'system/human/prefs/coding.md', offset: 4096 }, theme, context).render(
+      120,
+    ),
+    ['● Memory · Read · from 4096 · system/human/prefs/coding.md'],
+  )
+  assert.deepEqual(readRenderer.renderCall!({ query: 'design authority' }, theme, context).render(120), [
+    '● Memory · Read · query: design authority',
+  ])
+
+  const manageRenderer = workflowRenderers('agent_memory_manage')
+  const rememberArgs = { action: 'remember', text: 'Prefer exact dependency versions' }
+  assert.deepEqual(manageRenderer.renderCall!(rememberArgs, theme, context).render(120), [
+    '● Memory · Manage · remember · Prefer exact dependency versions',
+  ])
+  const rememberOut = manageRenderer.renderResult!(
+    {
+      content: [],
+      details: { path: 'system/human/notes.md', remembered: true, revision: 'abcd1234567890ef' },
+    } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    { ...context, args: rememberArgs },
+  ).render(120)
+  assert.equal(rememberOut[1], '  path: system/human/notes.md · remembered: true · rev: abcd1234…')
+  assert.ok(rememberOut.includes('  + Prefer exact dependency versions'))
+
+  const reflectRenderer = workflowRenderers('agent_memory_reflect')
+  assert.deepEqual(
+    reflectRenderer.renderCall!({ assignment: 'Consolidate coding preferences' }, theme, context).render(120),
+    ['● Memory · Reflect · Consolidate coding preferences'],
+  )
+
+  const commitRenderer = workflowRenderers('agent_memory_commit')
+  assert.deepEqual(
+    commitRenderer.renderCall!(
+      { revision: '3236ad96d544f0001111222233334444', allowShrink: true },
+      theme,
+      context,
+    ).render(120),
+    ['● Memory · Integrate · allowShrink · rev 3236ad96…'],
+  )
+  const commitOut = commitRenderer.renderResult!(
+    {
+      content: [],
+      details: {
+        committed: true,
+        revision: '3236ad96d544f0001111222233334444',
+        files: ['system/human/prefs/coding.md', 'system/human/notes.md'],
+      },
+    } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    context,
+  ).render(120)
+  assert.equal(commitOut[1], '  committed: true · rev: 3236ad96…')
+  assert.ok(commitOut.includes('  + system/human/prefs/coding.md'))
+  assert.ok(commitOut.includes('  + system/human/notes.md'))
+})
+
+test('workflow tool renderers surface specific call metadata and result summaries across tools', async () => {
+  await initializeWorkflowUI()
+
+  const taskUpdate = workflowRenderers('mh_task_update')
+  assert.deepEqual(
+    taskUpdate.renderCall!(
+      { id: 'task-1234567890', status: 'in_progress', description: 'Verify memory UI' },
+      theme,
+      context,
+    ).render(120),
+    ['● task update · in_progress · Verify memory UI'],
+  )
+  assert.deepEqual(
+    taskUpdate.renderCall!({ id: 'task-1234567890', delete: true }, theme, context).render(120),
+    ['● task update · delete · task-123'],
+  )
+  const deletedOut = taskUpdate.renderResult!(
+    { content: [], details: { deleted: 'task-123' } } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    context,
+  ).render(120)
+  assert.equal(deletedOut[1], '  deleted: task-123')
+
+  const updateGoal = workflowRenderers('mh_update_goal')
+  assert.deepEqual(
+    updateGoal.renderCall!({ action: 'set_phase', phase: 'verification' }, theme, context).render(120),
+    ['● Goal · Update · set_phase · verification'],
+  )
+  assert.deepEqual(
+    updateGoal.renderCall!(
+      { action: 'add_plan_item', plan_status: 'in_progress', plan_text: 'Audit all registered tools' },
+      theme,
+      context,
+    ).render(120),
+    ['● Goal · Update · add_plan_item · in_progress: Audit all registered tools'],
+  )
+  assert.deepEqual(
+    updateGoal.renderCall!(
+      { action: 'add_rule', rule_level: 'must', rule_text: 'Preserve existing tests' },
+      theme,
+      context,
+    ).render(120),
+    ['● Goal · Update · add_rule · must: Preserve existing tests'],
+  )
+  assert.deepEqual(workflowSummary({ goal: { plan: [1, 2], rules: [1] } }), ['plan: 2', 'rules: 1'])
+
+  const clearGoal = workflowRenderers('mh_clear_goal')
+  assert.deepEqual(clearGoal.renderCall!({ goal_id: 'goal-alpha' }, theme, context).render(120), [
+    '● Goal · Clear · goal-alpha',
+  ])
+
+  const evidence = workflowRenderers('mh_code_evidence')
+  assert.deepEqual(
+    evidence.renderCall!(
+      { action: 'record', kind: 'test', result: 'passed', command: 'pnpm test' },
+      theme,
+      context,
+    ).render(120),
+    ['● Code Evidence · record · test · passed · pnpm test'],
+  )
+  const evidenceOut = evidence.renderResult!(
+    {
+      content: [],
+      details: {
+        status: 'recorded',
+        summary: { verdict: { verdict: 'incomplete', reason: 'Missing manual review' } },
+      },
+    } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    context,
+  ).render(120)
+  assert.equal(evidenceOut[1], '  reason: Missing manual review · status: recorded · verdict: incomplete')
+
+  const uxUpdate = workflowRenderers('mh_update_ux_workflow')
+  assert.deepEqual(
+    uxUpdate.renderCall!(
+      { action: 'record_review', verdict: 'Ready', summary: 'Clean hierarchy' },
+      theme,
+      context,
+    ).render(120),
+    ['● UX · Update · record_review · Ready · Clean hierarchy'],
+  )
+  assert.deepEqual(
+    uxUpdate.renderCall!(
+      { action: 'set_handoff', handoff: { readiness: 'Ready for implementation' } },
+      theme,
+      context,
+    ).render(120),
+    ['● UX · Update · set_handoff · Ready for implementation'],
+  )
+
+  const execRun = workflowRenderers('mh_execution_run')
+  assert.deepEqual(
+    execRun.renderCall!(
+      { operation: 'update', action: 'set_lane_status', lane_id: 'lane-1', status: 'completed' },
+      theme,
+      context,
+    ).render(120),
+    ['● Execution Run · update · set_lane_status · lane-1 · completed'],
+  )
+
+  const rtk = workflowRenderers('mh_rtk')
+  assert.deepEqual(
+    rtk.renderCall!({ operation: 'rewrite', command: 'git status --short' }, theme, context).render(120),
+    ['● RTK · rewrite · git status --short'],
+  )
+  const rtkOut = rtk.renderResult!(
+    {
+      content: [],
+      details: {
+        mode: 'suggest',
+        rewrite: { status: 'rewritten', candidate: 'rtk git status --short' },
+      },
+    } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    context,
+  ).render(120)
+  assert.equal(rtkOut[1], '  candidate: rtk git status --short · status: rewritten · mode: suggest')
+
+  const codeMap = workflowRenderers('mh_code_map')
+  assert.deepEqual(
+    codeMap.renderCall!({ intent: 'outline', query: 'workflowRenderers' }, theme, context).render(120),
+    ['● Code Map · outline · workflowRenderers'],
+  )
+
+  const recallSearch = workflowRenderers('recall_search')
+  assert.deepEqual(
+    recallSearch.renderCall!(
+      { query: 'design authority', includeGlobal: true, crossProject: true },
+      theme,
+      context,
+    ).render(120),
+    ['● Recall · Search · global + cross-project · design authority'],
+  )
+  const searchOut = recallSearch.renderResult!(
+    {
+      content: [],
+      details: [
+        {
+          recordId: 'rec-1',
+          sourceKind: 'letta_message',
+          quote: 'Only Gemini 3.1 Pro or Claude Opus 4.7',
+        },
+        { recordId: 'rec-2', sourceKind: 'pi_message', quote: 'Secondary match' },
+      ],
+    } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    context,
+  ).render(120)
+  assert.equal(searchOut[1], '  hits: 2 · rec-1')
+  assert.ok(searchOut.includes('  • rec-1: Only Gemini 3.1 Pro or Claude Opus 4.7'))
+
+  const recallRead = workflowRenderers('recall_read')
+  assert.deepEqual(
+    recallRead.renderCall!({ recordId: 'rec-1', query: 'Opus 4.7' }, theme, context).render(120),
+    ['● Recall · Read · query: Opus 4.7 · rec-1'],
+  )
+  const readOut = recallRead.renderResult!(
+    {
+      content: [],
+      details: {
+        evidence: 'UNTRUSTED',
+        recordId: 'rec-1',
+        sourceKind: 'letta_message',
+        path: 'history/session.json',
+        quote: 'Line 1 quote\nLine 2 quote',
+      },
+    } as any,
+    { expanded: false, isPartial: false },
+    theme,
+    context,
+  ).render(120)
+  assert.equal(readOut[1], '  path: history/session.json · recordId: rec-1 · sourceKind: letta_message')
+  assert.ok(readOut.includes('  │ Line 1 quote'))
+})

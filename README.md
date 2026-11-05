@@ -7,7 +7,7 @@ terminal presentation, private maintained knowledge, explicit command-rewrite pr
 and explicit workflow tools. Pi keeps ownership of models, authentication,
 native tools and subagent lifecycle.
 
-**v0.12.6 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
+**v0.12.7 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
 
 [Install and upgrade](docs/getting-started.md) · [Documentation](docs/README.md) ·
 [Source releases](https://github.com/mahirocoko/mahiro-pi/releases) ·
@@ -109,7 +109,7 @@ The native `/settings` → Quiet startup → `header` setting persists independe
 
 This package remains `private: true` and `UNLICENSED`. GitHub source releases
 are not npm publication or a license grant. See [third-party notices](THIRD_PARTY_NOTICES.md)
-for palette attribution and [v0.12.6 source release notes](docs/releases/0.12.6.md) for the dated
+for palette attribution and [v0.12.7 source release notes](docs/releases/0.12.7.md) for the dated
 source scope and verification boundaries; current contracts live in the guides above.
 Existing memory retains bounded [policy interruption recovery and retained-evidence limits](docs/agent-memory.md#policy-interruption-limit).
 Source publication does not install or activate memory in an existing profile.
