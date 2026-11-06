@@ -70,6 +70,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           'help',
           'capacity',
           'retained-preview',
+          'cleanup',
           'retire',
           'prepared-retire',
           'remember',
@@ -84,14 +85,14 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         ].includes(subcommand)
       ) {
         ctx.ui.notify(
-          'Use /mh-memory [status|menu|policy [on|off|step-count <1..100000>|compaction-event]|help|capacity|retained-preview|retire|prepared-retire [status]|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
+          'Use /mh-memory [status|menu|policy [on|off|step-count <1..100000>|compaction-event]|help|capacity|retained-preview|cleanup|retire|prepared-retire [status]|remember <text>|dream|doctor|palace [close|json]|init]. This command never enables memory or changes permissions.',
           'warning',
         )
         return
       }
       if (subcommand === 'help') {
         ctx.ui.notify(
-          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory capacity is the idle count-only storage diagnostic and can run after a successful status; it returns no names, paths, record bodies, or cleanup handle. A model tool turn is not idle. /mh-memory retained-preview classifies retained draft manifests without archiving, unlinking, or proving another controller is idle; safe candidates stay zero while cross-controller exclusion is unproven. /mh-memory retire permanently fences this primary memory generation and waits for its actual registered continuations, controller, publication and holds, without stopping foreground work or unrelated agents. It does not prove global root quiescence or repair uncertain operations; ABI1 and older owners report unsupported. /mh-memory prepared-retire [status] accepts only strict ownerless-prepared or locked-prepared publication evidence. With no argument it drains this capable memory generation and returns an exact offline-required target/revision handoff, without a new maintenance marker, archive, quarantine or global-quiescence claim; status only inspects. Legacy/mixed-version roots still require coordinated offline recovery. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It best-effort opens the capability URL in the system browser and renders bounded committed file previews and sanitized history diffs without exposing raw Git headers or authors. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory capacity is the idle count-only storage diagnostic and can run after a successful status; it returns no names, paths, record bodies, or cleanup handle. A model tool turn is not idle. /mh-memory retained-preview classifies retained draft manifests without archiving, unlinking, or proving another controller is idle; safe candidates stay zero while cross-controller exclusion is unproven. /mh-memory cleanup cancels any active uncommitted primary draft, retires unpublished controller plans and ownerless prepared journals, and reclaims terminal/expired drafts, journals and unreferenced overlay blobs. /mh-memory retire permanently fences this primary memory generation and waits for its actual registered continuations, controller, publication and holds, without stopping foreground work or unrelated agents. It does not prove global root quiescence or repair uncertain operations; ABI1 and older owners report unsupported. /mh-memory prepared-retire [status] accepts only strict ownerless-prepared or locked-prepared publication evidence. With no argument it drains this capable memory generation and returns an exact offline-required target/revision handoff, without a new maintenance marker, archive, quarantine or global-quiescence claim; status only inspects. Legacy/mixed-version roots still require coordinated offline recovery. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It best-effort opens the capability URL in the system browser and renders bounded committed file previews and sanitized history diffs without exposing raw Git headers or authors. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
           'info',
         )
         return
@@ -154,6 +155,16 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             return
           }
           const result = await runtime.run('agent_memory_manage', { action: 'retained-preview' }, ctx)
+          observe('memory', result)
+          ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
+          return
+        }
+        if (subcommand === 'cleanup') {
+          if (rest.length) {
+            ctx.ui.notify('Usage: /mh-memory cleanup', 'warning')
+            return
+          }
+          const result = await runtime.run('agent_memory_manage', { action: 'cleanup' }, ctx)
           observe('memory', result)
           ctx.ui.notify(JSON.stringify(result, null, 2), 'info')
           return
@@ -411,6 +422,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
     while (ctx.mode === 'tui' && ctx.hasUI) {
       const statusRow = 'Inspect full status JSON (/mh-memory status)'
       const doctorRow = 'Run Doctor (/mh-memory doctor)'
+      const cleanupRow = 'Cleanup drafts & journals (/mh-memory cleanup)'
       const capacityRow = 'Check Capacity (/mh-memory capacity) [idle only]'
       const retainedRow = 'Retained drafts preview (/mh-memory retained-preview)'
       const preparedRow = 'Prepared retirement status (/mh-memory prepared-retire status)'
@@ -429,6 +441,12 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             value: doctorRow,
             label: 'Memory Doctor  run',
             description: 'Audit managed memory health, scope and repository state · /mh-memory doctor',
+          },
+          {
+            value: cleanupRow,
+            label: 'Cleanup drafts  run',
+            description:
+              'Cancel active draft, retire stranded prepared plans and reclaim stale drafts/journals · /mh-memory cleanup',
           },
           {
             value: capacityRow,
@@ -462,6 +480,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       if (!choice || choice === backRow) return true
       if (choice === statusRow) await memoryCommand.handler('status', ctx)
       else if (choice === doctorRow) await memoryCommand.handler('doctor', ctx)
+      else if (choice === cleanupRow) await memoryCommand.handler('cleanup', ctx)
       else if (choice === capacityRow) await memoryCommand.handler('capacity', ctx)
       else if (choice === retainedRow) await memoryCommand.handler('retained-preview', ctx)
       else if (choice === preparedRow) await memoryCommand.handler('prepared-retire status', ctx)
@@ -542,6 +561,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       if (abi !== 2) {
         const statusRow = 'Inspect status (/mh-memory status)'
         const doctorRow = 'Run Doctor (/mh-memory doctor)'
+        const cleanupRow = 'Cleanup drafts (/mh-memory cleanup)'
         const choice = await selectHubMenu(
           ctx,
           `Managed Memory · ${readiness} (ABI${abi})`,
@@ -557,6 +577,11 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
               description: 'Audit managed memory health and scope · /mh-memory doctor',
             },
             {
+              value: cleanupRow,
+              label: 'Cleanup drafts  run',
+              description: 'Cancel active draft and reclaim stale views · /mh-memory cleanup',
+            },
+            {
               value: backHub,
               label: '← Back to /mh  esc',
               description: 'Return to Mahiro Control Center',
@@ -567,6 +592,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         if (!choice || choice === backHub) return true
         if (choice === statusRow) await memoryCommand.handler('status', ctx)
         else if (choice === doctorRow) await memoryCommand.handler('doctor', ctx)
+        else if (choice === cleanupRow) await memoryCommand.handler('cleanup', ctx)
         continue
       }
       const autoRow = `Automatic reflection · ${auto ? 'ON' : 'OFF'} [memory policy]`
@@ -801,6 +827,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
             'offline-draft-park',
             'offline-draft-restore-inspect',
             'offline-draft-restore',
+            'cleanup',
             'cancel',
             'forget',
             'rollback',

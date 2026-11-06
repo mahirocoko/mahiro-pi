@@ -1726,3 +1726,113 @@ test('ABI2 agent_memory_edit with commit=true auto-syncs parent and root index.m
     await f.close()
   }
 })
+
+test('agent_memory_edit sanitizes free-text and duplicate sources and /mh-memory cleanup recovers stranded prepared state', async () => {
+  const f = fixture(true)
+  try {
+    await f.emit('session_start')
+    // 1. Free-text and duplicate sources in interactive edits are sanitized & deduplicated without throwing Unsafe memory content
+    const edited: any = await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'system/human/prefs/coding.md',
+        expectedHash: null,
+        text: '---\nname: coding\ndescription: Durable coding preferences and simplicity rules.\n---\n# Coding\nKeep abstractions minimal.\n',
+        sources: [
+          'interactive-session: simplify before abstracting (2026/11/06)',
+          'interactive-session: simplify before abstracting (2026/11/06)',
+        ],
+        commit: true,
+      },
+      f.ctx,
+    )
+    assert.equal(edited.path, 'system/human/prefs/coding.md')
+    assert.ok(typeof edited.revision === 'string' && edited.revision.length > 0)
+
+    // 2. Open an active uncommitted primary draft, then simulate a stranded ownerless prepared journal on disk
+    const currentCoding = await f.runtime.run(
+      'agent_memory_read',
+      { path: 'system/human/prefs/coding.md' },
+      f.ctx,
+    )
+    await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'system/human/prefs/coding.md',
+        expectedHash: currentCoding.hash,
+        text: '---\nname: coding\ndescription: Durable coding preferences and simplicity rules.\n---\n# Coding\nUnfinished draft.\n',
+      },
+      f.ctx,
+    )
+
+    const draftEngine = new MemoryDataEngine(realpathSync(f.root), engineEnvironment(process.env))
+    const orphanDraft = await draftEngine.execute(
+      'create',
+      { project: 'synthetic' },
+      async () => {},
+      new AbortController().signal,
+    )
+    await draftEngine.execute(
+      'edit',
+      {
+        view: orphanDraft.view,
+        path: 'system/human/notes.md',
+        expectedHash: null,
+        text: '---\nname: notes\ndescription: Stranded note.\n---\n# Notes\nStranded.\n',
+        sources: [],
+      },
+      async () => {},
+      new AbortController().signal,
+    )
+    await draftEngine.execute(
+      'ready',
+      { view: orphanDraft.view },
+      async () => {},
+      new AbortController().signal,
+    )
+    await draftEngine.execute(
+      'prepare',
+      { view: orphanDraft.view, reviewed: [] },
+      async () => {},
+      new AbortController().signal,
+    )
+    const journalDir = join(f.root, '.views/.engine-v2/journal')
+    assert.ok(
+      readdirSync(journalDir).some(
+        (name) => JSON.parse(readFileSync(join(journalDir, name), 'utf8')).receipt?.stage === 'prepared',
+      ),
+    )
+
+    // 3. Run /mh-memory cleanup and verify it cancels the active draft, retires the stranded prepared journal, and reclaims artifacts
+    await f.commands.get('mh-memory').handler('cleanup', f.ctx)
+    const cleanupReport = JSON.parse(f.notifications.at(-1) ?? '{}')
+    assert.equal(cleanupReport.cleaned, true)
+    assert.equal(cleanupReport.cancelledDraft, true)
+    assert.ok(cleanupReport.reclaimedDrafts >= 2)
+    assert.ok(cleanupReport.reclaimedJournals >= 1)
+
+    // 4. Verify subsequent agent_memory_edit (commit: true) succeeds cleanly after cleanup
+    const afterCleanup = await f.runtime.run(
+      'agent_memory_read',
+      { path: 'system/human/prefs/coding.md' },
+      f.ctx,
+    )
+    const committedAfter: any = await f.runtime.run(
+      'agent_memory_edit',
+      {
+        path: 'system/human/prefs/coding.md',
+        expectedHash: afterCleanup.hash,
+        text: '---\nname: coding\ndescription: Durable coding preferences and simplicity rules.\n---\n# Coding\nKeep abstractions minimal and grounded.\n',
+        commit: true,
+      },
+      f.ctx,
+    )
+    assert.equal(committedAfter.path, 'system/human/prefs/coding.md')
+    assert.match(
+      f.store.snapshot().files['system/human/prefs/coding.md']?.text ?? '',
+      /Keep abstractions minimal and grounded/,
+    )
+  } finally {
+    await f.close()
+  }
+})

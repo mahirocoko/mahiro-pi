@@ -2,7 +2,7 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from '@earendil-works/pi-coding-agent'
-import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
+import { bytes, digest, hasSecret, objectShape, validId } from '../continuity/records.ts'
 import { selectedVerification, verificationResultText } from './verification-evidence.ts'
 import {
   createMemoryStore,
@@ -557,6 +557,22 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         draft = undefined
         return { cancelled: true }
       }
+      if (args.action === 'cleanup') {
+        stopJob()
+        let cancelledDraft = false
+        if (draft?.state === 'open') {
+          p.store.cancel(draft)
+          cancelledDraft = true
+        }
+        draft = undefined
+        const cleaned = p.store.cleanup()
+        lastError = undefined
+        return {
+          ...cleaned,
+          cancelledDraft,
+          retiredPlans: 0,
+        }
+      }
       if (typeof args.revision !== 'string') throw new Error('Expected current memory revision')
       stopJob()
       if (args.action === 'discard' && typeof args.target === 'string') {
@@ -667,12 +683,15 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
         ...(typeof args.newText === 'string' ? { newText: args.newText } : {}),
         ...(typeof args.section === 'string' ? { section: args.section } : {}),
       }
+      const normalizedSources = Array.isArray(args.sources)
+        ? [...new Set(args.sources.filter((source): source is string => validId(source)))].sort().slice(0, 32)
+        : []
       const hash = f.store.edit(
         view,
         normalizedPath,
         args.expectedHash,
         normalizedText,
-        (args.sources ?? []) as string[],
+        normalizedSources,
         editOptions,
       )
       if (args.commit === true) {
@@ -733,7 +752,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
                 indexPath,
                 null,
                 `# ${title}\n\n- [[${targetPath}]] — ${summary}\n`,
-                (args.sources ?? []) as string[],
+                normalizedSources,
               )
             } else if ('text' in idxFile && idxFile.hash && !idxFile.text.includes(`[[${targetPath}]]`)) {
               f.store.edit(
@@ -741,7 +760,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
                 indexPath,
                 idxFile.hash,
                 `- [[${targetPath}]] — ${summary}`,
-                (args.sources ?? []) as string[],
+                normalizedSources,
                 { mode: 'append' },
               )
             }

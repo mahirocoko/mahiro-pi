@@ -123,6 +123,20 @@ export class MemoryEngineController {
     if (!own.drained || own.published) return
     return await this.request('recover', { plan: own.plan.id, digest: own.plan.digest }, context)
   }
+  async retireAllUnpublished(context: OperationContext) {
+    assertCurrent(context)
+    const candidates = [...this.preparations.values()].filter((entry) => !entry.retired && !entry.published)
+    let retired = 0
+    for (const own of candidates) {
+      if (own.published) continue
+      own.retired = true
+      await own.joined
+      if (!own.drained || own.published) continue
+      await this.request('recover', { plan: own.plan.id, digest: own.plan.digest }, context)
+      retired++
+    }
+    return retired
+  }
   private exited?: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
   readonly root: string
   private environment: NodeJS.ProcessEnv

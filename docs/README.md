@@ -44,6 +44,9 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.9 source release record](releases/0.12.9.md) — `agent_memory_edit` `sources` normalization
+  and deduplication, primary-session unpublished plan retirement on failure, and one-step
+  `/mh-memory cleanup` (`agent_memory_manage` `{ action: "cleanup" }`) for draft/journal/blob recovery.
 - [v0.12.8 source release record](releases/0.12.8.md) — persistent per-project Palace HTML
   snapshots under `<profileDir>/viewers/memory-<project>.html`, expanded 8 KiB/128 KiB committed
   body preview budgets with fair-share allocation, and live `/mh-memory palace` TUI progress

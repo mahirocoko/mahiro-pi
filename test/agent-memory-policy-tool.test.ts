@@ -56,6 +56,13 @@ test('registered manage tool accepts bounded reflection fields and rejects the r
       arguments: { action: 'retained-preview' },
     })
     assert.equal(preview.action, 'retained-preview')
+    const cleanup = validateToolCall([manage], {
+      type: 'toolCall',
+      id: 'cleanup-action',
+      name: 'agent_memory_manage',
+      arguments: { action: 'cleanup' },
+    })
+    assert.equal(cleanup.action, 'cleanup')
     const draftArchive = validateToolCall([manage], {
       type: 'toolCall',
       id: 'offline-draft-archive-action',

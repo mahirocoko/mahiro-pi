@@ -379,6 +379,22 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         }
         return
       }
+      if (method === 'manage' && input.action === 'cleanup') {
+        const outer = shape(value, ['cleanup'])
+        const cleanup = shape(outer.cleanup, [
+          'cleaned',
+          'reclaimedDrafts',
+          'reclaimedJournals',
+          'reclaimedBlobs',
+        ])
+        ensure(
+          cleanup.cleaned === true &&
+            integer(cleanup.reclaimedDrafts) &&
+            integer(cleanup.reclaimedJournals) &&
+            integer(cleanup.reclaimedBlobs),
+        )
+        return
+      }
       if (objectShape(value, ['conflict']) && Object.hasOwn(value, 'conflict')) {
         ensure(method === 'prepare' && paths(value.conflict) && (value.conflict as unknown[]).length > 0)
         return

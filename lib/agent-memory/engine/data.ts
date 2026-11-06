@@ -513,29 +513,53 @@ export class MemoryDataEngine {
     if ((await this.head()) !== revision)
       throw memoryFailure('CAS', 'Memory revision changed at final fence', 'revision')
   }
-  private async reclaimNamespaceCapacity() {
+  private async reclaimNamespaceCapacity(force = false) {
+    const counts = {
+      reclaimedDrafts: 0,
+      reclaimedJournals: 0,
+      reclaimedBlobs: 0,
+    }
     const journal = join(this.folder, 'journal')
     const draftsFolder = join(this.folder, 'drafts')
     await this.gate([journal, draftsFolder], [], 'view')
     await privateDirectory(journal, true)
     await privateDirectory(draftsFolder, true)
+    const rawDraftNames = (await readdir(draftsFolder)).sort()
+    const draftNames: string[] = []
+    for (const name of rawDraftNames) {
+      if (force && name.endsWith('.tmp')) {
+        const tmpPath = join(draftsFolder, name)
+        await this.gate([tmpPath], [], 'view')
+        await unlink(tmpPath).catch(() => {})
+        continue
+      }
+      draftNames.push(name)
+    }
     const journalNames = (await readdir(journal)).sort()
-    const draftNames = (await readdir(draftsFolder)).sort()
-    if (journalNames.length < overflowJournalCutoff && draftNames.length < limits.views) return
+    if (!force && journalNames.length < overflowJournalCutoff && draftNames.length < limits.views)
+      return counts
     const now = Date.now()
     const reconciledJournals: { path: string; planId: string; view: string }[] = []
     const ownerlessDirtyJournals: { path: string; planId: string; view: string }[] = []
     const activeJournalViews = new Set<string>()
     for (const name of journalNames) {
-      if (!/^[a-f0-9-]{36}\.json$/.test(name)) return
+      if (!/^[a-f0-9-]{36}\.json$/.test(name)) {
+        if (!force) return counts
+        continue
+      }
       const path = join(journal, name)
       let record: OperationRecord
       try {
         record = parseOperation(await this.read(path, operationLimit))
       } catch {
-        return
+        if (!force) return counts
+        continue
       }
-      if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage)) return
+      if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage)) {
+        if (!force) return counts
+        activeJournalViews.add(record.immutable.plan.view)
+        continue
+      }
       if (record.receipt.stage === 'reconciled_committed')
         reconciledJournals.push({
           path,
@@ -554,26 +578,34 @@ export class MemoryDataEngine {
     const reclaimableDraftIds = new Set<string>()
     const reclaimableDrafts: { id: string; path: string; blobs: string[]; discarded: boolean }[] = []
     const retainedBlobs = new Set<string>()
+    let unreadableDrafts = 0
     for (const name of draftNames) {
-      if (!/^[a-f0-9-]{36}\.json$/.test(name)) continue
+      if (!/^[a-f0-9-]{36}\.json$/.test(name)) {
+        unreadableDrafts++
+        continue
+      }
       const id = name.slice(0, -5)
       allDraftIds.add(id)
       const path = join(draftsFolder, name)
       try {
         const raw = await this.read(path, 2 * 1024 * 1024)
         const draft = parseDraft(raw)
-        if (draft.id !== id) continue
+        if (draft.id !== id) {
+          unreadableDrafts++
+          continue
+        }
         const blobs = Object.values(draft.overlay)
           .filter((ref): ref is Overlay => ref !== null)
           .map((ref) => ref.blob)
         const discarded =
-          draft.state === 'conflict' && now >= draft.deadline
+          draft.state === 'conflict' && (force || now >= draft.deadline)
             ? await this.retainedDiscarded(id, digest(raw)).catch(() => false)
             : false
         const reclaimable =
           !this.isLocallyActiveDraft(id) &&
           !activeJournalViews.has(id) &&
           (draft.state === 'committed' ||
+            (force && (draft.state === 'cancelled' || (draft.state === 'conflict' && discarded))) ||
             (now >= draft.deadline && (draft.state !== 'conflict' || discarded)))
         if (reclaimable) {
           reclaimableDraftIds.add(id)
@@ -583,6 +615,7 @@ export class MemoryDataEngine {
         }
       } catch {
         // Leave unreadable/invalid draft manifests untouched for strict callers to report.
+        unreadableDrafts++
       }
     }
     const allOverflowIds = new Set<string>()
@@ -599,17 +632,21 @@ export class MemoryDataEngine {
         const path = join(overflowFolder, name)
         try {
           const draft = parseDraft(await this.read(path, 2 * 1024 * 1024))
-          if (draft.id !== id) continue
+          if (draft.id !== id) {
+            unreadableDrafts++
+            continue
+          }
           for (const ref of Object.values(draft.overlay)) if (ref !== null) retainedBlobs.add(ref.blob)
           if (
             draft.state === 'committed' &&
-            now >= draft.deadline &&
+            (force || now >= draft.deadline) &&
             !this.isLocallyActiveDraft(id) &&
             !activeJournalViews.has(id)
           )
             expiredCommittedOverflowIds.add(id)
         } catch {
           // Ignore unreadable overflow manifests during best-effort reclamation.
+          unreadableDrafts++
         }
       }
     } catch (error) {
@@ -626,23 +663,22 @@ export class MemoryDataEngine {
       await rmdir(staging).catch(() => {})
     }
     for (const entry of reconciledJournals) {
-      const orphaned =
-        !allDraftIds.has(entry.view) &&
-        !allOverflowIds.has(entry.view) &&
-        entry.view !== '00000000-0000-4000-8000-000000000099'
-      if (!reclaimableDraftIds.has(entry.view) && !expiredCommittedOverflowIds.has(entry.view) && !orphaned)
+      if (!force && !reclaimableDraftIds.has(entry.view) && !expiredCommittedOverflowIds.has(entry.view))
         continue
       await unlinkJournal(entry)
+      counts.reclaimedJournals++
     }
     for (const entry of ownerlessDirtyJournals) {
-      if (!reclaimableDraftIds.has(entry.view)) continue
+      if (!force && !reclaimableDraftIds.has(entry.view)) continue
       await unlinkJournal(entry)
+      counts.reclaimedJournals++
     }
     for (const entry of reclaimableDrafts) {
       await this.gate([entry.path], [], 'view')
       await unlink(entry.path).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw error
       })
+      counts.reclaimedDrafts++
       if (entry.discarded) {
         const marker = join(this.folder, 'discarded', `${entry.id}.json`)
         await this.gate([marker], [], 'view')
@@ -655,8 +691,27 @@ export class MemoryDataEngine {
         const blobPath = join(this.folder, 'blobs', blob)
         await this.gate([blobPath], [], 'view')
         await unlink(blobPath).catch(() => {})
+        counts.reclaimedBlobs++
       }
     }
+    if (force && unreadableDrafts === 0) {
+      const blobsFolder = join(this.folder, 'blobs')
+      await this.gate([blobsFolder], [], 'view')
+      try {
+        await safePath(blobsFolder)
+        await privateDirectory(blobsFolder)
+        for (const name of (await readdir(blobsFolder)).sort()) {
+          if (!uuidPattern.test(name) || retainedBlobs.has(name)) continue
+          const blobPath = join(blobsFolder, name)
+          await this.gate([blobPath], [], 'view')
+          await unlink(blobPath).catch(() => {})
+          counts.reclaimedBlobs++
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+    return counts
   }
   private async initializeNamespace() {
     await this.gate([this.folder], [], 'view')
@@ -717,6 +772,55 @@ export class MemoryDataEngine {
   }
   private async management(args: Input<'manage'>) {
     if (args.action === 'migration-export') return { migrationExport: await this.migrationExport(args) }
+    if (args.action === 'cleanup') {
+      const { config } = await this.config()
+      if (!config.projects.some((project) => project.id === args.project))
+        throw Error('Explicit mapped management scope required')
+      if (await this.exactLock(null)) {
+        const journal = join(this.folder, 'journal')
+        await this.gate([journal], [], 'view')
+        await privateDirectory(journal, true)
+        for (const name of (await readdir(journal)).sort()) {
+          if (!/^[a-f0-9-]{36}\.json$/.test(name)) continue
+          try {
+            const record = parseOperation(await this.read(join(journal, name), operationLimit))
+            if (record.owner !== null || record.receipt.stage !== 'prepared' || record.sequence !== 0)
+              continue
+            const receipt = await this.outcome(record, false, true)
+            if (receipt.stage !== 'not_committed_dirty' || receipt.indexDirty || receipt.worktreeDirty)
+              continue
+            const next = await this.updateOperation(record, receipt)
+            const cached = this.plans.get(record.immutable.plan.id)
+            if (cached) {
+              cached.record = next
+              cached.receipt = next.receipt
+            }
+            const viewId = record.immutable.plan.view
+            if (!this.isLocallyActiveDraft(viewId)) {
+              const draftPath = join(this.folder, 'drafts', `${viewId}.json`)
+              try {
+                const draft = parseDraft(await this.read(draftPath, 2 * 1024 * 1024))
+                if (draft.id === viewId && (draft.state === 'ready' || draft.state === 'open')) {
+                  draft.state = 'cancelled'
+                  await this.save(draft)
+                }
+              } catch {
+                // Ignore missing/unreadable draft during best-effort prepared journal retirement.
+              }
+            }
+          } catch {
+            // Leave non-reconcilable records untouched for strict inspection.
+          }
+        }
+      }
+      const counts = await this.reclaimNamespaceCapacity(true)
+      return {
+        cleanup: {
+          cleaned: true as const,
+          ...counts,
+        },
+      }
+    }
     const { config, configHash } = await this.config()
     const now = await this.certify(config, configHash)
     const scope = args.project
@@ -2663,7 +2767,7 @@ export class MemoryDataEngine {
         next.state = 'open'
         if (nextText === null) next.overlay[args.path] = null
         else {
-          const sources = [...(args.sources ?? [])].sort()
+          const sources = [...new Set(args.sources ?? [])].sort()
           validateFileText(args.path, nextText, sources, config)
           if (suppressed(ledger, args.path, sources)) throw Error('Forgotten knowledge cannot be revived')
           const blob = randomUUID()

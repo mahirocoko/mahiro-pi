@@ -161,7 +161,15 @@ export interface Operations {
   observe: { input: { episode: Episode }; output: { recorded: true } }
   manage: {
     input: {
-      action: 'forget' | 'rollback' | 'doctor' | 'palace' | 'init-project' | 'migrate-v2' | 'migration-export'
+      action:
+        | 'forget'
+        | 'rollback'
+        | 'doctor'
+        | 'palace'
+        | 'init-project'
+        | 'migrate-v2'
+        | 'migration-export'
+        | 'cleanup'
       project: string
       revision?: string
       paths?: string[]
@@ -178,6 +186,14 @@ export interface Operations {
       | { doctor: Record<string, unknown> }
       | { palace: Record<string, unknown> }
       | { migrationExport: Record<string, unknown> }
+      | {
+          cleanup: {
+            cleaned: true
+            reclaimedDrafts: number
+            reclaimedJournals: number
+            reclaimedBlobs: number
+          }
+        }
   }
   conflicts: {
     input: { project: string; target?: string; path?: string; offset?: number; limit?: number }
@@ -436,16 +452,32 @@ export function validateInput(method: Method, input: unknown) {
       method !== 'conflicts' &&
       !(
         method === 'manage' &&
-        ['doctor', 'palace', 'init-project', 'migrate-v2'].includes(input.action as string)
+        ['doctor', 'palace', 'init-project', 'migrate-v2', 'cleanup'].includes(input.action as string)
       ) &&
       (typeof input.revision !== 'string' || !/^[a-f0-9]{40,64}$/.test(input.revision))
     )
       throw Error('Expected current memory revision')
     if (
       method === 'manage' &&
-      !['forget', 'rollback', 'doctor', 'palace', 'init-project', 'migrate-v2', 'migration-export'].includes(
-        input.action as string,
-      )
+      ![
+        'forget',
+        'rollback',
+        'doctor',
+        'palace',
+        'init-project',
+        'migrate-v2',
+        'migration-export',
+        'cleanup',
+      ].includes(input.action as string)
+    )
+      throw Error('Invalid management action')
+    if (
+      method === 'manage' &&
+      input.action === 'cleanup' &&
+      (input.revision !== undefined ||
+        input.paths !== undefined ||
+        input.sources !== undefined ||
+        input.target !== undefined)
     )
       throw Error('Invalid management action')
     if (method === 'manage' && input.action === 'migration-export') {

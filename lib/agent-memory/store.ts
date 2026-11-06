@@ -828,7 +828,7 @@ export function createMemoryStore(
       assertReadOnlyFrontmatter(path, v.files[path]?.text, nextText)
       const next = copy(v)
       if (nextText === null) delete next.files[path]
-      else next.files[path] = { text: nextText, sources: [...sources].sort() }
+      else next.files[path] = { text: nextText, sources: [...new Set(sources)].sort() }
       validate(next.files)
       saveView(next)
       Object.assign(v, next)
@@ -851,6 +851,36 @@ export function createMemoryStore(
       current()
       write(join(root, '.views', v.id + '.json'), raw)
       Object.assign(v, next)
+    },
+    cleanup() {
+      const retained = views()
+      let reclaimedDrafts = 0
+      const now = Date.now()
+      for (const old of retained) {
+        if (['committed', 'cancelled'].includes(old.state) || (old.state === 'open' && old.deadline <= now)) {
+          const selected = readView(old.id)
+          if (
+            selected.state !== old.state ||
+            selected.deadline !== old.deadline ||
+            selected.project !== old.project
+          )
+            throw new Error('Stale private view summary; proposal retained')
+          const folder = join(root, '.views', old.id)
+          current(folder)
+          assertPrivatePath(folder)
+          rmSync(folder, { recursive: true, force: true })
+          const metadata = join(root, '.views', `${old.id}.json`)
+          current(metadata)
+          unlinkSync(metadata)
+          reclaimedDrafts++
+        }
+      }
+      return {
+        cleaned: true as const,
+        reclaimedDrafts,
+        reclaimedJournals: 0,
+        reclaimedBlobs: 0,
+      }
     },
     integrate(v: View, reviewed: string[] = [], options?: { allowShrink?: boolean }) {
       checkView(v)

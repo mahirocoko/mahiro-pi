@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { lstat, realpath } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
+import { bytes, digest, hasSecret, objectShape, validId } from '../continuity/records.ts'
 import { selectedVerification, verificationResultText } from './verification-evidence.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
 import { abi2PalaceStyle, renderAbi2PalacePage } from '../palace-render/abi2-page.ts'
@@ -1871,6 +1871,14 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       signal,
       explicitInitProjectId,
     )
+    const retirePrimaryUnpublished = async (view: string) => {
+      try {
+        const cleanup = await resolve(ctx, 'agent_memory_manage', 'read')
+        await cleanup.engine.retireUnpublished(view, cleanup.context)
+      } catch {
+        // Best-effort unpublished prepare retirement; never mask the primary error.
+      }
+    }
     if (name === 'agent_memory_reflect') {
       if (!objectShape(args, ['assignment']) || typeof args.assignment !== 'string')
         throw Error('Bounded assignment required')
@@ -2000,9 +2008,16 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           }
         }
         if (!('view' in staged)) throw Error('Management draft unavailable')
-        const prepared = await f.request('prepare', { view: staged.view, reviewed: [] })
-        if (!('plan' in prepared)) throw Error('Management revision conflict; proposal retained')
-        const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        let prepared: Awaited<ReturnType<typeof f.request<'prepare'>>>
+        let result: Awaited<ReturnType<MemoryPublisher['publish']>>
+        try {
+          prepared = await f.request('prepare', { view: staged.view, reviewed: [] })
+          if (!('plan' in prepared)) throw Error('Management revision conflict; proposal retained')
+          result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        } catch (error) {
+          await retirePrimaryUnpublished(staged.view)
+          throw error
+        }
         if (result.stage !== 'reconciled_committed')
           throw Error('Management publication unavailable; proposal retained')
         draft = undefined
@@ -2082,9 +2097,16 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           }
         }
         await f.request('ready', { view: created.view })
-        const prepared = await f.request('prepare', { view: created.view, reviewed: [] })
-        if ('conflict' in prepared) return prepared
-        const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        let prepared: Awaited<ReturnType<typeof f.request<'prepare'>>>
+        let result: Awaited<ReturnType<MemoryPublisher['publish']>>
+        try {
+          prepared = await f.request('prepare', { view: created.view, reviewed: [] })
+          if ('conflict' in prepared) return prepared
+          result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        } catch (error) {
+          await retirePrimaryUnpublished(created.view)
+          throw error
+        }
         if (result.stage !== 'reconciled_committed')
           throw Error('Remember publication unavailable; proposal retained')
         draft = undefined
@@ -2219,6 +2241,31 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         draft = undefined
         return { cancelled: true }
       }
+      if (args.action === 'cleanup') {
+        admissionSerial++
+        launchFence++
+        compactionSerial++
+        compacting = undefined
+        pending = undefined
+        job?.cancel()
+        let cancelledDraft = false
+        if (draft) {
+          const oldView = draft.view
+          draft = undefined
+          await f.engine.retireUnpublished(oldView, f.context).catch(() => undefined)
+          await f.request('cancel', { view: oldView }).catch(() => undefined)
+          cancelledDraft = true
+        }
+        const retiredPlans = await f.engine.retireAllUnpublished(f.context).catch(() => 0)
+        const res = await f.request('manage', { action: 'cleanup', project: f.project })
+        if (!('cleanup' in res)) throw Error('Cleanup result unavailable')
+        lastError = undefined
+        return {
+          ...res.cleanup,
+          cancelledDraft,
+          retiredPlans,
+        }
+      }
       if (args.action === 'initialize') throw Error('Initialization requires an exclusively absent root')
       if (typeof args.revision !== 'string') throw Error('Expected current memory revision')
       job?.cancel()
@@ -2332,12 +2379,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         (args.mode === undefined || args.mode === 'replace')
           ? ensureTieredFrontmatter(normalizedPath, args.text)
           : args.text
+      const normalizedSources = Array.isArray(args.sources)
+        ? [...new Set(args.sources.filter((source): source is string => validId(source)))].sort().slice(0, 32)
+        : []
       const result = await f.request('edit', {
         view: selected.view,
         path: normalizedPath,
         ...(args.expectedHash !== undefined ? { expectedHash: args.expectedHash } : {}),
         ...(normalizedText !== undefined ? { text: normalizedText } : {}),
-        sources: (args.sources ?? []) as string[],
+        sources: normalizedSources,
         ...(typeof args.mode === 'string' ? { mode: args.mode as 'replace' | 'patch' | 'append' } : {}),
         ...(typeof args.oldText === 'string' ? { oldText: args.oldText } : {}),
         ...(typeof args.newText === 'string' ? { newText: args.newText } : {}),
@@ -2407,7 +2457,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
                 path: indexPath,
                 expectedHash: null,
                 text: `# ${title}\n\n- [[${targetPath}]] — ${summary}\n`,
-                sources: (args.sources ?? []) as string[],
+                sources: normalizedSources,
               })
             } else if (
               idxFile.hash &&
@@ -2419,7 +2469,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
                 path: indexPath,
                 expectedHash: idxFile.hash,
                 text: `- [[${targetPath}]] — ${summary}`,
-                sources: (args.sources ?? []) as string[],
+                sources: normalizedSources,
                 mode: 'append',
               })
             }
@@ -2437,14 +2487,22 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             activeContextChanged: false,
           }
         }
-        const prepared = await f.request('prepare', {
-          view: selected.view,
-          reviewed: [],
-          ...(args.allowShrink === true ? { allowShrink: true } : {}),
-        })
-        draft = undefined
-        if ('conflict' in prepared) return { path: normalizedPath, ...result, ...prepared }
-        const published = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        let prepared: Awaited<ReturnType<typeof f.request<'prepare'>>>
+        let published: Awaited<ReturnType<MemoryPublisher['publish']>>
+        try {
+          prepared = await f.request('prepare', {
+            view: selected.view,
+            reviewed: [],
+            ...(args.allowShrink === true ? { allowShrink: true } : {}),
+          })
+          draft = undefined
+          if ('conflict' in prepared) return { path: normalizedPath, ...result, ...prepared }
+          published = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+        } catch (error) {
+          draft = undefined
+          await retirePrimaryUnpublished(selected.view)
+          throw error
+        }
         if (published.stage !== 'reconciled_committed')
           throw Error('Publication unavailable; proposal retained')
         return {
@@ -2473,14 +2531,22 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       f.access.value.ready = true
       return { readyForIntegration: true, activeContextChanged: false }
     }
-    const prepared = await f.request('prepare', {
-      view: selected.view,
-      reviewed: [],
-      ...(args.allowShrink === true ? { allowShrink: true } : {}),
-    })
-    draft = undefined
-    if ('conflict' in prepared) return prepared
-    const result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+    let prepared: Awaited<ReturnType<typeof f.request<'prepare'>>>
+    let result: Awaited<ReturnType<MemoryPublisher['publish']>>
+    try {
+      prepared = await f.request('prepare', {
+        view: selected.view,
+        reviewed: [],
+        ...(args.allowShrink === true ? { allowShrink: true } : {}),
+      })
+      draft = undefined
+      if ('conflict' in prepared) return prepared
+      result = await new MemoryPublisher(f.engine).publish(prepared.plan, f.context)
+    } catch (error) {
+      draft = undefined
+      await retirePrimaryUnpublished(selected.view)
+      throw error
+    }
     if (result.stage !== 'reconciled_committed') throw Error('Publication unavailable; proposal retained')
     return {
       revision: result.revision,

@@ -122,7 +122,7 @@ Keep each fact in one authoritative file, and link every new or updated file fro
 
 ### 7. Verify and commit
 1. Read each target file first with `agent_memory_read` (`{ "path": "<target-path>" }`) to capture its `hash` and `currentRevision`.
-2. Apply edits in the draft view with `agent_memory_edit` (`mode: "patch"`, `mode: "replace"`, or `mode: "append"`), passing `expectedHash` and any episode `sources`.
+2. Apply edits in the draft view with `agent_memory_edit` (`mode: "patch"`, `mode: "replace"`, or `mode: "append"`), passing `expectedHash` (omit `sources` during interactive initialization).
 3. Update `<dir>/index.md` and root `index.md` in the same draft view so every file is reachable.
 4. Publish the draft with `agent_memory_commit` (`{ "revision": "<baseRevision>", "message": "memory(init): <summary>" }`).
 5. Run `agent_memory_manage` (`{ "action": "doctor" }`) to confirm there are zero broken links, orphan files, or budget warnings before reporting completion.
