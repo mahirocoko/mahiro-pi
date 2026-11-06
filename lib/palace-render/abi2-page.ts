@@ -387,8 +387,9 @@ ${viewInputs}
 </body>
 </html>`
   for (const [previewBytes, previewLines, compact] of [
-    [8192, 128, false],
+    [8192, 256, false],
     [4096, 128, false],
+    [2048, 64, false],
     [1024, 32, false],
     [256, 12, false],
     [128, 4, true],

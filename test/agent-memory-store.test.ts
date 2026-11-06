@@ -1045,3 +1045,42 @@ test('read_only YAML frontmatter protects locked files and blocks agent mutation
     f.close()
   }
 })
+
+test('initProject and migrateV2 automatically upgrade legacy v1 config budgets', () => {
+  const f = fixture()
+  try {
+    const primary = createMemoryStore(f.root, () => {}, 'primary')
+    const configPath = join(f.root, 'config.json')
+    const initial = JSON.parse(readFileSync(configPath, 'utf8'))
+    writeFileSync(
+      configPath,
+      `${JSON.stringify({
+        ...initial,
+        coreBytes: 8192,
+        indexBytes: 2048,
+        fileBytes: 8192,
+        totalBytes: 65536,
+      })}\n`,
+      { mode: 0o600 },
+    )
+    const v = primary.createView('project')
+    const coreRead = primary.read(v, 'Core.md')
+    assert.ok('hash' in coreRead && coreRead.hash)
+    primary.edit(v, 'Core.md', coreRead.hash, `# Core\n\n${'x'.repeat(8150)}\n`, [])
+    primary.integrate(v)
+
+    const initResult = primary.initProject('project')
+    assert.equal(initResult.initialized, true)
+    assert.equal(initResult.changed, 3)
+    const migrated = primary.migrateV2('project')
+    assert.ok(migrated.migrated.includes('system/persona.md'))
+
+    const upgraded = primary.config()
+    assert.equal(upgraded.coreBytes, 32768)
+    assert.equal(upgraded.indexBytes, 8192)
+    assert.equal(upgraded.fileBytes, 262144)
+    assert.equal(upgraded.totalBytes, 8388608)
+  } finally {
+    f.close()
+  }
+})

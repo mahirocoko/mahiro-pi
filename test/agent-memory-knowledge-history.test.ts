@@ -21,7 +21,7 @@ const reply = () => ({
   basis: 'committed-head-first-parent',
   currentness: 'config-head-ledger-matched-at-final-checks',
   offset: 0,
-  pageSize: 8,
+  pageSize: 32,
   windowSize: 128,
   nextOffset: null,
   windowLimitReached: false,
@@ -85,13 +85,13 @@ test('history has exact bounded protocol and deep identity/time/subject/count re
       r.offset = 1
     },
     (r: any) => {
-      r.nextOffset = 8
+      r.nextOffset = 32
     },
     (r: any) => {
       r.windowLimitReached = true
     },
     (r: any) => {
-      r.pageSize = 9
+      r.pageSize = 33
     },
     (r: any) => {
       r.ledgerDigest = null
@@ -105,7 +105,7 @@ test('history has exact bounded protocol and deep identity/time/subject/count re
     assert.throws(() => assertKnowledgeHistory(r, input))
   }
   const falseWindow = reply() as any
-  const revisions = [a, ...Array.from({ length: 7 }, (_, i) => (i + 1).toString(16).padStart(40, '0'))]
+  const revisions = [a, ...Array.from({ length: 31 }, (_, i) => (i + 1).toString(16).padStart(40, '0'))]
   falseWindow.entries = revisions.map((revision, i) => ({
     revision,
     parent: revisions[i + 1] ?? null,

@@ -16,7 +16,7 @@ export interface PalaceHandoff {
   }
 }
 
-const maxHandoffBytes = 256 * 1024
+const maxHandoffBytes = 512 * 1024
 const isoTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 const captureId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
@@ -328,7 +328,7 @@ function copyHistory(value: KnowledgeHistory): KnowledgeHistory {
     basis: value.basis,
     currentness: value.currentness,
     offset: 0,
-    pageSize: 8,
+    pageSize: 32,
     windowSize: 128,
     nextOffset: value.nextOffset,
     windowLimitReached: value.windowLimitReached,

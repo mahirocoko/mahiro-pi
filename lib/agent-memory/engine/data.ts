@@ -989,77 +989,82 @@ export class MemoryDataEngine {
         view: string
         base: string
       }
-      const v = this.drafts.get(created.view)!.value
-      v.deadline = Date.now() + maintenanceViewTtl
-      await this.save(v)
-      const added: string[] = []
-      if (args.action === 'init-project') {
-        const overviewPath = `projects/${scope}/system/overview.md`
-        const conventionsPath = `projects/${scope}/system/conventions.md`
-        const indexPath = `projects/${scope}/system/index.md`
-        if (!now.refs[overviewPath]) {
-          await writeNewOverlay(
-            v,
-            overviewPath,
-            `---\nname: ${scope}-overview\ndescription: Architecture and project overview for ${scope}\n---\n# Project Overview (${scope})\n\n- Active repository context and boundaries.\n`,
-            [],
-          )
-          added.push(overviewPath)
-        }
-        if (!now.refs[conventionsPath]) {
-          await writeNewOverlay(
-            v,
-            conventionsPath,
-            `---\nname: ${scope}-conventions\ndescription: Coding conventions and workflow rules for ${scope}\n---\n# Project Conventions (${scope})\n\n## Rules\n\n- Follow repository-local contracts and verification gates.\n`,
-            [],
-          )
-          added.push(conventionsPath)
-        }
-        if (!now.refs[indexPath]) {
-          await writeNewOverlay(
-            v,
-            indexPath,
-            `---\nname: ${scope}-system-index\ndescription: System memory index for ${scope}\n---\n# ${scope} System Memory\n\n- [[overview.md]] — Architecture and project overview for ${scope}\n- [[conventions.md]] — Coding conventions and workflow rules for ${scope}\n`,
-            [],
-          )
-          added.push(indexPath)
-        }
-      } else {
-        const migrationEntries = Object.entries(now.refs).filter(
-          ([path]) => path === 'Core.md' || path.startsWith('global/') || path.startsWith('deferred/'),
-        )
-        const migrationTexts = await this.bodies(migrationEntries)
-        if (!now.refs['system/persona.md']) {
-          const personaText =
-            migrationTexts['Core.md'] === starterCore
-              ? starterPersona
-              : `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${migrationTexts['Core.md']}`
-          await writeNewOverlay(v, 'system/persona.md', personaText, [...now.refs['Core.md'].sources])
-          added.push('system/persona.md')
-        }
-        for (const [p, ref] of migrationEntries) {
-          if (p === 'Core.md') continue
-          const migration = legacyV1Migration(now.revision, p)
-          const text = migrationTexts[p]
-          const archive = now.refs[migration.archivePath]
-          assertLegacyArchiveCompatible(
-            migration.archivePath,
-            archive && { hash: archive.hash, size: archive.size, sources: archive.sources },
-            { hash: digest(text), size: bytes(text), sources: ref.sources },
-          )
-          if (!archive) await writeNewOverlay(v, migration.archivePath, text, [...ref.sources])
-          if (!now.refs[migration.targetPath]) {
-            await writeNewOverlay(v, migration.targetPath, withMigrationFrontmatter(text, migration), [
-              ...ref.sources,
-            ])
-            added.push(migration.targetPath)
+      try {
+        const v = this.drafts.get(created.view)!.value
+        v.deadline = Date.now() + maintenanceViewTtl
+        await this.save(v)
+        const added: string[] = []
+        if (args.action === 'init-project') {
+          const overviewPath = `projects/${scope}/system/overview.md`
+          const conventionsPath = `projects/${scope}/system/conventions.md`
+          const indexPath = `projects/${scope}/system/index.md`
+          if (!now.refs[overviewPath]) {
+            await writeNewOverlay(
+              v,
+              overviewPath,
+              `---\nname: ${scope}-overview\ndescription: Architecture and project overview for ${scope}\n---\n# Project Overview (${scope})\n\n- Active repository context and boundaries.\n`,
+              [],
+            )
+            added.push(overviewPath)
           }
-          v.overlay[p] = null
+          if (!now.refs[conventionsPath]) {
+            await writeNewOverlay(
+              v,
+              conventionsPath,
+              `---\nname: ${scope}-conventions\ndescription: Coding conventions and workflow rules for ${scope}\n---\n# Project Conventions (${scope})\n\n## Rules\n\n- Follow repository-local contracts and verification gates.\n`,
+              [],
+            )
+            added.push(conventionsPath)
+          }
+          if (!now.refs[indexPath]) {
+            await writeNewOverlay(
+              v,
+              indexPath,
+              `---\nname: ${scope}-system-index\ndescription: System memory index for ${scope}\n---\n# ${scope} System Memory\n\n- [[overview.md]] — Architecture and project overview for ${scope}\n- [[conventions.md]] — Coding conventions and workflow rules for ${scope}\n`,
+              [],
+            )
+            added.push(indexPath)
+          }
+        } else {
+          const migrationEntries = Object.entries(now.refs).filter(
+            ([path]) => path === 'Core.md' || path.startsWith('global/') || path.startsWith('deferred/'),
+          )
+          const migrationTexts = await this.bodies(migrationEntries)
+          if (!now.refs['system/persona.md']) {
+            const personaText =
+              migrationTexts['Core.md'] === starterCore
+                ? starterPersona
+                : `---\nname: persona\ndescription: Single fixed Companion identity and collaboration posture\n---\n${migrationTexts['Core.md']}`
+            await writeNewOverlay(v, 'system/persona.md', personaText, [...now.refs['Core.md'].sources])
+            added.push('system/persona.md')
+          }
+          for (const [p, ref] of migrationEntries) {
+            if (p === 'Core.md') continue
+            const migration = legacyV1Migration(now.revision, p)
+            const text = migrationTexts[p]
+            const archive = now.refs[migration.archivePath]
+            assertLegacyArchiveCompatible(
+              migration.archivePath,
+              archive && { hash: archive.hash, size: archive.size, sources: archive.sources },
+              { hash: digest(text), size: bytes(text), sources: ref.sources },
+            )
+            if (!archive) await writeNewOverlay(v, migration.archivePath, text, [...ref.sources])
+            if (!now.refs[migration.targetPath]) {
+              await writeNewOverlay(v, migration.targetPath, withMigrationFrontmatter(text, migration), [
+                ...ref.sources,
+              ])
+              added.push(migration.targetPath)
+            }
+            v.overlay[p] = null
+          }
         }
+        v.state = 'ready'
+        await this.save(v)
+        return { view: v.id, added, changed: true }
+      } catch (error) {
+        await this.dispatch('cancel', { view: created.view }).catch(() => undefined)
+        throw error
       }
-      v.state = 'ready'
-      await this.save(v)
-      return { view: v.id, added, changed: true }
     }
     if (now.revision !== args.revision) throw memoryFailure('CAS', 'Stale memory revision')
     if (args.action === 'forget') {
@@ -2131,10 +2136,10 @@ export class MemoryDataEngine {
           revision,
         ])
         const entries = parseHistoryRows(raw, revision)
-        const end = Math.min(args.offset + 8, entries.length)
-        const detailedEntries = []
-        let diffBudget = 8192
-        for (const entry of entries.slice(args.offset, args.offset + 8)) {
+        const selectedEntries = entries.slice(args.offset, args.offset + 32)
+        const end = Math.min(args.offset + 32, entries.length)
+        const stagedEntries = []
+        for (const entry of selectedEntries) {
           const subject = await this.gitBytes([
             '--no-replace-objects',
             'show',
@@ -2153,7 +2158,7 @@ export class MemoryDataEngine {
             ...(entry.parent ? [entry.parent, entry.revision] : ['--root', entry.revision]),
           ])
           const details = historyClassification(subject, paths, args.project)
-          let patch = ''
+          const filePatches: string[] = []
           if (!details.redacted && details.paths.length) {
             // No external diff/textconv helpers, rename/copy headers, or caller-supplied Git arguments.
             const rawPatch = await this.gitBytes(
@@ -2175,10 +2180,15 @@ export class MemoryDataEngine {
             )
             // Retain only canonical in-scope file headers and hunks; raw Git/helper metadata never leaves.
             const allowed = new Set(details.paths)
+            let currentFilePatch = ''
             let inHunk = false
             let pendingHeader = ''
             for (const line of rawPatch.toString('utf8').split('\n')) {
               if (line.startsWith('diff --git ')) {
+                if (currentFilePatch) {
+                  filePatches.push(currentFilePatch)
+                  currentFilePatch = ''
+                }
                 inHunk = false
                 pendingHeader = ''
                 continue
@@ -2196,21 +2206,76 @@ export class MemoryDataEngine {
               if (line.startsWith('@@ ')) {
                 inHunk = true
                 if (pendingHeader) {
-                  patch += pendingHeader
+                  currentFilePatch += pendingHeader
                   pendingHeader = ''
                 }
               }
-              if (inHunk && /^(?:@@ |[ +\\-])/.test(line)) patch += `${line}\n`
+              if (inHunk && /^(?:@@ |[ +\\-])/.test(line)) currentFilePatch += `${line}\n`
             }
+            if (currentFilePatch) filePatches.push(currentFilePatch)
           }
-          const diff = utf8Preview(patch, Math.min(4096, diffBudget))
+          const patch = filePatches.join('')
+          stagedEntries.push({
+            entry,
+            details,
+            filePatches,
+            patch,
+            patchBytes: bytes(patch),
+          })
+        }
+        const detailedEntries = []
+        let diffBudget = 128 * 1024
+        for (const [index, item] of stagedEntries.entries()) {
+          const remainingDemand = stagedEntries
+            .slice(index)
+            .reduce((sum, candidate) => sum + Math.min(8192, candidate.patchBytes), 0)
+          const remainingActive = stagedEntries
+            .slice(index)
+            .filter((candidate) => candidate.patchBytes > 0).length
+          const fairShare = remainingActive > 0 ? Math.floor(diffBudget / remainingActive) : 0
+          const reservedForLater = stagedEntries
+            .slice(index + 1)
+            .reduce((sum, candidate) => sum + Math.min(candidate.patchBytes, fairShare), 0)
+          const commitCap =
+            remainingDemand <= diffBudget
+              ? Math.min(8192, diffBudget)
+              : Math.min(8192, Math.max(0, diffBudget - reservedForLater))
+          let diff = ''
+          if (item.patchBytes <= commitCap) {
+            diff = item.patch
+          } else if (item.filePatches.length <= 1) {
+            diff = utf8Preview(item.patch, commitCap)
+          } else {
+            let fileBudget = commitCap
+            const chunks: string[] = []
+            for (const [fileIndex, filePatch] of item.filePatches.entries()) {
+              const fileFairShare = Math.floor(fileBudget / (item.filePatches.length - fileIndex))
+              const fileReserved = item.filePatches
+                .slice(fileIndex + 1)
+                .reduce((sum, fp) => sum + Math.min(bytes(fp), fileFairShare), 0)
+              const fileCap = Math.max(0, fileBudget - fileReserved)
+              let chunk = utf8Preview(filePatch, fileCap)
+              if (
+                chunk !== filePatch &&
+                fileIndex + 1 < item.filePatches.length &&
+                chunk.length > 0 &&
+                !chunk.endsWith('\n')
+              ) {
+                const trimmed = utf8Preview(filePatch, Math.max(0, fileCap - 1))
+                chunk = trimmed.length > 0 ? `${trimmed}\n` : ''
+              }
+              fileBudget -= bytes(chunk)
+              chunks.push(chunk)
+            }
+            diff = chunks.join('')
+          }
           diffBudget -= bytes(diff)
           detailedEntries.push({
-            ...entry,
-            subject: details.subject,
-            changedFiles: details.changedFiles,
+            ...item.entry,
+            subject: item.details.subject,
+            changedFiles: item.details.changedFiles,
             diff,
-            diffTruncated: diff !== patch,
+            diffTruncated: diff !== item.patch,
           })
         }
         const result: KnowledgeHistory = {
@@ -2222,12 +2287,21 @@ export class MemoryDataEngine {
           basis: 'committed-head-first-parent',
           currentness: 'config-head-ledger-matched-at-final-checks',
           offset: args.offset,
-          pageSize: 8,
+          pageSize: 32,
           windowSize: 128,
           nextOffset: end < entries.length ? end : null,
           windowLimitReached: entries.length === 128,
           metadata: 'commit-identity-time-subject-count',
           entries: detailedEntries,
+        }
+        while (bytes(JSON.stringify(result)) > 192 * 1024) {
+          const target = result.entries.reduce((best, entry) =>
+            bytes(entry.diff ?? '') > bytes(best.diff ?? '') ? entry : best,
+          )
+          const current = bytes(target.diff ?? '')
+          if (!current) throw Error('Knowledge history exceeds bound')
+          target.diff = utf8Preview(target.diff ?? '', Math.floor(current / 2))
+          target.diffTruncated = true
         }
         await semantics()
         // Sequential endpoint observations, not an atomic snapshot or ABA protection.
@@ -2448,6 +2522,8 @@ export class MemoryDataEngine {
         return await this.discard(input as Input<'discard'>)
       case 'cancel': {
         const id = (input as Input<'cancel'>).view
+        if ([...this.plans.values()].some((p) => p.plan.view === id))
+          throw Error('Prepared view requires operation recovery')
         const stored = this.drafts.get(id)
         if (stored?.value.shared) {
           // Only an in-process owned primary draft may retire without a current

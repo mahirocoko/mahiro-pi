@@ -165,12 +165,12 @@ dated source records, not current installation instructions.
   Legacy archives require canonical legacy-v1-<12 hex>/global/<slug>.md or
   deferred/<project>/<slug>.md attribution; arbitrary legacy-v1 prefixes
   are not shared authority.
-  Bodies are at most 32 files, 8 KiB each and 128 KiB aggregate; eight history diffs
-  are at most 4 KiB each and 8 KiB aggregate. UTF-8 truncation is deterministic and
+  Bodies are at most 32 files, 8 KiB each and 128 KiB aggregate; 32 history diffs
+  are at most 8 KiB each and 128 KiB aggregate. UTF-8 truncation is deterministic and
   explicit. Canonical in-scope `+++`/`---` file headers are retained; raw Git headers,
   rename/copy detection and external diff/textconv helpers stay omitted.
-  Preserve the 256 KiB frozen handoff and authority/transport fences, never renderer
-  file access.
+  Preserve the 512 KiB frozen handoff and 256 KiB HTML/authority/transport fences,
+  never renderer file access.
   TUI viewer publication may best-effort open its capability URL in the system browser;
   opener failure is nonfatal and tests must inject a stub. Preserve frozen bytes, explicit
   non-atomic association, per-request authority/digest revalidation, one runtime

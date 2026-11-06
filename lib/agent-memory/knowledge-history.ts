@@ -10,7 +10,7 @@ export interface KnowledgeHistory {
   basis: 'committed-head-first-parent'
   currentness: 'config-head-ledger-matched-at-final-checks'
   offset: number
-  pageSize: 8
+  pageSize: 32
   windowSize: 128
   nextOffset: number | null
   windowLimitReached: boolean
@@ -112,7 +112,7 @@ export function assertKnowledgeHistory(
     'metadata',
     'entries',
   ])
-  ensure(Buffer.byteLength(JSON.stringify(value)) <= 32768)
+  ensure(Buffer.byteLength(JSON.stringify(value)) <= 192 * 1024)
   ensure(value.version === 1 && value.project === input.project && value.revision === input.expectedRevision)
   ensure(typeof value.revision === 'string' && historyOID.test(value.revision))
   ensure(
@@ -127,7 +127,7 @@ export function assertKnowledgeHistory(
   )
   ensure(
     value.metadata === 'commit-identity-time-subject-count' &&
-      value.pageSize === 8 &&
+      value.pageSize === 32 &&
       value.windowSize === 128,
   )
   ensure(
@@ -135,7 +135,7 @@ export function assertKnowledgeHistory(
       value.offset === input.offset &&
       typeof value.windowLimitReached === 'boolean',
   )
-  ensure(Array.isArray(value.entries) && value.entries.length <= Math.min(8, 128 - value.offset))
+  ensure(Array.isArray(value.entries) && value.entries.length <= Math.min(32, 128 - value.offset))
   const entries = value.entries
   const seen = new Set<string>()
   entries.forEach((entry, index) => {
@@ -150,7 +150,7 @@ export function assertKnowledgeHistory(
     if (Object.hasOwn(entry, 'diff'))
       ensure(
         typeof entry.diff === 'string' &&
-          Buffer.byteLength(entry.diff) <= 4096 &&
+          Buffer.byteLength(entry.diff) <= 8192 &&
           typeof entry.diffTruncated === 'boolean',
       )
     ensure(
@@ -188,15 +188,16 @@ export function assertKnowledgeHistory(
     entries.reduce(
       (n, entry) => n + Buffer.byteLength(typeof entry.diff === 'string' ? entry.diff : ''),
       0,
-    ) <= 8192,
+    ) <=
+      128 * 1024,
   )
   if (value.offset === 0) ensure(entries.length > 0 && entries[0].revision === value.revision)
   const end = value.offset + entries.length
-  const more = entries.length === 8 && end < 128 && entries.at(-1)?.parent !== null
+  const more = entries.length === 32 && end < 128 && entries.at(-1)?.parent !== null
   ensure(value.nextOffset === (more ? end : null))
   if (entries.length && end < 128 && !more) ensure(entries.at(-1)?.parent === null)
   if (value.windowLimitReached) {
-    ensure(entries.length === Math.min(8, 128 - value.offset))
+    ensure(entries.length === Math.min(32, 128 - value.offset))
     if (entries.length && end < 128) ensure(entries.at(-1)?.parent !== null)
   }
   if (entries.length && end === 128) ensure(value.windowLimitReached)

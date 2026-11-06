@@ -44,6 +44,9 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.10 source release record](releases/0.12.10.md) — 32-row knowledge history with 8 KiB/128 KiB
+  fair-share multi-file diff budgets, automatic v2 `config.json` budget upgrade during `/mh-memory init`,
+  and self-healing draft/reflection handling for `/mh-memory init` and `/mh-memory palace`.
 - [v0.12.9 source release record](releases/0.12.9.md) — `agent_memory_edit` `sources` normalization
   and deduplication, primary-session unpublished plan retirement on failure, and one-step
   `/mh-memory cleanup` (`agent_memory_manage` `{ action: "cleanup" }`) for draft/journal/blob recovery.

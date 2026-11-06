@@ -55,7 +55,7 @@ function history(): KnowledgeHistory {
     basis: 'committed-head-first-parent',
     currentness: 'config-head-ledger-matched-at-final-checks',
     offset: 0,
-    pageSize: 8,
+    pageSize: 32,
     windowSize: 128,
     nextOffset: null,
     windowLimitReached: false,

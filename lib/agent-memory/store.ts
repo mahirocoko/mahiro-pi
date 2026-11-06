@@ -1372,6 +1372,24 @@ export function createMemoryStore(
     initProject(project: string) {
       if (!name.test(project)) throw new Error('Invalid project scope')
       return lock(() => {
+        const c = config()
+        if (
+          c.coreBytes < 32768 ||
+          c.indexBytes < 8192 ||
+          c.fileBytes < memoryLimits.fileBytes ||
+          c.totalBytes < memoryLimits.totalBytes
+        ) {
+          write(
+            join(root, 'config.json'),
+            `${JSON.stringify({
+              ...c,
+              coreBytes: Math.max(c.coreBytes, 32768),
+              indexBytes: Math.max(c.indexBytes, 8192),
+              fileBytes: Math.max(c.fileBytes, memoryLimits.fileBytes),
+              totalBytes: Math.max(c.totalBytes, memoryLimits.totalBytes),
+            })}\n`,
+          )
+        }
         const now = load()
         const next = copy(now)
         const overviewPath = `projects/${project}/system/overview.md`
@@ -1407,6 +1425,24 @@ export function createMemoryStore(
     migrateV2(project = 'default') {
       if (!name.test(project)) throw new Error('Invalid project scope')
       return lock(() => {
+        const c = config()
+        if (
+          c.coreBytes < 32768 ||
+          c.indexBytes < 8192 ||
+          c.fileBytes < memoryLimits.fileBytes ||
+          c.totalBytes < memoryLimits.totalBytes
+        ) {
+          write(
+            join(root, 'config.json'),
+            `${JSON.stringify({
+              ...c,
+              coreBytes: Math.max(c.coreBytes, 32768),
+              indexBytes: Math.max(c.indexBytes, 8192),
+              fileBytes: Math.max(c.fileBytes, memoryLimits.fileBytes),
+              totalBytes: Math.max(c.totalBytes, memoryLimits.totalBytes),
+            })}\n`,
+          )
+        }
         const now = load()
         const next = copy(now)
         const migrated: string[] = []

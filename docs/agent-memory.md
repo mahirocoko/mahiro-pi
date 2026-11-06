@@ -1707,7 +1707,7 @@ idle-primary `agent_memory_manage` read authority and invokes a dedicated intern
 `knowledgeHistory` engine RPC; ABI1 refuses without fallback. The RPC binds the
 mapped project, expected current revision and config hash, reads the committed
 current ledger, and walks at most 128 commits from that exact HEAD along Git's
-first-parent chain. Pages are fixed at eight rows.
+first-parent chain. Pages are fixed at 32 rows.
 
 Each row contains the commit OID, its first parent or `null`, a canonical UTC
 commit timestamp, a sanitized single-line subject (at most 256 UTF-8 bytes), and an
@@ -1718,7 +1718,7 @@ existing shared `allowedPath(path)` authority. Prefix membership alone grants
 nothing: unknown archive prefixes and unknown system/project filenames are excluded.
 `.memory.json` and `.gitignore` are ignored. Any other changed path, including unknown paths, replaces the subject with
 `Out-of-scope project update` and makes its diff empty. Each row also carries a
-bounded patch-hunk preview (4 KiB per commit, 8 KiB aggregate per eight-row page),
+bounded patch-hunk preview (8 KiB per commit, 128 KiB aggregate per 32-row page with fair-share allocation across commits and changed files),
 with explicit `diffTruncated`. Only in-scope commits can supply hunks. Canonical in-scope
 `+++`/`---` file headers are retained while raw Git headers
 are stripped; rename/copy detection, external diff and textconv helpers are disabled.
@@ -1730,7 +1730,7 @@ Before return the engine rechecks repository semantics, current config hash, HEA
 and the exact committed ledger digest, then the runtime rechecks status, branch,
 idle/writer state, generation, binding and current authority. These are sequential
 endpoint observations, not atomic or ABA-proof history capture. The compact reply
-is bounded to 32 KiB, the 128-entry condition means only that the bounded window
+is bounded to 192 KiB, the 128-entry condition means only that the bounded window
 was reached, and no persistent replay or diff handle is created. The command adds
 no model-callable management action, HTML/HTTP route, `local/**` authority, profile
 activation or Phase I wiring. Future changes should follow the current Letta owner
@@ -1743,7 +1743,7 @@ and TUI-only. Source availability alone does not establish installed activation.
 It does not use or
 import the disconnected `lib/agent-memory/local/**` Palace. One idle-primary
 operation captures the existing owner-certified committed structure, public
-invocation metadata and exactly the offset-zero eight-row knowledge-history page,
+invocation metadata and the offset-zero 32-row knowledge-history page,
 then checks revision, config, branch, writer/draft state, generation, binding and
 current read authority. The combined association remains explicitly non-atomic;
 provider prompt consumption, category token accounting, lifecycle, authors, changed
@@ -1756,7 +1756,7 @@ This follows Letta's committed-file and commit-diff viewer behavior, reviewed at
 Mahiro's scope, forgetting, helper-execution and transport restrictions narrow the
 upstream full-patch behavior; no brand assets are copied.
 
-The allowlisted handoff DTO is deeply copied/frozen and bounded to 256 KiB. Its
+The allowlisted handoff DTO is deeply copied/frozen and bounded to 512 KiB. Its
 static semantic HTML is bounded to 256 KiB, contains no script or remote asset,
 and exposes invocation metadata, returned committed structure/body previews and the
 latest bounded first-parent identity/time/subject/count/hunk rows. The runtime serves those exact frozen

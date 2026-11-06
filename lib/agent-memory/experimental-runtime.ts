@@ -768,7 +768,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       f.abi.isPrimarySession(ctx) &&
       canRegister &&
       !viewer &&
-      !viewerOpening &&
       !job &&
       !starting &&
       !draft
@@ -1155,6 +1154,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     let server: ImmutablePalaceServer | undefined
     let candidate: PalaceViewer | undefined
     try {
+      job?.cancel()
       await closeActiveViewer()
       if (viewerOpening !== opening || abort.signal.aborted) throw Error('Palace viewer admission changed')
       const serial = ++viewerSerial
@@ -1945,48 +1945,71 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       }
       if (args.action === 'init-project' || args.action === 'migrate-v2') {
         job?.cancel()
+        if (draft) {
+          await f.request('cancel', { view: draft.view }).catch(() => undefined)
+          draft = undefined
+        }
         let targetProject = f.project
-        if (args.action === 'init-project') {
-          const cwd = await realpath(ctx.cwd)
-          assertCurrent(f.context)
-          const explicitSlug =
-            typeof args.projectId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(args.projectId)
-              ? args.projectId
-              : undefined
-          const mappedEntry = f.config.projects.find((entry) => entry.cwd === cwd)
-          const canRegister = mappedEntry
+        const cwd = await realpath(ctx.cwd)
+        assertCurrent(f.context)
+        const explicitSlug =
+          args.action === 'init-project' &&
+          typeof args.projectId === 'string' &&
+          /^[a-z0-9][a-z0-9-]{0,63}$/.test(args.projectId)
+            ? args.projectId
+            : undefined
+        const mappedEntry = f.config.projects.find((entry) => entry.cwd === cwd)
+        const canRegister =
+          args.action === 'init-project' &&
+          (mappedEntry
             ? Boolean(explicitSlug && mappedEntry.id !== explicitSlug)
-            : f.config.projects.length < 128
-          if (canRegister && !draft && !starting && !viewer && !viewerOpening) {
-            const currentStatus = await f.request('status', {})
-            const slug = resolveProjectSlug(
-              cwd,
-              f.config.projects.filter((entry) => entry.cwd !== cwd),
-              explicitSlug,
-            )
-            const configPath = join(f.root, 'config.json')
-            const lockPath = join(f.root, '.lock')
-            f.abi.assertTargets(f.tool, ctx, f.root, 'write', [f.root, configPath, lockPath])
-            let locked = true
-            try {
-              await lstat(lockPath)
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code === 'ENOENT') locked = false
-              else throw error
+            : f.config.projects.length < 128)
+        const needsBudgetUpgrade =
+          f.config.coreBytes < 32768 ||
+          f.config.indexBytes < 8192 ||
+          f.config.fileBytes < 262144 ||
+          f.config.totalBytes < 8388608
+        if ((canRegister || needsBudgetUpgrade) && !draft && !starting && !viewer && !viewerOpening) {
+          const currentStatus = await f.request('status', {})
+          const slug = canRegister
+            ? resolveProjectSlug(
+                cwd,
+                f.config.projects.filter((entry) => entry.cwd !== cwd),
+                explicitSlug,
+              )
+            : f.project
+          const configPath = join(f.root, 'config.json')
+          const lockPath = join(f.root, '.lock')
+          f.abi.assertTargets(f.tool, ctx, f.root, 'write', [f.root, configPath, lockPath])
+          let locked = true
+          try {
+            await lstat(lockPath)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') locked = false
+            else throw error
+          }
+          if (!locked && !currentStatus.pendingOperations.length) {
+            const nextConfig = {
+              ...f.config,
+              coreBytes: Math.max(f.config.coreBytes, 32768),
+              indexBytes: Math.max(f.config.indexBytes, 8192),
+              fileBytes: Math.max(f.config.fileBytes, 262144),
+              totalBytes: Math.max(f.config.totalBytes, 8388608),
+              ...(canRegister
+                ? { projects: [...f.config.projects.filter((entry) => entry.cwd !== cwd), { cwd, id: slug }] }
+                : {}),
             }
-            if (!locked && !currentStatus.pendingOperations.length) {
-              const nextConfig = {
-                ...f.config,
-                projects: [...f.config.projects.filter((entry) => entry.cwd !== cwd), { cwd, id: slug }],
-              }
-              await atomicPrivate(configPath, `${JSON.stringify(nextConfig)}\n`)
-              const refreshed = await f.barrier()
-              f.config = refreshed.config
-              f.configHash = refreshed.configHash
+            await atomicPrivate(configPath, `${JSON.stringify(nextConfig)}\n`)
+            const refreshed = await f.barrier()
+            f.config = refreshed.config
+            f.configHash = refreshed.configHash
+            if (canRegister) {
               f.project = slug
               targetProject = slug
             }
           }
+        }
+        if (args.action === 'init-project') {
           if (reflection.project === null || (!reflection.drain && reflection.project !== targetProject)) {
             reflection.project = targetProject
             reflection.steps = 0

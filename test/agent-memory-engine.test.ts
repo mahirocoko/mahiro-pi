@@ -347,7 +347,7 @@ test('knowledge history follows current first-parent details, bounds pages and r
     for (let i = 0; i < 126; i++) f.git('commit', '--allow-empty', '-m', 'PRIVATE_WINDOW')
     const first = await request()
     assert.equal(first.windowLimitReached, true)
-    assert.equal(first.nextOffset, 8)
+    assert.equal(first.nextOffset, 32)
     const last = await request(127)
     assert.equal(last.entries.length, 1)
     assert.equal(last.nextOffset, null)
@@ -437,21 +437,30 @@ test('knowledge history bounds multibyte diffs and redacts cross-scope renames a
         f.context,
       )
     const path = 'projects/project/reference/large.md'
+    const secondPath = 'projects/project/reference/second.md'
     mkdirSync(join(f.root, path, '..'), { recursive: true })
     for (let i = 0; i < 8; i++) {
-      writeFileSync(join(f.root, path), `# ${i}\n${'😀'.repeat(2000)}\n`)
-      f.git('add', path)
+      writeFileSync(join(f.root, path), `# ${i}\n${'😀'.repeat(2500)}\n`)
+      writeFileSync(join(f.root, secondPath), `# second ${i}\n${'😀'.repeat(500)}\n`)
+      f.git('add', path, secondPath)
       f.git('commit', '-m', `Scoped ${i}`)
     }
     const result = await request()
-    assert.equal(result.entries.length, 8)
-    assert.ok(result.entries.reduce((n, e) => n + Buffer.byteLength(e.diff!), 0) <= 8192)
+    assert.equal(result.entries.length, 9)
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 192 * 1024)
+    assert.ok(result.entries.reduce((n, e) => n + Buffer.byteLength(e.diff!), 0) <= 128 * 1024)
     assert.match(result.entries[0].diff!, /\+\+\+ projects\/project\/reference\/large\.md/)
-    for (const entry of result.entries) {
-      assert.ok(Buffer.byteLength(entry.diff!) <= 4096)
+    assert.match(result.entries[0].diff!, /\+\+\+ projects\/project\/reference\/second\.md/)
+    for (const entry of result.entries.slice(0, 8)) {
+      assert.ok(Buffer.byteLength(entry.diff!) > 0)
+      assert.ok(Buffer.byteLength(entry.diff!) <= 8192)
       assert.equal(entry.diffTruncated, true)
+      assert.match(entry.diff!, /\+\+\+ projects\/project\/reference\/large\.md/)
+      assert.match(entry.diff!, /\+\+\+ projects\/project\/reference\/second\.md/)
       assert.doesNotMatch(entry.diff!, /\ufffd|diff --git|--- a\/|\+\+\+ b\//)
     }
+    assert.ok(Buffer.byteLength(result.entries[8].diff!) > 0)
+    assert.equal(result.entries[8].diffTruncated, false)
     assert.deepEqual(await request(), result)
     const other = 'unknown/other/reference/PRIVATE.md'
     mkdirSync(join(f.root, other, '..'), { recursive: true })
