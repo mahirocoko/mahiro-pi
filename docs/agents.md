@@ -16,18 +16,22 @@ configuration. Pi package resource loading does not automatically install agent 
 
 | Role | Route and limits | Responsibility |
 | --- | --- | --- |
-| [memory-reflector](../agents/memory-reflector.md) | OpenAI gpt-6.1-sol / medium; locked; no tools; background; no inherited context; replace prompt; two turns | Literal low-authority quotes only |
+| [memory-reflector](../agents/memory-reflector.md) | Current primary model / medium (off for non-reasoning models); locked; no tools; background; no inherited context; replace prompt; two turns | Literal low-authority quotes only |
 | [managed-memory-writer](../agents/managed-memory-writer.md) | Current primary model / medium (off for non-reasoning models); explicit fixed model/thinking slots selectable; locked; read/edit/commit only; background; replace prompt; eight turns | Scoped maintained knowledge in the same private store |
 | [git-commit](../agents/git-commit.md) | OpenAI gpt-6-luna / low; model/thinking locked; Bash only | One explicitly authorized scoped commit |
 
 These are authored role contracts, not authority to borrow credentials or fall
-back to another provider. Reflector and git-commit source routes remain unchanged.
-They use your configured Pi authentication profile; each role's route availability
-is a separate prerequisite when you use it. Unrelated local roles are preserved.
+back to another provider. The reflector and writer follow the current primary model at dispatch; git-commit
+retains its fixed source route. They use your configured Pi authentication profile;
+each role's route availability is a separate prerequisite when you use it.
+Unrelated local roles are preserved.
 
 `install:profile` or reviewed bootstrap explicitly registers the three bodies
 beneath `<profile>/agents/`. Missing files are created; identical files are no-op.
-Differences block except the managed writer's explicitly supported route slots.
+Differences block except the managed writer's explicitly supported route slots and
+one exact prior canonical reflector descriptor (`openai/gpt-6.1-sol` / medium),
+which an explicitly reviewed roles install migrates to the inherited route.
+Edited or other fixed reflector descriptors still block.
 
 ## Managed writer route
 
@@ -68,7 +72,15 @@ request, successful execution or semantic learning.
 ## Memory isolation
 
 The continuity controller checks its exact reflector descriptor before dispatch.
-An absent or overridden capability fails closed, not over to a general agent.
+It pins the current physical primary model and medium thinking (off for inherited
+non-reasoning models) in native spawn options after public registry preflight.
+Missing, virtual or unavailable routes and absent or overridden capabilities fail
+closed, not over to a general agent. Source changes do not rewrite installed role
+files; an existing exact prior canonical pinned reflector descriptor needs an
+explicitly reviewed `install:profile --preview` followed by `install:profile` and
+a fresh session load before it can dispatch with the inherited route. Other pinned
+or edited reflector descriptors still refuse installation. No profile is changed
+by this source change alone.
 
 The managed writer uses an identity-bound leased private view. The extension's
 public `before_agent_start` replacement supplies the entire bound worker prompt;

@@ -849,10 +849,10 @@ export const inspectBootstrap = (
       nativePrerequisites.push(hashBootstrapNativePayload(root, entry))
     }
   const changes: Change[] = []
-  const change = (path: string, next: string, kind: string, createOnly = false) => {
+  const change = (path: string, next: string, kind: string, createOnly = false, approvedPrior?: string) => {
     const before =
       kind === 'continuity-generation-preserve' ? readContinuityGeneration(path) : readBootstrapFile(path)
-    if (createOnly && before && before.text !== next)
+    if (createOnly && before && before.text !== next && before.text !== approvedPrior)
       throw new Error('Existing role differs; explicit owner review required')
     changes.push({ path, before, next, kind })
   }
@@ -1041,6 +1041,18 @@ export const inspectBootstrap = (
           : (existing?.text ?? template)
         // Previous bytes are part of the reviewed plan and publish's final CAS.
         change(path, next, 'role')
+      } else if (role === 'memory-reflector') {
+        // The single previously shipped fixed route may move to inheritance on
+        // an explicit roles install. Do not admit edited or future descriptors.
+        const prior = template.replace(
+          'thinking: medium\nlocked: true\n',
+          'model: openai/gpt-6.1-sol\nthinking: medium\nlocked: true\n',
+        )
+        const approvedPrior =
+          sha(prior) === 'b23ba3265359d3a64c01362b4524492f82550f03c87f0e3d8ef1b30d9a06a85c'
+            ? prior
+            : undefined
+        change(path, template, 'role', true, approvedPrior)
       } else change(path, template, 'role', true)
     }
   if (r.components.memoryEngine) {

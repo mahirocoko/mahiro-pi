@@ -1,6 +1,5 @@
 ---
 description: Select literal low-authority quotes from bounded native root user records
-model: openai/gpt-6.1-sol
 thinking: medium
 locked: true
 tools: none

@@ -393,6 +393,46 @@ localTest(
     }),
 )
 
+localTest('bootstrap migrates only the exact prior canonical reflector on reviewed roles install', () => {
+  fixture((_root, r) => {
+    r.components = { roles: true }
+    const reflector = join(r.agentDir, 'agents/memory-reflector.md')
+    const current = readFileSync(join(product, 'agents/memory-reflector.md'), 'utf8')
+    const prior = current.replace(
+      'thinking: medium\nlocked: true\n',
+      'model: openai/gpt-6.1-sol\nthinking: medium\nlocked: true\n',
+    )
+    assert.notEqual(prior, current)
+    put(reflector, prior)
+    const preview = inspectBootstrap(r)
+    assert.equal(readFileSync(reflector, 'utf8'), prior)
+    const migration = preview.changes.find((change: any) => change.path === reflector)!
+    assert.equal(migration.before?.text, prior)
+    assert.equal(migration.next, current)
+    applyBootstrap(preview, preview.digest)
+    assert.equal(readFileSync(reflector, 'utf8'), current)
+    assert.equal(
+      inspectBootstrap(r).changes.find((change: any) => change.path === reflector)?.before?.text,
+      current,
+    )
+  })
+  fixture((_root, r) => {
+    r.components = { roles: true }
+    const reflector = join(r.agentDir, 'agents/memory-reflector.md')
+    const current = readFileSync(join(product, 'agents/memory-reflector.md'), 'utf8')
+    const prior = current.replace(
+      'thinking: medium\nlocked: true\n',
+      'model: openai/gpt-6.1-sol\nthinking: medium\nlocked: true\n',
+    )
+    put(reflector, prior)
+    const preview = inspectBootstrap(r)
+    put(reflector, `${prior}\n`)
+    assert.throws(() => applyBootstrap(preview, preview.digest), /role differs|stale/)
+    assert.throws(() => inspectBootstrap(r), /role differs/)
+    assert.equal(readFileSync(reflector, 'utf8'), `${prior}\n`)
+  })
+})
+
 localTest(
   'bootstrap rejects role/skill collisions and modified receipt-managed skills without overwrite',
   () => {

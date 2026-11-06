@@ -36,7 +36,21 @@ function fixture() {
   const commands = new Map<string, any>()
   const branch: any[] = []
   const notices: string[] = []
+  const physical: any = {
+    provider: 'anthropic',
+    id: 'claude-test',
+    api: 'anthropic-messages',
+    baseUrl: 'https://example.invalid',
+    reasoning: true,
+  }
   const ctx: any = {
+    model: physical,
+    modelRegistry: {
+      getAll: () => [physical],
+      getAvailable: () => [physical],
+      find: (provider: string, id: string) =>
+        provider === physical.provider && id === physical.id ? physical : undefined,
+    },
     cwd: root,
     mode: 'rpc',
     sessionManager: { getSessionId: () => 'root', getBranch: () => branch },
@@ -52,7 +66,6 @@ function fixture() {
   let sent: any
   const role: any = {
     name: 'memory-reflector',
-    model: 'openai/gpt-6.1-sol',
     thinking: 'medium',
     locked: true,
     toolNames: [],
@@ -250,6 +263,8 @@ test('observed native RPC root is source attribution only; archive ordinal skips
     f.settle()
     assert.equal(f.spawned, 1)
     assert.deepEqual(f.sent.options, {
+      model: 'anthropic/claude-test',
+      thinkingLevel: 'medium',
       foreground: false,
       bypassQueue: false,
       inheritContext: false,
@@ -266,6 +281,51 @@ test('observed native RPC root is source attribution only; archive ordinal skips
     assert.ok(f.targets.includes(join(f.root, 'state.json')))
   } finally {
     f.clean()
+  }
+})
+
+test('reflector pins the current physical primary route at each dispatch and disables unsupported thinking', () => {
+  const f = fixture()
+  try {
+    f.input()
+    f.settle()
+    assert.equal(f.sent.options.model, 'anthropic/claude-test')
+    f.complete([])
+    f.ctx.model = {
+      provider: 'other',
+      id: 'plain',
+      api: 'openai-completions',
+      baseUrl: 'https://example.invalid',
+      reasoning: false,
+    }
+    f.ctx.modelRegistry = {
+      getAll: () => [f.ctx.model],
+      getAvailable: () => [f.ctx.model],
+      find: () => f.ctx.model,
+    }
+    f.input('Second input')
+    f.settle()
+    assert.equal(f.sent.options.model, 'other/plain')
+    assert.equal(f.sent.options.thinkingLevel, 'off')
+  } finally {
+    f.clean()
+  }
+})
+
+test('reflector refuses missing, unavailable, virtual and overridden routes', () => {
+  for (const mode of ['missing', 'unavailable', 'virtual', 'overridden']) {
+    const f = fixture()
+    try {
+      if (mode === 'missing') f.ctx.model = undefined
+      if (mode === 'unavailable') f.ctx.modelRegistry.getAvailable = () => []
+      if (mode === 'virtual') f.ctx.model.api = 'pi-virtual'
+      if (mode === 'overridden') f.role.model = 'openai/gpt-6.1-sol'
+      f.input()
+      f.settle()
+      assert.equal(f.spawned, 0, mode)
+    } finally {
+      f.clean()
+    }
   }
 })
 

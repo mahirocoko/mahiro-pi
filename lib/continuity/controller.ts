@@ -6,6 +6,7 @@ import { bytes, digest, type IRecord, normalize, objectShape, validId } from './
 import { excludedCwd, type IGuardNode, type IRuntimeConfig, parseProjects } from './runtime.ts'
 import { assertPrivatePath, createStore, safeQuote } from './store.ts'
 import { resolveAgentDir } from '../setup.ts'
+import { preflightWriterRoute } from '../agent-memory/writer-route.ts'
 
 interface IService {
   supportsInitialOutcomeClaim: true
@@ -207,7 +208,7 @@ export function createController(pi: ExtensionAPI, config: IRuntimeConfig = {}) 
         service?.supportsInitialOutcomeClaim !== true ||
         !role ||
         role.name !== 'memory-reflector' ||
-        role.model !== 'openai/gpt-6.1-sol' ||
+        role.model !== undefined ||
         role.thinking !== 'medium' ||
         role.locked !== true ||
         role.promptMode !== 'replace' ||
@@ -216,6 +217,10 @@ export function createController(pi: ExtensionAPI, config: IRuntimeConfig = {}) 
         role.toolNames?.length !== 0
       )
         return
+      // Resolve at dispatch, not descriptor load: native spawn options outrank the
+      // role default. The shared physical-route preflight rejects virtual/unavailable
+      // models and maps inherited non-reasoning thinking to off.
+      const route = preflightWriterRoute(ctx, { model: 'inherit', thinking: 'medium' })
       const branch = ctx.sessionManager.getBranch()
       const sessionId = ctx.sessionManager.getSessionId()
       // Only still-attested sources survive into a later qualifying batch.
@@ -406,6 +411,8 @@ export function createController(pi: ExtensionAPI, config: IRuntimeConfig = {}) 
           })),
         }),
         {
+          model: route.model,
+          thinkingLevel: route.thinking,
           foreground: false,
           bypassQueue: false,
           inheritContext: false,

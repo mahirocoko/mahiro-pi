@@ -76,7 +76,6 @@ test('the required reflector retains its locked native no-tool isolated contract
   const header = source.match(/^---\n([\s\S]+?)\n---\n/)
   assert.ok(header)
   for (const field of [
-    'model: openai/gpt-6.1-sol',
     'thinking: medium',
     'locked: true',
     'tools: none',
@@ -87,4 +86,5 @@ test('the required reflector retains its locked native no-tool isolated contract
   ]) {
     assert.ok(header[1].split('\n').includes(field), field)
   }
+  assert.doesNotMatch(header[1], /^model:/m)
 })
