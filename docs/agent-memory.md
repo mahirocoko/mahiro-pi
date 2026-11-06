@@ -1674,8 +1674,8 @@ Lifecycle is omitted; captureId is correlation only and replay is unsupported.
 The closed JSON DTO retains context's 4 KiB bound, a versioned committed-head basis,
 config/revision/project binding, deterministic structure and snapshot digests, and
 separate upstream and returned/omitted/truncated output accounting. The engine alone
-reads committed bodies. Its result is at most 16 KiB including JSON escaping, with
-at most 32 files, 4 KiB per UTF-8 body and 8 KiB of body text in aggregate. Scope is
+reads committed bodies. Its result is at most 192 KiB including JSON escaping, with
+at most 32 files, 8 KiB per UTF-8 body and 128 KiB of body text in aggregate. Scope is
 `Core.md`, `index.md`, `system/`, `reference/`, `archives/`, and
 `projects/<mapped-project>/`, intersected with strict project `allowedPath` and current
 path/source suppression. Archive scope does not inherit the broad `legacy-v1*`
@@ -1688,7 +1688,7 @@ path or body is returned. Previews truncate
 on Unicode scalar boundaries deterministically; each file truthfully reports
 `bodyTruncated`, including empty previews after the aggregate budget is exhausted.
 Invalid UTF-8 fails closed. The final compact diagnostic and command notification
-remain bounded to 32 KiB including JSON escaping. Frontmatter-derived metadata,
+remain bounded to 224 KiB including JSON escaping. Frontmatter-derived metadata,
 links, views, episodes, operations, budget ceilings, source IDs and private
 root/profile/session paths remain omitted. A prior projection
 receipt remains separately labelled from current committed revision until the next
@@ -1756,16 +1756,18 @@ This follows Letta's committed-file and commit-diff viewer behavior, reviewed at
 Mahiro's scope, forgetting, helper-execution and transport restrictions narrow the
 upstream full-patch behavior; no brand assets are copied.
 
-The allowlisted handoff DTO is deeply copied/frozen and bounded to 48 KiB. Its
+The allowlisted handoff DTO is deeply copied/frozen and bounded to 256 KiB. Its
 static semantic HTML is bounded to 256 KiB, contains no script or remote asset,
 and exposes invocation metadata, returned committed structure/body previews and the
 latest bounded first-parent identity/time/subject/count/hunk rows. The runtime serves those exact frozen
 bytes for at most ten minutes on one random capability path at `127.0.0.1:0`.
-After publishing the TUI viewer it best-effort opens that URL in the system browser
-(`open`, `cmd /c start` or `xdg-open`, without a shell, detached with ignored stdio).
-Opener failures do not fail or revoke the viewer; the URL remains available for manual
-opening. Tests inject an opener and never launch a real browser. No HTML file is
-written. Only exact Host + capability
+After publishing the TUI viewer it atomically writes the self-contained snapshot HTML
+to `viewers/memory-<project>.html` (`0o600` inside `0o700` `viewers/` under the
+profile root, updated in place on each `/mh-memory palace` run) and best-effort
+opens it in the system browser (`open`, `cmd /c start` or `xdg-open`, without a
+shell, detached with ignored stdio).
+Opener failures do not fail or revoke the viewer; the file path and capability URL remain available for manual
+opening. Tests inject an opener and never launch a real browser. Only exact Host + capability
 GET/HEAD requests without a body are accepted. CSP uses one fixed inline-style
 hash with `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`,
 `img-src 'none'` and `font-src 'none'`; responses also disable caching, referrers,

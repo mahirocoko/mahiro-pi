@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { ACTIVITY_FRAME_MS, ACTIVITY_FRAMES } from '../lib/activity.ts'
 import { registerWorkflowCommand, selectHubMenu } from '../lib/workflow-hub.ts'
 import { registerWorkflowAttention, workflowAttention } from '../lib/workflow-attention.ts'
 import { registerWorkflowPresentation, workflowRenderers } from '../lib/workflow-ui.ts'
@@ -99,11 +100,30 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         const observe = attention.capture(ctx)
         const openPalace = async () => {
           if (ctx.mode !== 'tui' || !ctx.hasUI) return
-          const result = await runtime.openPalaceViewer(ctx)
-          ctx.ui.notify(
-            `Palace metadata snapshot: ${result.url}\nExpires: ${result.expiresAt}\nClose: ${result.closeCommand}\nAnyone holding this capability URL can read the frozen metadata while it remains valid. The capture is non-atomic and is not provider-consumption proof.`,
-            'warning',
-          )
+          const label = 'Generating Memory viewer...'
+          let frameIndex = 0
+          const renderIndicator = () => {
+            const rawFrame = ACTIVITY_FRAMES[frameIndex % ACTIVITY_FRAMES.length]!
+            frameIndex++
+            const frame = ctx.ui.theme?.fg?.('accent', rawFrame) ?? rawFrame
+            const text = ctx.ui.theme?.fg?.('muted', label) ?? label
+            ctx.ui.setWidget?.('mahiro-palace', [`${frame} ${text}`])
+          }
+          renderIndicator()
+          ctx.ui.setStatus?.('mahiro-palace', `⏳ ${label}`)
+          const timer = setInterval(renderIndicator, ACTIVITY_FRAME_MS)
+          timer.unref?.()
+          try {
+            const result = await runtime.openPalaceViewer(ctx)
+            ctx.ui.notify(
+              `Memory viewer opened in browser\n  File: ${result.filePath}\n  Close: ${result.closeCommand}`,
+              'info',
+            )
+          } finally {
+            clearInterval(timer)
+            ctx.ui.setWidget?.('mahiro-palace', undefined)
+            ctx.ui.setStatus?.('mahiro-palace', undefined)
+          }
         }
         const closePalace = async () => {
           const result = await runtime.closePalaceViewer()

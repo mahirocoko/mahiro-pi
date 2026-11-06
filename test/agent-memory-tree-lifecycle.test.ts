@@ -6,10 +6,11 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { setImmediate as yieldTurn } from 'node:timers/promises'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
@@ -67,6 +68,8 @@ function fixture(commandSurface = false, browserFailure?: 'sync' | 'async') {
   const handlers = new Map<string, Function[]>()
   const commands = new Map<string, any>()
   const notifications: string[] = []
+  const widgets: Array<{ key: string; content: string[] | undefined }> = []
+  const statuses: Array<{ key: string; text: string | undefined }> = []
   const tools = ['agent_memory_read', 'agent_memory_manage', 'agent_memory_reflect'].map((name) => ({ name }))
   const pi = {
     on(name: string, fn: Function) {
@@ -110,7 +113,8 @@ function fixture(commandSurface = false, browserFailure?: 'sync' | 'async') {
     getSystemPrompt: () => systemPrompt,
     ui: {
       notify: (text: string) => notifications.push(text),
-      setWidget: () => {},
+      setWidget: (key: string, content: string[] | undefined) => widgets.push({ key, content }),
+      setStatus: (key: string, text: string | undefined) => statuses.push({ key, text }),
     },
   } as unknown as ExtensionContext
   let holds = 0
@@ -151,8 +155,10 @@ function fixture(commandSurface = false, browserFailure?: 'sync' | 'async') {
   const nodes = new Map([['primary', node]])
   globals[registry] = nodes
   const openedUrls: string[] = []
-  const openBrowser = (url: string) => {
+  const openedFiles: string[] = []
+  const openBrowser = (url: string, filePath?: string) => {
     openedUrls.push(url)
+    if (filePath) openedFiles.push(filePath)
     if (browserFailure === 'sync') throw Error('Synthetic browser failure')
     if (browserFailure === 'async') return Promise.reject(Error('Synthetic browser failure'))
   }
@@ -167,8 +173,11 @@ function fixture(commandSurface = false, browserFailure?: 'sync' | 'async') {
   return {
     runtime,
     openedUrls,
+    openedFiles,
     commands,
     notifications,
+    widgets,
+    statuses,
     abi,
     node,
     nodes,
@@ -1151,8 +1160,19 @@ test('public Palace façade dispatches viewer, close and structural JSON on ABI2
 
     await command.handler('palace', f.ctx)
     const opened = f.notifications.at(-1)!
-    const url = opened.match(/http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}/)?.[0]
-    assert.ok(url)
+    const url = f.openedUrls.at(-1)!
+    const palaceWidgets = f.widgets.filter((entry) => entry.key === 'mahiro-palace')
+    const palaceStatuses = f.statuses.filter((entry) => entry.key === 'mahiro-palace')
+    assert.ok(palaceWidgets.length >= 2)
+    assert.match(palaceWidgets[0]?.content?.[0] ?? '', /Generating Memory viewer\.\.\./)
+    assert.equal(palaceWidgets.at(-1)?.content, undefined)
+    assert.deepEqual(palaceStatuses, [
+      { key: 'mahiro-palace', text: '⏳ Generating Memory viewer...' },
+      { key: 'mahiro-palace', text: undefined },
+    ])
+    assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/)
+    assert.match(opened, /Memory viewer opened in browser/)
+    assert.match(opened, /File: .*\/viewers\/memory-synthetic\.html/)
     assert.match(opened, /Close: \/mh-memory palace close/)
     const response = await fetch(url)
     assert.equal(response.status, 200)
@@ -1176,10 +1196,15 @@ test('ABI2 Palace HTML serves one frozen page and revokes on authority or new wo
     assert.equal(opened.atomic, false)
     assert.equal(opened.closeCommand, '/mh-memory palace close')
     assert.match(opened.url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/)
+    assert.equal(opened.filePath, join(dirname(f.root), 'viewers', 'memory-synthetic.html'))
     assert.deepEqual(f.openedUrls, [opened.url])
+    assert.deepEqual(f.openedFiles, [opened.filePath])
+    assert.equal(statSync(dirname(opened.filePath)).mode & 0o777, 0o700)
+    assert.equal(statSync(opened.filePath).mode & 0o777, 0o600)
     const response = await fetch(opened.url)
     assert.equal(response.status, 200)
     const html = await response.text()
+    assert.equal(readFileSync(opened.filePath, 'utf8'), html)
     assert.match(html, /Memory Palace/)
     assert.match(html, /Mahiro Pi/)
     assert.match(html, /SYNTHETIC_TREE_CORE/)
@@ -1192,11 +1217,21 @@ test('ABI2 Palace HTML serves one frozen page and revokes on authority or new wo
     assert.notEqual(f.runtime.status().palaceViewer, 'open')
     f.setGranted(true)
 
+    const view = f.store.createView('synthetic')
+    f.store.edit(
+      view,
+      'projects/synthetic/system/round-two.md',
+      null,
+      '---\ndescription: Round two system note\n---\n# Round Two\nROUND_TWO_CORE\n',
+    )
+    f.store.integrate(view)
     const replacement = await f.runtime.openPalaceViewer(f.ctx)
+    assert.equal(replacement.filePath, opened.filePath)
     assert.equal(f.runtime.status().palaceViewer, 'open')
     await f.emit('input', { text: 'new work', source: 'interactive' })
     assert.equal(f.runtime.status().palaceViewer, undefined)
     await assert.rejects(fetch(replacement.url))
+    assert.match(readFileSync(replacement.filePath, 'utf8'), /ROUND_TWO_CORE/)
 
     const closeResult = await f.runtime.closePalaceViewer()
     assert.equal(closeResult.closed, false)

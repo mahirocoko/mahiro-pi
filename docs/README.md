@@ -44,6 +44,10 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.8 source release record](releases/0.12.8.md) — persistent per-project Palace HTML
+  snapshots under `<profileDir>/viewers/memory-<project>.html`, expanded 8 KiB/128 KiB committed
+  body preview budgets with fair-share allocation, and live `/mh-memory palace` TUI progress
+  indicators.
 - [v0.12.7 source release record](releases/0.12.7.md) — readable diff and content previews for
   maintained-memory tools, specific call/result metadata across workflow tools, and unified
   `workflowRenderers` presentation for `recall_search`, `recall_read` and `mh_code_map`.

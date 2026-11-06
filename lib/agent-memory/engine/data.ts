@@ -2172,15 +2172,23 @@ export class MemoryDataEngine {
           output: { total: files.length, returned: 0, omitted: files.length, truncated: files.length > 0 },
           files: [],
         }
-        let bodyBudget = 8192
-        for (const file of files.slice(0, 32)) {
+        const selectedFiles = files.slice(0, 32)
+        let bodyBudget = 128 * 1024
+        for (const [index, file] of selectedFiles.entries()) {
           const raw = await this.gitBytes(
             ['--no-replace-objects', 'cat-file', 'blob', base.refs[file.path].oid],
             [file.path],
           )
           // Invalid UTF-8 cannot be certified as a truthful byte-bounded preview.
           const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw)
-          const body = utf8Preview(text, Math.min(4096, bodyBudget))
+          const remainingDemand = selectedFiles
+            .slice(index)
+            .reduce((sum, entry) => sum + Math.min(8192, entry.bytes), 0)
+          const fileCap =
+            remainingDemand <= bodyBudget
+              ? Math.min(8192, bodyBudget)
+              : Math.min(8192, Math.floor(bodyBudget / (selectedFiles.length - index)))
+          const body = utf8Preview(text, fileCap)
           bodyBudget -= bytes(body)
           result.files.push({ ...file, body, bodyTruncated: bytes(body) < file.bytes })
         }
@@ -2195,7 +2203,7 @@ export class MemoryDataEngine {
           result.snapshotDigest = snapshotDigest(result)
         }
         account()
-        while (bytes(JSON.stringify(result)) > 16384) {
+        while (bytes(JSON.stringify(result)) > 192 * 1024) {
           if (!result.files.pop()) throw Error('Palace structure exceeds bound')
           account()
         }

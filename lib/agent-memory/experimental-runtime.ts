@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { lstat, realpath } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { bytes, digest, hasSecret, objectShape } from '../continuity/records.ts'
 import { selectedVerification, verificationResultText } from './verification-evidence.ts'
@@ -231,7 +231,7 @@ interface PalaceViewerOpening {
 }
 
 export interface ExperimentalRuntimeConfig {
-  openBrowser?: (url: string) => void | Promise<void>
+  openBrowser?: (url: string, filePath?: string) => void | Promise<void>
 }
 
 function openSystemBrowser(url: string) {
@@ -1185,6 +1185,16 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       )
       if (!ready || serial !== viewerSerial || capture.token !== epoch || capture.binding !== binding)
         throw Error('Palace viewer admission changed')
+      const filePath = join(dirname(capture.binding.root), 'viewers', `memory-${capture.project}.html`)
+      await atomicPrivate(filePath, html)
+      if (
+        viewerOpening !== opening ||
+        abort.signal.aborted ||
+        serial !== viewerSerial ||
+        capture.token !== epoch ||
+        capture.binding !== binding
+      )
+        throw Error('Palace viewer admission changed')
       const expiresAt = Date.parse(capture.handoff.delivery.expiresAt)
       const timer = setTimeout(
         () => {
@@ -1219,12 +1229,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       // Best effort only: do not let an opener's rejection or pending promise own
       // the viewer lifecycle, block retirement, or tear down a published viewer.
       try {
-        void Promise.resolve((config.openBrowser ?? openSystemBrowser)(server.url)).catch(() => {})
+        void Promise.resolve(
+          config.openBrowser ? config.openBrowser(server.url, filePath) : openSystemBrowser(filePath),
+        ).catch(() => {})
       } catch {}
       return {
         version: 1 as const,
         kind: 'abi2-palace-html-viewer' as const,
         url: server.url,
+        filePath,
         captureId: capture.handoff.diagnostic.captureId,
         revision: capture.revision,
         expiresAt: capture.handoff.delivery.expiresAt,

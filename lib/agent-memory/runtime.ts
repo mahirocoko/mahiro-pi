@@ -181,7 +181,7 @@ export interface MemoryNode {
   managedMemory?: ManagedMemoryABI
 }
 export interface RuntimeConfig {
-  openBrowser?: (url: string) => void | Promise<void>
+  openBrowser?: (url: string, filePath?: string) => void | Promise<void>
   root?: string
   nodes?: Map<string, MemoryNode>
 }

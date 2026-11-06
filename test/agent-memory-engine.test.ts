@@ -3569,10 +3569,11 @@ test('Palace committed previews bound files and aggregate UTF-8 bodies while inc
     assert.ok(result.files.length <= 32)
     assert.equal(result.output.total, 44)
     assert.equal(result.output.truncated, true)
-    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 16384)
-    assert.ok(result.files.reduce((n, file) => n + Buffer.byteLength(file.body!), 0) <= 8192)
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 192 * 1024)
+    assert.ok(result.files.reduce((n, file) => n + Buffer.byteLength(file.body!), 0) <= 128 * 1024)
     for (const file of result.files) {
-      assert.ok(Buffer.byteLength(file.body!) <= 4096)
+      assert.ok(Buffer.byteLength(file.body!) > 0)
+      assert.ok(Buffer.byteLength(file.body!) <= 8192)
       assert.equal(file.bodyTruncated, Buffer.byteLength(file.body!) < file.bytes)
       assert.doesNotMatch(file.body!, /\ufffd/)
     }

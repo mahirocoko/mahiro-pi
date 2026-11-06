@@ -103,7 +103,7 @@ export function assertPalaceStructure(
     fail()
   const s = value as PalaceStructure
   if (
-    bytes(JSON.stringify(s)) > 65536 ||
+    bytes(JSON.stringify(s)) > 192 * 1024 ||
     s.version !== 1 ||
     typeof s.revision !== 'string' ||
     !revisionPattern.test(s.revision) ||
@@ -135,7 +135,7 @@ export function assertPalaceStructure(
       (s.bodyInspection === 'bounded-committed-preview' &&
         (!palaceScopedPath(f.path, s.project) ||
           typeof f.body !== 'string' ||
-          bytes(f.body) > 4096 ||
+          bytes(f.body) > 8192 ||
           typeof f.bodyTruncated !== 'boolean' ||
           f.bodyTruncated !== bytes(f.body) < f.bytes)) ||
       typeof f.path !== 'string' ||
@@ -153,8 +153,8 @@ export function assertPalaceStructure(
   if (
     s.bodyInspection === 'bounded-committed-preview' &&
     (s.files.length > 32 ||
-      bytes(JSON.stringify(s)) > 16384 ||
-      s.files.reduce((n, file) => n + bytes(file.body!), 0) > 8192)
+      bytes(JSON.stringify(s)) > 192 * 1024 ||
+      s.files.reduce((n, file) => n + bytes(file.body!), 0) > 128 * 1024)
   )
     fail()
   const o = s.output

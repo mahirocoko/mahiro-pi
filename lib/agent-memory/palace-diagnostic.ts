@@ -64,7 +64,7 @@ export function buildPalaceDiagnostic(
     result.structure.output = { total, returned, omitted: total - returned, truncated: returned < total }
   }
   account()
-  while (Buffer.byteLength(JSON.stringify(result)) > 32768) {
+  while (Buffer.byteLength(JSON.stringify(result)) > 224 * 1024) {
     if (!result.structure.files.pop()) throw Error('Palace diagnostic exceeds bound')
     account()
   }

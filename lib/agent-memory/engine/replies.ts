@@ -98,8 +98,8 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
     case 'palaceStructure':
       assertPalaceStructure(value, { project: input.project, expectedConfigHash: input.expectedConfigHash })
       if (value.bodyInspection === 'bounded-committed-preview') {
-        ensure(Buffer.byteLength(JSON.stringify(value)) <= 16384 && value.files.length <= 32)
-        ensure(value.files.reduce((n, file) => n + Buffer.byteLength(file.body!), 0) <= 8192)
+        ensure(Buffer.byteLength(JSON.stringify(value)) <= 192 * 1024 && value.files.length <= 32)
+        ensure(value.files.reduce((n, file) => n + Buffer.byteLength(file.body!), 0) <= 128 * 1024)
       }
       return
     case 'config': {
