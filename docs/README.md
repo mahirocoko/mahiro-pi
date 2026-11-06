@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.11 source release record](releases/0.12.11.md) — new managed-memory writers inherit the current
+  primary model at dispatch; existing fixed routes stay fixed unless explicitly changed.
 - [v0.12.10 source release record](releases/0.12.10.md) — 32-row knowledge history with 8 KiB/128 KiB
   fair-share multi-file diff budgets, automatic v2 `config.json` budget upgrade during `/mh-memory init`,
   and self-healing draft/reflection handling for `/mh-memory init` and `/mh-memory palace`.
