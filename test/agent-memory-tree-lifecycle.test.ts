@@ -696,6 +696,7 @@ test('terminal journal limit and overflow cutoff/full slots leave status Ready b
         reasoning: true,
       }
       Object.assign(f.ctx, {
+        model: physical,
         modelRegistry: {
           getAll: () => [physical],
           getAvailable: () => [physical],
@@ -706,7 +707,6 @@ test('terminal journal limit and overflow cutoff/full slots leave status Ready b
         supportsInitialOutcomeClaim: true,
         getAgentType: () => ({
           name: 'managed-memory-writer',
-          model: 'openai/gpt-6.1-sol',
           thinking: 'medium',
           locked: true,
           inheritContext: false,

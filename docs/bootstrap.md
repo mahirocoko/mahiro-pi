@@ -286,7 +286,10 @@ personal roles, existing Core/config/ledger/data and existing automatic-memory
 policy are preserved. Missing package-owned roles are created; identical bodies
 are no-op; differing bodies block rather than being overwritten, except the
 managed writer's supported model/thinking slots. Its canonical selected route
-survives ordinary upgrades; all other descriptor bytes remain fixed.
+survives ordinary upgrades; all other descriptor bytes remain fixed. New writer
+roles omit `model` to follow the current primary model at dispatch. Existing fixed
+routes remain fixed unless explicitly changed with paired route flags (use
+`--managed-writer-model inherit --managed-writer-thinking medium` to opt in).
 
 The installer registers public permission/subagent packages before this package.
 Children retain guards and permission ownership; duplicate/conflicting owners,
@@ -372,7 +375,7 @@ Optional components:
 | `skillPolicy: true` | Calls the existing default skill-policy owner |
 | `skills: ["skill-name"]` | Requires explicit `sources.skills`; that skill owner's CLI handles copying/receipts, never implicit overwrite |
 | `memoryEngine: true` | Selects the ordinary per-profile engine, preserving explicit off/legacy |
-| `managedWriterRoute: {"model": "exact-provider/model-id", "thinking": "medium"}` | Requires roles; varies only canonical managed-writer route slots |
+| `managedWriterRoute: {"model": "inherit", "thinking": "medium"}` | Requires roles; follows the current primary model; an exact `provider/model-id` selects a fixed route; varies only canonical managed-writer route slots |
 | `memory: {...}` | Requires packages/roles; guarded absent-root initialization with explicit root/project/projectId/seedFile and optional automatic flag |
 
 An explicit memory seed is nonempty UTF-8, at most 8192 bytes and exactly 0600.

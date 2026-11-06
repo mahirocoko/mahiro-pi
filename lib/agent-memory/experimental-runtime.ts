@@ -1599,7 +1599,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         if (!currentRole) throw Error('Locked native writer unavailable')
         const route = installedWriter(resolveAgentDir(), currentRole)
         if (route.text !== approved.text) throw Error('Approved writer route changed before dispatch')
-        preflightWriterRoute(ctx, route)
+        const resolvedRoute = preflightWriterRoute(ctx, route)
         own.id = service.spawn(
           'managed-memory-writer',
           JSON.stringify({
@@ -1615,8 +1615,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
             description: assignment
               ? `Reflect memory (${f.project})`
               : `Curate memory (${episodes.length} episode${episodes.length === 1 ? '' : 's'})`,
-            model: route.model,
-            thinkingLevel: route.thinking,
+            model: resolvedRoute.model,
+            thinkingLevel: resolvedRoute.thinking,
             foreground: false,
             bypassQueue: false,
             inheritContext: false,

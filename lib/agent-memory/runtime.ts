@@ -1065,7 +1065,7 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
       if (!currentRole) throw Error('Locked native managed-memory writer unavailable')
       const route = installedWriter(resolveAgentDir(), currentRole)
       if (route.text !== approved.text) throw Error('Approved writer route changed before dispatch')
-      preflightWriterRoute(ctx, route)
+      const resolvedRoute = preflightWriterRoute(ctx, route)
       own.id = service.spawn(
         'managed-memory-writer',
         JSON.stringify({
@@ -1078,8 +1078,8 @@ export function createAgentMemoryRuntime(pi: ExtensionAPI, config: RuntimeConfig
           evidence: 'observed-native-unverified; user role/source is not authenticated human identity',
         }),
         {
-          model: route.model,
-          thinkingLevel: route.thinking,
+          model: resolvedRoute.model,
+          thinkingLevel: resolvedRoute.thinking,
           foreground: false,
           bypassQueue: false,
           inheritContext: false,

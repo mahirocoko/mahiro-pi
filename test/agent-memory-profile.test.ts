@@ -87,6 +87,12 @@ test('installed canonical descriptor alone owns portable route; every other byte
     }
     assert.equal(installedWriter(dir, role).thinking, 'off')
     assert.throws(() => installedWriter(dir, { ...role, model: 'faux/other' }), /Locked native/)
+    const inherited = renderWriterTemplate({ model: 'inherit', thinking: 'medium' }, rendered)
+    assert.equal(inherited, template)
+    assert.deepEqual(validateWriterTemplate(inherited), { model: 'inherit', thinking: 'medium' })
+    writeFileSync(path, inherited)
+    assert.equal(installedWriter(dir, { ...role, model: undefined, thinking: 'medium' }).model, 'inherit')
+    assert.throws(() => installedWriter(dir, role), /Locked native/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -133,4 +139,39 @@ test('physical preflight rejects unavailable descriptor despite available parent
   available = all
   found = physical
   assert.throws(() => preflightWriterRoute(ctx, { ...route, thinking: 'xhigh' }), /thinking/)
+})
+
+test('inherited writer resolves each current main model without changing fixed routes or resolving auth', () => {
+  const first = {
+    provider: 'faux',
+    id: 'first',
+    api: 'faux-api',
+    baseUrl: 'https://invalid.example',
+    reasoning: true,
+  }
+  const second = { ...first, id: 'second', reasoning: false }
+  const models = [first, second]
+  const ctx = {
+    model: first,
+    modelRegistry: {
+      getAll: () => models,
+      getAvailable: () => models,
+      find: (provider: string, id: string) => models.find((m) => m.provider === provider && m.id === id),
+      getApiKeyAndHeaders: () => {
+        throw Error('No credential lookup allowed')
+      },
+    },
+  } as unknown as ExtensionContext
+  const inherited = { model: 'inherit', thinking: 'medium' as const }
+  const pinned = preflightWriterRoute(ctx, inherited)
+  assert.deepEqual(pinned, { model: 'faux/first', thinking: 'medium' })
+  ctx.model = second as ExtensionContext['model']
+  assert.deepEqual(preflightWriterRoute(ctx, inherited), { model: 'faux/second', thinking: 'off' })
+  assert.deepEqual(preflightWriterRoute(ctx, pinned), pinned, 'explicit routes do not follow main changes')
+  assert.deepEqual(pinned, { model: 'faux/first', thinking: 'medium' }, 'queued options stay pinned')
+  ctx.model = undefined
+  assert.throws(() => preflightWriterRoute(ctx, inherited), /Current primary/)
+  ctx.model = { ...first, api: 'pi-virtual' } as ExtensionContext['model']
+  // Virtual primary routes cannot gain authority from a matching physical ID.
+  assert.throws(() => preflightWriterRoute(ctx, inherited), /unavailable/)
 })

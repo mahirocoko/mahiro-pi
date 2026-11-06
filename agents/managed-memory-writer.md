@@ -1,7 +1,6 @@
 ---
 name: managed-memory-writer
 description: Maintain scoped private agent knowledge from an explicit assignment or observed episodes
-model: openai/gpt-6.1-sol
 thinking: medium
 locked: true
 tools: agent_memory_read, agent_memory_edit, agent_memory_commit

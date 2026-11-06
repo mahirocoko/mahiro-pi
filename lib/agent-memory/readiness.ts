@@ -34,12 +34,12 @@ export function memoryReadiness(pi: ExtensionAPI, ctx: ExtensionContext, node?: 
         'Install package roles/resources and start a fresh session.',
       )
     else installedWriter(profile, role)
-    preflightWriterRoute(ctx, installed)
+    route = preflightWriterRoute(ctx, installed)
   } catch {
     add(
       'Needs setup',
       'writer-or-selection-unavailable',
-      'Review install prerequisites and the installed canonical writer route; configure that exact physical model or explicitly review --managed-writer-model/--managed-writer-thinking, then start a fresh session. No credentials were resolved.',
+      'Review the canonical writer route and current primary model availability. Inherited routes follow primary model changes; fixed routes require their exact physical model. Descriptor changes require a fresh session. No credentials were resolved.',
     )
   }
   if (!node?.healthy() || !abi)

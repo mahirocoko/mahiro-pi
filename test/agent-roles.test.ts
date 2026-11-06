@@ -55,8 +55,8 @@ test('guards register first and managed/C1 retain their feature registration ord
 
 test('the managed writer is an isolated locked native system role with scoped tools only', () => {
   const source = readFileSync(new URL('managed-memory-writer.md', directory), 'utf8')
+  assert.doesNotMatch(source, /^model:/m)
   for (const field of [
-    'model: openai/gpt-6.1-sol',
     'thinking: medium',
     'locked: true',
     'tools: agent_memory_read, agent_memory_edit, agent_memory_commit',

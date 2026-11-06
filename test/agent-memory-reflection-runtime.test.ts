@@ -121,6 +121,7 @@ function fixture() {
     mode: 'tui',
     sessionManager: manager,
     isIdle: () => true,
+    model: physical,
     modelRegistry: { getAll: () => [physical], getAvailable: () => [physical], find: () => physical },
   } as unknown as ExtensionContext
   let granted = true
@@ -146,7 +147,6 @@ function fixture() {
     supportsInitialOutcomeClaim: true,
     getAgentType: () => ({
       name: 'managed-memory-writer',
-      model: 'openai/gpt-6.1-sol',
       thinking: 'medium',
       locked: true,
       inheritContext: false,
@@ -384,6 +384,26 @@ function fixture() {
     },
   }
 }
+
+test('ABI2 inherited writer pins the current main model again after a normal model change', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await f.runtime.run('agent_memory_reflect', { assignment: 'First synthetic model.' }, f.ctx)
+    assert.equal(Reflect.get(f.spawns[0].options, 'model'), 'openai/gpt-6.1-sol')
+    await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
+    const next = { ...f.ctx.model!, provider: 'faux', id: 'next-main', reasoning: false }
+    f.ctx.model = next
+    Object.assign(f.ctx, {
+      modelRegistry: { getAll: () => [next], getAvailable: () => [next], find: () => next },
+    })
+    await f.runtime.run('agent_memory_reflect', { assignment: 'Second synthetic model.' }, f.ctx)
+    assert.equal(Reflect.get(f.spawns[1].options, 'model'), 'faux/next-main')
+    assert.equal(Reflect.get(f.spawns[1].options, 'thinkingLevel'), 'off')
+  } finally {
+    await f.close()
+  }
+})
 
 test('offline reset runtime requires registered ephemeral primary; absent status never initializes', async () => {
   const f = fixture()

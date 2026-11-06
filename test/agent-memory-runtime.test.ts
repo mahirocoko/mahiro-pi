@@ -102,6 +102,7 @@ function fixture(twoProjects = false) {
   const ctx: any = {
     cwd,
     sessionManager: sm,
+    model: physical,
     modelRegistry: { getAll: () => [physical], getAvailable: () => [physical], find: () => physical },
   }
   let granted = true,
@@ -110,7 +111,6 @@ function fixture(twoProjects = false) {
     spawned: any,
     descriptor: any = {
       name: 'managed-memory-writer',
-      model: 'openai/gpt-6.1-sol',
       thinking: 'medium',
       locked: true,
       inheritContext: false,
@@ -463,6 +463,25 @@ test('safe memory reasons expose authentic registered CAS and retention, never p
       retained.details,
       'the same retained view is readable only after current permission is restored',
     )
+  } finally {
+    f.close()
+  }
+})
+
+test('inherited writer follows a normal primary model change on the next dispatch', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    await f.runtime.run('agent_memory_reflect', { assignment: 'First synthetic model.' }, f.ctx)
+    assert.equal(f.spawned.options.model, 'openai/gpt-6.1-sol')
+    await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
+    const next = { ...f.ctx.model, provider: 'faux', id: 'next-main', reasoning: false }
+    f.ctx.model = next
+    f.ctx.modelRegistry = { getAll: () => [next], getAvailable: () => [next], find: () => next }
+    await f.runtime.run('agent_memory_reflect', { assignment: 'Second synthetic model.' }, f.ctx)
+    assert.equal(f.spawned.options.model, 'faux/next-main')
+    assert.equal(f.spawned.options.thinkingLevel, 'off')
+    await f.runtime.run('agent_memory_manage', { action: 'cancel' }, f.ctx)
   } finally {
     f.close()
   }

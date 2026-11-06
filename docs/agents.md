@@ -17,7 +17,7 @@ configuration. Pi package resource loading does not automatically install agent 
 | Role | Route and limits | Responsibility |
 | --- | --- | --- |
 | [memory-reflector](../agents/memory-reflector.md) | OpenAI gpt-6.1-sol / medium; locked; no tools; background; no inherited context; replace prompt; two turns | Literal low-authority quotes only |
-| [managed-memory-writer](../agents/managed-memory-writer.md) | Default OpenAI gpt-6.1-sol / medium; explicit model/thinking slots selectable; locked; read/edit/commit only; background; replace prompt; eight turns | Scoped maintained knowledge in the same private store |
+| [managed-memory-writer](../agents/managed-memory-writer.md) | Current primary model / medium (off for non-reasoning models); explicit fixed model/thinking slots selectable; locked; read/edit/commit only; background; replace prompt; eight turns | Scoped maintained knowledge in the same private store |
 | [git-commit](../agents/git-commit.md) | OpenAI gpt-6-luna / low; model/thinking locked; Bash only | One explicitly authorized scoped commit |
 
 These are authored role contracts, not authority to borrow credentials or fall
@@ -32,9 +32,16 @@ Differences block except the managed writer's explicitly supported route slots.
 ## Managed writer route
 
 The installed canonical `managed-memory-writer.md` is the route owner. Only its
-`model` and `thinking` slots may vary; lock, tools, prompt, isolation and all other
-bytes must match the package template. Ordinary upgrades preserve that selected
-canonical route. Review both flags together on preview and apply:
+optional `model` and required `thinking` slots may vary; lock, tools, prompt,
+isolation and all other bytes must match the package template. New descriptors
+omit `model`, following the current primary agent model on each dispatch, including
+normal model changes. Thinking stays at the descriptor's level (default `medium`)
+for reasoning models and becomes `off` for inherited non-reasoning models; it does
+not follow the primary thinking setting. Ordinary upgrades preserve existing
+canonical routes, including previously installed fixed models. To opt into following
+the primary model, explicitly review `--managed-writer-model inherit` together with
+`--managed-writer-thinking medium`. No installed profile is changed by source updates.
+Review both flags together on preview and apply for a fixed route:
 
 ```sh
 pnpm install:profile --managed-writer-model exact-provider/model-id --managed-writer-thinking medium --preview
@@ -49,9 +56,13 @@ model or the other package roles, and copies no credentials.
 
 Readiness and final spawn preflight require the exact physical registry entry,
 matching public availability and supported thinking. Virtual aliases, fuzzy or
-similar models and parent-model fallback are rejected. The final native spawn
-pins explicit model/thinking options and rechecks the loaded canonical role.
-After route changes, start a fresh session. Local **Ready** is not a provider
+similar models and implicit fallback from a fixed route are rejected. Inherited
+routes require a current primary model and pass the same physical availability
+checks; unsupported reasoning levels still refuse rather than selecting a different
+model. The final native spawn pins resolved model/thinking options and rechecks
+the loaded canonical role. Already queued or running writers keep that dispatch's
+route when the primary model changes. After descriptor route changes, start a fresh
+session; ordinary primary model changes need no writer descriptor edit or reload. Local **Ready** is not a provider
 request, successful execution or semantic learning.
 
 ## Memory isolation
@@ -111,10 +122,11 @@ External `skill-doctor` references do not register a missing tool or delegate it
 transcript-review job to memory writers. Cloud/shared guidance is excluded unless
 separately requested. No skill-mutation authority is inherited.
 
-`agents/managed-memory-writer.md` is intentionally unchanged: installer validation
-requires descriptor byte-match except the explicitly paired model/thinking route
-slots. R2 updates shared doctrine and docs, not installed role bytes, package
-discovery, installer/profile state or selected routes. See the
+The historical R2 guidance update left `agents/managed-memory-writer.md` unchanged.
+The current source default omits its model slot; installer validation still requires
+descriptor byte-match except the explicitly paired model/thinking route slots.
+R2 did not change installed role bytes, package discovery, installer/profile state
+or selected routes. See the
 [roadmap direction](letta-parity-roadmap.md#candidate-dispositions) for current
 follow/adapt/exclude choices. Historical R2 evidence labels do not impose new
 verification phases.

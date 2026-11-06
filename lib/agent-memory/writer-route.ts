@@ -15,42 +15,42 @@ export const writerDescriptorPath = (profile: string) => join(profile, 'agents/m
 export function validateWriterRoute(model: unknown, thinking: unknown): WriterRoute {
   if (
     typeof model !== 'string' ||
-    !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,255}$/.test(model) ||
+    (model !== 'inherit' &&
+      !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,255}$/.test(model)) ||
     !writerThinkingLevels.includes(thinking as WriterThinking)
   )
-    throw Error('Exact provider/model-id and supported writer thinking required')
+    throw Error('Exact provider/model-id or inherit and supported writer thinking required')
   return { model, thinking: thinking as WriterThinking }
 }
 export function validateWriterTemplate(text: string): WriterRoute {
   const canonical = readProfileMetadata(source, false)
-  const match = /^---\n[\s\S]*?\nmodel: ([^\n]+)\nthinking: ([^\n]+)\n/.exec(text)
-  if (
-    !canonical ||
-    !match ||
-    text.replace(/^model: [^\n]+$/m, 'model: @route').replace(/^thinking: [^\n]+$/m, 'thinking: @route') !==
-      canonical
-        .replace(/^model: [^\n]+$/m, 'model: @route')
-        .replace(/^thinking: [^\n]+$/m, 'thinking: @route')
-  )
+  const match = /^---\n[\s\S]*?\n(?:model: ([^\n]+)\n)?thinking: ([^\n]+)\n/.exec(text)
+  const model = match?.[1] ?? 'inherit'
+  const normalize = (value: string) =>
+    value.replace(/^model: [^\n]+\n(?=thinking:)/m, '').replace(/^thinking: [^\n]+$/m, 'thinking: @route')
+  if (!canonical || !match || normalize(text) !== normalize(canonical))
     throw Error('Managed writer differs from canonical template; explicit owner review required')
-  return validateWriterRoute(match[1], match[2])
+  if (model === 'inherit' && /^model:/m.test(text))
+    throw Error('Inherited writer model must omit the model slot')
+  return validateWriterRoute(model, match[2])
 }
 export function renderWriterTemplate(route: WriterRoute, text = readProfileMetadata(source, false)!) {
   validateWriterTemplate(text)
   validateWriterRoute(route.model, route.thinking)
   return text
-    .replace(/^model: [^\n]+$/m, `model: ${route.model}`)
+    .replace(/^model: [^\n]+\n/m, '')
+    .replace(/^thinking:/m, `${route.model === 'inherit' ? '' : `model: ${route.model}\n`}thinking:`)
     .replace(/^thinking: [^\n]+$/m, `thinking: ${route.thinking}`)
 }
 export function installedWriter(profile: string, role?: AgentTypeDescriptor) {
   const text = readProfileMetadata(writerDescriptorPath(profile), false)
-  if (!text) throw Error('Install the canonical managed-memory-writer role with an explicit available route')
+  if (!text) throw Error('Install the canonical managed-memory-writer role with an available route')
   const route = validateWriterTemplate(text)
   const tools = ['agent_memory_read', 'agent_memory_edit', 'agent_memory_commit']
   if (
     role &&
     (role.name !== 'managed-memory-writer' ||
-      role.model !== route.model ||
+      role.model !== (route.model === 'inherit' ? undefined : route.model) ||
       role.thinking !== route.thinking ||
       role.locked !== true ||
       role.promptMode !== 'replace' ||
@@ -66,9 +66,19 @@ export function installedWriter(profile: string, role?: AgentTypeDescriptor) {
 }
 
 // Synchronous public catalog snapshots only: no auth lookup, fuzzy match, virtual
-// selection, provider request or parent fallback. Call again immediately at spawn.
+// selection or provider request. Only an omitted descriptor model follows the
+// current primary model. Call again immediately at spawn, then pin the result.
 export function preflightWriterRoute(ctx: ExtensionContext, route: WriterRoute) {
   validateWriterRoute(route.model, route.thinking)
+  if (route.model === 'inherit') {
+    if (!ctx.model || String(ctx.model.api) === 'pi-virtual')
+      throw Error('Current primary physical writer model unavailable')
+    route = {
+      model: `${ctx.model.provider}/${ctx.model.id}`,
+      thinking: ctx.model.reasoning ? route.thinking : 'off',
+    }
+    validateWriterRoute(route.model, route.thinking)
+  }
   const slash = route.model.indexOf('/')
   const provider = route.model.slice(0, slash),
     id = route.model.slice(slash + 1)
