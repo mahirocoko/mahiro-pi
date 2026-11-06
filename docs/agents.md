@@ -71,7 +71,7 @@ request, successful execution or semantic learning.
 
 ## Memory isolation
 
-The continuity controller checks its exact reflector descriptor before dispatch.
+The continuity controller checks the loaded reflector role's required metadata before dispatch; the installer separately checks descriptor bytes.
 It pins the current physical primary model and medium thinking (off for inherited
 non-reasoning models) in native spawn options after public registry preflight.
 Missing, virtual or unavailable routes and absent or overridden capabilities fail
