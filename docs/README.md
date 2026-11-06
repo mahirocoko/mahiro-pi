@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.12 source release record](releases/0.12.12.md) — the reflector inherits the current
+  primary model at dispatch; only the exact prior canonical fixed descriptor migrates on reviewed install.
 - [v0.12.11 source release record](releases/0.12.11.md) — new managed-memory writers inherit the current
   primary model at dispatch; existing fixed routes stay fixed unless explicitly changed.
 - [v0.12.10 source release record](releases/0.12.10.md) — 32-row knowledge history with 8 KiB/128 KiB

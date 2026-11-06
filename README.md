@@ -7,7 +7,7 @@ terminal presentation, private maintained knowledge, explicit command-rewrite pr
 and explicit workflow tools. Pi keeps ownership of models, authentication,
 native tools and subagent lifecycle.
 
-**v0.12.11 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
+**v0.12.12 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
 
 [Install and upgrade](docs/getting-started.md) · [Documentation](docs/README.md) ·
 [Source releases](https://github.com/mahirocoko/mahiro-pi/releases) ·
