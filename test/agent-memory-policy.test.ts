@@ -24,6 +24,7 @@ import {
   memoryPolicyStatus,
   reconcileMemoryPolicy,
   setMemoryAutomatic,
+  upgradeMemoryConfig,
 } from '../lib/agent-memory/engine/policy.ts'
 import { parseConfig } from '../lib/agent-memory/engine/schema.ts'
 import { createMemoryStore, type MemoryConfig } from '../lib/agent-memory/store.ts'
@@ -211,6 +212,175 @@ for (const [name, boundary] of [
       }
     })
   }
+}
+
+test('capacity upgrade certifies committed over-budget bodies without changing knowledge', async () => {
+  const f = fixture()
+  try {
+    const body = `# Core\n${'x'.repeat(9000)}\n`
+    writeFileSync(join(f.root, 'Core.md'), body)
+    execFileSync('git', ['add', 'Core.md'], { cwd: f.root, env: f.env })
+    execFileSync('git', ['commit', '-m', 'Synthetic committed capacity'], { cwd: f.root, env: f.env })
+    const config = { ...parseConfig(readFileSync(f.path, 'utf8')), totalBytes: 4096 }
+    writeFileSync(f.path, `${JSON.stringify(config)}\n`)
+    const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: f.root,
+      env: f.env,
+      encoding: 'utf8',
+    }).trim()
+    const original = readFileSync(join(f.root, 'Core.md'))
+    await assert.rejects(f.engine.request('status', {}, f.current))
+    const preflight = await f.engine.request('upgradePreflight', {}, f.current)
+    assert.deepEqual(preflight.pendingOperations, [])
+    assert.equal(preflight.revision, revision)
+    await upgradeMemoryConfig(f.engine, f.current, revision, preflight.configHash)
+    assert.equal((await f.engine.request('status', {}, f.current)).revision, revision)
+    assert.deepEqual(readFileSync(join(f.root, 'Core.md')), original)
+    assert.equal(parseConfig(readFileSync(f.path, 'utf8')).totalBytes, 8388608)
+  } finally {
+    await f.close()
+  }
+})
+
+for (const boundary of ['under-lock', 'final-fence'] as const) {
+  test(`upgrade refuses journal arriving at ${boundary}`, async () => {
+    const f = fixture()
+    try {
+      const created = await f.engine.request('create', { project: 'synthetic', shared: true }, f.current)
+      await f.engine.request(
+        'edit',
+        {
+          view: created.view,
+          path: 'reference/synthetic.md',
+          expectedHash: null,
+          text: '# Synthetic\nPending change.\n',
+          sources: [],
+        },
+        f.current,
+      )
+      await f.engine.request('ready', { view: created.view }, f.current)
+      const prepared = await f.engine.request('prepare', { view: created.view, reviewed: [] }, f.current)
+      assert.ok('plan' in prepared)
+      const journal = join(f.root, '.views/.engine-v2/journal', `${prepared.plan.id}.json`)
+      const staged = join(f.dir, 'pending.json')
+      renameSync(journal, staged)
+      assert.deepEqual((await f.engine.request('upgradePreflight', {}, f.current)).pendingOperations, [])
+      const original = readFileSync(f.path)
+      let calls = 0
+      const request = f.engine.request.bind(f.engine)
+      if (boundary === 'final-fence') {
+        let preflights = 0
+        f.engine.request = (async (...args: Parameters<typeof request>) => {
+          const result = await request(...args)
+          if (args[0] === 'upgradePreflight' && ++preflights === 2) renameSync(staged, journal)
+          return result
+        }) as typeof f.engine.request
+      }
+      await assert.rejects(
+        upgradeMemoryConfig(
+          f.engine,
+          {
+            current: () => true,
+            barrier: async () => {
+              if (++calls === 2 && boundary === 'under-lock') renameSync(staged, journal)
+            },
+          },
+          f.revision,
+          f.configHash,
+        ),
+        /Pending memory operations|Memory upgrade state changed/,
+      )
+      assert.deepEqual(readFileSync(f.path), original)
+      assert.equal(existsSync(journal), true)
+    } finally {
+      await f.close()
+    }
+  })
+}
+
+test('retained upgrade evidence is recoverable when original limits cannot certify HEAD', async () => {
+  const f = fixture()
+  try {
+    const body = `# Core\n${'x'.repeat(9000)}\n`
+    writeFileSync(join(f.root, 'Core.md'), body)
+    execFileSync('git', ['add', 'Core.md'], { cwd: f.root, env: f.env })
+    execFileSync('git', ['commit', '-m', 'Synthetic retained capacity'], { cwd: f.root, env: f.env })
+    const config = { ...parseConfig(readFileSync(f.path, 'utf8')), totalBytes: 4096 }
+    writeFileSync(f.path, `${JSON.stringify(config)}\n`)
+    const preflight = await f.engine.request('upgradePreflight', {}, f.current)
+    let calls = 0
+    let valid = true
+    await assert.rejects(
+      upgradeMemoryConfig(
+        f.engine,
+        {
+          current: () => valid,
+          barrier: async () => {
+            if (++calls === 5) valid = false
+          },
+        },
+        preflight.revision,
+        preflight.configHash,
+      ),
+    )
+    const status = await memoryPolicyStatus(f.engine, f.current)
+    assert.equal(status.state, 'retained+recoverable')
+    assert.equal(status.outcome, 'intended')
+    const before = readFileSync(f.path)
+    await reconcileMemoryPolicy(f.engine, f.current, status.target!, status.digest!)
+    assert.deepEqual(readFileSync(f.path), before)
+    assert.equal((await f.engine.request('status', {}, f.current)).revision, preflight.revision)
+    assert.equal(readFileSync(join(f.root, 'Core.md'), 'utf8'), body)
+  } finally {
+    await f.close()
+  }
+})
+
+test('canonical capacity upgrade preserves policy and registers a bounded project', async () => {
+  const f = fixture()
+  try {
+    const registered = { cwd: join(f.dir, 'other'), id: 'other' }
+    const result = await upgradeMemoryConfig(f.engine, f.current, f.revision, f.configHash, registered)
+    const config = parseConfig(readFileSync(f.path, 'utf8'))
+    assert.equal(config.coreBytes, 32768)
+    assert.equal(config.indexBytes, 8192)
+    assert.equal(config.fileBytes, 262144)
+    assert.equal(config.totalBytes, 8388608)
+    assert.equal(config.automatic, false)
+    assert.deepEqual(config.projects.at(-1), registered)
+    assert.equal(result.configHash, digest(JSON.stringify(config)))
+    assert.equal(existsSync(join(f.root, '.lock')), false)
+  } finally {
+    await f.close()
+  }
+})
+
+for (const boundary of [1, 2, 4] as const) {
+  test(`capacity upgrade rejects changed configuration or revoked authority at barrier ${boundary}`, async () => {
+    const f = fixture()
+    try {
+      const original = readFileSync(f.path)
+      let calls = 0
+      let valid = true
+      const context: OperationContext = {
+        current: () => valid,
+        barrier: async () => {
+          if (++calls !== boundary) return
+          if (boundary === 4) valid = false
+          else {
+            const config = parseConfig(readFileSync(f.path, 'utf8'))
+            writeFileSync(f.path, `${JSON.stringify({ ...config, coreBytes: 16384 })}\n`)
+          }
+        },
+      }
+      await assert.rejects(upgradeMemoryConfig(f.engine, context, f.revision, f.configHash))
+      assert.equal(readFileSync(f.path, 'utf8').includes('"coreBytes":32768'), false)
+      if (boundary === 4) assert.deepEqual(readFileSync(f.path), original)
+      // Revocation may retain exact policy evidence; it must never publish stale bytes.
+    } finally {
+      await f.close()
+    }
+  })
 }
 
 test('normal on/off and authorized stale HEAD/config CAS remove only their owned lock', async () => {

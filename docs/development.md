@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.12.12.md)
+[← Documentation](README.md) · [Source release record](releases/0.12.13.md)
 
 ## Dependencies and checks
 
@@ -40,12 +40,12 @@ lifecycle/document owners. The later ABI2 metadata handoff has its own focused
 source fixtures and does not import that service:
 
 ```sh
-node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-engine.test.ts test/agent-memory-palace-handoff.test.ts test/palace-immutable-server.test.ts test/agent-memory-tree-lifecycle.test.ts test/agent-memory-runtime.test.ts
+node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/agent-memory-engine.test.ts test/agent-memory-palace-handoff.test.ts test/agent-memory-tree-lifecycle.test.ts test/agent-memory-runtime.test.ts
 ```
 
-These tests cover the frozen DTO/renderer, capability-scoped immutable server,
-runtime authority/lifecycle revocation, configurable bounded Palace validation
-(deadline success/timeout), command/ABI1 grammar and count-only ABI2 capacity
+These tests cover the bounded diagnostic DTO, full file:// snapshot renderer,
+owner-mediated export pages, final authority/cancellation checks,
+command/ABI1 grammar and count-only ABI2 capacity
 fallback—storage-namespace overflow, not session-history length—without parsing retained
 record bodies. They do not open
 a browser, mutate a current profile, prove provider consumption, complete R7-I/O/H
@@ -204,8 +204,8 @@ node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 te
 ```
 
 The installed command surface is intentionally smaller: `/mh-memory palace`
-opens the immutable ABI2 metadata viewer, `palace close` stops it and `palace json`
-returns the legacy structural diagnostic. Earlier context/history/HTML command
+exports the persistent private ABI2 HTML snapshot, `palace close` cancels a pending
+export without deleting files and `palace json` returns the bounded structural diagnostic. Earlier context/history/HTML command
 names remain hidden compatibility aliases and are covered by runtime/lifecycle
 fixtures rather than advertised as product commands.
 

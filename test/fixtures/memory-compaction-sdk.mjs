@@ -318,6 +318,36 @@ export default pi => { pi.on('session_start', (_event, ctx) =>
     )
   ).details
   assert.equal(init.initialized, true)
+  if (!duplicateSummary) {
+    // Positive control must cross a real configured threshold, not rely on installer defaults.
+    const manage = session.getToolDefinition('agent_memory_manage')
+    const status = (
+      await manage.execute('synthetic-policy-status', { action: 'status' }, undefined, undefined, ctx)
+    ).details
+    const policy = (
+      await manage.execute(
+        'synthetic-positive-threshold',
+        {
+          action: 'policy',
+          revision: status.revision,
+          configHash: status.configHash,
+          automatic: true,
+          reflectionTrigger: 'step-count',
+          reflectionStepCount: 1,
+        },
+        undefined,
+        undefined,
+        ctx,
+      )
+    ).details
+    assert.equal(policy.automatic, true)
+    const configured = (
+      await manage.execute('synthetic-policy-confirmation', { action: 'status' }, undefined, undefined, ctx)
+    ).details
+    assert.equal(configured.reflectionTrigger, 'step-count')
+    assert.equal(configured.reflectionStepCount, 1)
+    writerAttempts.positive = 0 // setup lookups are not evidence of a normal RPC turn's writer attempt
+  }
   assert.equal(fs.existsSync(path.join(fixture.agentDir, 'agents/managed-memory-writer.md')), false)
   const response = (kind, text) => (context) => {
     assert.equal(classify(context), kind, 'response queue position is not request classification')

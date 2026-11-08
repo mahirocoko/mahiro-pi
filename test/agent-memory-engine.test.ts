@@ -35,6 +35,8 @@ import {
   parseGitBlobs,
 } from '../lib/agent-memory/engine/io.ts'
 import { parseOperation, validatePlan } from '../lib/agent-memory/engine/operation.ts'
+import { reserveExecutor } from '../lib/agent-memory/engine/executor.ts'
+import { acquireOperationLock } from '../lib/agent-memory/engine/owned-lock.ts'
 import { parseDraft } from '../lib/agent-memory/engine/manifest.ts'
 import {
   encode,
@@ -216,6 +218,130 @@ function fixture(count = 12, longPaths = false) {
     },
   }
 }
+test('status stages distinguish physical and logical checkpoint denial from invalid committed blob', async () => {
+  const f = fixture(0)
+  try {
+    const status = () => f.engine.request('status', {}, f.context)
+    assert.ok((await status()).revision)
+    for (const denied of ['physical', 'logical'] as const) {
+      await assert.rejects(
+        f.engine.request(
+          'status',
+          {},
+          {
+            current: (targets) =>
+              !(denied === 'physical'
+                ? targets.physical.some((path) => path.endsWith('config.json'))
+                : targets.logical.includes('.memory.json')),
+          },
+        ),
+        (error: unknown) => {
+          const code = memoryFailureCode(error)
+          assert.deepEqual(code, { reason: 'unknown', failureStage: 'target-authority' })
+          assert.ok(!(error as Error).message.includes(f.root))
+          return true
+        },
+      )
+    }
+    writeFileSync(join(f.root, 'Core.md'), 'invalid synthetic core body')
+    f.git('add', 'Core.md')
+    f.git('commit', '-m', 'synthetic invalid blob')
+    await assert.rejects(status(), engineError({ reason: 'unknown', failureStage: 'certify-blobs' }))
+  } finally {
+    await f.close()
+  }
+})
+
+test('certify-tree separates real per-file and aggregate budget from layout mismatch', async () => {
+  const f = fixture(0)
+  try {
+    const status = () => f.engine.request('status', {}, f.context)
+    writeFileSync(join(f.root, 'Core.md'), `${'x'.repeat(f.config.coreBytes)}\n`)
+    f.git('add', 'Core.md')
+    f.git('commit', '-m', 'synthetic file budget')
+    await assert.rejects(status(), engineError({ reason: 'budget', failureStage: 'certify-file-budget' }))
+    writeFileSync(join(f.root, 'Core.md'), `# Core\n${'x'.repeat(300)}\n`)
+    f.git('add', 'Core.md')
+    f.git('commit', '-m', 'synthetic valid file')
+    writeFileSync(join(f.root, 'config.json'), `${JSON.stringify({ ...f.config, totalBytes: 256 })}\n`)
+    await assert.rejects(status(), engineError({ reason: 'budget', failureStage: 'certify-total-budget' }))
+    writeFileSync(join(f.root, 'config.json'), `${JSON.stringify(f.config)}\n`)
+    const ledger = JSON.parse(readFileSync(join(f.root, '.memory.json'), 'utf8'))
+    ledger.sources['global/missing.md'] = []
+    writeFileSync(join(f.root, '.memory.json'), `${JSON.stringify(ledger)}\n`)
+    f.git('add', '.memory.json')
+    f.git('commit', '-m', 'synthetic layout mismatch')
+    await assert.rejects(status(), engineError({ reason: 'unknown', failureStage: 'certify-tree' }))
+  } finally {
+    await f.close()
+  }
+})
+
+test('upgrade preflight certifies beyond configured budget without weakening ordinary status or hard ceiling', async () => {
+  const f = fixture(0)
+  try {
+    writeFileSync(join(f.root, 'Core.md'), `# Core\n${'x'.repeat(f.config.coreBytes)}\n`)
+    f.git('add', 'Core.md')
+    f.git('commit', '-m', 'configured file overflow')
+    await assert.rejects(
+      f.engine.request('status', {}, f.context),
+      engineError({ reason: 'budget', failureStage: 'certify-file-budget' }),
+    )
+    const preflight = await f.engine.request('upgradePreflight', {}, f.context)
+    assert.equal(preflight.revision, f.git('rev-parse', 'HEAD'))
+    assert.deepEqual(preflight.pendingOperations, [])
+    assert.equal(preflight.configHash.length, 64)
+    assert.ok(!Object.hasOwn(preflight, 'files'))
+    writeFileSync(join(f.root, 'Core.md'), `# Core\n${'x'.repeat(32768)}\n`)
+    f.git('add', 'Core.md')
+    f.git('commit', '-m', 'hard file overflow')
+    await assert.rejects(
+      f.engine.request('upgradePreflight', {}, f.context),
+      engineError({ reason: 'budget', failureStage: 'certify-file-budget' }),
+    )
+  } finally {
+    await f.close()
+  }
+})
+
+test('project-scoped prepare refuses merged corpus budget before journaling and retains proposal', async () => {
+  const f = fixture(0)
+  try {
+    const other = f.store.createView('project', 120000, true)
+    const otherPath = 'projects/other/reference/private.md'
+    f.store.edit(other, otherPath, null, `# Other private knowledge\n${'x'.repeat(400)}\n`, [])
+    f.store.integrate(other)
+    const head = f.git('rev-parse', 'HEAD')
+    const sources = JSON.parse(readFileSync(join(f.root, '.memory.json'), 'utf8')).sources
+    const total = Object.keys(sources).reduce(
+      (sum, path) => sum + Number(f.git('cat-file', '-s', `HEAD:${path}`)),
+      0,
+    )
+    writeFileSync(join(f.root, 'config.json'), `${JSON.stringify({ ...f.config, totalBytes: total + 10 })}\n`)
+    const created = await f.engine.request('create', { project: 'project', shared: false }, f.context)
+    const path = 'projects/project/reference/added.md'
+    await f.engine.request(
+      'edit',
+      { view: created.view, path, expectedHash: null, text: '# Added\nScoped proposal body.\n', sources: [] },
+      f.context,
+    )
+    await f.engine.request('ready', { view: created.view }, f.context)
+    const journal = join(f.root, '.views/.engine-v2/journal')
+    const before = existsSync(journal) ? readdirSync(journal) : []
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await assert.rejects(
+        f.engine.request('prepare', { view: created.view, reviewed: [] }, f.context),
+        engineError({ reason: 'budget' }),
+      )
+      assert.equal(f.git('rev-parse', 'HEAD'), head)
+      assert.deepEqual(existsSync(journal) ? readdirSync(journal) : [], before)
+      assert.deepEqual(await f.engine.request('ready', { view: created.view }, f.context), { ready: true })
+    }
+  } finally {
+    await f.close()
+  }
+})
+
 test('admitted paused native publisher must drain before quarantine and cannot resurrect its journal', async () => {
   const f = fixture(0)
   mkdirSync(join(f.root, '.views'), { mode: 0o700 }) // explicit synthetic enrollment storage
@@ -949,7 +1075,12 @@ test('inter-batch logical and individual physical revocation stop before next na
           check,
           new AbortController().signal,
         ),
-        /Intended unit revocation/,
+        (error: unknown) => {
+          assert.ok(error instanceof Error)
+          assert.equal(error.message, 'Memory operation unavailable')
+          assert.deepEqual(memoryFailureCode(error), { reason: 'unknown', failureStage: 'certify-blobs' })
+          return true
+        },
       )
       assert.equal(denied, true)
       const stats = await engine.execute('stats', {}, async () => {}, new AbortController().signal)
@@ -1656,13 +1787,13 @@ test('logical path denies gate entire view; overlays/manifest corruption and for
         { project: 'project', shared: true, selection: { path: 'Core.md' } },
         denied,
       ),
-      engineError(),
+      engineError({ reason: 'unknown', failureStage: 'target-authority' }),
     )
     assert.ok(deniedCalls > 0, 'head read reached the forbidden logical operand')
     deniedCalls = 0
     await assert.rejects(
       f.engine.request('read', { view, selection: { path: 'Core.md' } }, denied),
-      engineError(),
+      engineError({ reason: 'unknown', failureStage: 'target-authority' }),
     )
     assert.ok(deniedCalls > 0, 'draft read reached the forbidden logical operand')
     const core = await read(f, view)
@@ -1771,7 +1902,10 @@ test('capacity diagnostic reports bounded namespace counts without parsing retai
     for (let index = 0; index < 256; index++)
       writeFileSync(join(episodes, `${index.toString(16).padStart(64, '0')}.json`), 'not-json')
 
-    await assert.rejects(f.engine.request('status', {}, f.context), engineError({ reason: 'capacity' }))
+    await assert.rejects(
+      f.engine.request('status', {}, f.context),
+      engineError({ reason: 'capacity', failureStage: 'status-journal' }),
+    )
     const diagnostic = await f.engine.request('capacityDiagnostic', {}, f.context)
     assert.equal(diagnostic.kind, 'abi2-capacity-diagnostic')
     assert.equal(diagnostic.classification, 'status-namespace-capacity')
@@ -3003,12 +3137,18 @@ test('hardlinks and loose modes rejected; legacy/default import does not activat
     assert.deepEqual(await f.engine.request('config', {}, f.context), expectedConfig)
     const alias = join(f.dir, 'alias')
     linkSync(join(f.root, 'config.json'), alias)
-    await assert.rejects(f.engine.request('config', {}, f.context), engineError())
+    await assert.rejects(
+      f.engine.request('config', {}, f.context),
+      engineError({ reason: 'unknown', failureStage: 'config' }),
+    )
     assert.equal(lstatSync(join(f.root, 'config.json')).nlink, 2)
     rmSync(alias)
     assert.deepEqual(await f.engine.request('config', {}, f.context), expectedConfig)
     chmodSync(join(f.root, 'config.json'), 0o644)
-    await assert.rejects(f.engine.request('config', {}, f.context), engineError())
+    await assert.rejects(
+      f.engine.request('config', {}, f.context),
+      engineError({ reason: 'unknown', failureStage: 'config' }),
+    )
     assert.equal(lstatSync(join(f.root, 'config.json')).mode & 0o777, 0o644)
     chmodSync(join(f.root, 'config.json'), 0o600)
     assert.deepEqual(await f.engine.request('config', {}, f.context), expectedConfig)
@@ -3048,6 +3188,91 @@ async function recoveryPlan(f: ReturnType<typeof fixture>) {
   assert.equal(Buffer.from(chunk.data, 'base64').toString('utf8'), '# Durable proposal\n')
   return plan
 }
+for (const variant of ['owned', 'no-executor', 'foreign', 'dirty', 'hard-cap'] as const) {
+  test(`oversized exact historical commit recovery retains boundaries: ${variant}`, async () => {
+    const f = fixture(1)
+    try {
+      // Set the low configuration BEFORE preparation, so the plan's actual
+      // semantic configHash is the low limit, not a rewritten operation hash.
+      writeFileSync(join(f.root, 'config.json'), `${JSON.stringify({ ...f.config, totalBytes: 65536 })}\n`)
+      const plan = await recoveryPlan(f)
+      const executor = variant === 'no-executor' ? undefined : reserveExecutor(f.root, plan)
+      const owner = await acquireOperationLock(
+        f.root,
+        plan.id,
+        plan.digest,
+        variant === 'foreign' ? randomUUID() : (executor?.nonce ?? randomUUID()),
+        f.context,
+      )
+      await f.engine.request('claim', { plan: plan.id, digest: plan.digest, owner }, f.context)
+      const journal = join(f.root, '.views/.engine-v2/journal', `${plan.id}.json`)
+      const original = parseOperation(readFileSync(journal, 'utf8'))
+      assert.equal(original.immutable.plan.configHash, plan.configHash)
+      // Fixture-only historical scoped-publication simulation: the original
+      // prepared plan edits Core, while an unchanged shared file grew past the
+      // configured aggregate before the committed tree was observed. Current
+      // prepare prevents this new plan; no production bypass or forged executor.
+      const text = '# Shared\n' + 'x'.repeat(70000) + '\n'
+      writeFileSync(join(f.root, 'Core.md'), '# Durable proposal\n')
+      writeFileSync(join(f.root, 'global/file-0.md'), text)
+      f.git('add', '--', 'Core.md', 'global/file-0.md')
+      f.git('commit', '-m', 'Fixture historical oversized tree')
+      const committed = f.git('rev-parse', 'HEAD')
+      original.immutable.next['global/file-0.md'] = {
+        hash: digest(text),
+        size: Buffer.byteLength(text),
+        sources: original.immutable.ledger.sources['global/file-0.md'],
+      }
+      original.immutable.tree = f
+        .git('ls-tree', '-rz', '--full-tree', committed)
+        .split('\0')
+        .filter(Boolean)
+        .sort()
+      if (variant === 'hard-cap') {
+        // A malformed historical record above the absolute ceiling must never
+        // become authority even though its observed commit is over the low limit.
+        original.immutable.next['global/file-0.md'].size = limits.file + 1
+      }
+      original.immutableHash = digest(JSON.stringify(original.immutable))
+      original.receipt = { stage: 'head_observed' }
+      original.sequence++
+      writeFileSync(journal, `${JSON.stringify(original)}\n`)
+      if (variant === 'dirty') writeFileSync(join(f.root, 'Core.md'), '# Dirty after commit\n')
+      executor?.seal()
+      // A second controller observes the historical record without treating the
+      // original preparation as an unpublished plan; the executor reference is shared.
+      const observer = new MemoryEngineController(f.root, f.env)
+      try {
+        if (variant === 'hard-cap') {
+          await assert.rejects(
+            new MemoryPublisher(observer, f.env).reconcileExisting(plan.id, plan.digest, f.context),
+            engineError(),
+          )
+        } else {
+          const result = await new MemoryPublisher(observer, f.env).reconcileExisting(
+            plan.id,
+            plan.digest,
+            f.context,
+          )
+          assert.equal(
+            result.stage,
+            variant === 'dirty' ? 'unknown' : 'reconciled_committed',
+            JSON.stringify(parseOperation(readFileSync(journal, 'utf8')).receipt),
+          )
+          assert.equal(result.lockRetained, variant !== 'owned')
+          assert.equal(result.revision, committed)
+        }
+      } finally {
+        await observer.close()
+      }
+      assert.equal(existsSync(join(f.root, '.lock')), variant !== 'owned')
+      assert.equal(f.git('rev-parse', 'HEAD'), committed, 'reconciliation never replays publication')
+    } finally {
+      await f.close()
+    }
+  })
+}
+
 for (const stop of ['prepared', 'worktree_mutating', 'index_staged', 'commit_start_intent']) {
   test(`durable SAME-operation recovery after ${stop} authority loss never replays or grants chunks`, async () => {
     const f = fixture(0)
@@ -3595,6 +3820,78 @@ test('Palace committed previews bound files and aggregate UTF-8 bodies while inc
   }
 })
 
+test('Palace export owner pages complete authorized metadata and committed body without diagnostic caps', async () => {
+  const f = fixture(0)
+  try {
+    const view = f.store.createView('project', 120000, true)
+    for (let i = 0; i < 40; i++)
+      f.store.edit(
+        view,
+        `projects/project/reference/export-${i}.md`,
+        null,
+        `# Export ${i}\n${'😀'.repeat(2300)}TAIL_${i}\n`,
+        [],
+      )
+    f.store.edit(view, 'archives/legacy-v1-pretend/global/private.md', null, 'EXCLUDED_PREFIX\n', [])
+    f.store.edit(view, 'global/export.md', null, 'GLOBAL_EXPORT\n', [])
+    f.store.edit(view, 'deferred/project/export.md', null, 'DEFERRED_EXPORT\n', [])
+    f.store.edit(view, 'procedures/export.md', null, 'PROCEDURE_EXPORT\n', [])
+    f.store.integrate(view)
+    const { configHash } = await f.engine.request('config', {}, f.context)
+    const revision = f.store.snapshot().revision
+    const scope = { project: 'project', expectedRevision: revision, expectedConfigHash: configHash }
+    let offset = 0
+    const files = []
+    while (true) {
+      const page = await f.engine.request('palaceExport', { ...scope, offset }, f.context)
+      files.push(...page.files!)
+      if (page.nextOffset === undefined) {
+        assert.equal(files.length, page.total)
+        break
+      }
+      offset = page.nextOffset
+    }
+    assert.ok(files.length > 32)
+    assert.ok(files.every((file) => !file.path.includes('legacy-v1-pretend')))
+    for (const path of ['global/export.md', 'deferred/project/export.md', 'procedures/export.md']) {
+      const index = files.findIndex((file) => file.path === path)
+      assert.ok(index >= 0, path)
+      const body = await f.engine.request(
+        'palaceExport',
+        { ...scope, offset: index, path, characterOffset: 0 },
+        f.context,
+      )
+      assert.match(body.text!, /EXPORT/)
+    }
+    const index = files.findIndex((file) => file.path.endsWith('export-39.md'))
+    assert.ok(index >= 0)
+    let characterOffset = 0
+    let body = ''
+    while (true) {
+      const page = await f.engine.request(
+        'palaceExport',
+        { ...scope, offset: index, path: files[index].path, characterOffset },
+        f.context,
+      )
+      body += page.text
+      if (page.nextCharacterOffset === undefined) break
+      characterOffset = page.nextCharacterOffset
+    }
+    assert.ok(Buffer.byteLength(body) > 8192)
+    assert.match(body, /TAIL_39\n$/)
+    assert.equal(Buffer.byteLength(body), files[index].bytes)
+    await assert.rejects(
+      f.engine.request(
+        'palaceExport',
+        { ...scope, offset: index, path: 'archives/legacy-v1-pretend/global/private.md', characterOffset: 0 },
+        f.context,
+      ),
+    )
+  } finally {
+    await f.close()
+  }
+})
+
 test('Palace committed previews preserve a UTF-8 BOM without false truncation', async () => {
   const f = fixture(0)
   try {
@@ -3738,6 +4035,32 @@ test('Palace structure ignores worktree text and filters committed suppression f
     assert.ok(!next.files.some((x) => x.path === 'reference/forgotten.md'))
     assert.notEqual(next.snapshotDigest, first.snapshotDigest)
     assert.notEqual(next.structureDigest, first.structureDigest)
+    const page = await f.engine.request(
+      'palaceExport',
+      {
+        project: 'project',
+        expectedRevision: next.revision,
+        expectedConfigHash: configHash,
+        offset: 0,
+      },
+      f.context,
+    )
+    assert.ok(!page.files?.some((file) => file.path === 'reference/forgotten.md'))
+    assert.ok(page.files?.some((file) => file.path === 'Core.md'))
+    await assert.rejects(
+      f.engine.request(
+        'palaceExport',
+        {
+          project: 'project',
+          expectedRevision: next.revision,
+          expectedConfigHash: configHash,
+          offset: 0,
+          path: 'reference/forgotten.md',
+          characterOffset: 0,
+        },
+        f.context,
+      ),
+    )
   } finally {
     await f.close()
   }

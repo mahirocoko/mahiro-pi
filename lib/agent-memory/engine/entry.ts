@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { memoryFailureCode } from '../reasons.ts'
+import { memoryFailure, memoryFailureCode } from '../reasons.ts'
 import { MemoryDataEngine } from './data.ts'
 import { engineEnvironment } from './io.ts'
 import {
@@ -54,6 +54,7 @@ const frames = new Frames(transportLimits.request, (message) => {
       'cancel',
       'check',
       'allow',
+      'failureStage',
       'drained',
       'unpublished',
     ]) ||
@@ -71,13 +72,20 @@ const frames = new Frames(transportLimits.request, (message) => {
   if (
     typeof message.check === 'number' &&
     typeof message.allow === 'boolean' &&
-    Object.keys(message).length === 5
+    Object.keys(message).length === (message.failureStage === undefined ? 5 : 6) &&
+    (message.failureStage === undefined ||
+      (message.allow === false && message.failureStage === 'target-authority'))
   ) {
     const check = checks.get(message.check)
     if (!check || check.id !== id) return // late cancellation reply has no authority
     checks.delete(message.check)
     if (message.allow && !active?.abort.signal.aborted) check.resolve()
-    else check.reject(Error('Live parent authority unavailable'))
+    else
+      check.reject(
+        message.failureStage === 'target-authority'
+          ? memoryFailure('unknown', 'Live parent authority unavailable', undefined, 'target-authority')
+          : Error('Live parent authority unavailable'),
+      )
     return
   }
   const observation = ['reconcile', 'recover'].includes(message.method as string)

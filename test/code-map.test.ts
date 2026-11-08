@@ -220,12 +220,18 @@ test('3000 code-unit cap, omission accounting, escaping, immutable parallel form
     )
   }
   let tool: any
+  const lifecycle: string[] = []
   activate({
+    on: (event: string, handler: unknown) => {
+      assert.equal(typeof handler, 'function')
+      lifecycle.push(event)
+    },
     getAllTools: () => [],
     registerTool: (value: any) => {
       tool = value
     },
   } as any)
+  assert.deepEqual(lifecycle, ['session_start'])
   assert.equal(tool.name, 'mh_code_map')
   assert.equal(tool.executionMode, 'parallel')
   assert.equal(tool.parameters, codeMapParameters)

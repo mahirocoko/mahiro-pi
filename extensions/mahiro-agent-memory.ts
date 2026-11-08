@@ -92,7 +92,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       }
       if (subcommand === 'help') {
         ctx.ui.notify(
-          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory capacity is the idle count-only storage diagnostic and can run after a successful status; it returns no names, paths, record bodies, or cleanup handle. A model tool turn is not idle. /mh-memory retained-preview classifies retained draft manifests without archiving, unlinking, or proving another controller is idle; safe candidates stay zero while cross-controller exclusion is unproven. /mh-memory cleanup cancels any active uncommitted primary draft, retires unpublished controller plans and ownerless prepared journals, and reclaims terminal/expired drafts, journals and unreferenced overlay blobs. /mh-memory retire permanently fences this primary memory generation and waits for its actual registered continuations, controller, publication and holds, without stopping foreground work or unrelated agents. It does not prove global root quiescence or repair uncertain operations; ABI1 and older owners report unsupported. /mh-memory prepared-retire [status] accepts only strict ownerless-prepared or locked-prepared publication evidence. With no argument it drains this capable memory generation and returns an exact offline-required target/revision handoff, without a new maintenance marker, archive, quarantine or global-quiescence claim; status only inspects. Legacy/mixed-version roots still require coordinated offline recovery. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace opens one immutable ten-minute ABI2 metadata viewer on a capability-scoped 127.0.0.1 URL; it combines bounded invocation metadata, owner-certified committed structure and one offset-zero identity/time history page while remaining explicitly non-atomic and non-replayable. It best-effort opens the capability URL in the system browser and renders bounded committed file previews and sanitized history diffs without exposing raw Git headers or authors. Use /mh-memory palace close to stop it, or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
+          'Memory: /mh-memory status diagnoses prerequisites without requiring storage. /mh-memory capacity is the idle count-only storage diagnostic and can run after a successful status; it returns no names, paths, record bodies, or cleanup handle. A model tool turn is not idle. /mh-memory retained-preview classifies retained draft manifests without archiving, unlinking, or proving another controller is idle; safe candidates stay zero while cross-controller exclusion is unproven. /mh-memory cleanup cancels any active uncommitted primary draft, retires unpublished controller plans and ownerless prepared journals, and reclaims terminal/expired drafts, journals and unreferenced overlay blobs. /mh-memory retire permanently fences this primary memory generation and waits for its actual registered continuations, controller, publication and holds, without stopping foreground work or unrelated agents. It does not prove global root quiescence or repair uncertain operations; ABI1 and older owners report unsupported. /mh-memory prepared-retire [status] accepts only strict ownerless-prepared or locked-prepared publication evidence. With no argument it drains this capable memory generation and returns an exact offline-required target/revision handoff, without a new maintenance marker, archive, quarantine or global-quiescence claim; status only inspects. Legacy/mixed-version roots still require coordinated offline recovery. /mh-memory doctor returns engine-specific JSON diagnostics. /mh-memory palace exports one persistent private file:// ABI2 HTML snapshot containing every authorized committed Markdown body in Markdown and Raw views, bounded invocation metadata and one offset-zero history page. Captured associations are non-atomic and non-replayable; history diffs remain scoped and bounded. Exported bytes cannot be revoked by close or retirement and must be removed by the user when no longer needed. Use /mh-memory palace close to cancel an in-progress export (not delete snapshots), or /mh-memory palace json for the legacy structural/link/view/episode JSON diagnostic. /mh-memory remember <text> appends a concise durable note to system/human/notes.md. /mh-memory dream dispatches background reflection on unreviewed episodes. /mh-memory init seeds non-destructive tiered v2 layout and migrates legacy blocks. agent_memory_manage status adds authorized automatic On/Off, draft/publication and latest attempt. Policy reconciliation requires current revision/config and actual process-local drain; unknown operations require owner review, not lock stealing. A private draft or writer-ready checkpoint is not publication: only the healthy parent integrates successful completion and context activates on the next request. Installation/route changes need explicit approval and a fresh session; no provider inference or credentials are resolved by status.',
           'info',
         )
         return
@@ -117,7 +117,7 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           try {
             const result = await runtime.openPalaceViewer(ctx)
             ctx.ui.notify(
-              `Memory viewer opened in browser\n  File: ${result.filePath}\n  Close: ${result.closeCommand}`,
+              `Persistent private Memory Palace snapshot\n  File: ${result.filePath}\n  Exported bytes remain until you remove this file.`,
               'info',
             )
           } finally {
@@ -128,7 +128,12 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
         }
         const closePalace = async () => {
           const result = await runtime.closePalaceViewer()
-          ctx.ui.notify(result.closed ? 'Palace viewer closed.' : 'No Palace viewer is open.', 'info')
+          ctx.ui.notify(
+            result.closed
+              ? 'Palace export cancelled. Existing snapshot files were not deleted.'
+              : 'No Palace export is in progress. Existing snapshot files were not deleted.',
+            'info',
+          )
         }
         if (subcommand === 'status') {
           const result = await runtime.diagnose(ctx)
@@ -599,8 +604,8 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
       const triggerDetail = trigger === 'step-count' ? `step-count (${stepCount} turns)` : String(trigger)
       const triggerRow = `Reflection trigger · ${triggerDetail} [memory policy]`
       const dreamRow = 'Run reflection now (/mh-memory dream)'
-      const palaceOpenRow = 'Open Palace viewer · 10m browser snapshot'
-      const palaceCloseRow = 'Close Palace viewer'
+      const palaceOpenRow = 'Export Palace · persistent private HTML snapshot'
+      const palaceCloseRow = 'Cancel in-progress Palace export'
       const rememberRow = 'Remember a note… (/mh-memory remember)'
       const initRow = 'Initialize project memory (/mh-memory init)'
       const diagRow = 'Diagnostics & Maintenance ▸'
@@ -628,12 +633,12 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           {
             value: palaceOpenRow,
             label: 'Palace viewer  open',
-            description: 'Open the 10-minute loopback Memory Palace browser snapshot · /mh-memory palace',
+            description: 'Export persistent private Memory Palace HTML · /mh-memory palace',
           },
           {
             value: palaceCloseRow,
             label: 'Palace viewer  close',
-            description: 'Close the active loopback Memory Palace preview server · /mh-memory palace close',
+            description: 'Cancel an in-progress export; does not delete files · /mh-memory palace close',
           },
           {
             value: rememberRow,

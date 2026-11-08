@@ -290,7 +290,19 @@ try {
     interceptedFetchCalls++
     throw Error('External fetch forbidden in worker fixture')
   }
-  save('install.log', command([process.execPath, path.join(product, 'install.mjs'), '--agent-dir', profile]))
+  save(
+    'install.log',
+    command([
+      process.execPath,
+      path.join(product, 'install.mjs'),
+      '--agent-dir',
+      profile,
+      '--managed-writer-model',
+      'openai/gpt-6.1-sol',
+      '--managed-writer-thinking',
+      'off',
+    ]),
+  )
   fs.writeFileSync(path.join(project, 'safe.txt'), 'SYNTHETIC_WORKER_SAFE\n', { mode: 0o600 })
   fs.writeFileSync(
     path.join(profile, 'agents/fixture-worker.md'),
@@ -316,6 +328,8 @@ try {
   writePolicy()
   sdk = await import('@earendil-works/pi-coding-agent')
   ai = await import('@earendil-works/pi-ai')
+  // The disposable installed writer is explicitly pinned to the third Faux handle;
+  // the primary model still uses a separate queue and the role lock remains canonical.
   const handles = ['fixture-parent', 'fixture-worker', 'gpt-6.1-sol'].map((id) =>
     ai.fauxProvider({
       provider: 'openai',
@@ -722,7 +736,8 @@ try {
       ['/subagents:sessions', noUi, { noop: true }],
       ['/mh-memory help', note(/Memory:/)],
       ['/mh-memory doctor', jsonNote((data) => assert.equal(data.healthy, true))],
-      ['/mh-memory palace', jsonNote((data) => assert.equal(data.healthy, true))],
+      ['/mh-memory palace', noUi, { noop: true }],
+      ['/mh-memory palace json', jsonNote((data) => assert.equal(data.healthy, true))],
       ['/mh-memory remember', note(/Usage:/), { control: true }],
       ['/mh-memory unsupported', note(/Use \/mh-memory/), { control: true }],
       ['/mh-memory status', jsonNote((data) => assert.equal(data.readiness, 'Ready'))],

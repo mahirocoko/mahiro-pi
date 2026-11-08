@@ -1,7 +1,7 @@
 import { bytes, digest, objectShape, validId } from '../../continuity/records.ts'
 import { assertKnowledgeHistory } from '../knowledge-history.ts'
 import { assertMigrationExportPage } from '../migration-export.ts'
-import { assertPalaceStructure } from '../palace-structure.ts'
+import { assertPalaceStructure, palaceExportPath } from '../palace-structure.ts'
 import {
   memoryMissingHint,
   palaceLayerFor,
@@ -95,6 +95,96 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
         offset: input.offset,
       })
       return
+    case 'palaceExport': {
+      const v = shape(
+        value,
+        [
+          'revision',
+          'configHash',
+          'total',
+          'files',
+          'nextOffset',
+          'path',
+          'text',
+          'hash',
+          'totalCharacters',
+          'nextCharacterOffset',
+        ],
+        ['revision', 'configHash', 'total'],
+      )
+      ensure(
+        v.revision === input.expectedRevision &&
+          v.configHash === input.expectedConfigHash &&
+          integer(v.total, limits.files) &&
+          integer(input.offset, limits.files),
+      )
+      if (input.path === undefined) {
+        ensure(
+          !('path' in v) &&
+            !('text' in v) &&
+            !('hash' in v) &&
+            !('totalCharacters' in v) &&
+            !('nextCharacterOffset' in v) &&
+            Array.isArray(v.files) &&
+            v.files.length <= 16 &&
+            (input.offset as number) + v.files.length <= (v.total as number),
+        )
+        for (const [index, file] of v.files.entries()) {
+          const f = shape(file, [
+            'path',
+            'layer',
+            'bytes',
+            'protectedRetention',
+            'alwaysLoaded',
+            'sourcesCount',
+          ])
+          ensure(
+            typeof f.path === 'string' &&
+              palaceExportPath(f.path, input.project as string) &&
+              (index === 0 || (v.files[index - 1] as { path: string }).path < f.path) &&
+              f.layer === palaceLayerFor(f.path) &&
+              integer(f.bytes, limits.file) &&
+              integer(f.sourcesCount, 32) &&
+              f.protectedRetention === isProtectedRetentionPath(f.path) &&
+              f.alwaysLoaded ===
+                (f.path === 'Core.md' ||
+                  f.path === 'index.md' ||
+                  isAlwaysLoadedTieredPath(f.path, input.project as string)),
+          )
+        }
+        ensure(
+          v.nextOffset === undefined
+            ? (input.offset as number) + v.files.length === v.total
+            : integer(v.nextOffset, limits.files) &&
+                v.nextOffset === (input.offset as number) + v.files.length &&
+                (v.nextOffset as number) > (input.offset as number) &&
+                v.nextOffset < (v.total as number),
+        )
+      } else {
+        ensure(
+          !('files' in v) &&
+            !('nextOffset' in v) &&
+            v.path === input.path &&
+            revision(v.hash) &&
+            text(v.text, 8192) &&
+            [...(v.text as string)].length <= 2048 &&
+            integer(v.totalCharacters, limits.file) &&
+            integer(input.characterOffset, limits.file) &&
+            (input.characterOffset as number) + [...(v.text as string)].length <=
+              (v.totalCharacters as number),
+        )
+        ensure(
+          v.nextCharacterOffset === undefined
+            ? (input.characterOffset as number) + [...(v.text as string)].length === v.totalCharacters
+            : integer(v.nextCharacterOffset, limits.file) &&
+                v.nextCharacterOffset ===
+                  (input.characterOffset as number) + [...(v.text as string)].length &&
+                (v.nextCharacterOffset as number) > (input.characterOffset as number) &&
+                v.nextCharacterOffset < (v.totalCharacters as number),
+        )
+      }
+      return
+    }
     case 'palaceStructure':
       assertPalaceStructure(value, { project: input.project, expectedConfigHash: input.expectedConfigHash })
       if (value.bodyInspection === 'bounded-committed-preview') {
@@ -666,9 +756,19 @@ export function validateReply(method: Method, inputValue: unknown, value: unknow
       )
       return
     }
-    case 'status': {
-      const v = shape(value, ['revision', 'files', 'pendingOperations'])
-      ensure(revision(v.revision) && paths(v.files) && Array.isArray(v.pendingOperations))
+    case 'status':
+    case 'upgradePreflight': {
+      const v = shape(
+        value,
+        method === 'status'
+          ? ['revision', 'files', 'pendingOperations']
+          : ['revision', 'configHash', 'pendingOperations'],
+      )
+      ensure(
+        revision(v.revision) &&
+          (method === 'status' ? paths(v.files) : hash(v.configHash)) &&
+          Array.isArray(v.pendingOperations),
+      )
       ensure(v.pendingOperations.length <= limits.views)
       for (const entry of v.pendingOperations) {
         const operation = shape(entry, ['id', 'digest', 'stage', 'recordBytes'])

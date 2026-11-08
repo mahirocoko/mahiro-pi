@@ -1,4 +1,3 @@
-import { bytes } from '../continuity/records.ts'
 import type { PalaceHandoff } from '../agent-memory/palace-handoff.ts'
 import { utf8Preview } from '../agent-memory/palace-structure.ts'
 
@@ -238,6 +237,8 @@ code { overflow-wrap: anywhere; }
 .tree-item:hover { background: var(--hover-accent); }
 .tree-item.file-list-entry { cursor: default; }
 .tree-item.file-list-entry:hover { background: none; }
+.tree-item.file.selected { background: var(--accent-light); color: var(--accent); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.tree-item.file:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tree-item.dir { color: var(--text-muted); border-left: 2px solid var(--accent); }
 .tree-file-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .dir-count, .file-chars { margin-left: auto; flex: 0 0 auto; white-space: nowrap; }
@@ -298,7 +299,7 @@ label.ctx-legend-item:hover { color: var(--text); }
 .ctx-legend-arrow { font-size: 11px; color: var(--text-dim); margin-left: 4px; }
 .ctx-legend-value { text-align: right; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
 ${contextCoverageCss()}
-${Array.from({ length: 128 }, (_, index) => `.files-layout:has([id$="-file-${index}"]:checked) [for$="-file-${index}"] { background: var(--accent-light); color: var(--accent); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }\n.files-layout:has([id$="-file-${index}"]:focus-visible) [for$="-file-${index}"] { outline: 2px solid var(--accent); outline-offset: -2px; }`).join('\n')}
+
 .history-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .history-search-status { font-size: 12px; color: var(--text-dim); }
 .commit-list { display: grid; gap: 10px; }
@@ -335,10 +336,14 @@ ${Array.from({ length: 128 }, (_, index) => `.files-layout:has([id$="-file-${ind
 @media (max-width: 600px) { .header { flex-wrap: wrap; } .agent-meta { text-align: left; margin-left: 0; } .main { padding: 8px; } .tab { padding: 10px; letter-spacing: 1px; } .commit-head { grid-template-columns: minmax(0, 1fr); } }
 `
 
-export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
+export type PalaceRenderInput = Pick<PalaceHandoff, 'diagnostic'> & {
+  history?: PalaceHandoff['history']
+  historyUnavailable?: true
+}
+
+export function renderAbi2PalacePage(handoff: PalaceRenderInput): string {
   const context = handoff.diagnostic.context
   const structure = handoff.diagnostic.structure
-  const history = handoff.history
   const core = structure.files.filter(isCore)
   const external = structure.files.filter((file) => !isCore(file))
   const views = [
@@ -356,14 +361,21 @@ export function renderAbi2PalacePage(handoff: PalaceHandoff): string {
   const viewTabs = views
     .map(([id, title]) => `<li><label class="tab" for="view-${id}">${title}</label></li>`)
     .join('')
-  const buildHtml = (previewBytes: number, previewLines: number, compact = false) => `<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>${escape(structure.project)}'s Memory Palace | Mahiro Pi</title>
-<style>${abi2PalaceStyle}</style>
+<style>${abi2PalaceStyle}\n${[core, external]
+    .flatMap((files, group) =>
+      files.map((_, index) => {
+        const id = `${group ? 'external' : 'core'}-file-${index}`
+        return `.files-layout:has([id="${id}"]:checked) [for="${id}"] { background: var(--accent-light); color: var(--accent); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }`
+      }),
+    )
+    .join('\n')}</style>
 </head>
 <body>
 <div class="app-shell">
@@ -378,26 +390,14 @@ ${viewInputs}
 <nav aria-label="Page sections"><ul class="tabs">${viewTabs}</ul></nav>
 <main id="content" class="main">
 <div class="view view-context" aria-label="Context">${contextView(handoff, core, external)}</div>
-<div class="view view-core" aria-label="Core Memory">${fileWorkspace(core, 'core', handoff, previewBytes, compact)}</div>
-<div class="view view-external" aria-label="External Memory">${fileWorkspace(external, 'external', handoff, previewBytes, compact)}</div>
-<div class="view view-history" aria-label="History">${commitCards(handoff, previewBytes, previewLines, compact)}</div>
+<div class="view view-core" aria-label="Core Memory">${fileWorkspace(core, 'core', handoff)}</div>
+<div class="view view-external" aria-label="External Memory">${fileWorkspace(external, 'external', handoff)}</div>
+<div class="view view-history" aria-label="History">${commitCards(handoff)}</div>
 </main>
-<footer>Captured <time datetime="${escape(context.capturedAt)}">${escape(formatShortDate(context.capturedAt))}</time> · Close with <code>/mh-memory palace close</code></footer>
+<footer>Captured <time datetime="${escape(context.capturedAt)}">${escape(formatShortDate(context.capturedAt))}</time> · Persistent private snapshot; exported bytes remain until removed by you</footer>
 </div>
 </body>
 </html>`
-  for (const [previewBytes, previewLines, compact] of [
-    [8192, 256, false],
-    [4096, 128, false],
-    [2048, 64, false],
-    [1024, 32, false],
-    [256, 12, false],
-    [128, 4, true],
-  ] as const) {
-    const html = buildHtml(previewBytes, previewLines, compact)
-    if (bytes(html) <= 256 * 1024) return html
-  }
-  throw Error('Palace HTML exceeds bound')
 }
 
 type PalaceFile = PalaceHandoff['diagnostic']['structure']['files'][number]
@@ -481,13 +481,7 @@ function markdown(body: string): string {
   return output.join('\n')
 }
 
-function fileWorkspace(
-  files: readonly PalaceFile[],
-  group: string,
-  handoff: PalaceHandoff,
-  previewBytes: number,
-  compact: boolean,
-): string {
+function fileWorkspace(files: readonly PalaceFile[], group: string, handoff: PalaceRenderInput): string {
   type Tree = {
     folders: Map<string, Tree>
     files: { file: PalaceFile; index: number; name: string }[]
@@ -526,9 +520,7 @@ function fileWorkspace(
         .map(({ file, index, name }) => {
           const cleanName = name.replace(/\.md$/, '')
           const sizeLabel = formatBytes(file.bytes)
-          return compact
-            ? `<div class="tree-item file-list-entry"><span class="tree-file-name">${escape(cleanName)}</span><span class="file-chars">${sizeLabel}</span></div>`
-            : `<label class="tree-item file" for="${group}-file-${index}"><span class="tree-file-name">${escape(cleanName)}</span><span class="file-chars">${sizeLabel}</span></label>`
+          return `<label class="tree-item file" for="${group}-file-${index}"><span class="tree-file-name">${escape(cleanName)}</span><span class="file-chars">${sizeLabel}</span></label>`
         })
         .join('')
     )
@@ -540,10 +532,11 @@ function fileWorkspace(
       const lines = (entry.diff ?? '').split('\n')
       return lines.includes(`+++ ${path}`) || lines.includes(`--- ${path}`)
     }) ?? historyEntries[0]
-  const documents = (compact ? [] : files)
-    .map((file, index) => {
+  const documents = files
+    .map((file) => {
+      const index = files.indexOf(file)
       const latest = commitForFile(file.path)
-      const body = file.body === undefined ? undefined : utf8Preview(file.body, previewBytes)
+      const body = file.body
       const parsed = frontmatter(body ?? '')
       const pills = [
         ...parsed.badges.map(
@@ -552,20 +545,15 @@ function fileWorkspace(
         ),
         `<span class="meta-pill">size: <strong>${displayCount(file.bytes)} B</strong></span>`,
       ].join('')
-      const truncated = file.bodyTruncated || body !== file.body
-      const notice = truncated ? '<p class="note">Committed body (truncated)</p>' : ''
       return `<article class="file-document"><input class="file-radio" type="radio" name="${group}-file" id="${group}-file-${index}"${index === 0 ? ' checked' : ''} aria-label="${escape(file.path)}"><div class="file-content">
 <label class="file-last-commit" for="view-history"><span class="lc-hash">${escape((latest?.revision ?? structure.revision).slice(0, 7))}</span><span class="lc-msg">${escape(latest?.subject ?? 'Committed snapshot')}</span><time class="lc-meta" datetime="${escape(latest?.committedAt ?? handoff.diagnostic.context.capturedAt)}">${escape(formatShortDate(latest?.committedAt ?? handoff.diagnostic.context.capturedAt))}</time></label>
 <div class="file-meta"><div class="file-path"><code>${escape(file.path)}</code></div><div class="meta-row">${pills}</div><input class="raw-toggle-input" type="checkbox" id="raw-${group}-${index}"><label class="raw-toggle" for="raw-${group}-${index}">Raw</label></div>
-<div class="file-body">${body === undefined ? '<p>No preview available.</p>' : markdown(parsed.text)}${notice}</div>
-<div class="file-body-raw"><pre>${escape(body ?? '')}</pre>${notice}</div>
+<div class="file-body">${markdown(parsed.text)}</div>
+<div class="file-body-raw"><pre><code>${escape(body ?? '').replace(/\r/g, '&#13;')}</code></pre></div>
 </div></article>`
     })
     .join('')
-  const fallback =
-    compact && files.length
-      ? `<p class="notice">omitted to fit the HTML budget: noninteractive file list (${files.length} files).</p>${files.map((file) => `<details><summary>Committed body${file.bodyTruncated ? ' (truncated)' : ''}: <code>${escape(file.path)}</code></summary><pre>${escape(utf8Preview(file.body ?? '', previewBytes))}</pre></details>`).join('')}`
-      : '<p class="lede">No files in this section.</p>'
+  const fallback = '<p class="lede">No files in this section.</p>'
   return `<div class="files-layout"><aside class="panel tree-panel" aria-label="${group} files"><div class="tree-desc">${group === 'core' ? 'Memory stored in-context' : 'Memory stored out-of-context'}</div>${tree(root) || '<p class="lede">No files.</p>'}</aside><div class="panel file-panel" aria-label="Selected ${group} document">${documents || fallback}</div></div>`
 }
 
@@ -597,7 +585,7 @@ function allocateContextBlocks(counts: readonly number[]): number[] {
 }
 
 function contextView(
-  handoff: PalaceHandoff,
+  handoff: PalaceRenderInput,
   core: readonly PalaceFile[],
   external: readonly PalaceFile[],
 ): string {
@@ -663,26 +651,22 @@ function contextView(
   return `<div class="panel context-panel"><div class="context-layout"><div class="context-grid-area"><div class="context-grid" aria-hidden="true">${grid}</div></div><aside class="context-sidebar"><div class="ctx-model">${escape(model)}</div><div class="ctx-model-sub">${escape(structure.project)} · ${escape(structure.revision.slice(0, 7))}</div><div class="ctx-usage-label">${escape(usageLabel)}</div><div class="ctx-bar-track" aria-hidden="true"><div class="ctx-bar-fill ctx-fill-${fillStep}"></div></div><div class="ctx-bar-text">${escape(barText)}</div><div class="ctx-legend-title">Composition</div>${legendItems}</aside></div></div>`
 }
 
-function visibleHistoryEntries(handoff: PalaceHandoff) {
-  return handoff.history.entries.filter(
+function visibleHistoryEntries(handoff: PalaceRenderInput) {
+  return (handoff.history?.entries ?? []).filter(
     (entry) =>
       entry.changedFiles > 0 || Boolean(entry.diff) || entry.subject === 'Out-of-scope project update',
   )
 }
 
-function commitCards(
-  handoff: PalaceHandoff,
-  previewBytes: number,
-  previewLines: number,
-  compact: boolean,
-): string {
+function commitCards(handoff: PalaceRenderInput): string {
   const entries = visibleHistoryEntries(handoff)
+  if (handoff.historyUnavailable)
+    return '<div class="panel"><p class="lede">History unavailable: current forgetting.</p></div>'
   if (!entries.length) return '<div class="panel"><p class="lede">No commits yet.</p></div>'
   return `<div class="history-toolbar"><span class="history-search-status">${entries.length} recent commit${entries.length === 1 ? '' : 's'}</span></div><div class="commit-list">${entries
     .map((entry, index) => {
-      const preview = utf8Preview(entry.diff ?? '', previewBytes)
-      const lines = preview.split('\n').slice(0, previewLines)
-      const truncated = entry.diffTruncated || preview !== (entry.diff ?? '') || lines.join('\n') !== preview
+      const lines = (entry.diff ?? '').split('\n')
+      const truncated = entry.diffTruncated
       const returnedLines = (entry.diff ?? '').split('\n')
       const added = returnedLines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).length
       const removed = returnedLines.filter((line) => line.startsWith('-') && !line.startsWith('---')).length
@@ -706,7 +690,7 @@ function commitCards(
           return `<span class="diff-line ${kind}">${escape(line)}</span>`
         })
         .join('')
-      return `<details class="commit-item"${index === 0 && !compact ? ' open' : ''}><summary class="commit-head"><span class="commit-left"><span class="commit-hash">${escape(entry.revision.slice(0, 7))}</span><span class="diff-bar"><span class="db-plus">+${added}</span><span class="db-minus">−${removed}</span><span class="db-blocks">${blocks}</span></span></span><span class="commit-center"><span class="commit-title">${escape(entry.subject)}</span><span class="commit-preview">${entry.changedFiles} file${entry.changedFiles === 1 ? '' : 's'} changed</span></span><time class="commit-meta" datetime="${escape(entry.committedAt)}">${escape(formatShortDate(entry.committedAt))}</time></summary><div class="commit-body"><pre>${entry.diff ? diff : '<span class="diff-line">No diff preview.</span>'}</pre>${truncated ? '<p class="note">Commit diff (truncated)</p>' : ''}</div></details>`
+      return `<details class="commit-item"${index === 0 ? ' open' : ''}><summary class="commit-head"><span class="commit-left"><span class="commit-hash">${escape(entry.revision.slice(0, 7))}</span><span class="diff-bar"><span class="db-plus">+${added}</span><span class="db-minus">−${removed}</span><span class="db-blocks">${blocks}</span></span></span><span class="commit-center"><span class="commit-title">${escape(entry.subject)}</span><span class="commit-preview">${entry.changedFiles} file${entry.changedFiles === 1 ? '' : 's'} changed</span></span><time class="commit-meta" datetime="${escape(entry.committedAt)}">${escape(formatShortDate(entry.committedAt))}</time></summary><div class="commit-body"><pre>${entry.diff ? diff : '<span class="diff-line">No diff preview.</span>'}</pre>${truncated ? '<p class="note">Commit diff (truncated)</p>' : ''}</div></details>`
     })
     .join('')}</div>`
 }

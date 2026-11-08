@@ -115,7 +115,7 @@ const denied = (message) => (result) => {
   assert.equal(result.text, message)
 }
 const memoryDenied = denied(
-  'Managed memory unavailable: valid arguments, scope, CAS, separate permission and healthy native binding required (reason: unknown)',
+  'Managed memory unavailable: valid arguments, scope, CAS, separate permission and healthy native binding required (reason: unknown) (stage: binding)',
 )
 const step = (id, tool, args, verify = ok, control = false) =>
   inspect(id, () => call(tool, args), verify, control)

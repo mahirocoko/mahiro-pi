@@ -360,10 +360,30 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     const topics = JSON.parse((await call('agent_memory_read', { topic: '*', limit: 1 })).value)
     assert.equal(topics.entries.length, 1)
     assert.equal(topics.complete, false)
+    const scoped = JSON.parse(
+      (await call('agent_memory_read', { topic: 'deferred/project-b', limit: 1 })).value,
+    )
+    assert.deepEqual(
+      scoped.entries.map((entry: { path: string }) => entry.path),
+      ['deferred/project-b/relevant.md'],
+    )
+    assert.equal(scoped.complete, true)
+    const allTopics = JSON.parse((await call('agent_memory_read', { topic: '*', limit: 33 })).value)
+    assert.deepEqual(
+      allTopics.entries.map((entry: { path: string }) => entry.path),
+      ['Core.md', 'deferred/project-b/relevant.md', 'index.md'],
+    )
+    assert.equal(allTopics.total, 3)
+    assert.equal(allTopics.complete, true)
+    const continued = JSON.parse(
+      (await call('agent_memory_read', { topic: '*', offset: topics.nextOffset, limit: 1 })).value,
+    )
+    assert.equal(continued.entries[0].path, 'deferred/project-b/relevant.md')
+    assert.equal(continued.nextOffset, 2)
     for (const invalid of [
       { query: 'Cross-project', path: 'Core.md' },
       { topic: '*', query: 'Cross-project' },
-      { topic: '*', limit: 33 },
+      { topic: 'outside/namespace' },
       { offset: 1 },
     ])
       await call('agent_memory_read', invalid, true)
@@ -658,10 +678,23 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     fs.writeFileSync(policyFile, JSON.stringify(learningPolicy), { mode: 0o600 })
     // Both automatic owners receive one genuine observed idle settlement. They
     // share the exact native parent's bounded queue, not a last-child singleton.
+    // Credit is scoped to the resolved native project slug, not the cwd hash.
+    const automaticStatus = JSON.parse(
+      (
+        await definitions!
+          .find((tool: any) => tool.name === 'agent_memory_manage')
+          .execute('fixture-automatic-policy', { action: 'status' }, undefined, undefined, context)
+      ).content[0].text,
+    )
+    assert.equal(automaticStatus.automatic, true)
+    assert.equal(automaticStatus.reflectionTrigger, 'step-count')
+    assert.ok(Number.isSafeInteger(automaticStatus.reflectionStepCount))
+    assert.ok(automaticStatus.reflectionStepCount > 1)
+    assert.equal(typeof automaticStatus.project, 'string')
     const priorEpisodeId = sha(`${session.sessionId}:synthetic-prior-turn`)
     store.recordEpisode(priorEpisodeId, {
       id: priorEpisodeId,
-      project: sha(fs.realpathSync(projectB)),
+      project: automaticStatus.project,
       session: session.sessionId,
       evidence: 'observed-native-unverified',
       observedAt: '2026-07-01T00:00:00.000Z',
@@ -670,7 +703,7 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       actions: [{ text: 'Prior synthetic assistant steps.' }],
       results: [],
       outcome: 'completed',
-      assistantSteps: 24,
+      assistantSteps: automaticStatus.reflectionStepCount - 1,
     })
     const automaticService = node.managedMemory.parentService()
     faux.setResponses(
@@ -729,13 +762,21 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
     assert.ok(!prompts.at(-1)!.includes('procedures/auto-coexist.md'))
     const before = store.snapshot()
     const ledger = fs.readFileSync(path.join(root, '.memory.json'))
+    const beforeReinstallConfig = fs.readFileSync(path.join(root, 'config.json'))
+    const initialConfig = JSON.parse(originalConfig.toString('utf8'))
+    const currentConfig = JSON.parse(beforeReinstallConfig.toString('utf8'))
+    assert.deepEqual({ ...currentConfig, projects: initialConfig.projects }, initialConfig)
+    assert.deepEqual(currentConfig.projects, [
+      ...initialConfig.projects,
+      { cwd: fs.realpathSync(projectB), id: automaticStatus.project },
+    ])
     const again = install()
     fs.writeFileSync(path.join(dir, 'rerun.log'), again.stdout + again.stderr)
     assert.equal(again.status, 0, again.stdout + again.stderr)
     assertCanaries()
     assert.deepEqual(fs.readFileSync(path.join(profile, 'settings.json')), upgradedSettingsBytes)
     assert.deepEqual(store.snapshot(), before)
-    assert.deepEqual(fs.readFileSync(path.join(root, 'config.json')), originalConfig)
+    assert.deepEqual(fs.readFileSync(path.join(root, 'config.json')), beforeReinstallConfig)
     assert.deepEqual(fs.readFileSync(path.join(root, '.memory.json')), ledger)
     assert.notDeepEqual(ledger, originalLedger, 'real persistence, not universal empty response')
     fs.chmodSync(profile, 0o777)

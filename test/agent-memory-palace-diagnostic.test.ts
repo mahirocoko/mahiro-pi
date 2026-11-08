@@ -141,10 +141,11 @@ test('Palace diagnostic bounds encoded JSON independently of upstream coverage',
   for (const long of [false, true]) {
     const p = palace(128, long)
     const d = buildPalaceDiagnostic(context(), p)
-    assert.ok(Buffer.byteLength(JSON.stringify(d)) <= 32768)
+    assert.ok(Buffer.byteLength(JSON.stringify(d)) <= 224 * 1024)
     assert.deepEqual(d.structure.upstreamOutput, p.output)
     assert.equal(d.structure.output.omitted, 128 - d.structure.files.length)
-    if (long) assert.ok(d.structure.files.length < 128)
+    // Metadata-only rows fit the existing 224 KiB diagnostic budget, including long paths.
+    assert.equal(d.structure.files.length, 128)
   }
   assert.equal(buildPalaceDiagnostic(context(), palace(0)).structure.output.truncated, false)
   const p = palace(1)

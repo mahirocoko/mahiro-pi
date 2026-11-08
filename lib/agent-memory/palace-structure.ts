@@ -32,6 +32,10 @@ export function palaceScopedPath(path: string, project = 'default') {
       ['system/', 'reference/', 'archives/', 'projects/'].some((p) => path.startsWith(p)))
   )
 }
+// Export includes the full shared primary corpus; legacy archives retain their narrower attribution fence.
+export function palaceExportPath(path: string, project = 'default') {
+  return allowedPath(path) && (path.startsWith('archives/') ? palaceScopedPath(path, project) : true)
+}
 export function utf8Preview(text: string, cap: number) {
   let result = ''
   let size = 0

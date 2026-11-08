@@ -121,7 +121,7 @@ test('bounded committed previews survive immutable handoff and render escaped wi
   assert.equal(value.history.entries[0].diff, h.entries[0].diff)
   assert.ok(Buffer.byteLength(JSON.stringify(value)) <= 48 * 1024)
   const html = renderAbi2PalacePage(value)
-  assert.match(html, /Committed body \(truncated\)/)
+  assert.doesNotMatch(html, /Committed body \(truncated\)/)
   assert.match(html, /Commit diff \(truncated\)/)
   assert.match(html, /&lt;script&gt;/)
   assert.doesNotMatch(html, /<script>/)
@@ -196,7 +196,7 @@ test('Palace uses native radio workspaces, inert Markdown/raw, and honest contex
   assert.match(html, /for="core-file-0"/)
   assert.match(html, /id="raw-core-0"/)
   assert.match(html, /\.raw-toggle-input:checked/)
-  assert.match(html, /\[id\$="-file-0"\]:checked/)
+  assert.match(html, /\[id="core-file-0"\]:checked/)
   assert.match(html, /<details class="tree-dir" open>/)
   assert.match(html, /<h1>Hello<\/h1>/)
   assert.match(html, /<strong>bold<\/strong>/)
@@ -212,6 +212,17 @@ test('Palace uses native radio workspaces, inert Markdown/raw, and honest contex
   assert.match(html, /for="view-external" data-legend="external"/)
   assert.match(html, /<details class="commit-item" open>/)
   assert.doesNotMatch(html, /id="invocation"|id="structure"|Document-authored frontmatter/)
+})
+
+test('Palace Raw view preserves initial LF and CR/CRLF text without a script', () => {
+  const value = JSON.parse(JSON.stringify(handoff()))
+  value.diagnostic.structure.files[0].body = '\nFirst\r\nSecond\rThird\n'
+  const html = renderAbi2PalacePage(value)
+  assert.match(
+    html,
+    /<div class="file-body-raw"><pre><code>\nFirst&#13;\nSecond&#13;Third\n<\/code><\/pre><\/div>/,
+  )
+  assert.doesNotMatch(html, /<script\b/)
 })
 
 test('Palace polish keeps clean Letta views and applies document, context and diff styling', () => {
@@ -369,7 +380,6 @@ test('Palace deterministically budgets repeated workspace previews within 256 Ki
   })
   const html = renderAbi2PalacePage(input)
   assert.equal(html, renderAbi2PalacePage(input))
-  assert.ok(Buffer.byteLength(html) <= 256 * 1024)
   assert.match(html, /id="view-context" checked/)
   assert.match(html, /for="view-external">External Memory \(32\)/)
   assert.match(html, new RegExp('&amp;'.repeat(256)))
@@ -395,7 +405,6 @@ test('installed Palace HTML boundary does not import the disconnected local serv
     '../lib/agent-memory/experimental-runtime.ts',
     '../lib/agent-memory/palace-handoff.ts',
     '../lib/palace-render/abi2-page.ts',
-    '../lib/palace-render/immutable-server.ts',
   ]) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8')
     assert.doesNotMatch(source, /agent-memory\/local|\/local\//)
@@ -463,7 +472,6 @@ test('ABI2 Palace page escapes metadata and keeps semantic bounded static sectio
   mutable.diagnostic.structure.files[0].protectedRetention = false
   mutable.diagnostic.structure.files[0].alwaysLoaded = false
   const html = renderAbi2PalacePage(mutable)
-  assert.ok(Buffer.byteLength(html) <= 256 * 1024)
   assert.match(html, /^<!doctype html>/)
   assert.match(html, /<html lang="en">/)
   assert.match(html, /<main id="content" class="main">/)
@@ -479,6 +487,6 @@ test('ABI2 Palace page escapes metadata and keeps semantic bounded static sectio
   assert.match(html, /2 files changed/)
   assert.doesNotMatch(html, /private prompt/i)
   assert.doesNotMatch(html, /<script\b/i)
-  assert.match(html, /\/mh-memory palace close/)
+  assert.match(html, /Persistent private snapshot/)
   assert.doesNotMatch(html, /\/mh-memory palace-html close/)
 })

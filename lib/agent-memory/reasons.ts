@@ -15,9 +15,22 @@ export type MemoryReason =
   | 'patch-target-ambiguous'
   | 'budget'
   | 'unknown'
+export type MemoryFailureStage =
+  | 'binding'
+  | 'target-authority'
+  | 'config'
+  | 'certify-head'
+  | 'certify-ledger'
+  | 'certify-tree'
+  | 'certify-file-budget'
+  | 'certify-total-budget'
+  | 'certify-blobs'
+  | 'status-journal'
+  | 'status-policy'
 export interface MemoryFailureCode {
   reason: MemoryReason
   readInvalidation?: 'forgetting' | 'revision'
+  failureStage?: MemoryFailureStage
 }
 export type OfflineResetFailureCode =
   | 'holder-present'
@@ -38,21 +51,34 @@ export type OfflineResetFailureCode =
   | 'fingerprint'
 const require = createRequire(import.meta.url)
 const native = require('./reasons.mjs') as {
-  memoryFailure(reason: MemoryReason, message: string, readInvalidation?: 'forgetting' | 'revision'): Error
+  memoryFailure(
+    reason: MemoryReason,
+    message: string,
+    readInvalidation?: 'forgetting' | 'revision',
+    failureStage?: MemoryFailureStage,
+  ): Error
+  memoryFailureStage<T>(error: T, stage: MemoryFailureStage): T
   memoryFailureCode(error: unknown): Readonly<MemoryFailureCode>
   offlineResetFailure<T>(error: T, code: OfflineResetFailureCode): T
   offlineResetFailureCode(error: unknown): OfflineResetFailureCode | undefined
 }
-export const { memoryFailure, memoryFailureCode, offlineResetFailure, offlineResetFailureCode } = native
+export const {
+  memoryFailure,
+  memoryFailureStage,
+  memoryFailureCode,
+  offlineResetFailure,
+  offlineResetFailureCode,
+} = native
 
 // Fixed text only. In particular, an Error's message is NOT evidence of its source.
 export function publicMemoryError(error: unknown, read = false): Error {
   const code = memoryFailureCode(error)
+  const suffix = code.failureStage ? ` (stage: ${code.failureStage})` : ''
   if (read && code.readInvalidation)
     return new Error(
       code.readInvalidation === 'forgetting'
-        ? 'Managed memory unavailable: current forgetting invalidates this retained view; proposal preserved'
-        : 'Managed memory unavailable: current revision changed during read; proposal preserved',
+        ? `Managed memory unavailable: current forgetting invalidates this retained view; proposal preserved${suffix}`
+        : `Managed memory unavailable: current revision changed during read; proposal preserved${suffix}`,
     )
   const text: Record<MemoryReason, string> = {
     capacity: 'capacity limit reached; retained state preserved; explicit owner review required',
@@ -75,7 +101,7 @@ export function publicMemoryError(error: unknown, read = false): Error {
     budget: 'file size or total memory budget exceeded; keep files concise or move details to reference/',
     unknown: 'valid arguments, scope, CAS, separate permission and healthy native binding required',
   }
-  return new Error(`Managed memory unavailable: ${text[code.reason]} (reason: ${code.reason})`)
+  return new Error(`Managed memory unavailable: ${text[code.reason]} (reason: ${code.reason})${suffix}`)
 }
 
 // Child diagnostics are accepted only after the controller checks epoch + active request ID
@@ -86,12 +112,13 @@ export function decodeMemoryFailure(value: unknown): Error {
   const keys = Object.keys(descriptors)
   if (
     !keys.includes('reason') ||
-    keys.some((key) => !['reason', 'readInvalidation'].includes(key)) ||
+    keys.some((key) => !['reason', 'readInvalidation', 'failureStage'].includes(key)) ||
     keys.some((key) => !('value' in descriptors[key]))
   )
     throw Error('Invalid engine error')
   const reason = descriptors.reason.value as unknown
   const readInvalidation = descriptors.readInvalidation?.value as unknown
+  const failureStage = descriptors.failureStage?.value as unknown
   if (
     ![
       'capacity',
@@ -109,6 +136,20 @@ export function decodeMemoryFailure(value: unknown): Error {
       'budget',
       'unknown',
     ].includes(reason as string) ||
+    (Object.hasOwn(descriptors, 'failureStage') &&
+      ![
+        'binding',
+        'target-authority',
+        'config',
+        'certify-head',
+        'certify-ledger',
+        'certify-tree',
+        'certify-file-budget',
+        'certify-total-budget',
+        'certify-blobs',
+        'status-journal',
+        'status-policy',
+      ].includes(failureStage as string)) ||
     (readInvalidation !== undefined &&
       !(
         (readInvalidation === 'forgetting' && reason === 'unknown') ||
@@ -120,6 +161,7 @@ export function decodeMemoryFailure(value: unknown): Error {
     reason as MemoryReason,
     'Engine operation unavailable',
     readInvalidation as MemoryFailureCode['readInvalidation'],
+    failureStage as MemoryFailureStage | undefined,
   )
 }
 

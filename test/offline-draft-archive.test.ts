@@ -20,7 +20,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { digest } from '../lib/continuity/records.ts'
-import { memoryFailureCode } from '../lib/agent-memory/reasons.ts'
 import { MemoryEngineController, type OperationContext } from '../lib/agent-memory/engine/controller.ts'
 import { offlineAssurance, offlineMaintenance, read } from '../lib/agent-memory/engine/offline-maintenance.ts'
 import { parseOperation } from '../lib/agent-memory/engine/operation.ts'
@@ -245,13 +244,16 @@ test('sixty-four retained drafts archive only strict terminal manifests and leav
       f.bodies.set(id, body)
     })
     assert.equal(readdirSync(f.draftDir).length, 64)
-    await assert.rejects(
-      f.engine.request('create', { project: 'fixture', shared: true }, f.context),
-      (error: unknown) => {
-        assert.equal(memoryFailureCode(error).reason, 'capacity')
-        return true
-      },
-    )
+    // Creation can reclaim terminal drafts automatically; inspect the full namespace
+    // read-only so this archive fixture retains all 64 original manifests.
+    const capacity = await f.engine.request('retainedDraftPreview', {}, f.context)
+    assert.equal(capacity.mutation, 'not-performed')
+    assert.equal(capacity.observed.exact, true)
+    assert.equal(capacity.observed.examined, 64)
+    assert.equal(capacity.observed.terminal, 23)
+    assert.equal(capacity.observed.journalReferenced, 1)
+    assert.equal(capacity.safeCandidates, 0)
+    assert.equal(readdirSync(f.draftDir).length, 64)
     const preview = await offlineMaintenance(f.engine, f.context, { action: 'offline-draft-inspect' })
     assert.equal(preview && 'candidates' in preview && preview.candidates, 23)
     assert.equal('journalReferenced' in preview && preview.journalReferenced, 1)

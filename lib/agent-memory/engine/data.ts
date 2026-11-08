@@ -18,12 +18,13 @@ import {
 } from '../migration-export.ts'
 import {
   type PalaceStructure,
+  palaceExportPath,
   palaceScopedPath,
   utf8Preview,
   snapshotDigest,
   structureDigest,
 } from '../palace-structure.ts'
-import { memoryFailure } from '../reasons.ts'
+import { memoryFailure, memoryFailureStage, type MemoryFailureStage } from '../reasons.ts'
 import {
   buildMemoryPalace,
   childDirectoryPaths,
@@ -74,6 +75,7 @@ import type {
   Input,
   Method,
   Operations,
+  Output,
   Plan,
   Receipt,
   Stage,
@@ -198,20 +200,29 @@ export class MemoryDataEngine {
   private async git(args: string[], logical: string[] = [], input?: string) {
     return (await this.gitBytes(args, logical, input)).toString('utf8')
   }
-  private async config() {
-    await this.gate([this.root])
-    await privateDirectory(this.root)
-    const intent = join(this.root, '.bootstrap-v2.json')
-    await this.gate([intent])
+  private async staged<T>(stage: MemoryFailureStage, work: () => Promise<T>): Promise<T> {
     try {
-      await lstat(intent)
-      throw Error('Incomplete initialization; existing root never reseeded')
+      return await work()
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      throw memoryFailureStage(error, stage)
     }
-    const config = parseConfig(await this.read(join(this.root, 'config.json'), 65536))
-    for (const project of config.projects) await safePath(project.cwd)
-    return { config, configHash: digest(JSON.stringify(config)) }
+  }
+  private async config() {
+    return this.staged('config', async () => {
+      await this.gate([this.root])
+      await privateDirectory(this.root)
+      const intent = join(this.root, '.bootstrap-v2.json')
+      await this.gate([intent])
+      try {
+        await lstat(intent)
+        throw Error('Incomplete initialization; existing root never reseeded')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      const config = parseConfig(await this.read(join(this.root, 'config.json'), 65536))
+      for (const project of config.projects) await safePath(project.cwd)
+      return { config, configHash: digest(JSON.stringify(config)) }
+    })
   }
   private async head() {
     const revision = (await this.git(['rev-parse', '--verify', 'HEAD'])).trim()
@@ -260,10 +271,11 @@ export class MemoryDataEngine {
     return Object.fromEntries(entries.map(([path]) => [path, texts.get(path)!]))
   }
   private async certify(c: MemoryConfig, configHash: string, requested?: string): Promise<Base> {
-    const revision = requested ?? (await this.head())
-    if (!revisionPattern.test(revision)) throw Error('Invalid revision')
-    const ledger = await this.ledger(revision)
-    const tree = await this.git(['ls-tree', '-rlz', revision])
+    const revision = requested ?? (await this.staged('certify-head', () => this.head()))
+    if (!revisionPattern.test(revision))
+      throw memoryFailure('unknown', 'Invalid revision', undefined, 'certify-head')
+    const ledger = await this.staged('certify-ledger', () => this.ledger(revision))
+    const tree = await this.staged('certify-tree', () => this.git(['ls-tree', '-rlz', revision]))
     const refs: Record<string, Ref> = {}
     const cold: { key: string; path: string; oid: string; size: number; sources: string[] }[] = []
     let total = 0
@@ -274,8 +286,10 @@ export class MemoryDataEngine {
       if (!match || !Object.hasOwn(ledger.sources, match[4])) continue
       const [, , oid, sizeString, path] = match
       const size = Number(sizeString)
-      if (!allowedPath(path) || !Number.isSafeInteger(size) || size > fileLimit(path, c))
-        throw Error('Memory file budget exceeded')
+      if (!allowedPath(path) || !Number.isSafeInteger(size))
+        throw memoryFailure('unknown', 'Invalid memory tree entry', undefined, 'certify-tree')
+      if (size > fileLimit(path, c))
+        throw memoryFailure('budget', 'Memory file budget exceeded', undefined, 'certify-file-budget')
       const sources = ledger.sources[path]
       const key = digest(JSON.stringify([1, configHash, path, oid, sources]))
       const ref = this.certificates.get(key)
@@ -284,28 +298,32 @@ export class MemoryDataEngine {
       paths.push(path)
       total += size
     }
-    if (paths.length !== Object.keys(ledger.sources).length || total > c.totalBytes)
-      throw Error('Invalid memory layout or total budget')
-    for (const batch of gitBlobBatches(cold)) {
-      // Every remaining native batch gets the full fresh Git safety walk, with ALL member
-      // logical paths at every physical checkpoint. No allow verdict survives an await.
-      const raw = await this.gitBytes(
-        ['cat-file', '--batch'],
-        batch.map((entry) => entry.path),
-        batch.map((entry) => `${entry.oid}\n`).join(''),
-      )
-      const texts = parseGitBlobs(raw, batch)
-      for (const [index, { key, path, oid, size, sources }] of batch.entries()) {
-        const text = texts[index]
-        bump(this.counters.blobReads, path)
-        validateFileText(path, text, sources, c)
-        if (bytes(text) !== size) throw Error('Memory blob size mismatch')
-        const ref = { oid, hash: digest(text), size, sources }
-        this.certificates.set(key, ref)
-        this.counters.certifications++
-        refs[path] = ref
+    if (paths.length !== Object.keys(ledger.sources).length)
+      throw memoryFailure('unknown', 'Invalid memory layout', undefined, 'certify-tree')
+    if (total > c.totalBytes)
+      throw memoryFailure('budget', 'Memory total budget exceeded', undefined, 'certify-total-budget')
+    await this.staged('certify-blobs', async () => {
+      for (const batch of gitBlobBatches(cold)) {
+        // Every remaining native batch gets the full fresh Git safety walk, with ALL member
+        // logical paths at every physical checkpoint. No allow verdict survives an await.
+        const raw = await this.gitBytes(
+          ['cat-file', '--batch'],
+          batch.map((entry) => entry.path),
+          batch.map((entry) => `${entry.oid}\n`).join(''),
+        )
+        const texts = parseGitBlobs(raw, batch)
+        for (const [index, { key, path, oid, size, sources }] of batch.entries()) {
+          const text = texts[index]
+          bump(this.counters.blobReads, path)
+          validateFileText(path, text, sources, c)
+          if (bytes(text) !== size) throw Error('Memory blob size mismatch')
+          const ref = { oid, hash: digest(text), size, sources }
+          this.certificates.set(key, ref)
+          this.counters.certifications++
+          refs[path] = ref
+        }
       }
-    }
+    })
     // Cache contains immutable refs only; every request still reads config/ledger/HEAD.
     const base = { revision, refs: Object.fromEntries(paths.map((path) => [path, refs[path]])), ledger }
     this.bases.set(`${revision}:${configHash}`, base)
@@ -2019,7 +2037,9 @@ export class MemoryDataEngine {
       .sort()
     let exact = same(tree, p.tree)
     if (exact) {
-      const actual = await this.certify(config, configHash, revision)
+      // Only the observed expected tree may exceed current configured budgets during recovery.
+      // The plan still binds the real configuration hash; ordinary reads/publication stay strict.
+      const actual = await this.certify({ ...config, ...recoveryCeiling }, configHash, revision)
       exact =
         same(actual.ledger, p.ledger) &&
         same(Object.keys(actual.refs).sort(), Object.keys(p.next).sort()) &&
@@ -2312,6 +2332,72 @@ export class MemoryDataEngine {
         assertKnowledgeHistory(result, args)
         return result
       }
+      case 'palaceExport': {
+        const args = input as Input<'palaceExport'>
+        const { config, configHash } = await this.config()
+        if (configHash !== args.expectedConfigHash || !config.projects.some((p) => p.id === args.project))
+          throw memoryFailure('CAS', 'Palace export configuration changed')
+        const base = await this.certify(config, configHash)
+        if (base.revision !== args.expectedRevision)
+          throw memoryFailure('CAS', 'Palace export revision changed')
+        const paths = Object.keys(base.refs)
+          .filter(
+            (p) => palaceExportPath(p, args.project) && !suppressed(base.ledger, p, base.refs[p].sources),
+          )
+          .sort()
+        const selected = args.path === undefined ? paths.slice(args.offset, args.offset + 16) : [args.path]
+        if (args.path !== undefined && paths[args.offset] !== args.path)
+          throw Error('Palace export path not in authorized selection')
+        await this.gate(
+          selected.map((p) => join(this.root, p)),
+          selected,
+        )
+        let result: Output<'palaceExport'>
+        if (args.path === undefined) {
+          result = {
+            revision: base.revision,
+            configHash,
+            total: paths.length,
+            files: selected.map((path) => ({
+              path,
+              layer: palaceLayerFor(path),
+              bytes: base.refs[path].size,
+              protectedRetention: isProtectedRetentionPath(path),
+              alwaysLoaded:
+                path === 'Core.md' || path === 'index.md' || isAlwaysLoadedTieredPath(path, args.project),
+              sourcesCount: base.refs[path].sources.length,
+            })),
+            ...(args.offset + selected.length < paths.length
+              ? { nextOffset: args.offset + selected.length }
+              : {}),
+          }
+        } else {
+          const raw = await this.gitBytes(
+            ['--no-replace-objects', 'cat-file', 'blob', base.refs[args.path].oid],
+            [args.path],
+          )
+          const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw)
+          if (Buffer.byteLength(text) !== base.refs[args.path].size)
+            throw Error('Palace export body byte mismatch')
+          const points = [...text]
+          const start = args.characterOffset!
+          if (start > points.length) throw Error('Palace export offset invalid')
+          const end = Math.min(points.length, start + 2048)
+          result = {
+            revision: base.revision,
+            configHash,
+            total: paths.length,
+            path: args.path,
+            text: points.slice(start, end).join(''),
+            hash: base.refs[args.path].oid,
+            totalCharacters: points.length,
+            ...(end < points.length ? { nextCharacterOffset: end } : {}),
+          }
+        }
+        if ((await this.config()).configHash !== configHash || (await this.head()) !== base.revision)
+          throw memoryFailure('CAS', 'Palace export state changed')
+        return result
+      }
       case 'palaceStructure': {
         const args = input as Input<'palaceStructure'>
         const { config, configHash } = await this.config()
@@ -2472,22 +2558,29 @@ export class MemoryDataEngine {
         return await this.capacityDiagnostic()
       case 'retainedDraftPreview':
         return await this.retainedDraftPreview()
-      case 'status': {
+      case 'status':
+      case 'upgradePreflight': {
         const { config, configHash } = await this.config()
-        const base = await this.certify(config, configHash)
+        // This is only the existing config-upgrade caller's read-only preflight.
+        // Full hard-ceiling tree/blob certification and journal validation still run.
+        const ceiling = method === 'upgradePreflight' ? { ...config, ...recoveryCeiling } : config
+        const base = await this.certify(ceiling, configHash)
         const pendingOperations: { id: string; digest: string; stage: Stage; recordBytes: number }[] = []
-        const names = await this.names(join(this.folder, 'journal'), /^[a-f0-9-]{36}\.json$/)
-        for (const name of names) {
-          const raw = await this.read(join(this.folder, 'journal', name), operationLimit)
-          const record = parseOperation(raw)
-          if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
-            pendingOperations.push({
-              id: record.immutable.plan.id,
-              digest: record.immutable.plan.digest,
-              stage: record.receipt.stage,
-              recordBytes: bytes(raw),
-            })
-        }
+        await this.staged('status-journal', async () => {
+          const names = await this.names(join(this.folder, 'journal'), /^[a-f0-9-]{36}\.json$/)
+          for (const name of names) {
+            const raw = await this.read(join(this.folder, 'journal', name), operationLimit)
+            const record = parseOperation(raw)
+            if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
+              pendingOperations.push({
+                id: record.immutable.plan.id,
+                digest: record.immutable.plan.digest,
+                stage: record.receipt.stage,
+                recordBytes: bytes(raw),
+              })
+          }
+        })
+        if (method === 'upgradePreflight') return { revision: base.revision, configHash, pendingOperations }
         return { revision: base.revision, files: Object.keys(base.refs), pendingOperations }
       }
       case 'offlineCertify': {
@@ -2928,6 +3021,14 @@ export class MemoryDataEngine {
           if (refs[path]) next[path] = refs[path]
           else delete next[path]
         }
+        // Scoped drafts omit other projects; check the merged committed tree using refs only.
+        // Do not hydrate unrelated private bodies or leave a journal for an invalid plan.
+        if (
+          Object.keys(next).length > limits.files ||
+          Object.entries(next).some(([path, ref]) => ref.size > fileLimit(path, config)) ||
+          Object.values(next).reduce((sum, ref) => sum + ref.size, 0) > config.totalBytes
+        )
+          throw memoryFailure('budget', 'Memory merged budget exceeded')
         const ledger: Ledger = {
           ...(this.managementLedgers.get(v.id) ?? current.ledger),
           sources: Object.fromEntries(Object.entries(next).map(([path, ref]) => [path, ref.sources])),

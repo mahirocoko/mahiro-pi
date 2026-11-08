@@ -393,7 +393,8 @@ export async function memoryPolicyStatus(
       !reference.drained || reference.recovering
         ? false
         : actual.outcome !== 'unknown' &&
-          (await fenced(() => engine.request('status', {}, context))).revision === record.identity.revision &&
+          (await fenced(() => engine.request('upgradePreflight', {}, context))).revision ===
+            record.identity.revision &&
           (await fenced(() => stagingMatches(engine.root, record, reference.staging, context)))
     const state =
       !reference.drained || reference.recovering
@@ -521,7 +522,9 @@ async function reconcilePolicyAdmitted(
       throw Error('Policy reconciliation binding mismatch')
     return await recoverPolicy(engine.root, reference, async () => {
       await context.barrier?.()
-      const status = await engine.request('status', {}, context)
+      // Reconciliation only inspects retained owner evidence; the hard ceiling permits
+      // cleanup after a capacity upgrade even when the old config cannot certify HEAD.
+      const status = await engine.request('upgradePreflight', {}, context)
       const actual = await observed(engine, context, record.identity)
       if (status.revision !== record.identity.revision || actual.outcome === 'unknown')
         throw Error('Policy reconciliation HEAD/config changed; retain evidence')
@@ -535,7 +538,7 @@ async function reconcilePolicyAdmitted(
       await cleanup(engine.root, record, reference.staging, context, async () => {
         await context.barrier?.()
         if (
-          (await engine.request('status', {}, context)).revision !== record.identity.revision ||
+          (await engine.request('upgradePreflight', {}, context)).revision !== record.identity.revision ||
           (await observed(engine, context, record.identity)).outcome === 'unknown'
         )
           throw Error('Policy reconciliation state changed during cleanup; retain remaining evidence')
@@ -604,6 +607,24 @@ function nextPolicyConfig(
   return { ...config, automatic }
 }
 
+// Upgrade only the established canonical capacity floor and optional cwd registration.
+// It uses the policy owner's durable lock, CAS and retained-evidence reconciliation.
+export async function upgradeMemoryConfig(
+  engine: MemoryEngineController,
+  context: OperationContext,
+  revision: string,
+  configHash: string,
+  project?: { cwd: string; id: string },
+) {
+  const run = () =>
+    setPolicyAdmitted(engine, context, revision, configHash, undefined, undefined, project, true)
+  if (context.admission) {
+    if (context.admission.root !== engine.root) throw Error('Memory admission root mismatch')
+    return await context.admission.run(run, context)
+  }
+  return await run()
+}
+
 export async function setMemoryAutomatic(
   engine: MemoryEngineController,
   context: OperationContext,
@@ -626,10 +647,12 @@ async function setPolicyAdmitted(
   context: OperationContext,
   revision: string,
   configHash: string,
-  automatic: boolean,
+  automatic: boolean | undefined,
   reflection?: { trigger: ReflectionTrigger; stepCount: number },
+  project?: { cwd: string; id: string },
+  upgrade = false,
 ) {
-  if (!revisionPattern.test(revision) || !hash(configHash) || typeof automatic !== 'boolean')
+  if (!revisionPattern.test(revision) || !hash(configHash) || (!upgrade && typeof automatic !== 'boolean'))
     throw Error('Current memory revision/configHash and explicit automatic policy required')
   const root = engine.root
   const path = join(root, 'config.json')
@@ -641,7 +664,18 @@ async function setPolicyAdmitted(
     const original = await readPrivate(path, 65536)
     const config = parseConfig(original.toString('utf8'))
     if (digest(JSON.stringify(config)) !== configHash) throw Error('Memory policy CAS conflict')
-    const next = nextPolicyConfig(config, automatic, reflection)
+    const next = upgrade
+      ? {
+          ...config,
+          coreBytes: Math.max(config.coreBytes, 32768),
+          indexBytes: Math.max(config.indexBytes, 8192),
+          fileBytes: Math.max(config.fileBytes, 262144),
+          totalBytes: Math.max(config.totalBytes, 8388608),
+          ...(project
+            ? { projects: [...config.projects.filter((entry) => entry.cwd !== project.cwd), project] }
+            : {}),
+        }
+      : nextPolicyConfig(config, automatic as boolean, reflection)
     const text = `${JSON.stringify(next)}\n`
     const binding = {
       root,
@@ -653,7 +687,7 @@ async function setPolicyAdmitted(
       intendedHash: digest(JSON.stringify(next)),
       originalBytes: bytesHash(original),
       intendedBytes: digest(text),
-      automatic,
+      automatic: next.automatic,
       ...(next.version === 2
         ? { reflectionTrigger: next.reflectionTrigger, reflectionStepCount: next.reflectionStepCount }
         : {}),
@@ -678,10 +712,12 @@ async function setPolicyAdmitted(
           record = { version: next.version === 2 ? 2 : 1, kind: 'policy', identity, owner }
           await writeRecord(root, record, context)
           await context.barrier?.()
-          const status = await engine.request('status', {}, context)
+          const status = await engine.request(upgrade ? 'upgradePreflight' : 'status', {}, context)
           const current = await engine.request('config', {}, context)
           if (status.revision !== revision || current.configHash !== configHash)
             throw Error('Memory policy CAS conflict; read current status')
+          if (upgrade && status.pendingOperations.length)
+            throw Error('Pending memory operations prevent configuration upgrade')
           await safePath(temporary)
           check(context, path, temporary)
           const fd = await open(
@@ -700,11 +736,14 @@ async function setPolicyAdmitted(
             await fd.close()
           }
           await context.barrier?.()
+          const beforePublication = await engine.request(upgrade ? 'upgradePreflight' : 'status', {}, context)
           if (
-            (await engine.request('status', {}, context)).revision !== revision ||
+            beforePublication.revision !== revision ||
             (await engine.request('config', {}, context)).configHash !== configHash
           )
             throw Error('Memory policy state changed before publication')
+          if (upgrade && beforePublication.pendingOperations.length)
+            throw Error('Pending memory operations prevent configuration upgrade')
           await context.barrier?.()
           check(context, path, temporary)
           if (!(await readPrivate(path, 65536)).equals(original))
@@ -715,6 +754,16 @@ async function setPolicyAdmitted(
           const stat = await lstat(temporary)
           if (inode(stat) !== staging || !stat.isFile() || stat.nlink !== 1)
             throw Error('Policy staging replaced')
+          if (upgrade) {
+            const final = await engine.request('upgradePreflight', {}, context)
+            if (
+              final.revision !== revision ||
+              final.configHash !== configHash ||
+              final.pendingOperations.length
+            )
+              throw Error('Memory upgrade state changed before publication')
+            await verifyOperationLock(root, owner, context)
+          }
           check(context, path, temporary) // synchronous final admission directly before native rename
           await rename(temporary, path)
           check(context, path)
@@ -730,7 +779,7 @@ async function setPolicyAdmitted(
           return {
             revision,
             configHash: identity.intendedHash,
-            automatic,
+            automatic: next.automatic,
             contextActivation: 'next-primary-request',
             permissionsChanged: false,
           }

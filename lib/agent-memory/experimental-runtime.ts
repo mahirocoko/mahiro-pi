@@ -6,19 +6,24 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { bytes, digest, hasSecret, objectShape, validId } from '../continuity/records.ts'
 import { selectedVerification, verificationResultText } from './verification-evidence.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
-import { abi2PalaceStyle, renderAbi2PalacePage } from '../palace-render/abi2-page.ts'
-import { type ImmutablePalaceServer, startImmutablePalaceServer } from '../palace-render/immutable-server.ts'
+import { renderAbi2PalacePage, type PalaceRenderInput } from '../palace-render/abi2-page.ts'
 import { resolveAgentDir } from '../setup.ts'
 import { compactionBoundary, compactionObservation } from './compaction.ts'
 import { type AttemptOutcome, createAttempt } from './engine/attempt.ts'
 import { attemptTimingSink, type AttemptTimingEvent } from './engine/attempt-timing.ts'
 import { assertCurrent, MemoryEngineController, type OperationContext } from './engine/controller.ts'
+import { executorDrained } from './engine/executor.ts'
 import { initializeMemoryRoot, prepareInitialization } from './engine/initializer.ts'
 import { atomicPrivate } from './engine/io.ts'
 import { MemoryLifetime } from './engine/lifetime.ts'
 import { type MaintenanceRequest, offlineMaintenance } from './engine/offline-maintenance.ts'
 import { offlineReset, type ResetRequest } from './engine/offline-reset.ts'
-import { memoryPolicyStatus, reconcileMemoryPolicy, setMemoryAutomatic } from './engine/policy.ts'
+import {
+  memoryPolicyStatus,
+  reconcileMemoryPolicy,
+  setMemoryAutomatic,
+  upgradeMemoryConfig,
+} from './engine/policy.ts'
 import type { Input, Method, Output } from './engine/protocol.ts'
 import { MemoryPublisher } from './engine/publisher.ts'
 import { allowedDirectory, allowedPath, ensureTieredFrontmatter } from './engine/schema.ts'
@@ -29,11 +34,12 @@ import { buildMemoryInvocationContext, type MemoryProjectionReceipt } from './in
 import type { KnowledgeHistory } from './knowledge-history.ts'
 import { isOfflineMaintenanceSession } from './offline-bootstrap.ts'
 import { buildPalaceDiagnostic, type PalaceDiagnostic } from './palace-diagnostic.ts'
-import { buildPalaceHandoff, type PalaceHandoff } from './palace-handoff.ts'
+import { buildPalaceHandoff } from './palace-handoff.ts'
 import { primaryDelegationDoctrine } from './prompt.ts'
 import {
   memoryFailure,
   memoryFailureCode,
+  memoryFailureStage,
   offlineResetFailure,
   type OfflineResetFailureCode,
 } from './reasons.ts'
@@ -184,7 +190,6 @@ interface PendingEpisode {
   assistantEvents: number
 }
 const registry = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
-const palaceViewerTtlMs = 10 * 60 * 1000
 const viewerReadActions = new Set([
   'status',
   'doctor',
@@ -201,7 +206,7 @@ const viewerReadActions = new Set([
 ])
 
 interface PalaceViewerCapture {
-  handoff: PalaceHandoff
+  handoff: PalaceRenderInput
   token: number
   binding: RuntimeBinding
   admission: number
@@ -211,21 +216,12 @@ interface PalaceViewerCapture {
   configHash: string
   structureDigest: string
   snapshotDigest: string
-  historyJson: string
-}
-
-interface PalaceViewer {
-  serial: number
-  server: ImmutablePalaceServer
-  timer: NodeJS.Timeout
-  abort: AbortController
-  capture: PalaceViewerCapture
-  revoked: boolean
+  historyJson: string | undefined
+  files: import('./palace-structure.ts').PalaceStructureFile[]
 }
 
 interface PalaceViewerOpening {
   abort: AbortController
-  server?: ImmutablePalaceServer
   done: Promise<void>
   finish(): void
 }
@@ -384,7 +380,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
   let bindingSerial = 0
   let viewerSerial = 0
   let viewerOpening: PalaceViewerOpening | undefined
-  let viewer: PalaceViewer | undefined
   let treeResume:
     | (RuntimeBinding & { serial: number; token: number; drained: Promise<void>; ready: boolean })
     | undefined
@@ -489,27 +484,15 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       // Absent/unconfigured/unattested store leaves status unset; startup provisions nothing.
     }
   }
-  const closeActiveViewer = async (): Promise<boolean> => {
-    viewerSerial++
-    const own = viewer
-    viewer = undefined
-    if (!own) return false
-    clearTimeout(own.timer)
-    own.abort.abort()
-    await own.server.close()
-    return true
-  }
   const closeViewer = async (): Promise<boolean> => {
     const opening = viewerOpening
     if (opening) {
       viewerOpening = undefined
       opening.abort.abort()
       viewerSerial++
+      await opening.done
     }
-    const closed = await closeActiveViewer()
-    if (opening?.server) await opening.server.close()
-    if (opening) await opening.done
-    return closed || Boolean(opening)
+    return Boolean(opening)
   }
   const retire = (): Promise<void> => {
     // Even an already-draining terminal transition revokes pending tree/start rebinds.
@@ -743,9 +726,20 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     signal?: AbortSignal,
     explicitProjectId?: string,
   ) => {
-    const f = owner(ctx, name, operation, signal)
-    await f.abi.authorize(f.tool, ctx, f.root, operation, signal)
-    let { config, configHash } = await f.barrier()
+    let f: ReturnType<typeof owner>
+    try {
+      f = owner(ctx, name, operation, signal)
+    } catch (error) {
+      throw memoryFailureStage(error, 'binding')
+    }
+    let config: Awaited<ReturnType<typeof f.barrier>>['config']
+    let configHash: string
+    try {
+      await f.abi.authorize(f.tool, ctx, f.root, operation, signal)
+      ;({ config, configHash } = await f.barrier())
+    } catch (error) {
+      throw memoryFailureStage(error, 'binding')
+    }
     const cwd = await realpath(ctx.cwd)
     assertCurrent(f.context)
     const explicitSlug =
@@ -767,7 +761,6 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       f.access.kind === 'primary' &&
       f.abi.isPrimarySession(ctx) &&
       canRegister &&
-      !viewer &&
       !job &&
       !starting &&
       !draft
@@ -839,6 +832,54 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     const result = await f.engine.request('capacityDiagnostic', {}, f.context)
     assertCurrent(f.context)
     return result
+  }
+  const budgetDiagnostic = async (ctx: ExtensionContext, signal?: AbortSignal) => {
+    signal?.throwIfAborted()
+    ctx.signal?.throwIfAborted()
+    const leaf = ctx.sessionManager.getLeafId()
+    const f = owner(ctx, 'agent_memory_manage', 'read', signal ?? ctx.signal)
+    const current = f.context.current
+    f.context.current = (targets) => ctx.sessionManager.getLeafId() === leaf && current(targets)
+    assertCurrent(f.context)
+    await f.abi.authorize(f.tool, ctx, f.root, 'read')
+    assertCurrent(f.context)
+    if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx))
+      throw Error('Primary budget diagnostic required')
+    const before = await f.barrier()
+    const preflight = await f.engine.request('upgradePreflight', {}, f.context)
+    const policyOperation = await memoryPolicyStatus(f.engine, f.context, preflight.pendingOperations)
+    const after = await f.barrier()
+    const final = await f.engine.request('upgradePreflight', {}, f.context)
+    if (
+      before.configHash !== after.configHash ||
+      before.configHash !== preflight.configHash ||
+      preflight.configHash !== final.configHash ||
+      preflight.revision !== final.revision ||
+      JSON.stringify(preflight.pendingOperations) !== JSON.stringify(final.pendingOperations)
+    )
+      throw memoryFailure('CAS', 'Budget diagnostic state changed')
+    assertCurrent(f.context)
+    return {
+      kind: 'abi2-budget-recovery-diagnostic' as const,
+      revision: preflight.revision,
+      configHash: preflight.configHash,
+      configuredBudget: {
+        coreBytes: before.config.coreBytes,
+        indexBytes: before.config.indexBytes,
+        fileBytes: before.config.fileBytes,
+        totalBytes: before.config.totalBytes,
+      },
+      pendingOperations: preflight.pendingOperations.map((operation) => ({
+        ...operation,
+        // Process-local observation only: never lock ownership or release authority.
+        processLocalExecutor: executorDrained(f.root, operation.id, operation.digest)
+          ? ('drained' as const)
+          : ('unavailable' as const),
+      })),
+      policyOperation,
+      association: 'sequential-non-atomic' as const,
+      configuredHealth: 'uncertified' as const,
+    }
   }
   const retainedDraftPreview = async (ctx: ExtensionContext, signal?: AbortSignal) => {
     signal?.throwIfAborted()
@@ -997,12 +1038,17 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       project: f.project,
       expectedConfigHash: f.configHash,
     })
-    const history = await f.request('knowledgeHistory', {
-      project: f.project,
-      expectedRevision: status.revision,
-      expectedConfigHash: f.configHash,
-      offset: 0,
-    })
+    let history: KnowledgeHistory | undefined
+    try {
+      history = await f.request('knowledgeHistory', {
+        project: f.project,
+        expectedRevision: status.revision,
+        expectedConfigHash: f.configHash,
+        offset: 0,
+      })
+    } catch (error) {
+      if (memoryFailureCode(error).readInvalidation !== 'forgetting') throw error
+    }
     const receipt = projectionReceipt
     let usage: unknown
     let systemPrompt: unknown
@@ -1015,6 +1061,73 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       systemPrompt = ctx.getSystemPrompt()
     } catch {
       systemPrompt = undefined
+    }
+    const files: import('./palace-structure.ts').PalaceStructureFile[] = []
+    let offset = 0
+    while (true) {
+      const page = await f.request('palaceExport', {
+        project: f.project,
+        expectedRevision: status.revision,
+        expectedConfigHash: f.configHash,
+        offset,
+      })
+      if (
+        page.revision !== status.revision ||
+        page.configHash !== f.configHash ||
+        !page.files ||
+        page.total < files.length + page.files.length ||
+        (page.files.length === 0 && page.nextOffset !== undefined)
+      )
+        throw Error('Palace export metadata mismatch')
+      files.push(...page.files)
+      if (page.nextOffset === undefined) {
+        if (files.length !== page.total) throw Error('Palace export incomplete')
+        break
+      }
+      if (page.nextOffset !== files.length) throw Error('Palace export page mismatch')
+      offset = page.nextOffset
+    }
+    for (const [index, file] of files.entries()) {
+      let characterOffset = 0
+      let hash: string | undefined
+      let totalCharacters: number | undefined
+      const parts: string[] = []
+      while (true) {
+        const page = await f.request('palaceExport', {
+          project: f.project,
+          expectedRevision: status.revision,
+          expectedConfigHash: f.configHash,
+          offset: index,
+          path: file.path,
+          characterOffset,
+        })
+        if (
+          page.revision !== status.revision ||
+          page.configHash !== f.configHash ||
+          page.path !== file.path ||
+          typeof page.text !== 'string' ||
+          !page.hash ||
+          page.totalCharacters === undefined ||
+          (hash !== undefined && hash !== page.hash) ||
+          (totalCharacters !== undefined && totalCharacters !== page.totalCharacters)
+        )
+          throw Error('Palace export body mismatch')
+        hash = page.hash
+        totalCharacters = page.totalCharacters
+        parts.push(page.text)
+        if (page.nextCharacterOffset === undefined) {
+          if (characterOffset + [...page.text].length !== totalCharacters)
+            throw Error('Palace export body incomplete')
+          break
+        }
+        if (page.nextCharacterOffset !== characterOffset + [...page.text].length)
+          throw Error('Palace export body page mismatch')
+        characterOffset = page.nextCharacterOffset
+      }
+      const body = parts.join('')
+      if (bytes(body) !== file.bytes) throw Error('Palace export body byte mismatch')
+      file.body = body
+      file.bodyTruncated = false
     }
     const finalStatus = await f.request('status', {})
     const finalConfig = await f.barrier()
@@ -1055,11 +1168,9 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       projection,
     })
     const diagnostic = buildPalaceDiagnostic(context, palace)
-    const handoff = buildPalaceHandoff({
-      diagnostic,
-      history,
-      expiresAt: new Date(Date.now() + palaceViewerTtlMs),
-    })
+    const handoff: PalaceRenderInput = history
+      ? buildPalaceHandoff({ diagnostic, history, expiresAt: new Date(Date.now() + 600000) })
+      : { diagnostic, historyUnavailable: true }
     return {
       handoff,
       token,
@@ -1071,7 +1182,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       configHash: f.configHash,
       structureDigest: palace.structureDigest,
       snapshotDigest: palace.snapshotDigest,
-      historyJson: JSON.stringify(history),
+      historyJson: history ? JSON.stringify(history) : undefined,
+      files,
     }
   }
   const validatePalaceViewer = async (
@@ -1116,13 +1228,43 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         palace.snapshotDigest !== capture.snapshotDigest
       )
         return false
-      const history = await f.request('knowledgeHistory', {
-        project: capture.project,
-        expectedRevision: capture.revision,
-        expectedConfigHash: capture.configHash,
-        offset: 0,
-      })
-      if (JSON.stringify(history) !== capture.historyJson) return false
+      let history: KnowledgeHistory | undefined
+      try {
+        history = await f.request('knowledgeHistory', {
+          project: capture.project,
+          expectedRevision: capture.revision,
+          expectedConfigHash: capture.configHash,
+          offset: 0,
+        })
+      } catch (error) {
+        if (capture.historyJson !== undefined || memoryFailureCode(error).readInvalidation !== 'forgetting')
+          return false
+      }
+      if ((history ? JSON.stringify(history) : undefined) !== capture.historyJson) return false
+      const files: import('./palace-structure.ts').PalaceStructureFile[] = []
+      let offset = 0
+      while (true) {
+        const page = await f.request('palaceExport', {
+          project: capture.project,
+          expectedRevision: capture.revision,
+          expectedConfigHash: capture.configHash,
+          offset,
+        })
+        if (!page.files || page.revision !== capture.revision || page.configHash !== capture.configHash)
+          return false
+        files.push(...page.files)
+        if (page.nextOffset === undefined) {
+          if (files.length !== page.total) return false
+          break
+        }
+        if (page.nextOffset !== files.length) return false
+        offset = page.nextOffset
+      }
+      if (
+        JSON.stringify(files) !==
+        JSON.stringify(capture.files.map(({ body, bodyTruncated, ...file }) => file))
+      )
+        return false
       const finalStatus = await f.request('status', {})
       const finalConfig = await f.barrier()
       if (
@@ -1140,7 +1282,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
   }
   const openPalaceViewer = async (ctx: ExtensionContext) => {
     if (ctx.mode !== 'tui' || !ctx.hasUI) throw Error('TUI Palace viewer required')
-    if (viewerOpening) throw Error('Palace viewer start already active')
+    if (viewerOpening) throw Error('Palace viewer export already active')
     let finishOpening!: () => void
     const abort = new AbortController()
     const opening: PalaceViewerOpening = {
@@ -1151,107 +1293,86 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       finish: () => finishOpening(),
     }
     viewerOpening = opening
-    let server: ImmutablePalaceServer | undefined
-    let candidate: PalaceViewer | undefined
     try {
       job?.cancel()
-      await closeActiveViewer()
-      if (viewerOpening !== opening || abort.signal.aborted) throw Error('Palace viewer admission changed')
       const serial = ++viewerSerial
       const capture = await capturePalaceViewer(ctx, abort.signal)
-      const html = renderAbi2PalacePage(capture.handoff)
-      server = await startImmutablePalaceServer({
-        html,
-        style: abi2PalaceStyle,
-        validate: async (signal) => {
-          const own = candidate
-          if (!own) return false
-          const valid = await validatePalaceViewer(ctx, capture, signal, () => viewer === own && !own.revoked)
-          if (!valid && viewer === own) {
-            own.revoked = true
-            clearTimeout(own.timer)
-            own.abort.abort()
-          }
-          return valid
+      const handoff = {
+        ...capture.handoff,
+        diagnostic: {
+          ...capture.handoff.diagnostic,
+          structure: {
+            ...capture.handoff.diagnostic.structure,
+            files: capture.files,
+            output: {
+              total: capture.files.length,
+              returned: capture.files.length,
+              omitted: 0,
+              truncated: false,
+            },
+          },
         },
-      })
-      opening.server = server
-      if (viewerOpening !== opening || abort.signal.aborted) throw Error('Palace viewer admission changed')
+      }
+      const html = renderAbi2PalacePage(handoff)
       const ready = await validatePalaceViewer(
         ctx,
         capture,
         abort.signal,
-        () => serial === viewerSerial && !abort.signal.aborted,
+        () => viewerOpening === opening && serial === viewerSerial,
       )
-      if (!ready || serial !== viewerSerial || capture.token !== epoch || capture.binding !== binding)
-        throw Error('Palace viewer admission changed')
+      if (!ready || viewerOpening !== opening || abort.signal.aborted || serial !== viewerSerial)
+        throw Error('Palace viewer export admission changed')
       const filePath = join(dirname(capture.binding.root), 'viewers', `memory-${capture.project}.html`)
-      await atomicPrivate(filePath, html)
-      if (
-        viewerOpening !== opening ||
-        abort.signal.aborted ||
-        serial !== viewerSerial ||
-        capture.token !== epoch ||
-        capture.binding !== binding
-      )
-        throw Error('Palace viewer admission changed')
-      const expiresAt = Date.parse(capture.handoff.delivery.expiresAt)
-      const timer = setTimeout(
-        () => {
-          if (viewer === candidate)
-            void closeViewer().catch(() => {
-              lastError = 'palace-viewer-close-unavailable'
-            })
+      const currentExport = () =>
+        viewerOpening === opening &&
+        serial === viewerSerial &&
+        !abort.signal.aborted &&
+        active &&
+        capture.token === epoch &&
+        capture.binding === binding &&
+        capture.admission === admissionSerial &&
+        ctx.isIdle() &&
+        !starting &&
+        !job &&
+        !draft &&
+        sameSessionAnchor(ctx, capture.branch)
+      await atomicPrivate(
+        filePath,
+        html,
+        async () => {
+          if (
+            !(await validatePalaceViewer(
+              ctx,
+              capture,
+              abort.signal,
+              () => viewerOpening === opening && serial === viewerSerial,
+            ))
+          )
+            throw Error('Palace export changed before publication')
         },
-        Math.max(1, expiresAt - Date.now()),
+        currentExport,
       )
-      timer.unref()
-      candidate = { serial, server, timer, abort, capture, revoked: false }
-      const published = candidate
-      viewer = published
-      void server.closed.then(
-        () => {
-          if (viewer === published) {
-            clearTimeout(published.timer)
-            published.abort.abort()
-            viewer = undefined
-          }
-        },
-        () => {
-          if (viewer === published) {
-            clearTimeout(published.timer)
-            published.abort.abort()
-            viewer = undefined
-          }
-          lastError = 'palace-viewer-close-unavailable'
-        },
-      )
-      // Best effort only: do not let an opener's rejection or pending promise own
-      // the viewer lifecycle, block retirement, or tear down a published viewer.
-      try {
-        void Promise.resolve(
-          config.openBrowser ? config.openBrowser(server.url, filePath) : openSystemBrowser(filePath),
-        ).catch(() => {})
-      } catch {}
+      // The exported path persists until replaced by a later export or removed by its owner.
+      // Closing or retirement cannot revoke copies already read or saved elsewhere.
+      // A close during the post-rename directory sync suppresses browser opening.
+      if (currentExport()) {
+        try {
+          void Promise.resolve(
+            config.openBrowser ? config.openBrowser(filePath, filePath) : openSystemBrowser(filePath),
+          ).catch(() => {})
+        } catch {}
+      }
       return {
         version: 1 as const,
-        kind: 'abi2-palace-html-viewer' as const,
-        url: server.url,
+        kind: 'abi2-palace-html-snapshot' as const,
         filePath,
         captureId: capture.handoff.diagnostic.captureId,
         revision: capture.revision,
-        expiresAt: capture.handoff.delivery.expiresAt,
         immutable: true as const,
         atomic: false as const,
         replay: 'unsupported' as const,
-        closeCommand: '/mh-memory palace close' as const,
+        persistent: true as const,
       }
-    } catch (error) {
-      abort.abort()
-      if (candidate && viewer === candidate) viewer = undefined
-      if (candidate) clearTimeout(candidate.timer)
-      if (server) await server.close()
-      throw error
     } finally {
       if (viewerOpening === opening) viewerOpening = undefined
       opening.finish()
@@ -1969,8 +2090,10 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           f.config.indexBytes < 8192 ||
           f.config.fileBytes < 262144 ||
           f.config.totalBytes < 8388608
-        if ((canRegister || needsBudgetUpgrade) && !draft && !starting && !viewer && !viewerOpening) {
-          const currentStatus = await f.request('status', {})
+        if ((canRegister || needsBudgetUpgrade) && !draft && !starting && !viewerOpening) {
+          const currentStatus = await f.request('upgradePreflight', {})
+          if (currentStatus.configHash !== f.configHash)
+            throw Error('Memory configuration changed during upgrade preflight')
           const slug = canRegister
             ? resolveProjectSlug(
                 cwd,
@@ -1978,35 +2101,21 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
                 explicitSlug,
               )
             : f.project
-          const configPath = join(f.root, 'config.json')
-          const lockPath = join(f.root, '.lock')
-          f.abi.assertTargets(f.tool, ctx, f.root, 'write', [f.root, configPath, lockPath])
-          let locked = true
-          try {
-            await lstat(lockPath)
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') locked = false
-            else throw error
-          }
-          if (!locked && !currentStatus.pendingOperations.length) {
-            const nextConfig = {
-              ...f.config,
-              coreBytes: Math.max(f.config.coreBytes, 32768),
-              indexBytes: Math.max(f.config.indexBytes, 8192),
-              fileBytes: Math.max(f.config.fileBytes, 262144),
-              totalBytes: Math.max(f.config.totalBytes, 8388608),
-              ...(canRegister
-                ? { projects: [...f.config.projects.filter((entry) => entry.cwd !== cwd), { cwd, id: slug }] }
-                : {}),
-            }
-            await atomicPrivate(configPath, `${JSON.stringify(nextConfig)}\n`)
-            const refreshed = await f.barrier()
-            f.config = refreshed.config
-            f.configHash = refreshed.configHash
-            if (canRegister) {
-              f.project = slug
-              targetProject = slug
-            }
+          if (currentStatus.pendingOperations.length)
+            throw Error('Pending memory operations prevent configuration upgrade')
+          await upgradeMemoryConfig(
+            f.engine,
+            f.context,
+            currentStatus.revision,
+            currentStatus.configHash,
+            canRegister ? { cwd, id: slug } : undefined,
+          )
+          const refreshed = await f.barrier()
+          f.config = refreshed.config
+          f.configHash = refreshed.configHash
+          if (canRegister) {
+            f.project = slug
+            targetProject = slug
           }
         }
         if (args.action === 'init-project') {
@@ -2157,7 +2266,11 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           automatic: config.automatic,
           reflectionTrigger: mode.trigger,
           reflectionStepCount: mode.stepCount,
-          policyOperation: await memoryPolicyStatus(f.engine, f.context, status.pendingOperations),
+          policyOperation: await memoryPolicyStatus(f.engine, f.context, status.pendingOperations).catch(
+            (error: unknown) => {
+              throw memoryFailureStage(error, 'status-policy')
+            },
+          ),
           configHash: f.configHash,
           engineABI: 2,
           publication: draft ? 'private-draft-not-published' : 'committed-head',
@@ -3108,6 +3221,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
     }),
     capacityDiagnostic: (ctx: ExtensionContext, signal?: AbortSignal) =>
       admit(ctx, () => capacityDiagnostic(ctx, signal)),
+    budgetDiagnostic: (ctx: ExtensionContext, signal?: AbortSignal) =>
+      admit(ctx, () => budgetDiagnostic(ctx, signal)),
     retainedDraftPreview: (ctx: ExtensionContext, signal?: AbortSignal) =>
       admit(ctx, () => retainedDraftPreview(ctx, signal)),
     captureInvocation: (ctx: ExtensionContext) =>
@@ -3125,7 +3240,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       draft: draft ? 'open' : undefined,
       lastError,
       pid: primaryEngine?.pid,
-      palaceViewer: viewer ? (viewer.revoked ? 'closing' : 'open') : viewerOpening ? 'starting' : undefined,
+      palaceViewer: viewerOpening ? 'starting' : undefined,
     }),
     drain: async () => {
       if (retirement) await retirement

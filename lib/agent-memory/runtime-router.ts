@@ -107,6 +107,14 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
     } catch (error) {
       const failure = memoryFailureCode(error)
       let storageCapacity: unknown
+      let budgetRecovery: unknown
+      if (mode === 2 && failure.reason === 'budget') {
+        try {
+          budgetRecovery = await experimental.budgetDiagnostic(ctx)
+        } catch {
+          // Preserve the storage failure; no diagnostic means recovery state is unknown.
+        }
+      }
       if (mode === 2 && failure.reason === 'capacity') {
         try {
           storageCapacity = await experimental.capacityDiagnostic(ctx)
@@ -127,7 +135,9 @@ export function createAgentMemoryRouter(pi: ExtensionAPI, config: RuntimeConfig 
         ].slice(0, 5),
         storage: 'unavailable',
         storageReason: failure.reason,
+        ...(failure.failureStage ? { storageFailureStage: failure.failureStage } : {}),
         ...(storageCapacity === undefined ? {} : { storageCapacity }),
+        ...(budgetRecovery === undefined ? {} : { budgetRecovery }),
         publication: 'unknown',
       }
     }

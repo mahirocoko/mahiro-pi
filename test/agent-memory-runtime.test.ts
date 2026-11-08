@@ -257,17 +257,15 @@ test('memory help presents one Palace façade and hides checkpoint diagnostics',
     const help = notifications.at(-1)!
     assert.match(help, /\/mh-memory capacity is the idle count-only storage diagnostic/)
     assert.match(help, /doctor returns engine-specific JSON diagnostics/)
-    assert.match(help, /palace opens one immutable ten-minute ABI2 metadata viewer/)
-    assert.match(help, /Use \/mh-memory palace close to stop it/)
+    assert.match(help, /palace exports one persistent private file:\/\/ ABI2 HTML snapshot/)
+    assert.match(help, /Use \/mh-memory palace close to cancel an in-progress export/)
     assert.match(
       help,
       /\/mh-memory palace json for the legacy structural\/link\/view\/episode JSON diagnostic/,
     )
-    assert.match(help, /explicitly non-atomic and non-replayable/)
-    assert.match(
-      help,
-      /best-effort opens the capability URL in the system browser and renders bounded committed file previews and sanitized history diffs/,
-    )
+    assert.match(help, /Captured associations are non-atomic and non-replayable/)
+    assert.match(help, /Exported bytes cannot be revoked by close or retirement/)
+    assert.doesNotMatch(help, /capability URL|127\.0\.0\.1|ten-minute/)
     assert.doesNotMatch(help, /\/mh-memory context/)
     assert.doesNotMatch(help, /palace-context|palace-history|palace-html/)
     await f.commands.get('mh-memory').handler('unknown', f.ctx)
@@ -381,6 +379,26 @@ test('safe memory reasons sanitize registered tools and every command including 
     await command.handler('status', f.ctx)
     assert.match(notifications.at(-1)!, /reason: unknown/)
     assert.ok(notifications.every((text) => !text.includes(privateText)))
+  } finally {
+    f.close()
+  }
+})
+
+test('runtime status publishes only trusted allowlisted storage failure stage and clears it per request', async () => {
+  const f = fixture()
+  try {
+    await f.emit('session_start')
+    f.abi.authorize = async () => {
+      throw memoryFailure('unknown', 'private synthetic sentinel', undefined, 'certify-tree')
+    }
+    const staged = await f.runtime.run('agent_memory_manage', { action: 'status' }, f.ctx)
+    assert.equal(staged.storageFailureStage, 'certify-tree')
+    assert.equal(JSON.stringify(staged).includes('private synthetic sentinel'), false)
+    f.abi.authorize = async () => {
+      throw Object.assign(new Error('private synthetic sentinel'), { failureStage: 'config' })
+    }
+    const spoofed = await f.runtime.run('agent_memory_manage', { action: 'status' }, f.ctx)
+    assert.equal('storageFailureStage' in spoofed, false)
   } finally {
     f.close()
   }

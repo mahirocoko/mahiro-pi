@@ -6,6 +6,7 @@ import {
   decodeMemoryFailure,
   memoryFailure,
   memoryFailureCode,
+  memoryFailureStage,
   publicMemoryError,
 } from '../lib/agent-memory/reasons.ts'
 import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
@@ -67,12 +68,41 @@ test('safe memory reasons are identity-bound across native and query-loaded wrap
   }
 })
 
+test('request-local stages preserve innermost trusted classification and never echo untrusted text', () => {
+  const inner = memoryFailure('CAS', secret, 'revision', 'certify-ledger')
+  assert.equal(memoryFailureStage(inner, 'status-journal'), inner)
+  assert.deepEqual(memoryFailureCode(inner), {
+    reason: 'CAS',
+    readInvalidation: 'revision',
+    failureStage: 'certify-ledger',
+  })
+  const staged = memoryFailureStage(new Error(secret), 'config')
+  assert.deepEqual(memoryFailureCode(staged), { reason: 'unknown', failureStage: 'config' })
+  assert.ok(!publicMemoryError(staged).message.includes(secret))
+  assert.ok(!publicMemoryError(inner, true).message.includes(secret))
+  assert.equal(
+    memoryFailureCode(Object.assign(new Error(secret), { failureStage: 'binding' })).failureStage,
+    undefined,
+  )
+  assert.deepEqual(
+    memoryFailureCode(
+      decodeMemoryFailure({ reason: 'CAS', readInvalidation: 'revision', failureStage: 'certify-ledger' }),
+    ),
+    memoryFailureCode(inner),
+  )
+})
+
 test('safe memory child diagnostics round-trip closed codes; malformed and text envelopes fail closed', () => {
   for (const reason of reasons) {
     const error = memoryFailure(reason, secret)
     const decoded = decodeMemoryFailure(JSON.parse(JSON.stringify(memoryFailureCode(error))))
     assert.equal(memoryFailureCode(decoded).reason, reason)
     assert.ok(!decoded.message.includes(secret))
+  }
+  for (const failureStage of ['certify-file-budget', 'certify-total-budget'] as const) {
+    const decoded = decodeMemoryFailure({ reason: 'budget', failureStage })
+    assert.deepEqual(memoryFailureCode(decoded), { reason: 'budget', failureStage })
+    assert.ok(!publicMemoryError(decoded).message.includes(secret))
   }
   for (const readInvalidation of ['forgetting', 'revision'] as const) {
     const reason = readInvalidation === 'revision' ? 'CAS' : 'unknown'
@@ -88,6 +118,9 @@ test('safe memory child diagnostics round-trip closed codes; malformed and text 
     { reason: 'capacity', message: secret },
     { reason: 'capacity', readInvalidation: 'forgetting' },
     { reason: 'unknown', readInvalidation: 'revision' },
+    { reason: 'unknown', failureStage: secret },
+    { reason: 'unknown', failureStage: undefined },
+    { reason: 'unknown', failureStage: 'certify-tree', stack: secret },
     {
       get reason() {
         throw Error('getter must not run')
@@ -149,6 +182,44 @@ test('safe memory controller correlates error-only frames and rechecks current a
       assert.equal(rejected, undefined, 'malformed code cannot complete an active request')
     }
     assert.equal(resolved, false)
+  }
+})
+
+test('checkpoint stages mark only actual target denial, never stale admission or cancellation', async () => {
+  for (const variant of ['denied', 'stale-restored', 'cancelled'] as const) {
+    const engine = new MemoryEngineController('/unused-diagnostic-fixture') as any
+    const sent: any[] = []
+    engine.start = () => {}
+    engine.send = (frame: unknown) => sent.push(frame)
+    const abort = new AbortController()
+    let checks = 0
+    const context = {
+      signal: abort.signal,
+      admission: {
+        assertCurrent: () => {
+          if (variant === 'stale-restored' && ++checks === 1) throw Error(secret)
+        },
+      },
+      current: () => variant !== 'denied',
+    }
+    // Initial request admission is valid; denial happens only at the checkpoint.
+    const request = engine.request('config', {}, { current: () => true })
+    engine.active.context = context
+    const frame = sent.at(-1)
+    if (variant === 'cancelled') abort.abort()
+    engine.receive({
+      v: 2,
+      epoch: engine.epoch,
+      id: frame.id,
+      check: 1,
+      targets: { physical: [], logical: [], kind: 'data' },
+    })
+    assert.equal(sent.at(-1).allow, false)
+    assert.equal(sent.at(-1).failureStage, variant === 'denied' ? 'target-authority' : undefined)
+    if (variant !== 'cancelled') engine.active.context = { current: () => true }
+    engine.receive({ v: 2, epoch: engine.epoch, id: frame.id, error: { reason: 'unknown' } })
+    await assert.rejects(request)
+    await engine.close()
   }
 })
 

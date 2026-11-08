@@ -61,10 +61,12 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
     method === 'offlineCertify' ||
     method === 'projection' ||
     method === 'palaceStructure' ||
+    method === 'palaceExport' ||
     method === 'knowledgeHistory' ||
     method === 'config' ||
     method === 'capacityDiagnostic' ||
     method === 'status' ||
+    method === 'upgradePreflight' ||
     method === 'episodes' ||
     method === 'selectEpisodes' ||
     method === 'episodeBacklog' ||
@@ -81,10 +83,17 @@ export function engineRequestDeadline(method: Method, input?: Input<Method>) {
     return undefined
   return 30000
 }
-export function assertCurrent(context: OperationContext, targets: Checkpoint = empty) {
+export function assertCurrent(
+  context: OperationContext,
+  targets: Checkpoint = empty,
+  onTargetDenied?: () => void,
+) {
   context.signal?.throwIfAborted()
   context.admission?.assertCurrent(context)
-  if (context.current(targets) !== true) throw Error('Current parent authority required (strict boolean)')
+  if (context.current(targets) !== true) {
+    onTargetDenied?.()
+    throw Error('Current parent authority required (strict boolean)')
+  }
 }
 
 // Construction/source loading has no child or filesystem effects. No auto-respawn/replay.
@@ -242,10 +251,13 @@ export class MemoryEngineController {
       )
         throw Error('Invalid checkpoint targets')
       let allow = false
+      let authorityDenied = false
       const started = performance.now()
       try {
         if (!p.cancelled) {
-          assertCurrent(p.context, targets)
+          assertCurrent(p.context, targets, () => {
+            authorityDenied = true
+          })
           if (targets.preparing !== undefined) {
             if (!['prepare', 'manage'].includes(p.method) || p.preparation)
               throw Error('Unexpected preparation handoff')
@@ -294,7 +306,14 @@ export class MemoryEngineController {
         duration: performance.now() - started,
         allow,
       })
-      this.send({ v: 2, epoch: this.epoch, id: p.id, check: message.check, allow })
+      this.send({
+        v: 2,
+        epoch: this.epoch,
+        id: p.id,
+        check: message.check,
+        allow,
+        ...(authorityDenied ? { failureStage: 'target-authority' } : {}),
+      })
       return
     }
     if (Object.keys(message).length !== 4 || 'result' in message === 'error' in message)
@@ -389,6 +408,7 @@ export class MemoryEngineController {
       [
         'knowledgeHistory',
         'palaceStructure',
+        'palaceExport',
         'projection',
         'config',
         'capacityDiagnostic',

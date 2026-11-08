@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.13 source release record](releases/0.12.13.md) — complete offline Palace Markdown/Raw
+  snapshots, trusted budget diagnostics and owner-preserving publication recovery.
 - [v0.12.12 source release record](releases/0.12.12.md) — the reflector inherits the current
   primary model at dispatch; only the exact prior canonical fixed descriptor migrates on reviewed install.
 - [v0.12.11 source release record](releases/0.12.11.md) — new managed-memory writers inherit the current

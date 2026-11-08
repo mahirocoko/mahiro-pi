@@ -159,8 +159,18 @@ const contracts = [
   ['docs/agent-memory.md', /not live authority/, 'synthetic palace is not live authority'],
   [
     'docs/agent-memory.md',
-    /\/mh-memory palace` opens the immutable ABI2 metadata viewer/,
-    'Palace viewer façade',
+    /\/mh-memory palace` exports the persistent private HTML snapshot/,
+    'Palace file snapshot façade',
+  ],
+  [
+    'docs/agent-memory.md',
+    /All authorized committed Markdown files are included in full,[\s\S]*without a viewer file-count, body or HTML size cap/,
+    'complete Palace file content',
+  ],
+  [
+    'docs/agent-memory.md',
+    /There is no server, route, port,\s+capability URL, expiry or sidecar/,
+    'file-only Palace delivery',
   ],
   [
     'docs/agent-memory.md',

@@ -17,7 +17,7 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { activateAgentMemory } from '../extensions/mahiro-agent-memory.ts'
 import { MemoryEngineController } from '../lib/agent-memory/engine/controller.ts'
 import { MemoryDataEngine } from '../lib/agent-memory/engine/data.ts'
-import { engineEnvironment } from '../lib/agent-memory/engine/io.ts'
+import { atomicPrivate, engineEnvironment } from '../lib/agent-memory/engine/io.ts'
 import { createExperimentalMemoryRuntime } from '../lib/agent-memory/experimental-runtime.ts'
 import { memoryFailureCode, publicMemoryError } from '../lib/agent-memory/reasons.ts'
 import { createMemoryStore } from '../lib/agent-memory/store.ts'
@@ -33,7 +33,12 @@ const deferred = () => {
 }
 
 // Controlled ABI double for adversarial scheduling; real data child/store, not kernel/PSS proof.
-function fixture(commandSurface = false, browserFailure?: 'sync' | 'async') {
+function fixture(
+  commandSurface = false,
+  browserFailure?: 'sync' | 'async',
+  totalBytes = 65536,
+  coreText = '# Core\nSYNTHETIC_TREE_CORE\n',
+) {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'memory-tree-'))
   const root = join(directory, 'memory')
   const previous = { ...process.env }
@@ -59,11 +64,11 @@ function fixture(commandSurface = false, browserFailure?: 'sync' | 'async') {
       projects: [{ cwd, id: 'synthetic' }],
       coreBytes: 8192,
       indexBytes: 2048,
-      fileBytes: 8192,
-      totalBytes: 65536,
+      fileBytes: 32768,
+      totalBytes,
       automatic: false,
     },
-    '# Core\nSYNTHETIC_TREE_CORE\n',
+    coreText,
   )
   const handlers = new Map<string, Function[]>()
   const commands = new Map<string, any>()
@@ -629,6 +634,51 @@ test('public status adds a bounded capacity subtype when ABI2 storage status is 
   }
 })
 
+for (const budget of ['coreBytes', 'totalBytes'] as const) {
+  test(`public ${budget} budget fallback stays diagnostic`, async () => {
+    const f = fixture(true, undefined, 65536, `# Core\nSYNTHETIC_TREE_CORE\n${'x'.repeat(512)}\n`)
+    try {
+      const configPath = join(f.root, 'config.json')
+      const config = JSON.parse(readFileSync(configPath, 'utf8'))
+      writeFileSync(configPath, JSON.stringify({ ...config, [budget]: 256 }))
+      await f.emit('session_start')
+      await f.commands.get('mh-memory')!.handler('status', f.ctx)
+      const status = JSON.parse(f.notifications.at(-1)!)
+      assert.equal(status.storage, 'unavailable')
+      assert.equal(status.storageReason, 'budget')
+      assert.equal(status.readiness, 'Needs setup')
+      assert.equal(status.budgetRecovery.kind, 'abi2-budget-recovery-diagnostic')
+      assert.equal(status.budgetRecovery.configuredHealth, 'uncertified')
+      assert.equal(status.budgetRecovery.configuredBudget[budget], 256)
+      assert.deepEqual(status.budgetRecovery.pendingOperations, [])
+      assert.equal(status.budgetRecovery.policyOperation.state, 'idle')
+      assert.equal(Object.hasOwn(status, 'storageCapacity'), false)
+      assert.doesNotMatch(
+        JSON.stringify(status.budgetRecovery),
+        /SYNTHETIC_TREE_CORE|memory-tree-|projects|\/memory/,
+      )
+    } finally {
+      await f.close()
+    }
+  })
+}
+
+test('budget diagnostic refuses revoked read authority and moving primary leaf', async () => {
+  const f = fixture(false)
+  try {
+    await f.emit('session_start')
+    f.setGranted(false)
+    await assert.rejects(f.runtime.budgetDiagnostic(f.ctx), /Denied synthetic authority/)
+    f.setGranted(true)
+    f.authorize(async () => {
+      f.branch.push({ id: 'moved', parentId: 'b' })
+    })
+    await assert.rejects(f.runtime.budgetDiagnostic(f.ctx))
+  } finally {
+    await f.close()
+  }
+})
+
 function journalId(index: number) {
   const hex = index.toString(16)
   return `${hex.padStart(8, '0')}-0000-4000-8000-${hex.padStart(12, '0')}`
@@ -848,19 +898,18 @@ test('explicit capacity AbortSignal rejects before work and during a direct idle
   }
 })
 
-test('a denied capacity read leaves the Palace viewer open', async () => {
+test('a denied capacity read does not delete an exported Palace snapshot', async () => {
   const f = fixture()
   try {
     await f.emit('session_start')
     await f.emit('before_agent_start', { systemPrompt: 'Base' })
     const opened = await f.runtime.openPalaceViewer(f.ctx)
-    assert.equal(f.runtime.status().palaceViewer, 'open')
+    assert.equal(f.runtime.status().palaceViewer, undefined)
     f.setGranted(false)
     await assert.rejects(f.runtime.run('agent_memory_manage', { action: 'capacity' }, f.ctx))
-    assert.equal(f.runtime.status().palaceViewer, 'open')
+    assert.equal(f.runtime.status().palaceViewer, undefined)
     f.setGranted(true)
-    const response = await fetch(opened.url)
-    assert.equal(response.status, 200)
+    assert.match(readFileSync(opened.filePath, 'utf8'), /Memory Palace/)
   } finally {
     await f.close()
   }
@@ -1170,71 +1219,65 @@ test('public Palace façade dispatches viewer, close and structural JSON on ABI2
       { key: 'mahiro-palace', text: '⏳ Generating Memory viewer...' },
       { key: 'mahiro-palace', text: undefined },
     ])
-    assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/)
-    assert.match(opened, /Memory viewer opened in browser/)
-    assert.match(opened, /File: .*\/viewers\/memory-synthetic\.html/)
-    assert.match(opened, /Close: \/mh-memory palace close/)
-    const response = await fetch(url)
-    assert.equal(response.status, 200)
-    assert.match(await response.text(), /\/mh-memory palace close/)
-
+    assert.match(url, /\/viewers\/memory-synthetic\.html$/)
+    assert.match(opened, /Persistent private Memory Palace snapshot/)
+    assert.match(opened, /Exported bytes remain/)
+    const html = readFileSync(url, 'utf8')
+    assert.match(html, /Memory Palace/)
     await command.handler('palace close', f.ctx)
-    assert.equal(f.notifications.at(-1), 'Palace viewer closed.')
-    await assert.rejects(fetch(url))
+    assert.match(f.notifications.at(-1)!, /Existing snapshot files were not deleted/)
+    assert.match(readFileSync(url, 'utf8'), /Memory Palace/)
   } finally {
     await f.close()
   }
 })
 
-test('ABI2 Palace HTML serves one frozen page and revokes on authority or new work', async () => {
-  const f = fixture()
+test('ABI2 Palace exports every authorized committed file and full Markdown/Raw beyond preview limits', async () => {
+  const f = fixture(false, undefined, 524288)
   try {
+    const view = f.store.createView('synthetic')
+    for (let i = 0; i < 40; i++) {
+      f.store.edit(
+        view,
+        `projects/synthetic/reference/export-${i}.md`,
+        null,
+        `# Export ${i}\n${'x'.repeat(9000)}TAIL_${i}\n`,
+      )
+    }
+    f.store.integrate(view)
     await f.emit('session_start')
-    await f.emit('before_agent_start', { systemPrompt: 'Base' })
     const opened = await f.runtime.openPalaceViewer(f.ctx)
-    assert.equal(opened.kind, 'abi2-palace-html-viewer')
+    assert.equal(opened.kind, 'abi2-palace-html-snapshot')
     assert.equal(opened.atomic, false)
-    assert.equal(opened.closeCommand, '/mh-memory palace close')
-    assert.match(opened.url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/)
-    assert.equal(opened.filePath, join(dirname(f.root), 'viewers', 'memory-synthetic.html'))
-    assert.deepEqual(f.openedUrls, [opened.url])
-    assert.deepEqual(f.openedFiles, [opened.filePath])
+    assert.equal(opened.persistent, true)
+    assert.deepEqual(f.openedUrls, [opened.filePath])
     assert.equal(statSync(dirname(opened.filePath)).mode & 0o777, 0o700)
     assert.equal(statSync(opened.filePath).mode & 0o777, 0o600)
-    const response = await fetch(opened.url)
-    assert.equal(response.status, 200)
-    const html = await response.text()
-    assert.equal(readFileSync(opened.filePath, 'utf8'), html)
-    assert.match(html, /Memory Palace/)
-    assert.match(html, /Mahiro Pi/)
-    assert.match(html, /SYNTHETIC_TREE_CORE/)
+    const html = readFileSync(opened.filePath, 'utf8')
+    assert.ok(Buffer.byteLength(html) > 256 * 1024)
+    assert.match(html, /TAIL_0/)
+    assert.match(html, /TAIL_39/)
+    assert.match(html, /id="external-file-39"/)
+    assert.match(html, /class="file-body-raw"/)
+    assert.doesNotMatch(html, /href="[^"]*\/file\/|http:\/\/127\.0\.0\.1/)
     assert.doesNotMatch(html, /Synthetic effective prompt|memory-tree-/)
-    assert.equal(f.runtime.status().palaceViewer, 'open')
-
+    assert.equal((await f.runtime.closePalaceViewer()).closed, false)
+    assert.equal(readFileSync(opened.filePath, 'utf8'), html)
     f.setGranted(false)
-    const stale = await fetch(opened.url)
-    assert.equal(stale.status, 409)
-    assert.notEqual(f.runtime.status().palaceViewer, 'open')
+    assert.equal(readFileSync(opened.filePath, 'utf8'), html)
     f.setGranted(true)
-
-    const view = f.store.createView('synthetic')
+    const nextView = f.store.createView('synthetic')
     f.store.edit(
-      view,
+      nextView,
       'projects/synthetic/system/round-two.md',
       null,
       '---\ndescription: Round two system note\n---\n# Round Two\nROUND_TWO_CORE\n',
     )
-    f.store.integrate(view)
+    f.store.integrate(nextView)
     const replacement = await f.runtime.openPalaceViewer(f.ctx)
     assert.equal(replacement.filePath, opened.filePath)
-    assert.equal(f.runtime.status().palaceViewer, 'open')
-    await f.emit('input', { text: 'new work', source: 'interactive' })
-    assert.equal(f.runtime.status().palaceViewer, undefined)
-    await assert.rejects(fetch(replacement.url))
     assert.match(readFileSync(replacement.filePath, 'utf8'), /ROUND_TWO_CORE/)
-
-    const closeResult = await f.runtime.closePalaceViewer()
-    assert.equal(closeResult.closed, false)
+    assert.notEqual(readFileSync(opened.filePath, 'utf8'), html)
     const nonTui = { ...(f.ctx as unknown as Record<string, unknown>), mode: 'print', hasUI: false }
     await assert.rejects(f.runtime.openPalaceViewer(nonTui as unknown as ExtensionContext), /TUI/)
   } finally {
@@ -1242,23 +1285,93 @@ test('ABI2 Palace HTML serves one frozen page and revokes on authority or new wo
   }
 })
 
-test('ABI2 Palace browser failures are nonfatal after viewer publication, including router injection', async () => {
+test('Palace export retains unaffected files when committed history refuses forgetting', async () => {
+  const f = fixture()
+  try {
+    const view = f.store.createView('synthetic')
+    f.store.edit(view, 'reference/forgotten.md', null, 'FORGOTTEN_SECRET\n')
+    f.store.edit(view, 'reference/retained.md', null, 'RETAINED_BODY\n')
+    f.store.integrate(view)
+    f.store.forget(f.store.snapshot().revision, ['reference/forgotten.md'], [], 'synthetic')
+    await f.emit('session_start')
+    const opened = await f.runtime.openPalaceViewer(f.ctx)
+    const html = readFileSync(opened.filePath, 'utf8')
+    assert.match(html, /RETAINED_BODY/)
+    assert.match(html, /History unavailable: current forgetting/)
+    assert.doesNotMatch(html, /FORGOTTEN_SECRET|reference\/forgotten\.md/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('ABI2 Palace opener failures do not revoke published snapshot', async () => {
   for (const commandSurface of [false, true]) {
     for (const failure of ['sync', 'async'] as const) {
       const f = fixture(commandSurface, failure)
       try {
         await f.emit('session_start')
-        await f.emit('before_agent_start', { systemPrompt: 'Base' })
         const opened = await f.runtime.openPalaceViewer(f.ctx)
-        assert.deepEqual(f.openedUrls, [opened.url])
-        assert.equal(f.runtime.status().palaceViewer, 'open')
-        assert.equal((await fetch(opened.url)).status, 200)
+        assert.deepEqual(f.openedUrls, [opened.filePath])
+        assert.match(readFileSync(opened.filePath, 'utf8'), /Memory Palace/)
         await f.runtime.closePalaceViewer()
-        await assert.rejects(fetch(opened.url))
+        assert.match(readFileSync(opened.filePath, 'utf8'), /Memory Palace/)
       } finally {
         await f.close()
       }
     }
+  }
+})
+
+test('Palace guarded publication renames synchronously and rechecks state before browser opening', () => {
+  const io = readFileSync(new URL('../lib/agent-memory/engine/io.ts', import.meta.url), 'utf8')
+  const runtime = readFileSync(
+    new URL('../lib/agent-memory/experimental-runtime.ts', import.meta.url),
+    'utf8',
+  )
+  assert.match(
+    io,
+    /if \(canPublish\) \{\s*if \(!canPublish\(\)\) throw Error\('Private publication cancelled'\)\s*renameSync\(temp, path\)/,
+  )
+  assert.match(
+    runtime,
+    /await atomicPrivate\([\s\S]*?currentExport,\s*\)[\s\S]*?if \(currentExport\(\)\) \{[\s\S]*?config\.openBrowser/,
+  )
+})
+
+test('Palace publication guard aborts held temporary write without overwriting snapshot or opening browser', async () => {
+  const f = fixture()
+  const reached = deferred()
+  const release = deferred()
+  try {
+    await f.emit('session_start')
+    const opened = await f.runtime.openPalaceViewer(f.ctx)
+    const before = readFileSync(opened.filePath, 'utf8')
+    const openerCount = f.openedUrls.length
+    let cancelled = false
+    const publication = atomicPrivate(
+      opened.filePath,
+      'UNPUBLISHED_BODY',
+      async () => {
+        reached.resolve()
+        await release.promise
+      },
+      () => !cancelled,
+    )
+    const rejected = assert.rejects(publication, /cancelled/)
+    await reached.promise
+    cancelled = true
+    await f.runtime.closePalaceViewer()
+    release.resolve()
+    await rejected
+    assert.equal(readFileSync(opened.filePath, 'utf8'), before)
+    assert.equal(f.openedUrls.length, openerCount)
+    assert.deepEqual(
+      readdirSync(dirname(opened.filePath)).filter((entry) => entry.endsWith('.tmp')),
+      [],
+    )
+  } finally {
+    release.resolve()
+    await f.close()
   }
 })
 
@@ -1654,19 +1767,18 @@ test('retained draft preview interruption and a concurrent writer leave the orig
   }
 })
 
-test('a denied retained draft preview leaves the Palace viewer open', async () => {
+test('a denied retained draft preview does not delete an exported Palace snapshot', async () => {
   const f = fixture()
   try {
     await f.emit('session_start')
     await f.emit('before_agent_start', { systemPrompt: 'Base' })
     const opened = await f.runtime.openPalaceViewer(f.ctx)
-    assert.equal(f.runtime.status().palaceViewer, 'open')
+    assert.equal(f.runtime.status().palaceViewer, undefined)
     f.setGranted(false)
     await assert.rejects(f.runtime.run('agent_memory_manage', { action: 'retained-preview' }, f.ctx))
-    assert.equal(f.runtime.status().palaceViewer, 'open')
+    assert.equal(f.runtime.status().palaceViewer, undefined)
     f.setGranted(true)
-    const response = await fetch(opened.url)
-    assert.equal(response.status, 200)
+    assert.match(readFileSync(opened.filePath, 'utf8'), /Memory Palace/)
   } finally {
     await f.close()
   }

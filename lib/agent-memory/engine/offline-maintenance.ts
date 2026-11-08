@@ -264,8 +264,7 @@ export function relativeToRoot(root: string, absolute: string) {
   if (path === '' || join(root, path) !== absolute) throw Error('Canonical absolute path required')
   return path
 }
-export async function read(root: string, path: string, max: number, context: OperationContext) {
-  const physical = join(root, path)
+async function checkedPath(root: string, physical: string, context: OperationContext) {
   if (
     !isAbsolute(root) ||
     resolve(root) !== root ||
@@ -286,6 +285,10 @@ export async function read(root: string, path: string, max: number, context: Ope
     const stat = await lstat(cursor)
     if (stat.isSymbolicLink() || (stat.isFile() && stat.nlink !== 1)) throw Error('Linked path refused')
   }
+}
+export async function read(root: string, path: string, max: number, context: OperationContext) {
+  const physical = join(root, path)
+  await checkedPath(root, physical, context)
   await gate(context, [physical])
   const fd = await open(physical, constants.O_RDONLY | constants.O_NOFOLLOW)
   let failed = false
@@ -964,7 +967,8 @@ async function verifyActive(plan: Plan, work: string, context: OperationContext,
 async function settleMarkerPublication(root: string, context: OperationContext, settle = false) {
   const path = join(root, maintenanceMarker)
   await gate(context, [path])
-  await safePath(dirname(path))
+  await checkedPath(root, dirname(path), context)
+  await gate(context, [path])
   const before = await lstat(path)
   if (before.nlink === 1) return
   if (!before.isFile() || before.nlink !== 2 || before.mode & 0o077 || before.size > 1024)
@@ -1007,7 +1011,8 @@ async function settleMarkerPublication(root: string, context: OperationContext, 
   )
     throw Error('Offline marker publication transaction mismatch')
   await gate(context, [path, source])
-  await safePath(dirname(source))
+  await checkedPath(root, dirname(source), context)
+  await gate(context, [source])
   const original = await lstat(source)
   if (!original.isFile() || original.nlink !== 2 || identity(original) !== identity(before))
     throw Error('Offline marker publication source mismatch')

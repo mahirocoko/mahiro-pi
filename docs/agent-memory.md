@@ -216,7 +216,7 @@ loaded runtime actually advertises.
    a bounded, unverified continuity checkpoint is preserved for the next turn. This
    one-shot prompt context is separate from the metadata-only review records below.
 
-`agent_memory_manage` provides primary-only status/cancel, `cleanup` (cancelling any active uncommitted primary draft, retiring unpublished controller plans and ownerless prepared journals, and reclaiming terminal/expired drafts, journals and unreferenced overlay blobs), engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. The command façade is separate from that model-callable action: `/mh-memory palace` opens the immutable ABI2 metadata viewer, `/mh-memory palace close` stops it and `/mh-memory palace json` returns the bounded structural report. The experimental local preview remains a separate synthetic page and does not own this command. A hidden compatibility diagnostic reports current committed revision/config identity, bounded public Pi context estimates, effective-system-prompt byte size and the last ABI2 projection-owner output receipt; it never returns prompt/memory text, root/session paths, exact provider consumption or fabricated category accounting. A projection receipt proves owner output only. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. Public help exposes `status`, `help`, `cleanup`, `doctor`, `palace [close|json]`, `retire`, `init`, `remember <text>` and `dream`; earlier context/history/HTML checkpoint commands remain hidden aliases. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
+`agent_memory_manage` provides primary-only status/cancel, `cleanup` (cancelling any active uncommitted primary draft, retiring unpublished controller plans and ownerless prepared journals, and reclaiming terminal/expired drafts, journals and unreferenced overlay blobs), engine-specific `doctor` diagnostics (ABI2 budget/missing-description/unmigrated-path/conflict state; legacy ABI1 additionally reports Git-entry and broken-link findings), `palace` read-only structural/link/view/episode inspection (inspecting frontmatter and `[[wiki-links]]` across all non-archive active files, ordering non-archive file metadata ahead of `archives/**` within a bounded reply, and reporting `coverage` so `healthy` is never asserted over uninspected content), `init-project` and `migrate-v2` tiered v2 transitions, `remember` surgical note appending, explicit new-root initialization, revision-guarded forgetting/rollback/discard and bounded conflict inspection. The command façade is separate from that model-callable action: `/mh-memory palace` exports the persistent private ABI2 HTML snapshot, `/mh-memory palace close` cancels a pending export without deleting files and `/mh-memory palace json` returns the bounded structural report. The experimental local preview remains a separate synthetic page and does not own this command. A hidden compatibility diagnostic reports current committed revision/config identity, bounded public Pi context estimates, effective-system-prompt byte size and the last ABI2 projection-owner output receipt; it never returns prompt/memory text, root/session paths, exact provider consumption or fabricated category accounting. A projection receipt proves owner output only. Legacy migration keeps byte-exact originals under segmented `archives/legacy-v1-<revision>/global/` and `archives/legacy-v1-<revision>/deferred/<project>/` paths before replacing v1 locations. Missing or malformed frontmatter gets deterministic safe metadata without rewriting archived bytes. Repeated migration or project initialization at the same state is a true no-op: it returns the current revision without preparing a publication or retaining a new view. Public help exposes `status`, `help`, `cleanup`, `doctor`, `palace [close|json]`, `retire`, `init`, `remember <text>` and `dream`; earlier context/history/HTML checkpoint commands remain hidden aliases. Conflict lists page up to eight retained views; proposal text pages by original code points. Read all pages before recovery; `proposalHash` describes the complete proposal. Resolve through current hash/revision tools, then discard the selected view explicitly. Never copy a proposal over newer knowledge blindly.
 
 Ordinary ABI2 branch checks record one operation-local anchor: the manager
 object, the session id, and the leaf id. A later read follows at most 8,192
@@ -306,6 +306,20 @@ Existing version-1 original-path checkpoints remain readable. All existing exact
 fingerprint, authority, kernel-holder, offline-assurance, archive and resume gates
 still apply: active cooperating Pi sessions must be closed before offline adoption.
 No online overflow action authorizes offline maintenance or changes live authority.
+
+When ordinary ABI2 status fails specifically with `storageReason: budget`, a separate
+exact-root-authorized primary read may attach `budgetRecovery`. It uses the existing
+hard-ceiling upgrade preflight and policy-lock status, returning only bounded revision,
+config hash, numeric configured budgets, pending operation IDs/stages/digests and
+existing lock/policy metadata. A pending operation's `processLocalExecutor` reports
+`drained` only from the actual process-local executor registry; `unavailable` is not
+proof of owner death. Neither value authorizes lock release: canonical reconciliation
+still requires the sealed executor and matching owner nonce. This sequential,
+non-atomic recovery diagnostic does not certify configured-budget health, approve
+an upgrade, drain a pending owner or
+provide a repair action. Failed or drifting reads remain unavailable; no private
+file paths, bodies or source records are returned. The capacity fallback below remains
+count-only and distinct.
 
 When ordinary ABI2 status fails specifically with `storageReason: capacity`, the
 source runtime makes one separately authorized, idle-primary read-only attempt to
@@ -1736,72 +1750,53 @@ no model-callable management action, HTML/HTTP route, `local/**` authority, prof
 activation or Phase I wiring. Future changes should follow the current Letta owner
 or address a concrete Mahiro defect rather than reopen a general evidence ladder.
 
-## R7-09 immutable Palace HTML handoff
+## R7-09 persistent private Palace snapshot
 
-The immutable handoff is exposed publicly by `/mh-memory palace`. It is ABI2-only
-and TUI-only. Source availability alone does not establish installed activation.
-It does not use or
-import the disconnected `lib/agent-memory/local/**` Palace. One idle-primary
-operation captures the existing owner-certified committed structure, public
-invocation metadata and the offset-zero 32-row knowledge-history page,
-then checks revision, config, branch, writer/draft state, generation, binding and
-current read authority. The combined association remains explicitly non-atomic;
-provider prompt consumption, category token accounting, lifecycle, authors, changed
-path lists and replay remain unavailable. Committed body and patch-hunk previews
-come exclusively from `engine/data.ts` with the bounds and suppression described
-above. The renderer receives only frozen text and escapes it as HTML; it receives
-no roots, Git or file readers and does not import the local service.
-This follows Letta's committed-file and commit-diff viewer behavior, reviewed at
-`dcd783d619a2ed82efa179d0418e5ccd831c5a77` after a clean fast-forward pull.
-Mahiro's scope, forgetting, helper-execution and transport restrictions narrow the
-upstream full-patch behavior; no brand assets are copied.
+`/mh-memory palace` exports one self-contained HTML file at
+`viewers/memory-<project>.html` under the private profile root. The directory is
+`0700`, the file is `0600`, and each new export atomically replaces the same path.
+It is ABI2-only, TUI-only and idle-primary-only. Browser opening is best effort
+and uses the file path, not HTTP or localhost. There is no server, route, port,
+capability URL, expiry or sidecar. The HTML has the existing context, Core,
+external-memory and history views, with a left file tree and selectable right
+Markdown/Raw pane. All authorized committed Markdown files are included in full,
+without a viewer file-count, body or HTML size cap. Raw preserves the complete
+committed source, including YAML frontmatter and line endings. Markdown renders
+the complete prose body using the existing frontmatter badge presentation, not a
+byte-exact source view. A file copied or opened by another same-user process cannot be revoked; `palace close` cancels an export
+still in progress but does not delete an existing snapshot. The owner must remove
+unneeded exported bytes. A newer export replaces the path, but cannot erase
+copies already read or saved elsewhere.
 
-The allowlisted handoff DTO is deeply copied/frozen and bounded to 512 KiB. Its
-static semantic HTML is bounded to 256 KiB, contains no script or remote asset,
-and exposes invocation metadata, returned committed structure/body previews and the
-latest bounded first-parent identity/time/subject/count/hunk rows. The runtime serves those exact frozen
-bytes for at most ten minutes on one random capability path at `127.0.0.1:0`.
-After publishing the TUI viewer it atomically writes the self-contained snapshot HTML
-to `viewers/memory-<project>.html` (`0o600` inside `0o700` `viewers/` under the
-profile root, updated in place on each `/mh-memory palace` run) and best-effort
-opens it in the system browser (`open`, `cmd /c start` or `xdg-open`, without a
-shell, detached with ignored stdio).
-Opener failures do not fail or revoke the viewer; the file path and capability URL remain available for manual
-opening. Tests inject an opener and never launch a real browser. Only exact Host + capability
-GET/HEAD requests without a body are accepted. CSP uses one fixed inline-style
-hash with `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`,
-`img-src 'none'` and `font-src 'none'`; responses also disable caching, referrers,
-framing, MIME sniffing and unused camera/location/microphone features. There is no
-CORS grant, cookie, JSON/document route, remote host or mutation control.
+The owner supplies paged metadata and complete UTF-8 committed bodies through
+`engine/data.ts`, using shared primary `allowedPath` (including global, deferred
+and procedures) plus the legacy-archive attribution fence and forgetting
+suppression. Pagination is an internal IPC bound, not a display cap.
+Capture and final revalidation check primary identity, idle state, exact root,
+branch, binding/generation, config, revision, scoped metadata, structure digests,
+first history page and current read authority before atomic publication. The
+association of invocation metadata, committed corpus and history remains
+non-atomic; no replay or exact provider consumption is claimed. Renderer receives
+only certified data, never roots, Git or file readers, and imports no synthetic
+`lib/agent-memory/local/**` code. The separate public handoff/diagnostic DTO
+remains bounded and may contain previews only; it is not the HTML export body.
 
-Every valid retrieval reauthorizes the current ABI2 owner and rechecks the captured
-revision/config, committed structure/snapshot digests, exact offset-zero history,
-branch, idle state and authority. It never rerenders from newer data. Drift or
-denial returns a generic unavailable response and revokes the viewer; new agent
-work, compaction, memory mutation/writer admission, navigation, shutdown,
-replacement, explicit `/mh-memory palace close` (or the hidden legacy close alias) and expiry also revoke it and
-close its transport. Each retrieval allows at most 15 seconds for the full current
-snapshot revalidation; timeout/close aborts current validation, returns only the
-generic unavailable response and generation-fences late results. The longer bound
-accommodates installed committed-structure/history checks without weakening any
-identity, digest or authority predicate. Arbitrary third-party Promise work is not
-claimed to be synchronously cancellable. A URL already delivered to a browser cannot be retroactively erased, and another
-same-user process holding that URL is outside the loopback bearer contract.
-
-The current-profile command has served and revoked its frozen loopback page, and a
-bounded browser pass rendered it successfully. Those observations are retained as
-history, not a reason for more zoom, screenshot, screen-reader, resource or scoring
-loops. Reopen rendered QA only for a reported product defect or an intentional visual
-change. Phase I wiring remains a separate explicit action.
+History remains the existing offset-zero 32-row scoped page with sanitized
+subjects and in-scope changed-file counts. When the history owner specifically
+refuses because of current forgetting, the snapshot marks history unavailable
+while still exporting unaffected committed files; other denial or drift fails
+publication. Diffs remain bounded to 8 KiB each
+and 128 KiB total, with explicit truncation and forgetting protection. Raw Git
+headers, rename/copy detection and external diff/textconv helpers are omitted.
+The disconnected Phase H local synthetic HTTP preview is unaffected and does not
+own the public command. Letta reference review remains attributed to
+`dcd783d619a2ed82efa179d0418e5ccd831c5a77`; no brand assets are copied.
 
 ## R7-10 consolidated Palace command surface
 
-The product-facing command is intentionally smaller than the implementation seams:
-
-- `/mh-memory palace` opens the immutable ABI2 metadata viewer;
-- `/mh-memory palace close` closes the current capability viewer;
-- `/mh-memory palace json` returns the legacy bounded structural/link/view/episode
-  diagnostic.
+- `/mh-memory palace` exports the persistent private HTML snapshot;
+- `/mh-memory palace close` cancels an in-progress export (never deletes files);
+- `/mh-memory palace json` returns the bounded structural diagnostic.
 
 Earlier checkpoint routes remain accepted only as hidden compatibility aliases for
 source and operator evidence. They are omitted from public help and are not separate

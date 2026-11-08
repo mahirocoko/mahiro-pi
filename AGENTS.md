@@ -165,22 +165,22 @@ dated source records, not current installation instructions.
   Legacy archives require canonical legacy-v1-<12 hex>/global/<slug>.md or
   deferred/<project>/<slug>.md attribution; arbitrary legacy-v1 prefixes
   are not shared authority.
-  Bodies are at most 32 files, 8 KiB each and 128 KiB aggregate; 32 history diffs
-  are at most 8 KiB each and 128 KiB aggregate. UTF-8 truncation is deterministic and
-  explicit. Canonical in-scope `+++`/`---` file headers are retained; raw Git headers,
-  rename/copy detection and external diff/textconv helpers stay omitted.
-  Preserve the 512 KiB frozen handoff and 256 KiB HTML/authority/transport fences,
-  never renderer file access.
-  TUI viewer publication may best-effort open its capability URL in the system browser;
-  opener failure is nonfatal and tests must inject a stub. Preserve frozen bytes, explicit
-  non-atomic association, per-request authority/digest revalidation, one runtime
-  lifetime owner, bounded transport close with abort- and generation-fenced late
-  validation, and capability-scoped `127.0.0.1:0` GET/HEAD-only transport with
-  strict Host/body/origin/CSP/privacy controls. The public product façade is
-  `/mh-memory palace`, with `palace close` for lifecycle and `palace json` for the
-  legacy structural diagnostic. Context/history/HTML checkpoint commands may
-  remain hidden compatibility aliases but must not be advertised as separate
-  product surfaces.
+  The bounded diagnostic DTO and owner `palaceStructure` retain their preview
+  budgets; the separate installed file:// export uses owner-mediated metadata/body
+  pages and includes every authorized committed Markdown body without viewer
+  file-count, body, handoff or HTML truncation. The offset-zero history page stays
+  scoped and bounded (32 diffs, 8 KiB each, 128 KiB aggregate); Git headers,
+  rename/copy detection and external diff/textconv helpers remain omitted.
+  Renderer receives only certified text/metadata, never roots, Git or file readers.
+  The exported single HTML path is 0600 inside 0700 viewers/, atomically replaced
+  on each command, persistent until replaced or removed by its owner. Browser
+  opening is best effort and injectable in tests. No HTTP listener, sidecar,
+  capability URL or expiry exists. Preserve primary/idle/revision/config/root,
+  allowedPath, forgetting, generation and final authority checks before writing.
+  `palace close` may cancel an in-progress export but never deletes previously
+  exported bytes; it cannot revoke copies already opened or saved. The public
+  façade is `/mh-memory palace` and `palace json`; hidden compatibility aliases
+  may remain but are not separate product surfaces.
   For maintained-memory, reflection, migration and Palace parity, Letta Code is the
   implementation baseline. Before each new reference review, verify its checkout is
   clean and run `git pull --ff-only`; stop on unsafe or diverged state rather than

@@ -4,7 +4,7 @@ import { migrationExportPageLimit, migrationExportSections } from '../migration-
 import type { MemoryFailureCode } from '../reasons.ts'
 import type { Episode, MemoryConfig } from '../store.ts'
 import type { LockOwner } from './operation.ts'
-import { idPattern, revisionPattern, uuidPattern } from './schema.ts'
+import { allowedPath, idPattern, revisionPattern, uuidPattern } from './schema.ts'
 
 export const protocolVersion = 2
 export const transportLimits = Object.freeze({
@@ -125,6 +125,28 @@ export interface Operations {
     input: { project: string; expectedConfigHash: string }
     output: import('../palace-structure.ts').PalaceStructure
   }
+  palaceExport: {
+    input: {
+      project: string
+      expectedRevision: string
+      expectedConfigHash: string
+      offset: number
+      path?: string
+      characterOffset?: number
+    }
+    output: {
+      revision: string
+      configHash: string
+      total: number
+      files?: import('../palace-structure.ts').PalaceStructureFile[]
+      nextOffset?: number
+      path?: string
+      text?: string
+      hash?: string
+      totalCharacters?: number
+      nextCharacterOffset?: number
+    }
+  }
   projection: {
     input: { project: string; shared: boolean }
     output: {
@@ -151,6 +173,14 @@ export interface Operations {
       revision: string
       files: string[]
       pendingOperations: { id: string; digest: string; stage: Stage; recordBytes: number }[]
+    }
+  }
+  upgradePreflight: {
+    input: Record<string, never>
+    output: {
+      revision: string
+      configHash: string
+      pendingOperations: Operations['status']['output']['pendingOperations']
     }
   }
   offlineCertify: { input: { revision: string }; output: { revision: string } }
@@ -274,11 +304,13 @@ export type Reply =
 export const methods: Method[] = [
   'knowledgeHistory',
   'palaceStructure',
+  'palaceExport',
   'projection',
   'config',
   'capacityDiagnostic',
   'retainedDraftPreview',
   'status',
+  'upgradePreflight',
   'offlineCertify',
   'episodes',
   'selectEpisodes',
@@ -308,11 +340,13 @@ export function validateInput(method: Method, input: unknown) {
   const keys: Record<Method, string[]> = {
     knowledgeHistory: ['project', 'expectedRevision', 'expectedConfigHash', 'offset'],
     palaceStructure: ['project', 'expectedConfigHash'],
+    palaceExport: ['project', 'expectedRevision', 'expectedConfigHash', 'offset', 'path', 'characterOffset'],
     projection: ['project', 'shared'],
     config: [],
     capacityDiagnostic: [],
     retainedDraftPreview: [],
     status: [],
+    upgradePreflight: [],
     offlineCertify: ['revision'],
     episodes: ['project'],
     selectEpisodes: ['project', 'ids'],
@@ -361,6 +395,22 @@ export function validateInput(method: Method, input: unknown) {
       !/^[a-f0-9]{64}$/.test(input.expectedConfigHash))
   )
     throw Error('Invalid Palace structure input')
+  if (
+    method === 'palaceExport' &&
+    (typeof input.project !== 'string' ||
+      !idPattern.test(input.project) ||
+      typeof input.expectedRevision !== 'string' ||
+      !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.expectedRevision) ||
+      typeof input.expectedConfigHash !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(input.expectedConfigHash) ||
+      !Number.isSafeInteger(input.offset) ||
+      (input.offset as number) < 0 ||
+      (input.path !== undefined && (typeof input.path !== 'string' || !allowedPath(input.path))) ||
+      (input.characterOffset !== undefined &&
+        (!Number.isSafeInteger(input.characterOffset) || (input.characterOffset as number) < 0)) ||
+      (input.path === undefined) !== (input.characterOffset === undefined))
+  )
+    throw Error('Invalid Palace export input')
   if (
     ['projection', 'headRead'].includes(method) &&
     (typeof input.project !== 'string' || !idPattern.test(input.project) || typeof input.shared !== 'boolean')

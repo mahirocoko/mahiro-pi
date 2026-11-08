@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { constants } from 'node:fs'
+import { constants, renameSync } from 'node:fs'
 import { link, lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path'
 import type { Checkpoint } from './protocol.ts'
@@ -117,7 +117,12 @@ export async function createPrivate(
     }
   }
 }
-export async function atomicPrivate(path: string, text: string | Buffer) {
+export async function atomicPrivate(
+  path: string,
+  text: string | Buffer,
+  beforePublish?: () => Promise<void>,
+  canPublish?: () => boolean,
+) {
   await privateDirectory(dirname(path), true)
   await safePath(path)
   const temp = `${path}.${randomUUID()}.tmp`
@@ -126,18 +131,31 @@ export async function atomicPrivate(path: string, text: string | Buffer) {
     constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
     0o600,
   )
+  let published = false
   try {
-    await fd.writeFile(text)
-    await fd.sync()
+    try {
+      await fd.writeFile(text)
+      await fd.sync()
+    } finally {
+      await fd.close()
+    }
+    if (beforePublish) await beforePublish()
+    // Guarded exports check and rename in one JS turn. Other callers retain async rename.
+    if (canPublish) {
+      if (!canPublish()) throw Error('Private publication cancelled')
+      renameSync(temp, path)
+    } else {
+      await rename(temp, path)
+    }
+    published = true
+    const dir = await open(dirname(path), constants.O_RDONLY)
+    try {
+      await dir.sync()
+    } finally {
+      await dir.close()
+    }
   } finally {
-    await fd.close()
-  }
-  await rename(temp, path)
-  const dir = await open(dirname(path), constants.O_RDONLY)
-  try {
-    await dir.sync()
-  } finally {
-    await dir.close()
+    if (!published) await unlink(temp)
   }
 }
 export async function gitSafety(root: string, check?: Check, logical: string[] = []) {

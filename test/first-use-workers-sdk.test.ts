@@ -125,8 +125,8 @@ test('first-use public workers, reflection and headless commands preserve native
     assert.ok(summary.controlIds.includes(id), `${id}: ${JSON.stringify(summary)}`)
   assert.equal(summary.reflectionPublished, true)
   assert.equal(summary.steeringObserved, true)
-  assert.equal(summary.commands, 22)
-  assert.equal(summary.verifiedHeadlessNoops, 7)
+  assert.equal(summary.commands, 23)
+  assert.equal(summary.verifiedHeadlessNoops, 8)
   assert.ok(!summary.commandResults.some((row: { id: string }) => row.id === 'command.mh-rtk-help'))
   assert.deepEqual(
     summary.commandResults.find((row: { id: string }) => row.id === 'command.mh-rtk-status'),
