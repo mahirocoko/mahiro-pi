@@ -3,11 +3,11 @@
 <img src="assets/identity/mahiro-black-cat/mahiro-black-cat-mark.svg" alt="Mahiro black cat character" width="128" height="128">
 
 A native [Pi](https://pi.dev) extension for a persistent coding companion:
-terminal presentation, private maintained knowledge, explicit command-rewrite previews
+terminal presentation, private maintained knowledge, opt-in RTK command filtering
 and explicit workflow tools. Pi keeps ownership of models, authentication,
 native tools and subagent lifecycle.
 
-**v0.12.14 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
+**v0.13.0 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
 
 [Install and upgrade](docs/getting-started.md) · [Documentation](docs/README.md) ·
 [Source releases](https://github.com/mahirocoko/mahiro-pi/releases) ·
@@ -57,7 +57,7 @@ profile selection, restriction failures and upgrades.
 | --- | --- |
 | [UI and theme](docs/claude-ui.md) | Neko-Stack header, individual tool rows, historical edit diffs, submitted-content write previews and explicit appearance controls |
 | [Status and notifications](docs/status.md) | Compact statusline, cache-only usage inspector, Git/context/RTK status, streaming activity and completion voice |
-| [RTK](docs/rtk.md) | Compatibility modes and bounded, non-executing rewrite previews; no automatic Bash interception |
+| [RTK](docs/rtk.md) | Off/on native filtering for supported Bash commands under current PSS authority, plus explicit rewrite previews |
 | [Memory and recall](docs/agent-memory.md) | Private Markdown/Git knowledge, scoped drafts, bounded lexical retrieval and separately screened historical quotations |
 | [Letta memory roadmap](docs/letta-parity-roadmap.md) | Direct current-upstream implementation plan; historical scores and proof ladders are not work drivers |
 | [Guards and permissions](docs/guards.md) | One Root guard, public permission resolution, final-argument checks and filtered configuration helpers |

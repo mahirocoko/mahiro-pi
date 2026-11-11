@@ -63,14 +63,19 @@ PowerShell.
 
 ## Native final execution
 
+This section describes current source behavior. [RTK off/on execution](rtk.md)
+does not change the execution-policy owner or activate an installed profile.
+
 The manifest loads `lib/guards/bootstrap.ts`, then `lib/guards/index.ts`,
 before features. When loaded, Root checks its live native host, public PSS,
 cancellation, recognized secret file operands and final arguments before spawn. It does not require kernel presence or package provenance for ordinary
-native execution. Root applies only `host.finalArgs`, checks current PSS
-Bash authority and receipt validity again, then invokes native execution. It does
-not call RTK or require RTK state authority. All stored RTK modes are compatibility
-state only; explicit `mh_rtk rewrite` is a non-executing preview. Loading source
-grants no capability.
+native execution. Root applies `host.finalArgs` to the original. With a current
+principal-bound receipt and optional RTK feature/data authority, on mode resolves
+a supported equivalent. Root checks the actual arguments and rechecks current PSS
+Bash authority, receipt validity and RTK fences immediately before one native
+execution. Off, legacy modes, missing receipts/kernel or unavailable RTK authority
+leave ordinary Bash unchanged without helper calls. Explicit `mh_rtk rewrite` is
+a non-executing preview. Loading source grants no capability.
 
 For path tools, final execution queries public policy again after argument
 changes. A matched deny blocks. A matched ask requires consuming a same-turn
@@ -142,9 +147,13 @@ checkers; late approvals from old generations cannot restore them. Without the
 capability or valid receipt, Root retains raw allow checks and refuses asks.
 This is not a second prompt or a replacement for other PSS pipeline gates.
 
-Automatic RTK interception is retired: no helper proposal or RTK authorization
-runs in native execution. Root retains original approval, revocation and the
-final current check after its bounded host checks. Explicit denies still veto.
+On-mode RTK interception uses that same execution-local checker, never a generic
+permission query overriding its rejection. Changed commands require independent
+current non-yolo allow under the captured principal. Missing receipt/principal
+binding disables interception, not ordinary native Bash. An unallowed replacement
+or helper denial blocks the call without fallback. No automatic original-command
+retry occurs after native execution starts. Root retains original approval,
+revocation and final actual-argument checks. Explicit denies still veto.
 Direct `git commit` never needs the RTK helper and remains under ordinary PSS
 authorization without custom command rewriting. An explicit RTK rewrite preview
 also bypasses the helper for direct `git commit`; it never executes any candidate.

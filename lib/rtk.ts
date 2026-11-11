@@ -12,6 +12,8 @@ import {
   publishRTKState,
   readRTKFile,
   rtkModes,
+  storedRTKModes,
+  effectiveRTKMode,
   validateRTKState,
   type RTKMode,
   type RTKBinding,
@@ -43,7 +45,7 @@ export type RTKRewriteResult = {
   command: string | null
 }
 // No shell interprets the original here, including flag-looking input. stdout is
-// preview data only; this API never executes the proposed command.
+// proposal data only; this API never executes the proposed command.
 export async function resolveRTKRewrite(
   command: unknown,
   ctx: { cwd: string; signal?: AbortSignal },
@@ -198,7 +200,7 @@ export function registerRTK(
     statusOwners.set(ctx.ui, statusOwner)
     statusContext = ctx
     // Plain text inherits the existing footer's colors and geometry. This is
-    // the stored compatibility mode, never an interception or savings claim.
+    // the effective mode, never a helper-availability or savings claim.
     ctx.ui.setStatus('mahiro-rtk', `RTK ${available ? mode : 'unavailable'}`)
   }
   const read = (ctx: any, operation = 'read', execution = false) => {
@@ -214,13 +216,18 @@ export function registerRTK(
     const defaults = defaultsText === null ? { version: 1, mode: 'off' } : JSON.parse(defaultsText)
     if (
       defaults.version !== 1 ||
-      !rtkModes.includes(defaults.mode) ||
+      !storedRTKModes.includes(defaults.mode) ||
       Object.keys(defaults).some((k) => !['version', 'mode'].includes(k))
     )
       throw Error('Invalid installed RTK default')
     const state = text === null ? { version: 1, sequence: 0, mode: defaults.mode } : JSON.parse(text)
     validateRTKState(state)
-    return { b, state, ticket: rtkHash(text ?? '<absent>') }
+    return {
+      b,
+      state,
+      ticket: rtkHash(text ?? '<absent>'),
+      revision: rtkHash(JSON.stringify([text, defaultsText])),
+    }
   }
   pi.on('session_shutdown', () => {
     clearStatus()
@@ -238,12 +245,12 @@ export function registerRTK(
     ctx: any,
     captured: number,
     b: NonNullable<ReturnType<typeof rtkBinding>>,
-    ticket: string,
+    revision: string,
   ) => {
     if (!alive || captured !== epoch || !owner.current(ctx) || ctx.signal?.aborted)
       throw Error('RTK stale/cancelled')
     const current = read(ctx)
-    if (JSON.stringify(current.b) !== JSON.stringify(b) || current.ticket !== ticket)
+    if (JSON.stringify(current.b) !== JSON.stringify(b) || current.revision !== revision)
       throw Error('RTK binding changed')
   }
   const run = async (args: any, ctx: any) => {
@@ -254,7 +261,7 @@ export function registerRTK(
     )
       throw Error('Closed RTK arguments required')
     if (!alive || !owner.current(ctx) || ctx.signal?.aborted) throw Error('RTK generation unavailable')
-    const { b, state, ticket } = read(ctx, args.operation === 'mode' ? 'write' : 'read')
+    const { b, state, ticket, revision } = read(ctx, args.operation === 'mode' ? 'write' : 'read')
     if (args.operation === 'mode') {
       if (
         !rtkModes.includes(args.mode) ||
@@ -269,7 +276,7 @@ export function registerRTK(
       if (
         !(await ctx.ui.confirm(
           'Mahiro RTK mode',
-          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nCompatibility state only: no mode intercepts Bash. Only explicit rewrite calls the bounded helper for a non-executing preview. No settings hooks or history access; preview is never an execution grant.`,
+          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nOn resolves supported Bash equivalents through RTK and executes only independently allowed replacements. Off leaves native Bash unchanged without helper calls. PSS remains the authority; no settings hooks or history access.`,
         ))
       )
         throw Error('RTK mode declined')
@@ -306,26 +313,27 @@ export function registerRTK(
       const original = await owner.finalArgs('bash', { command: args.command }, ctx)
       authorizePreview(ctx, args.command)
       authorizePreview(ctx, original.command)
-      assertPreview(ctx, captured, b, ticket)
+      assertPreview(ctx, captured, b, revision)
       const result: RTKRewriteResult = /^\s*git\s+commit(?:\s|$)/.test(original.command)
         ? { status: 'unchanged', command: null }
         : await resolveRTKRewrite(original.command, ctx)
-      assertPreview(ctx, captured, b, ticket)
+      assertPreview(ctx, captured, b, revision)
       return { ...result, executed: false, hostApprovalRequired: true }
     }
     return {
-      mode: state.mode,
+      mode: effectiveRTKMode(state.mode),
+      storedMode: state.mode,
       sequence: state.sequence,
       activeThisGeneration: mode,
-      automaticInterception: false,
+      automaticInterception: effectiveRTKMode(state.mode) === 'on',
       recent: args.operation === 'log' ? structuredClone(recent) : undefined,
       savings: 'unverified; no history reads or native usage/quota changes',
       binaryProbe: false,
       resolver:
-        'explicit preview only: rtk rewrite -- <original>; exit 0/3 are candidates, 1 unchanged, 2 denied; errors return no candidate',
+        'rtk rewrite -- <original>; exit 0/3 are proposals, 1 unchanged, 2 denied; errors return no candidate',
       helperBounds: RTK_HELPER_BOUNDS,
       supported:
-        'all modes are compatibility state only; explicit rewrite previews the real helper without executing',
+        'on executes independently allowed supported equivalents; off and legacy modes leave native Bash unchanged',
       doctor: 'No availability/version probe or history access; rewrite explicitly invokes the resolver',
       projects: args.operation === 'projects' ? [b.project] : undefined,
     }
@@ -337,7 +345,7 @@ export function registerRTK(
     name: 'mh_rtk',
     label: 'Mahiro RTK',
     description:
-      'Native RTK compatibility state and non-executing helper preview. New installations default off; existing state is preserved. No automatic Bash interception, history or savings claims. Mode writes require exact sequence and actual UI.',
+      'Native RTK off/on execution and explicit non-executing rewrite preview. Defaults off; legacy state stays inactive. PSS checks original and replacement. No history or savings claims. Mode writes require exact sequence and actual UI.',
     parameters: {
       type: 'object',
       properties: {
@@ -382,12 +390,12 @@ export function registerRTK(
       const backRow = '← Back to /mh'
       const choice = await selectHubMenu(
         ctx,
-        `Mahiro RTK · preview-only (mode: ${currentStatus.mode} · never intercepts Bash)`,
+        `Mahiro RTK · mode: ${currentStatus.mode}`,
         [
           {
             value: modeRow,
-            label: `Compatibility mode  ${currentStatus.mode}`,
-            description: 'Configure profile compatibility mode (never intercepts native Bash execution)',
+            label: `Mode  ${currentStatus.mode}`,
+            description: 'Off: native Bash unchanged · On: supported RTK filters under current PSS policy',
           },
           {
             value: rewriteRow,
@@ -398,7 +406,7 @@ export function registerRTK(
           {
             value: logRow,
             label: 'Rewrite log  view',
-            description: 'Inspect recent non-executing rewrite previews from this session · /mh-rtk log',
+            description: 'No command history or savings are collected · /mh-rtk log',
           },
           {
             value: doctorRow,
@@ -422,21 +430,19 @@ export function registerRTK(
       try {
         if (choice === modeRow) {
           const modeDescriptions: Record<string, string> = {
-            off: 'Disable RTK compatibility mode in profile state (default)',
-            suggest: 'Record suggest compatibility mode in profile state (preview-only)',
-            'rewrite-safe': 'Record rewrite-safe compatibility mode in profile state (preview-only)',
-            'rewrite-rtk': 'Record rewrite-rtk compatibility mode in profile state (preview-only)',
+            off: 'Run native Bash unchanged without RTK helper calls (default)',
+            on: 'Resolve and execute supported RTK equivalents only when independently allowed by PSS',
           }
           const modeOptions = rtkModes.map((m) => ({
             mode: m,
             label: `${m}${m === currentStatus.mode ? ' (current)' : ''} [profile]`,
             shortLabel: `Mode  ${m}`,
-            description: `${modeDescriptions[m] ?? 'Compatibility state only'}${m === currentStatus.mode ? ' · current' : ''}`,
+            description: `${modeDescriptions[m]}${m === currentStatus.mode ? ' · current' : ''}`,
           }))
           const backOpt = '← Back'
           const picked = await selectHubMenu(
             ctx,
-            `RTK compatibility mode · current: ${currentStatus.mode} [profile, preview-only]`,
+            `RTK mode · current: ${currentStatus.mode} [profile]`,
             [
               ...modeOptions.map((o) => ({
                 value: o.label,
@@ -490,7 +496,7 @@ export function registerRTK(
     'mh-rtk',
     {
       description:
-        'Native RTK status | menu | mode <off|suggest|rewrite-safe|rewrite-rtk> <sequence> | rewrite <command> | log | doctor | guidance',
+        'Native RTK status | menu | mode <off|on> <sequence> | rewrite <command> | log | doctor | guidance',
       handler: async (input: string, ctx: any) => {
         try {
           if (
@@ -531,17 +537,52 @@ export function registerRTK(
       binding = null
       try {
         const current = read(ctx, 'read', true)
-        mode = current.state.mode
+        mode = effectiveRTKMode(current.state.mode)
         binding = current.b
       } catch {
         /* Unconfigured/unattested is disabled, never a grant. */
       }
       publishStatus(ctx, binding !== null)
     },
-    async transform(input: any, _ctx: any, _effectiveBash?: (command: string) => boolean) {
-      // Compatibility API only. No mode reads state, authorizes, invokes a
-      // helper, records a log or changes native execution through this hook.
-      return input
+    async transform(input: any, ctx: any, effectiveBash?: (command: string) => boolean) {
+      const unchanged = { input, assertCurrent: undefined as (() => void) | undefined }
+      if (!alive) return unchanged
+      let initial: ReturnType<typeof read>
+      try {
+        if (!isCurrent(ctx)) return unchanged
+        initial = read(ctx, 'read', true)
+      } catch {
+        // Optional feature/data authority must never globally gate native Bash.
+        return unchanged
+      }
+      if (effectiveRTKMode(initial.state.mode) !== 'on') return unchanged
+      const captured = epoch
+      const assertCurrent = () => {
+        if (!alive || captured !== epoch || !isCurrent(ctx) || ctx.signal?.aborted)
+          throw Error('RTK stale/cancelled')
+        const fresh = read(ctx, 'read', true)
+        if (JSON.stringify(fresh.b) !== JSON.stringify(initial.b) || fresh.revision !== initial.revision)
+          throw Error('RTK binding changed')
+        if (!effectiveBash?.(input.command)) throw Error('RTK original Bash permission denied')
+      }
+      assertCurrent()
+      // Conservative bypasses, not a command-support list. Upstream owns support.
+      // Even a quoted RTK mention forgoes rewriting rather than risk double wrapping.
+      if (/^\s*git\s+commit(?:\s|$)/.test(input.command) || /\brtk\b/.test(input.command))
+        return { input, assertCurrent }
+      const result = await resolveRTKRewrite(input.command, ctx)
+      assertCurrent()
+      if (result.status === 'denied') throw Error('RTK helper denied command')
+      if (!result.command || result.command === input.command) return { input, assertCurrent }
+      const candidate = result.command
+      const finalCheck = () => {
+        assertCurrent()
+        // The execution-local PSS checker captures the actual gate principal and
+        // revocation. Never replace a rejection with a generic permission query.
+        if (!effectiveBash?.(candidate)) throw Error('RTK replacement Bash permission denied')
+      }
+      finalCheck()
+      return { input: { ...input, command: candidate }, assertCurrent: finalCheck }
     },
   }
 }

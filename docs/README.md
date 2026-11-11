@@ -16,7 +16,7 @@
 - [UI and theme](claude-ui.md) — header, tool rows, edit/write previews and appearance Save.
 - [Status and notifications](status.md) — compact footer, `/mh-usage`, activity,
   supported cached quota boundaries and completion voice.
-- [RTK](rtk.md) — modes, resolver bounds and guarded failure behavior.
+- [RTK](rtk.md) — off/on native execution, explicit previews and resolver/permission boundaries.
 - [Memory and historical recall](agent-memory.md) — live ABI1/ABI2 maintained knowledge, discovery,
   editable starter, ordinary engine, readiness/policy limits, scoped writing,
   conflict recovery, bounded ABI2 metadata diagnostics/HTML handoff and separate quotation controls. The
@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.13.0 source release record](releases/0.13.0.md) — opt-in native RTK off/on filtering,
+  principal-bound candidate approval and no duplicate execution after failure.
 - [v0.12.14 source release record](releases/0.12.14.md) — refreshed public Pi/PSS/subagent pins,
   preserved approval/child-control patches and stable installed package references.
 - [v0.12.13 source release record](releases/0.12.13.md) — complete offline Palace Markdown/Raw

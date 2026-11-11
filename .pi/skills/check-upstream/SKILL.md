@@ -108,8 +108,10 @@ Route risk through current repository contracts: public SDK APIs and lazy runtim
 loading; kernel/Root/PSS ownership; generation and foreground PID fences; exact-root
 memory authority; isolated writer/reflector routes; immutable guard oracles;
 explicit installation; rendering-only UI; omitted native OpenAI quota; and RTK's
-non-executing preview boundary. Read the owner for details rather than duplicating
-its contract here. An upstream fix does not prove a local patch can be removed:
+current source behavior versus installed activation in `docs/rtk.md`. Do not turn
+historical preview-only behavior into a permanent veto of on/off execution,
+or describe source integration as already active in an installed profile. Read the owner for details rather than
+duplicating its contract here. An upstream fix does not prove a local patch can be removed:
 compare its whole purpose and affected consumers first.
 
 ## 4. Recommend, then stop before adoption

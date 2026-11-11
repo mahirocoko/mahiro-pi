@@ -88,9 +88,14 @@ dated source records, not current installation instructions.
   policy. File rules apply to recognized file operands, not arbitrary
   prompt/query/comment/content text. Preserve effective Bash approval
   binding/revocation; never replace it with unit decision/path caches.
-- RTK is explicit non-executing rewrite preview only. It never intercepts native
-  Bash execution and new installations default absent state to off. Existing
-  compatibility mode state is preserved but grants no shell/helper authority.
+- `docs/rtk.md` owns RTK's on/off native execution behavior.
+  On uses the bounded upstream resolver for supported Bash equivalents; off and
+  unsupported commands stay unchanged. Interception requires a principal-bound
+  execution-local native receipt, and changed commands require independent non-yolo
+  allow. Preserve public PSS authority, receipt/revocation and final checks;
+  RTK state and helper decisions never grant execution authority.
+  Absent state defaults to off; legacy compatibility values must not silently
+  enable execution. This contract change does not activate an installed profile.
 - Source loading/startup provisions nothing. Explicit installation alone composes
   public owners, three package roles and narrow DATA grants. Default-deny removal
   requires explicit consent and removes only scalar `permission["*"]: "deny"`,

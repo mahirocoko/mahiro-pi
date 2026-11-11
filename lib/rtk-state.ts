@@ -20,15 +20,17 @@ import { readBootstrapFile } from './bootstrap.ts'
 import { assertPrivatePath } from './continuity/store.ts'
 import { assertSafeContainer } from './feature-data.ts'
 
-export const rtkModes = ['off', 'suggest', 'rewrite-safe', 'rewrite-rtk'] as const
-export type RTKMode = (typeof rtkModes)[number]
+export const rtkModes = ['off', 'on'] as const
+export const storedRTKModes = [...rtkModes, 'suggest', 'rewrite-safe', 'rewrite-rtk'] as const
+export type RTKMode = (typeof storedRTKModes)[number]
+export const effectiveRTKMode = (mode: RTKMode): 'off' | 'on' => (mode === 'on' ? 'on' : 'off')
 export const validateRTKState = (s: any) => {
   if (
     !s ||
     s.version !== 1 ||
     !Number.isSafeInteger(s.sequence) ||
     s.sequence < 0 ||
-    !rtkModes.includes(s.mode) ||
+    !storedRTKModes.includes(s.mode) ||
     Object.keys(s).some((k) => !['version', 'sequence', 'mode'].includes(k))
   )
     throw Error('Invalid private RTK state')

@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.12.14.md)
+[← Documentation](README.md) · [Source release record](releases/0.13.0.md)
 
 ## Upstream reviews
 

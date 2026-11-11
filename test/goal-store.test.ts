@@ -4,11 +4,17 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
+import { cleanupStateFixtures, createStateFixture } from '../test-state.mjs'
 
 const base = path.resolve('.agent-state/runtime/goal-port')
 fs.mkdirSync(base, { recursive: true, mode: 0o700 })
+const fixtures: ReturnType<typeof createStateFixture>[] = []
+test.after(() => cleanupStateFixtures(path.resolve('.'), fixtures))
 async function fixture() {
-  const root = fs.mkdtempSync(path.join(base, 'store-'))
+  const owned = createStateFixture(path.resolve('.'), base, 'store-')
+  fixtures.push(owned)
+  const root = path.join(owned.root, 'fixture')
+  fs.mkdirSync(root, { mode: 0o700 })
   const primary = path.join(root, 'primary'),
     profile = path.join(root, 'profile'),
     project = path.join(root, 'project')

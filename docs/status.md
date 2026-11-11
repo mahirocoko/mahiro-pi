@@ -22,7 +22,7 @@ geometry or thresholds. For example, with synthetic values:
 
 ```text
 📁 mahiro-pi | 🌿 main ?2 ~1 | +247 | −89             GPT-6.1 Sol | medium
-ctx ▰▰▰▰▱▱▱▱▱▱ 42.0% | Codex Weekly ▰▰▰▰▰▰▰▰▱▱ 81% | ↑128k ↓12k | 😴 4/25 | RTK rewrite-rtk
+ctx ▰▰▰▰▱▱▱▱▱▱ 42.0% | Codex Weekly ▰▰▰▰▰▰▰▰▱▱ 81% | ↑128k ↓12k | 😴 4/25 | RTK on
 ```
 
 The quota field is optional; this example does not imply current account support
@@ -75,8 +75,11 @@ Their colors, scripts and runtime integration are not imported.
   counter (`😴 <steps>/<stepCount>` for `step-count`, `🗜️ compact` for
   `compaction-event`, or `💤 off` when automatic reflection is disabled). Absent
   or unattested stores omit the cell without provisioning storage.
-- RTK's current mode is an extension status cell; missing authority shows
-  unavailable rather than fabricating an enabled mode.
+- RTK's effective off/on mode is an extension status cell, not proof that an
+  individual command was filtered; missing authority shows unavailable rather
+  than fabricating an enabled mode. Legacy values display off. See
+  [RTK execution and permission boundaries](rtk.md); the example is source behavior,
+  not evidence of installed profile activation or verified savings.
 
 Model identity and safety warnings take priority over optional detail. Public
 visible width/truncation preserves Thai and emoji graphemes.

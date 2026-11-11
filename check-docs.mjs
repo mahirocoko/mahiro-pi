@@ -182,6 +182,26 @@ const contracts = [
     /storageCapacity[\s\S]*does not retraverse an already-overflowed session branch[\s\S]*returns no names, paths, record bodies, corpus text or\s+cleanup handle/,
     'count-only capacity diagnostic',
   ],
+  [
+    'docs/rtk.md',
+    /## Modes and defaults[\s\S]*\| `off` \| Run the original command without invoking the RTK helper\.[\s\S]*\| `on` \| Use RTK command filters when the resolver finds a supported equivalent; otherwise run the original command\./,
+    'RTK on/off native execution semantics',
+  ],
+  [
+    'docs/rtk.md',
+    /execution-local PSS checker[\s\S]*non-yolo[\s\S]*Missing execution-local receipts[\s\S]*disable automatic interception/,
+    'RTK replacements retain principal-bound native authority',
+  ],
+  [
+    'docs/rtk.md',
+    /legacy `suggest`, `rewrite-safe` and\s+`rewrite-rtk`[\s\S]*Legacy values never enable execution/,
+    'RTK legacy state never implicitly opts in',
+  ],
+  [
+    'AGENTS.md',
+    /`docs\/rtk\.md` owns RTK's on\/off native execution behavior\.[\s\S]*principal-bound[\s\S]*independent non-yolo/,
+    'RTK guidance defers to one owner and preserves execution authority',
+  ],
   ['docs/workflows.md', /never executed/, 'recorded commands are metadata'],
   ['docs/integrations.md', /UNKNOWN/, 'unavailable is not zero'],
 ]

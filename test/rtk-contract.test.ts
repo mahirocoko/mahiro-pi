@@ -54,7 +54,7 @@ test('retired Saved Models has no executable, manifest, guard ABI, provenance or
 })
 
 test('current context owns real RTK helper semantics and retirement, not the historical grammar-only candidate13 contract', () => {
-  assert.deepEqual(rtkModes, ['off', 'suggest', 'rewrite-safe', 'rewrite-rtk'])
+  assert.deepEqual(rtkModes, ['off', 'on'])
   assert.deepEqual(RTK_HELPER_BOUNDS, {
     inputBytes: 4096,
     outputBytes: 16384,
@@ -167,8 +167,11 @@ test('current context owns real RTK helper semantics and retirement, not the his
     ],
   ] as const)
     assert.match(guards, contract, claim)
-  assert.doesNotMatch(text('lib/guards/index.ts'), /rtk\.transform|RTK original\/final/)
-  assert.doesNotMatch(text('lib/rtk.ts'), /allowsTransformed|authorizeExecution/)
-  assert.match(rtk, /automaticInterception` is always false/)
+  assert.match(text('lib/guards/index.ts'), /rawApproval && owner\?\.ownsContext\(ctx\)/)
+  assert.match(text('lib/guards/index.ts'), /owner\.rtk\.transform/)
+  assert.match(rtk, /Legacy values never enable execution/)
+  assert.match(rtk, /independent current \*\*non-yolo allow\*\*/)
+  assert.match(rtk, /no automatic retry of the original/)
+  assert.doesNotMatch(text('lib/rtk.ts').slice(text('lib/rtk.ts').indexOf('async transform')), /rtkCandidate/)
   assert.match(text('check-public-sdk.mjs'), /rtk-patch-test\.mjs/)
 })

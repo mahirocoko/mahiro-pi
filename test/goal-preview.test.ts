@@ -4,10 +4,13 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
+import { cleanupStateFixtures, createStateFixture } from '../test-state.mjs'
 import activate from '../extensions/mahiro-goal.ts'
 
 const base = path.resolve('.agent-state/runtime/goal-port/repair')
 fs.mkdirSync(base, { recursive: true, mode: 0o700 })
+const fixtures: ReturnType<typeof createStateFixture>[] = []
+test.after(() => cleanupStateFixtures(path.resolve('.'), fixtures))
 
 test('Goal registration is inert; exactly four closed model tools and two native commands', () => {
   const tools: any[] = [],
@@ -31,8 +34,11 @@ test('Goal registration is inert; exactly four closed model tools and two native
 })
 
 test('source-only Goal preview validates explicit native scope and writes no profile/config/grant/state', async () => {
-  const root = fs.mkdtempSync(path.join(base, 'preview-')),
-    primary = path.join(root, 'primary'),
+  const owned = createStateFixture(path.resolve('.'), base, 'preview-')
+  fixtures.push(owned)
+  const root = path.join(owned.root, 'fixture')
+  fs.mkdirSync(root, { mode: 0o700 })
+  const primary = path.join(root, 'primary'),
     profile = path.join(root, 'absent-profile'),
     project = path.join(root, 'project')
   for (const dir of [primary, project]) fs.mkdirSync(dir, { mode: 0o700 })

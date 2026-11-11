@@ -1,9 +1,33 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { after } from 'node:test'
 import { rtkCandidate, registerRTK, resolveRTKRewrite } from '../lib/rtk.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { installRTKHelper } from '../lib/guards/test/rtk-helper-fixture.mjs'
+import { createStateFixture } from '../test-state.mjs'
+
+const synthetic = createStateFixture(
+  path.resolve(import.meta.dirname, '..'),
+  path.resolve('.agent-state/runtime/rtk-on-off-unit'),
+  'unit-',
+)
+const environment = {
+  HOME: process.env.HOME,
+  PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
+  XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+}
+process.env.HOME = path.join(synthetic.root, 'home')
+process.env.PI_CODING_AGENT_DIR = path.join(synthetic.root, 'profile')
+process.env.XDG_CONFIG_HOME = path.join(synthetic.root, 'xdg')
+for (const target of [process.env.HOME, process.env.PI_CODING_AGENT_DIR, process.env.XDG_CONFIG_HOME])
+  fs.mkdirSync(target, { mode: 0o700 })
+after(() => {
+  for (const [key, value] of Object.entries(environment)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+  synthetic.cleanup()
+})
 
 test('bounded deterministic RTK grammar: shell/control/env/quotes/options/write commands never rewritten', () => {
   for (const mode of ['rewrite-safe'] as const) {
@@ -59,7 +83,7 @@ function eventFixture() {
   }
 }
 
-test('RTK off transform touches no filesystem-owner/helper/probe/log collaborator, including disposed state', async () => {
+test('unavailable and disposed RTK transforms preserve native input without helper calls', async () => {
   const events = eventFixture()
   let touched = 0
   const unavailable = () => {
@@ -80,15 +104,15 @@ test('RTK off transform touches no filesystem-owner/helper/probe/log collaborato
     },
   )
   const input = { command: 'ls safe' }
-  assert.equal(await runtime.transform(input, {}), input)
-  assert.equal(touched, 0)
+  assert.equal((await runtime.transform(input, {})).input, input)
+  assert.equal(touched, 1)
   await events.emit('session_shutdown')
-  assert.equal(await runtime.transform(input, {}), input)
-  assert.equal(touched, 0)
+  assert.equal((await runtime.transform(input, {})).input, input)
+  assert.equal(touched, 1)
 })
 
 test('real argv resolver: exit 0/3 broad candidates, 1/2/unknown/error/timeout/bounds/malformed, abort and option injection', async () => {
-  const base = path.resolve('.agent-state/runtime/rtk-rewrite-models-retirement/implementation/unit')
+  const base = path.join(synthetic.root, 'resolver')
   fs.mkdirSync(base, { recursive: true })
   const cwd = fs.mkdtempSync(path.join(base, 'resolver-'))
   const helper = installRTKHelper(cwd),
@@ -150,7 +174,7 @@ test('real argv resolver: exit 0/3 broad candidates, 1/2/unknown/error/timeout/b
 })
 
 test('synchronous helper launch failures release the real concurrency slots', async () => {
-  const base = path.resolve('.agent-state/runtime/guard-friction/implementation/rtk-unit')
+  const base = path.join(synthetic.root, 'launch')
   fs.mkdirSync(base, { recursive: true })
   const cwd = fs.mkdtempSync(path.join(base, 'launch-'))
   const helper = installRTKHelper(cwd)
@@ -176,9 +200,74 @@ test('synchronous helper launch failures release the real concurrency slots', as
   }
 })
 
-// Disposable private storage only; no installed profile, helper or live UI.
+test('on transform fences state/config, cancellation, current owner and checker again after preparation', async () => {
+  const f = statusFixture()
+  const helper = installRTKHelper(f.ctx.cwd)
+  const previous = process.env.PATH
+  process.env.PATH = `${helper.bin}:/usr/bin:/bin`
+  try {
+    f.state('on')
+    let current = true,
+      allowed = true
+    const a = f.create({ executionCurrent: () => current })
+    a.runtime.initialize(f.ctx)
+    const original = { command: 'ls safe.txt', timeout: 10 }
+    const prepare = () => a.runtime.transform(original, f.ctx, () => allowed)
+    helper.set({ out: 'rtk ls safe.txt\n' })
+    const configDir = path.join(path.dirname(path.dirname(f.file)), '../extensions/mahiro-rtk')
+    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 })
+    const config = path.join(configDir, 'config.json')
+    for (const mutate of [
+      () => {
+        allowed = false
+      },
+      () => {
+        current = false
+      },
+      () => f.state('off', 1),
+      () =>
+        fs.writeFileSync(
+          config,
+          JSON.stringify({ version: 1, profile: process.env.PI_CODING_AGENT_DIR, projects: [] }),
+          { mode: 0o600 },
+        ),
+    ]) {
+      const prepared = await prepare()
+      assert.equal(prepared.input.command, 'rtk ls safe.txt')
+      assert.equal(prepared.input.timeout, 10)
+      mutate()
+      assert.throws(() => prepared.assertCurrent?.(), /stale|binding|permission/)
+      allowed = current = true
+      f.state('on')
+      if (fs.existsSync(config)) fs.unlinkSync(config)
+    }
+    const prepared = await prepare()
+    const abort = new AbortController()
+    f.ctx.signal = abort.signal
+    abort.abort()
+    assert.throws(() => prepared.assertCurrent?.(), /cancel/)
+    delete f.ctx.signal
+    fs.unlinkSync(f.file)
+    const defaults = path.join(path.dirname(f.file), 'default.json')
+    fs.writeFileSync(defaults, JSON.stringify({ version: 1, mode: 'on' }), { mode: 0o600 })
+    const defaultPrepared = await prepare()
+    fs.writeFileSync(defaults, JSON.stringify({ version: 1, mode: 'off' }))
+    assert.throws(() => defaultPrepared.assertCurrent?.(), /binding/)
+    f.state('on')
+    const final = await prepare()
+    await a.emit('session_shutdown')
+    assert.throws(() => final.assertCurrent?.(), /stale/)
+    assert.equal(helper.spawns().length, 0, 'preparation never executes')
+  } finally {
+    if (previous === undefined) delete process.env.PATH
+    else process.env.PATH = previous
+    f.restore()
+  }
+})
+
+// Disposable private storage only; no installed profile or live UI.
 function statusFixture() {
-  const base = path.resolve('.agent-state/runtime/rtk-status/unit')
+  const base = path.join(synthetic.root, 'status')
   fs.mkdirSync(base, { recursive: true, mode: 0o700 })
   const dir = fs.mkdtempSync(path.join(base, 'status-'))
   const profile = path.join(dir, 'profile'),
@@ -259,31 +348,21 @@ function statusFixture() {
   }
 }
 
-test('every persisted RTK mode leaves Bash untouched without consulting execution collaborators', async () => {
+test('off and preserved legacy state never enable execution or consult the Bash checker', async () => {
   const f = statusFixture()
   try {
     for (const mode of ['off', 'suggest', 'rewrite-safe', 'rewrite-rtk']) {
       f.state(mode)
-      let unavailable = false
-      const check = () => {
-        if (unavailable) assert.fail('compatibility transform consulted an owner')
-        return true
-      }
-      const a = f.create({
-        current: check,
-        access: check,
-        permission: check,
-        finalArgs: check,
-      })
+      const a = f.create()
       a.runtime.initialize(f.ctx)
-      unavailable = true
-      a.deny()
       const input = { command: 'ls safe.txt', timeout: 10 }
-      assert.equal(await a.runtime.transform(input, f.ctx, check), input)
-      unavailable = false
+      const check = () => assert.fail('inactive mode consulted Bash authority')
+      assert.equal((await a.runtime.transform(input, f.ctx, check)).input, input)
+      await a.command('status')
+      assert.equal(JSON.parse(f.notifications.at(-1).text).mode, 'off')
+      assert.equal(JSON.parse(fs.readFileSync(f.file, 'utf8')).mode, mode)
       await a.emit('session_shutdown')
-      unavailable = true
-      assert.equal(await a.runtime.transform(input, f.ctx, check), input)
+      assert.equal((await a.runtime.transform(input, f.ctx, check)).input, input)
     }
   } finally {
     f.restore()
@@ -319,7 +398,7 @@ test('Biome version/format resolver preview preserves semantics; transform never
         helper.set({ code, out: rewritten + '\n' })
         assert.deepEqual(await resolveRTKRewrite(command, f.ctx), { status: 'unchanged', command: null })
         const input = { command, timeout: 10 }
-        assert.deepEqual(await a.runtime.transform(input, f.ctx), input, command)
+        assert.deepEqual((await a.runtime.transform(input, f.ctx)).input, input, command)
         assert.equal(checks.length, 0, 'compatibility transform performs no authorization')
         assert.deepEqual(helper.calls().at(-1).args, ['rewrite', '--', command])
       }
@@ -327,12 +406,12 @@ test('Biome version/format resolver preview preserves semantics; transform never
     const command = 'pnpm exec biome --version; node --version'
     helper.set({ code: 2, out: 'rtk lint --version; node --version\n' })
     assert.deepEqual(await resolveRTKRewrite(command, f.ctx), { status: 'denied', command: null })
-    assert.deepEqual(await a.runtime.transform({ command }, f.ctx), { command })
+    assert.deepEqual((await a.runtime.transform({ command }, f.ctx)).input, { command })
     const denied = f.create({ permission: () => ({ state: 'deny' }) })
     denied.runtime.initialize(f.ctx)
     helper.set({ out: 'rtk lint --version\n' })
     const calls = helper.calls().length
-    assert.deepEqual(await denied.runtime.transform({ command }, f.ctx), { command })
+    assert.deepEqual((await denied.runtime.transform({ command }, f.ctx)).input, { command })
     assert.equal(helper.calls().length, calls, 'no-op transform ignores RTK preview permission')
     assert.equal(helper.spawns().length, 0, 'neither version nor format candidate is executed')
   } finally {
@@ -359,7 +438,7 @@ test('RTK fixture delivers every ordered lifecycle listener without crossing eve
       observed.push('second')
     })
     a.runtime.initialize(f.ctx)
-    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK rewrite-rtk')
+    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK off')
     await a.emit('session_shutdown')
     assert.deepEqual(observed, ['first', 'second'])
     assert.equal(f.statuses.size, 0)
@@ -377,7 +456,7 @@ test('RTK bare and whitespace commands report status, not an empty operation', a
       await a.command(input)
       const notice = f.notifications.at(-1)
       assert.equal(notice.level, 'info')
-      assert.equal(JSON.parse(notice.text).activeThisGeneration, 'rewrite-rtk')
+      assert.equal(JSON.parse(notice.text).activeThisGeneration, 'off')
     }
     for (const input of ['status\n', '\n', '\r', '\v', '\f', '\0', '\x7f']) {
       await a.command(input)
@@ -399,9 +478,9 @@ test('RTK publishes initialized and committed active modes; decline/cancel never
     const a = f.create()
     assert.equal(f.calls.length, 0, 'registration has no UI side effects')
     a.runtime.initialize(f.ctx)
-    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK rewrite-rtk')
+    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK off')
     let sequence = 0
-    for (const mode of ['suggest', 'rewrite-safe', 'off', 'rewrite-rtk']) {
+    for (const mode of ['on', 'off', 'on', 'off']) {
       await a.command(`mode ${mode} ${sequence++}`)
       assert.equal(f.statuses.get('mahiro-rtk'), `RTK ${mode}`)
       assert.equal(JSON.parse(fs.readFileSync(f.file, 'utf8')).mode, mode)
@@ -451,7 +530,7 @@ test('RTK unavailable initialization replaces old mode; off is explicit; non-TUI
       const b = f.create(),
         ctx = { ...f.ctx, mode }
       b.runtime.initialize(ctx)
-      if (mode === 'rpc') await b.command('mode suggest 0', ctx)
+      if (mode === 'rpc') await b.command('mode on 0', ctx)
       await b.emit('session_shutdown')
     }
     const noUI = f.create()
@@ -482,7 +561,7 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
     confirm(true)
     await pending
     assert.equal(f.calls.length, calls)
-    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK suggest')
+    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK off')
     assert.equal(JSON.parse(fs.readFileSync(f.file, 'utf8')).mode, 'suggest')
     await replacement.emit('session_shutdown')
     assert.equal(f.statuses.size, 0)
@@ -495,7 +574,7 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
       sessionManager: { getSessionId: () => 'new' },
     })
     await a.emit('session_shutdown')
-    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK suggest')
+    assert.equal(f.statuses.get('mahiro-rtk'), 'RTK off')
     await b.emit('session_shutdown')
     assert.equal(f.statuses.size, 0)
 
@@ -513,7 +592,7 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
     d.runtime.initialize({ ...f.ctx, ui: independentUI })
     await c.emit('session_shutdown')
     assert.equal(f.statuses.size, 0)
-    assert.equal(independentStatuses.get('mahiro-rtk'), 'RTK suggest')
+    assert.equal(independentStatuses.get('mahiro-rtk'), 'RTK off')
     await d.emit('session_shutdown')
     assert.equal(independentStatuses.size, 0)
   } finally {
@@ -521,7 +600,7 @@ test('RTK stale shutdown and pending confirmation cannot clear or replace newer 
   }
 })
 
-test('explicit RTK preview needs original permission; compatibility transform never authorizes candidates', async () => {
+test('explicit RTK preview needs original permission; preserved legacy transform stays inactive', async () => {
   const f = statusFixture()
   const helper = installRTKHelper(f.ctx.cwd)
   const previousPath = process.env.PATH
@@ -553,7 +632,7 @@ test('explicit RTK preview needs original permission; compatibility transform ne
     assert.equal(f.notifications.at(-1).level, 'info')
     assert.equal(JSON.parse(f.notifications.at(-1).text).command, 'rtk ls safe.txt')
     assert.equal(
-      (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).command,
+      (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).input.command,
       'ls safe.txt',
       'yolo transform is a no-op',
     )
@@ -572,7 +651,7 @@ test('explicit RTK preview needs original permission; compatibility transform ne
     await commands.get('mh-rtk').handler('rewrite ls safe.txt', f.ctx)
     assert.equal(f.notifications.at(-1).level, 'info')
     assert.equal(
-      (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).command,
+      (await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).input.command,
       'ls safe.txt',
       'mode state does not rewrite command-specific grants',
     )
@@ -589,7 +668,9 @@ test('explicit RTK preview needs original permission; compatibility transform ne
         askingUnits: [{ command: value ?? '' }],
       }
     }
-    assert.deepEqual(await runtime.transform({ command: 'ls safe.txt' }, f.ctx), { command: 'ls safe.txt' })
+    assert.deepEqual((await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).input, {
+      command: 'ls safe.txt',
+    })
     // 4. Candidate wrapper floors likewise have no automatic execution effect.
     helper.set({ code: 3, out: 'env FOO=1 rtk ls safe.txt\n' })
     evaluate = (surface, value) => {
@@ -603,7 +684,9 @@ test('explicit RTK preview needs original permission; compatibility transform ne
         askingUnits: [{ command: value ?? '', floor: '<indirection-bash-wrapper>' }],
       }
     }
-    assert.deepEqual(await runtime.transform({ command: 'ls safe.txt' }, f.ctx), { command: 'ls safe.txt' })
+    assert.deepEqual((await runtime.transform({ command: 'ls safe.txt' }, f.ctx)).input, {
+      command: 'ls safe.txt',
+    })
     evaluate = () => ({ state: 'deny' })
     const calls = helper.calls().length
     await commands.get('mh-rtk').handler('rewrite ls safe.txt', f.ctx)

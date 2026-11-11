@@ -1592,7 +1592,7 @@ test('new installation defaults RTK off and preserves every existing explicit co
       mode: 'off',
     })
   })
-  for (const mode of ['off', 'suggest', 'rewrite-safe', 'rewrite-rtk'])
+  for (const mode of ['off', 'on', 'suggest', 'rewrite-safe', 'rewrite-rtk'])
     policyFixture((r) => {
       const defaults = join(r.agentDir, 'preferences/rtk/default.json')
       put(defaults, { version: 1, mode })

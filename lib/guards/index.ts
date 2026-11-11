@@ -99,18 +99,43 @@ export default async function activate(pi: ExtensionAPI) {
                 command: rawCommand,
               })
             : undefined
-        const originAllowed = () =>
-          rawApproval
-            ? rawApproval(rawCommand)
-            : getPermissionsService(ctx.sessionManager.getSessionId())?.checkPermission('bash', rawCommand)
-                ?.state === 'allow'
+        const effectiveBash = (command: string) => {
+          if (rawApproval) return rawApproval(command)
+          const decision = getPermissionsService(ctx.sessionManager.getSessionId())?.checkPermission(
+            'bash',
+            command,
+          )
+          return command === rawCommand && decision?.state === 'allow'
+        }
+        const originAllowed = () => effectiveBash(rawCommand)
         if (name === 'bash' && !originAllowed()) throw Error('Native final Bash permission denied')
         if (signal?.aborted) throw Error('Pi guard execution cancelled')
         const executionContext = { ...ctx, signal: signal ?? ctx.signal }
-        const final = await host.finalArgs(classifier, input, executionContext)
-        if (signal?.aborted || !current(ctx)) throw Error('Pi native guard retired; execution blocked')
+        let final = await host.finalArgs(classifier, input, executionContext)
+        let rtkFinal: (() => void) | undefined
+        if (name === 'bash') {
+          if (!originAllowed()) throw Error('Native final Bash permission denied')
+          const owner = nodes.get(ctx.sessionManager.getSessionId())
+          // A generic query cannot prove the aggregate gate's actual principal.
+          // Missing/old receipts retain ordinary Bash, never transformed execution.
+          if (rawApproval && owner?.ownsContext(ctx)) {
+            const prepared = await owner.rtk.transform(final, executionContext, effectiveBash)
+            if (prepared.input !== final)
+              final = await host.finalArgs(classifier, prepared.input, executionContext)
+            if (prepared.assertCurrent)
+              rtkFinal = () => {
+                if (nodes.get(ctx.sessionManager.getSessionId()) !== owner || !owner.ownsContext(ctx))
+                  throw Error('RTK generation retired')
+                prepared.assertCurrent!()
+              }
+          }
+        }
+        if (executionContext.signal?.aborted || !current(ctx))
+          throw Error('Pi native guard retired; execution blocked')
         // Revalidate the original receipt/current policy after the owned path checks.
-        if (name === 'bash' && !originAllowed()) throw Error('Native final Bash permission denied')
+        rtkFinal?.()
+        if (name === 'bash' && (!originAllowed() || !effectiveBash(final.command as string)))
+          throw Error('Native final Bash permission denied')
         if (name !== 'bash') vetoFinalPath(name, final, ctx)
         return native.execute(id, final, signal, update, ctx)
       },

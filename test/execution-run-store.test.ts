@@ -3,9 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
+import { cleanupStateFixtures, createStateFixture } from '../test-state.mjs'
 
 const base = path.resolve('.agent-state/runtime/execution-run-port/integrity')
 fs.mkdirSync(base, { recursive: true, mode: 0o700 })
+const fixtures: ReturnType<typeof createStateFixture>[] = []
+test.after(() => cleanupStateFixtures(path.resolve('.'), fixtures))
 for (const attack of [
   'symlink',
   'hardlink',
@@ -23,7 +26,10 @@ for (const attack of [
   test(`precommit ${attack}: preserve previous canonical bytes; cleanup only owned temp`, async () => {
     const saved = process.env.PI_CODING_AGENT_DIR
     try {
-      const root = fs.mkdtempSync(path.join(base, `temp-${attack}-`))
+      const owned = createStateFixture(path.resolve('.'), base, `temp-${attack}-`)
+      fixtures.push(owned)
+      const root = path.join(owned.root, 'fixture')
+      fs.mkdirSync(root, { mode: 0o700 })
       const primary = path.join(root, 'primary'),
         profile = path.join(root, 'profile'),
         project = path.join(root, 'project')
