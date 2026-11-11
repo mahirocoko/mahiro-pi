@@ -34,7 +34,7 @@ test('the commit skill is a native package resource with explicit permission bou
 
 test('guards register first and managed/C1 retain their feature registration order', () => {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  // SDK 1.3.0 preserves declared entry order and awaits each settled handler.
+  // SDK 1.5.2 preserves declared entry order and awaits each settled handler.
   // Keep status/voice order and both memory owners; each uses the parent queue.
   assert.deepEqual(manifest.pi.extensions, [
     './lib/guards/bootstrap.ts',

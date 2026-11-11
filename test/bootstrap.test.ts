@@ -223,13 +223,13 @@ localTest(
       assert.ok(receipt.steps.every((s: any) => s.status === 'completed'))
       const settings = parse(join(r.agentDir, 'settings.json'))
       assert.deepEqual(settings.packages, [
-        plan.dependencies.permissions,
-        plan.dependencies.subagents,
+        join(candidate.modules, '@gotgenes/pi-permission-system'),
+        join(candidate.modules, '@gotgenes/pi-subagents'),
         product,
       ])
       assert.deepEqual(
         parse(join(r.agentDir, 'extensions/pi-subagents/config.json')).excludedExtensionPackages,
-        [plan.dependencies.subagents],
+        [join(candidate.modules, '@gotgenes/pi-subagents')],
       )
       assert.deepEqual(parse(setupTarget(r.agentDir)), {
         permission: { skill: 'allow' },
@@ -458,7 +458,7 @@ localTest(
   () => {
     for (const packages of [
       [{ source: product, extensions: [] }],
-      ['npm:@gotgenes/pi-subagents@23.4.1'],
+      ['npm:@gotgenes/pi-subagents@25.0.5'],
       ['../mahiro-pi'],
     ])
       fixture((_root, r) => {
@@ -475,6 +475,48 @@ localTest(
   },
 )
 
+test('package locators and child exclusion survive replacement of a disposable pnpm owner', () => {
+  fixture((root, r) => {
+    r.components = { packages: true }
+    const link = join(candidate.modules, '@gotgenes/pi-permission-system')
+    const originalTarget = fs.readlinkSync(link)
+    const oldOwner = join(root, 'old-permission-owner')
+    const newOwner = join(root, 'new-permission-owner')
+    fs.cpSync(fs.realpathSync(link), oldOwner, { recursive: true, dereference: false })
+    fs.cpSync(oldOwner, newOwner, { recursive: true, dereference: false })
+    const retarget = (owner: string) => {
+      fs.unlinkSync(link)
+      symlinkSync(owner, link, 'dir')
+    }
+    try {
+      retarget(oldOwner)
+      const before = inspectBootstrap(r)
+      assert.equal(before.dependencies.permissions, oldOwner)
+      applyBootstrap(before, before.digest)
+      const settingsPath = join(r.agentDir, 'settings.json')
+      const settingsBytes = readFileSync(settingsPath, 'utf8')
+      assert.equal(parse(settingsPath).packages[0], link)
+      const childPath = join(r.agentDir, 'extensions/pi-subagents/config.json')
+      assert.deepEqual(parse(childPath).excludedExtensionPackages, [
+        join(candidate.modules, '@gotgenes/pi-subagents'),
+      ])
+      retarget(newOwner)
+      rmSync(oldOwner, { recursive: true })
+      assert.equal(existsSync(oldOwner), false)
+      assert.equal(parse(join(parse(settingsPath).packages[0], 'package.json')).version, '42.0.0')
+      const after = inspectBootstrap(r)
+      assert.equal(after.dependencies.permissions, newOwner)
+      applyBootstrap(after, after.digest)
+      assert.equal(readFileSync(settingsPath, 'utf8'), settingsBytes)
+      assert.deepEqual(parse(childPath).excludedExtensionPackages, [
+        join(candidate.modules, '@gotgenes/pi-subagents'),
+      ])
+    } finally {
+      retarget(originalTarget)
+    }
+  })
+})
+
 test('git-commit package skill defaults included, preserves exclusion and obeys explicit selections', () => {
   fixture((_root, r) => {
     r.components = { packages: true, roles: true }
@@ -486,7 +528,10 @@ test('git-commit package skill defaults included, preserves exclusion and obeys 
       assert.equal(existsSync(settings) ? readFileSync(settings, 'utf8') : null, before)
       assert.ok(plan.changes.some((c) => c.path === join(r.agentDir, 'agents/git-commit.md')))
       const packages = JSON.parse(plan.changes.find((c) => c.path === settings)!.next).packages
-      assert.deepEqual(packages.slice(-3, -1), [plan.dependencies.permissions, plan.dependencies.subagents])
+      assert.deepEqual(packages.slice(-3, -1), [
+        join(candidate.modules, '@gotgenes/pi-permission-system'),
+        join(candidate.modules, '@gotgenes/pi-subagents'),
+      ])
       return packages.at(-1)
     }
     assert.equal(preview(), product)
@@ -641,17 +686,17 @@ test('owned upgrade rejects filtered/unsupported aliases, guard exclusions, syml
 test('bootstrap Mods preflight rejects wrong dependency pins, missing patch ownership and reversed guard order', () => {
   const metadata = {
     dependencies: {
-      '@gotgenes/pi-subagents': '23.4.1',
-      '@gotgenes/pi-permission-system': '40.2.2',
+      '@gotgenes/pi-subagents': '25.0.5',
+      '@gotgenes/pi-permission-system': '42.0.0',
     },
     pi: { extensions: ['./lib/guards/bootstrap.ts', './lib/guards/index.ts'] },
   }
   const permissionHash = 'c'.repeat(64)
   const permissionMapping =
-    "'@gotgenes/pi-permission-system@40.2.2': patches/@gotgenes__pi-permission-system@40.2.2.patch"
-  const permissionLock = `hash: ${permissionHash}\n    path: patches/@gotgenes__pi-permission-system@40.2.2.patch`
+    "'@gotgenes/pi-permission-system@42.0.0': patches/@gotgenes__pi-permission-system@42.0.0.patch"
+  const permissionLock = `hash: ${permissionHash}\n    path: patches/@gotgenes__pi-permission-system@42.0.0.patch`
   const hash = 'a'.repeat(64),
-    workspace = "'@gotgenes/pi-subagents@23.4.1': patches/@gotgenes__pi-subagents@23.4.1.patch",
+    workspace = "'@gotgenes/pi-subagents@25.0.5': patches/@gotgenes__pi-subagents@25.0.5.patch",
     lock = `hash: ${hash}`
   assert.doesNotThrow(() => assertBootstrapModsContract(metadata, workspace, lock, hash))
   assert.doesNotThrow(() =>

@@ -1,5 +1,5 @@
 diff --git a/dist/public.d.ts b/dist/public.d.ts
-index 1323d5f..ab8c95e 100644
+index ccdd2dcffa6b0f9234073a0353bb86f04cd38ade..7c8cc3db59007eb6417898f9c0cb24250fdf4780 100644
 --- a/dist/public.d.ts
 +++ b/dist/public.d.ts
 @@ -45,6 +45,13 @@ type BashCommandContext = "command_substitution" | "process_substitution" | "sub
@@ -16,7 +16,7 @@ index 1323d5f..ab8c95e 100644
      state: PermissionState;
      /** Custom denial reason from a deny-with-reason pattern, when present. */
      reason?: string;
-@@ -626,6 +633,14 @@ interface PermissionQuery {
+@@ -686,6 +693,14 @@ interface PermissionQuery {
   * rules internally.
   */
  interface PermissionsService extends PermissionQuery {
@@ -32,13 +32,13 @@ index 1323d5f..ab8c95e 100644
       * Whether every value under a tool's surface resolves to `deny`.
       *
 diff --git a/src/handlers/permission-gate-handler.ts b/src/handlers/permission-gate-handler.ts
-index 5ff2d78..6e0103a 100644
+index 5ff2d789109cdf052dc82752644a4aa1d673e631..6e0103af4a7af6236c4103b2301f2078a413dc09 100644
 --- a/src/handlers/permission-gate-handler.ts
 +++ b/src/handlers/permission-gate-handler.ts
 @@ -73,7 +73,23 @@ export class PermissionGateHandler {
        cwd: ctx.cwd,
      };
-
+ 
 -    return await this.pipeline.evaluate(tcc, this.runner);
 +    // Snapshot the full native command before any asynchronous gate/prompt.
 +    // Publish authority only after ALL gates allow, never from per-unit events.
@@ -58,13 +58,13 @@ index 5ff2d78..6e0103a 100644
 +      throw error;
 +    }
    }
-
+ 
    async handleInput(
 diff --git a/src/index.ts b/src/index.ts
-index 45ac5d0..6b6ff70 100644
+index 243984464a92e9b8b48bcf416b45584b80f3e8ab..59dfdc89f4e4d0cd68add01dbc9297d4fa8db710 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -387,6 +387,10 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
+@@ -391,6 +391,10 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
    pi.on("session_shutdown", () => lifecycle.handleSessionShutdown());
    pi.on("before_agent_start", (event, ctx) => agentPrep.handle(event, ctx));
    pi.on("input", (event, ctx) => gates.handleInput(event, ctx));
@@ -76,7 +76,7 @@ index 45ac5d0..6b6ff70 100644
      "tool_call",
      createFailClosedToolCall(
 diff --git a/src/policy/permission-manager.ts b/src/policy/permission-manager.ts
-index ed9b0de..16c362c 100644
+index ed9b0de28c1ccafb82e054717305f42c70199a77..16c362c488ec4b34a5383862cca4c779cb664f57 100644
 --- a/src/policy/permission-manager.ts
 +++ b/src/policy/permission-manager.ts
 @@ -465,6 +465,7 @@ function evaluateCheck(
@@ -88,7 +88,7 @@ index ed9b0de..16c362c 100644
        reason: rule.reason,
        matchedPattern:
 diff --git a/src/service/permissions-service.ts b/src/service/permissions-service.ts
-index dd46503..a9e245d 100644
+index dd4650382cbb76638edaf018eaae4748d697c100..a9e245dd9845589dcff7f7eadfaa1989ac9b2297 100644
 --- a/src/service/permissions-service.ts
 +++ b/src/service/permissions-service.ts
 @@ -34,6 +34,13 @@ interface ResolverForService {
@@ -103,12 +103,12 @@ index dd46503..a9e245d 100644
 +    | { current(): boolean; command: string; agentName: string | undefined }
 +    | undefined;
  }
-
+ 
  /**
 @@ -83,6 +90,26 @@ export class LocalPermissionsService implements PermissionsService {
      return this.resolver.resolve(intent);
    }
-
+ 
 +  consumeBashApproval(request: {
 +    sessionManager: { getSessionId(): string };
 +    toolCallId: string;
@@ -133,10 +133,10 @@ index dd46503..a9e245d 100644
      toolName: string,
      agentName?: string,
 diff --git a/src/service.ts b/src/service.ts
-index 3348223..3db9d11 100644
+index 1c0fdd514cddaca5f1c79303534d91abd0f189dc..f92e753395e4c3d60d42d0e4455e1bd03b326508 100644
 --- a/src/service.ts
 +++ b/src/service.ts
-@@ -130,6 +130,21 @@ export interface PermissionQuery {
+@@ -131,6 +131,21 @@ export interface PermissionQuery {
   * rules internally.
   */
  export interface PermissionsService extends PermissionQuery {
@@ -159,10 +159,10 @@ index 3348223..3db9d11 100644
     * Whether every value under a tool's surface resolves to `deny`.
     *
 diff --git a/src/session/permission-session.ts b/src/session/permission-session.ts
-index b089562..7c80cf5 100644
+index 3d5bec677831f4de1873c1d8018034357c3c4c4d..b1029d13bd340eb611b79a96b9fd511f1a00bf30 100644
 --- a/src/session/permission-session.ts
 +++ b/src/session/permission-session.ts
-@@ -43,6 +43,103 @@ import type { SessionRules } from "./session-rules";
+@@ -44,6 +44,103 @@ import type { SessionRules } from "./session-rules";
   */
  export class PermissionSession implements ToolCallGateInputs {
    private context: ExtensionContext | null = null;
@@ -266,7 +266,7 @@ index b089562..7c80cf5 100644
    private skillEntries: SkillPromptEntry[] = [];
    private knownAgentName: string | null = null;
    private pathNormalizer: PathNormalizer;
-@@ -75,6 +172,8 @@ export class PermissionSession implements ToolCallGateInputs {
+@@ -76,6 +173,8 @@ export class PermissionSession implements ToolCallGateInputs {
     * fail-open gap if a tool call ever arrives before `session_start`.
     */
    activate(ctx: ExtensionContext): void {
@@ -275,15 +275,15 @@ index b089562..7c80cf5 100644
      this.context = ctx;
      this.pathNormalizer = new PathNormalizer(this.flavor, ctx.cwd);
      this.forwarding.start(ctx);
-@@ -83,6 +182,7 @@ export class PermissionSession implements ToolCallGateInputs {
-
+@@ -84,6 +183,7 @@ export class PermissionSession implements ToolCallGateInputs {
+ 
    /** Clear the context, stop forwarding, and deactivate the authorizer selection. */
    deactivate(): void {
 +    this.clearBashApprovals();
      this.context = null;
      this.forwarding.stop();
      this.authorizerSelection.deactivate();
-@@ -111,6 +211,7 @@ export class PermissionSession implements ToolCallGateInputs {
+@@ -112,6 +212,7 @@ export class PermissionSession implements ToolCallGateInputs {
     * entries, and activates the new context.
     */
    resetForNewSession(ctx: ExtensionContext, projectTrusted: boolean): void {
@@ -291,7 +291,7 @@ index b089562..7c80cf5 100644
      this.permissionManager.configureForCwd(
        projectTrusted ? ctx.cwd : undefined,
      );
-@@ -139,6 +240,7 @@ export class PermissionSession implements ToolCallGateInputs {
+@@ -140,6 +241,7 @@ export class PermissionSession implements ToolCallGateInputs {
     * later reload re-includes the project scope (#644).
     */
    reload(projectTrusted: boolean): void {
@@ -300,11 +300,11 @@ index b089562..7c80cf5 100644
        projectTrusted ? this.context?.cwd : undefined,
      );
 diff --git a/src/types.ts b/src/types.ts
-index 6c9ed8f..9f07127 100644
+index 6c9ed8f37ff4c11de6838ad678467a8963e9515f..9f07127195059ad1a88f2a5fce3c546274f841fd 100644
 --- a/src/types.ts
 +++ b/src/types.ts
 @@ -68,6 +68,13 @@ export type FloorExemption =
-
+ 
  export interface PermissionCheckResult {
    toolName: string;
 +  /**

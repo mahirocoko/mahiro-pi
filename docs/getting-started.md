@@ -4,11 +4,13 @@
 
 ## Requirements
 
-- Node ≥22.19.0, pnpm **10.33.0**, and Pi ≥1.3.0.
+- Node ≥22.19.0, pnpm **10.33.0**, and Pi ≥1.3.0 (workspace-tested at 1.5.2).
 - A canonical local checkout of this repository, not a symlinked alias.
 - Explicitly installed declared dependencies. The repository pins public
-  permission-system **40.2.2** and subagents **23.4.1**, including its authored
-  patches; public Pi SDK/AI/TUI **1.3.0** are development dependencies.
+  permission-system **42.0.0** and subagents **25.0.5**, including its authored
+  patches; public Pi SDK/AI/TUI **1.5.2** are development dependencies.
+  Pi 1.5.2 defaults cache warming to `idle` rather than `streaming`; this
+  refresh does not change any profile setting or set a new warming policy.
 - Your own Pi provider/auth setup, including an available exact physical model
   for the [managed writer](agents.md#managed-writer-route). Review provider access,
   cost and privacy intentionally. Local readiness is not provider execution.

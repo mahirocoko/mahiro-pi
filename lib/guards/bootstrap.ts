@@ -23,7 +23,9 @@ export default async function bootstrap(pi: ExtensionAPI) {
   }
   // Kernel readiness is diagnostic, not permission to use ordinary tools.
   // Feature state operations check their own live session and ownership.
-  pi.on('session_start', (_event, ctx) => {
+  // Inspect after every session_start handler, including PSS publication. Direct
+  // extension entries can load before package extensions regardless of package order.
+  pi.on('resources_discover', async (_event, ctx) => {
     if (terraFailed)
       ctx.ui.notify(
         'Terra persistence advisory unavailable; feature kernel and PSS are independent.',
@@ -33,8 +35,17 @@ export default async function bootstrap(pi: ExtensionAPI) {
       ctx.sessionManager.getSessionId(),
     )
     if (!activationFailed && node?.healthy?.() === true) return
+    let permissionsActive = false
+    try {
+      const { getPermissionsService } = await import('@gotgenes/pi-permission-system')
+      permissionsActive = !!getPermissionsService(ctx.sessionManager.getSessionId())
+    } catch {
+      // Missing package/service is a different failure from kernel-only readiness.
+    }
     ctx.ui.notify(
-      'Feature kernel unavailable: state features may be unavailable. PSS permissions remain active; ordinary tools are not blocked. Reload after checking extension diagnostics.',
+      permissionsActive
+        ? 'Feature kernel unavailable: state features may be unavailable. PSS permissions remain active; ordinary tools are not blocked. Reload after checking extension diagnostics.'
+        : 'Feature kernel and PSS service unavailable. Native guard tools fail closed. Check configured PSS package references and extension diagnostics before reloading.',
       'warning',
     )
   })

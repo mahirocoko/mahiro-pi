@@ -117,6 +117,24 @@ test('setup rejects malformed, oversized and unsupported config/schema', () => {
   }
 })
 
+test('setup retains bounded PSS arrays and refuses overflow or unsupported effects unchanged', () => {
+  for (const [key, value] of [
+    ['piInfrastructureReadPaths', '/fixture'],
+    ['authorizerChain', 'fixture'],
+    ['promptNotifications', 'bell'],
+  ] as const) {
+    const config = { [key]: Array(1000).fill(value), permission: { skill: 'deny' } }
+    const text = JSON.stringify(config)
+    assert.equal(planSetup(text).next, text)
+    assert.throws(() => planSetup(JSON.stringify({ ...config, [key]: Array(1001).fill(value) })))
+  }
+  assert.throws(() =>
+    planSetup(
+      JSON.stringify({ commandEffects: { git: { effects: 'read' } }, permission: { skill: 'deny' } }),
+    ),
+  )
+})
+
 test('setup create, private backup, existing mode preservation and idempotent rerun', () =>
   fixture((directory) => {
     const first = applySetup(directory, inspectSetup(directory))

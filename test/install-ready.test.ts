@@ -84,8 +84,8 @@ test('owned profile upgrade: aliased Root, redundant guard package/bootstrap, ad
       ...initialSettings,
       packages: [
         path.relative(profile, unrelated),
-        fs.realpathSync(path.join(product, 'node_modules/@gotgenes/pi-permission-system')),
-        fs.realpathSync(path.join(product, 'node_modules/@gotgenes/pi-subagents')),
+        path.join(product, 'node_modules/@gotgenes/pi-permission-system'),
+        path.join(product, 'node_modules/@gotgenes/pi-subagents'),
         product,
       ],
       extensions: [

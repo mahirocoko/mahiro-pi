@@ -199,8 +199,8 @@ through a helper or another executor. Resolve the named
 owner rather than disabling guards or forging metadata.
 
 Owners: [feature kernel](../lib/kernel/index.ts), [Root guard](../lib/guards/index.ts) and the authored
-[PSS patch](../patches/@gotgenes__pi-permission-system@40.2.2.patch), with child-control
-attestation in the authored [subagents patch](../patches/@gotgenes__pi-subagents@23.4.1.patch).
+[PSS patch](../patches/@gotgenes__pi-permission-system@42.0.0.patch), with child-control
+attestation in the authored [subagents patch](../patches/@gotgenes__pi-subagents@25.0.5.patch).
 Source declarations and offline SDK/Faux fixtures do not prove that installed
 dependencies are patched or a running session loaded them. Installation and an
 intentional fresh load must align source and public factories. Retired provenance

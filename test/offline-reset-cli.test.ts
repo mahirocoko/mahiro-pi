@@ -11,7 +11,9 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
@@ -153,6 +155,34 @@ test('reset CLI inspect stays fresh with automatic reflection and a locked prepa
     assert.equal(receipt.maintenance.corpusReturned, false)
     assert.equal(inspected.stdout.includes('HELD_PRIVATE_FIXTURE'), false)
     assert.equal(inspected.stdout.includes(directory), false)
+    assert.deepEqual(tree(directory), before)
+    const settingsPath = join(agentDir, 'settings.json')
+    const settingsBytes = readFileSync(settingsPath)
+    const settings = JSON.parse(settingsBytes.toString('utf8'))
+    const locators = new Set([
+      join(candidate.primary, 'node_modules/@gotgenes/pi-permission-system'),
+      join(candidate.primary, 'node_modules/@gotgenes/pi-subagents'),
+    ])
+    const alias = join(directory, 'permissions-alias')
+    symlinkSync(realpathSync([...locators][0]), alias, 'dir')
+    try {
+      settings.packages = settings.packages.map((source: string) =>
+        locators.has(source) ? realpathSync(source) : source,
+      )
+      writeFileSync(settingsPath, JSON.stringify(settings), { mode: 0o600 })
+      const legacy = run()
+      assert.equal(legacy.status, 0, legacy.stderr)
+      assert.equal(JSON.parse(legacy.stdout).externalRequests, 0)
+      settings.packages[0] = alias
+      writeFileSync(settingsPath, JSON.stringify(settings), { mode: 0o600 })
+      const aliased = run()
+      assert.equal(aliased.status, 1)
+      assert.equal(JSON.parse(aliased.stderr.split('\n')[0]).stage, 'owner-preflight')
+      assert.equal(aliased.stdout, '')
+    } finally {
+      writeFileSync(settingsPath, settingsBytes, { mode: 0o600 })
+      rmSync(alias)
+    }
     assert.deepEqual(tree(directory), before)
     for (const surface of ['agent_memory_manage', capability]) {
       policy.permission[surface] = 'deny'

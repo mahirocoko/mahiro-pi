@@ -38,6 +38,23 @@ dated source records, not current installation instructions.
   where applicable, preserve the session ID, and restore that same session rather
   than silently starting a replacement. Verify the resulting session and operation;
   do not treat a submitted command as proof of completion.
+- Updates to Pi dependencies/patches, bootstrap, guards, kernel or extension lifecycle
+  must preserve installed Pi usability, not merely pass isolated source tests.
+  Before replacing dependencies, inspect the relevant non-secret installed package
+  registrations and child-extension exclusions. Do not invalidate an owner still
+  referenced by a profile: preserve working locators or obtain approval for a
+  backed-up, narrowly scoped reference repair before removing it. Registrations and
+  matching child exclusions must remain consistent after the update.
+  Before claiming installed readiness, verify startup diagnostics, native Read/Bash
+  and a feature-status read in an explicitly authorized new Pi tab in the correct
+  project; verify real native child tools when child/runtime ownership is affected.
+  Keep the existing session unchanged unless its reload is separately authorized.
+  Unexpected kernel/guard unavailability, including a reviewer unable to use ordinary
+  tools, is a regression/blocker to investigate, not merely a verification caveat.
+  If the live check cannot be performed, report the unmet gate; do not claim installed
+  Pi is ready. Never disable guards or widen permissions to make the check pass.
+  Existing authorization boundaries still apply. This gate does not require live
+  checks for docs-only or other changes outside those runtime paths.
 
 ## Protected contracts
 

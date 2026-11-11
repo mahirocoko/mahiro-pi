@@ -662,7 +662,7 @@ test('startup header uses actual public model/effort/cwd and counts, never fabri
   assert.match(plain(h.header().render(40)), /Getting started/)
   const noModel = renderStartupHeader(
     {
-      version: '1.3.0',
+      version: '1.5.2',
       model: 'Model unavailable',
       effort: 'unavailable',
       cwd: '/fixture',
@@ -689,7 +689,7 @@ test('selected Argon 02 Neko-Stack retains six exact 16-cell rows; narrow header
     ' ▀▀████████▀▀▀  ',
   ]
   const data = {
-    version: '1.3.0',
+    version: '1.5.2',
     model: '模型/ภาษาไทย/👩🏽‍💻/é',
     effort: 'low',
     cwd: '/ภาษาไทย/界/👩🏽‍💻/é',

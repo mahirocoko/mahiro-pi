@@ -8,6 +8,7 @@ import {
   createWriteToolDefinition,
   initTheme,
   keyHint,
+  keyText,
   renderDiff,
   Theme,
 } from '@earendil-works/pi-coding-agent'
@@ -73,13 +74,15 @@ export function renderContext(overrides: Partial<ToolRenderContext> = {}): ToolR
     isError: false,
     durationMs: 20,
     outputPad: 1,
+    keyText,
+    keyHint,
     ...overrides,
   }
 }
 export function fixture(width: number): string[] {
   const lines = renderStartupHeader(
     {
-      version: '1.3.0',
+      version: '1.5.2',
       model: 'openai/gpt-fixture',
       effort: 'low',
       cwd: '/fixture/ภาษาไทย/👩🏽‍💻',

@@ -11,7 +11,7 @@ const available = existsSync(join(modules, '@earendil-works/pi-coding-agent/pack
 const publicImport = async (name: string) => {
   const root = join(modules, name)
   const metadata = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  assert.equal(metadata.version, '1.3.0')
+  assert.equal(metadata.version, '1.5.2')
   return import(pathToFileURL(join(root, metadata.exports['.'].import)).href)
 }
 
@@ -95,7 +95,10 @@ test('native SDK/Faux: retained disposed API fails closed; fresh-loader new/swit
       await result.session.bindExtensions({
         onError: (error: any) => errors.push(error),
       })
-      return { ...result, services: { cwd, agentDir } }
+      return {
+        ...result,
+        services: { cwd, agentDir, modelRuntime, settingsManager, resourceLoader: loader, diagnostics: [] },
+      }
     }
     runtime = await sdk.createAgentSessionRuntime(createRuntime, {
       cwd,
@@ -130,7 +133,7 @@ test('native SDK/Faux: retained disposed API fails closed; fresh-loader new/swit
     assert.throws(
       () => extensionAPI.getFlag('mahiro-realign-disable'),
       /stale after session replacement or reload/i,
-      'SDK 1.3 retained public ExtensionAPI is unavailable after shutdown',
+      'Retained public ExtensionAPI is unavailable after shutdown',
     )
     assert.throws(
       () =>

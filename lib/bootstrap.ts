@@ -746,23 +746,23 @@ export const assertBootstrapNativeContract = (
 ) => {
   if (
     !object(metadata) ||
-    metadata.dependencies?.['@gotgenes/pi-subagents'] !== '23.4.1' ||
-    metadata.dependencies?.['@gotgenes/pi-permission-system'] !== '40.2.2' ||
+    metadata.dependencies?.['@gotgenes/pi-subagents'] !== '25.0.5' ||
+    metadata.dependencies?.['@gotgenes/pi-permission-system'] !== '42.0.0' ||
     JSON.stringify(metadata.pi?.extensions?.slice(0, 2)) !==
       JSON.stringify(['./lib/guards/bootstrap.ts', './lib/guards/index.ts'])
   )
     throw new Error('Canonical Pi pins/ordered guards mismatch')
   if (
     !/^[a-f0-9]{64}$/.test(patchHash) ||
-    !workspace.includes("'@gotgenes/pi-subagents@23.4.1': patches/@gotgenes__pi-subagents@23.4.1.patch") ||
+    !workspace.includes("'@gotgenes/pi-subagents@25.0.5': patches/@gotgenes__pi-subagents@25.0.5.patch") ||
     !lock.includes(`hash: ${patchHash}`) ||
     (permissionPatchHash !== undefined &&
       (!/^[a-f0-9]{64}$/.test(permissionPatchHash) ||
         !workspace.includes(
-          "'@gotgenes/pi-permission-system@40.2.2': patches/@gotgenes__pi-permission-system@40.2.2.patch",
+          "'@gotgenes/pi-permission-system@42.0.0': patches/@gotgenes__pi-permission-system@42.0.0.patch",
         ) ||
         !lock.includes(
-          `hash: ${permissionPatchHash}\n    path: patches/@gotgenes__pi-permission-system@40.2.2.patch`,
+          `hash: ${permissionPatchHash}\n    path: patches/@gotgenes__pi-permission-system@42.0.0.patch`,
         )))
   )
     throw new Error('Canonical patch provenance mismatch')
@@ -776,9 +776,9 @@ export const inspectBootstrap = (
   const adapter = product
   const modules = r.dependencyModules ?? join(product, 'node_modules')
   const meta = readJson(join(adapter, 'package.json'))
-  const patch = readBootstrapFile(join(adapter, 'patches/@gotgenes__pi-subagents@23.4.1.patch'))
+  const patch = readBootstrapFile(join(adapter, 'patches/@gotgenes__pi-subagents@25.0.5.patch'))
   const permissionPatch = readBootstrapFile(
-    join(adapter, 'patches/@gotgenes__pi-permission-system@40.2.2.patch'),
+    join(adapter, 'patches/@gotgenes__pi-permission-system@42.0.0.patch'),
   )
   const lock = readBootstrapFile(join(adapter, 'pnpm-lock.yaml'))
   const workspace = readBootstrapFile(join(adapter, 'pnpm-workspace.yaml'))
@@ -793,8 +793,8 @@ export const inspectBootstrap = (
     patchHash: patch.hash,
   }
   for (const [name, version, key] of [
-    ['@gotgenes/pi-subagents', '23.4.1', 'subagents'],
-    ['@gotgenes/pi-permission-system', '40.2.2', 'permissions'],
+    ['@gotgenes/pi-subagents', '25.0.5', 'subagents'],
+    ['@gotgenes/pi-permission-system', '42.0.0', 'permissions'],
   ] as const) {
     const link = join(modules, name)
     if (!existsSync(link))
@@ -823,7 +823,7 @@ export const inspectBootstrap = (
     if (key === 'subagents')
       run(
         'git',
-        ['apply', '--reverse', '--check', join(adapter, 'patches/@gotgenes__pi-subagents@23.4.1.patch')],
+        ['apply', '--reverse', '--check', join(adapter, 'patches/@gotgenes__pi-subagents@25.0.5.patch')],
         root,
         { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) },
       )
@@ -840,12 +840,12 @@ export const inspectBootstrap = (
       const entry = metadata?.exports?.['.']?.import
       if (
         metadata?.name !== name ||
-        metadata.version !== '1.3.0' ||
+        metadata.version !== '1.5.2' ||
         typeof entry !== 'string' ||
         !entry.startsWith('./') ||
         entry.includes('..')
       )
-        throw new Error('Native bootstrap requires canonical public SDK/AI 1.3.0 entries')
+        throw new Error('Native bootstrap requires canonical public SDK/AI 1.5.2 entries')
       nativePrerequisites.push(hashBootstrapNativePayload(root, entry))
     }
   const changes: Change[] = []
@@ -865,6 +865,8 @@ export const inspectBootstrap = (
       packages.some((p: any) => typeof p !== 'string' && (!object(p) || typeof p.source !== 'string'))
     )
       throw new Error('Unsupported package settings')
+    const permissionSource = join(modules, '@gotgenes/pi-permission-system')
+    const subagentsSource = join(modules, '@gotgenes/pi-subagents')
     const required = [dependencies.permissions, dependencies.subagents, product]
     const explicitExtensions = settings.extensions ?? []
     if (
@@ -987,10 +989,12 @@ export const inspectBootstrap = (
     }
     // Public services must register before Root captures the native parent.
     // Preserve unrelated declarations, then one permissions/subagents/Root graph.
+    // Persist declared locators, not pnpm store realpaths removed on upgrades.
+    // The plan still binds the validated physical dependency owners above.
     const excludeSkill =
       r.components.gitCommitSkill === 'exclude' ||
       (r.components.gitCommitSkill === undefined && gitCommitSkillExcluded)
-    for (const source of required)
+    for (const source of [permissionSource, subagentsSource, product])
       next.push(source === product && excludeSkill ? { source, skills: ['-skills/git-commit'] } : source)
     const nextSettings = {
       ...settings,
@@ -1016,15 +1020,22 @@ export const inspectBootstrap = (
       )
     )
       throw new Error('Guards/permissions/memory must remain in children')
-    if (excludes.some((p: string) => p !== dependencies.subagents && /pi-subagents/.test(p)))
+    if (
+      excludes.some(
+        (p: string) => p !== dependencies.subagents && p !== subagentsSource && /pi-subagents/.test(p),
+      )
+    )
       throw new Error('Stale subagents exclusion; explicit review required')
     change(
       subpath,
-      excludes.includes(dependencies.subagents)
+      excludes.includes(subagentsSource) && !excludes.includes(dependencies.subagents)
         ? readBootstrapFile(subpath)!.text
         : json({
             ...config,
-            excludedExtensionPackages: [...excludes, dependencies.subagents],
+            excludedExtensionPackages: [
+              ...excludes.filter((p: string) => p !== dependencies.subagents && p !== subagentsSource),
+              subagentsSource,
+            ],
           }),
       'children',
     )
@@ -1072,7 +1083,7 @@ export const inspectBootstrap = (
   }
   const skillPolicy = r.components.skillPolicy ? inspectSetup(r.agentDir) : null
   // Structural installation preconditions, not a policy resolver. Runtime queries
-  // remain exclusively with the public Root permission service. PSS 40.2.2's
+  // remain exclusively with the public Root permission service. PSS 42.0.0's
   // documented unset universal fallback is ask (yolo may promote ask, never deny).
   let installationPolicy: string | undefined
   let removedDefaultDeny = false

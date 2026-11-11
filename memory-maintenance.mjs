@@ -113,12 +113,20 @@ try {
   const settingsFile = readBootstrapFile(join(agentDir, 'settings.json'))
   if (!settingsFile) throw Error('Existing owner installation required')
   const settings = JSON.parse(settingsFile.text)
-  const packages = [
-    canonical(realpathSync(join(product, 'node_modules/@gotgenes/pi-permission-system'))),
-    canonical(realpathSync(join(product, 'node_modules/@gotgenes/pi-subagents'))),
+  const packageSources = [
+    join(product, 'node_modules/@gotgenes/pi-permission-system'),
+    join(product, 'node_modules/@gotgenes/pi-subagents'),
     product,
   ]
-  if (!Array.isArray(settings.packages) || packages.some((path) => !settings.packages.includes(path)))
+  const packages = packageSources.map((source) => canonical(realpathSync(source)))
+  // Accept only the installer's declared locator or its exact current physical owner.
+  // The native request still loads the canonical physical owners, never arbitrary aliases.
+  if (
+    !Array.isArray(settings.packages) ||
+    packageSources.some(
+      (source, index) => !settings.packages.includes(source) && !settings.packages.includes(packages[index]),
+    )
+  )
     throw Error('Required canonical public owners must already be installed; installer is separate')
   const action = options['--reset']
     ? options['--inspect']

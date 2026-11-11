@@ -16,8 +16,16 @@ bootstrap, one Root guard,
 ten features and the rendering-only UI adapter. Worker activity is optional and
 outside that default graph. No theme is automatically selected.
 
-Dependencies must already be installed. This command does not install packages,
-copy auth, change primary models, modify personal roles or reload Pi. Paired
+Dependencies must already be installed. Permission/subagent package registrations
+use the declared `node_modules/@gotgenes/…` locators, not transient `.pnpm` store
+realpaths. The preview still validates and binds the resolved physical owners.
+Subagents' child-extension exclusion uses the same exact configured source string.
+Older profiles with stale store paths require explicit reference repair; startup
+does not rewrite them. A missing PSS service makes native guard tools fail closed,
+which is distinct from a kernel-only advisory with PSS still active.
+
+This command does not install packages, copy auth, change primary models, modify
+personal roles or reload Pi. Paired
 [managed-writer route flags](agents.md#managed-writer-route) explicitly review only
 that canonical descriptor's model/thinking slots. Loading resources
 or starting a session never provisions a profile.
@@ -275,6 +283,10 @@ pnpm install:profile --remove-default-deny
 The flag deletes that exact key/value; it never substitutes blanket allow.
 An absent key is idempotent; an existing non-deny value with the flag rejects.
 Unset fallback belongs to public PSS (`ask`); existing yolo settings are unchanged.
+PSS 42 supports optional `commandEffects` declarations, but this installer's
+validation-only subset refuses that field unchanged rather than rewriting an
+existing profile it cannot preserve. Its accepted config arrays follow PSS's
+1,000-entry cap; PSS's declaration is not installed or enabled here.
 Specific required tool/DATA restrictions still refuse. Other uncertain wildcard
 restrictions conservatively block insertion of missing grants. Unrelated targeted
 restrictions remain intact and are reported by surface name.

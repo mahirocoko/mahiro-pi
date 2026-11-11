@@ -17,7 +17,7 @@ const available = existsSync(join(modules, '@earendil-works/pi-coding-agent/pack
 const publicImport = async (name: string) => {
   const root = join(modules, name)
   const metadata = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  assert.equal(metadata.version, '1.3.0')
+  assert.equal(metadata.version, '1.5.2')
   return import(pathToFileURL(join(root, metadata.exports['.'].import)).href)
 }
 

@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.12.14 source release record](releases/0.12.14.md) — refreshed public Pi/PSS/subagent pins,
+  preserved approval/child-control patches and stable installed package references.
 - [v0.12.13 source release record](releases/0.12.13.md) — complete offline Palace Markdown/Raw
   snapshots, trusted budget diagnostics and owner-preserving publication recovery.
 - [v0.12.12 source release record](releases/0.12.12.md) — the reflector inherits the current

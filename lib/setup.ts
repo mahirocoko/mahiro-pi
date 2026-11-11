@@ -35,8 +35,8 @@ const surface = (value: unknown) =>
     Object.entries(value).every(([key, decision]) => key.length > 0 && patternAction(decision)))
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 
-// Deliberately bounded to the public 40.2.2 config shape; unknown future fields
-// require review rather than silently modifying a profile this setup cannot validate.
+// This installer validates a bounded subset of PSS 42.0.0 config. New fields,
+// including commandEffects, are refused unchanged rather than silently edited.
 const validate: (config: unknown) => asserts config is Record<string, unknown> = (config) => {
   if (!object(config)) throw new Error('Unsupported permission config')
   const booleans = ['debugLog', 'permissionReviewLog', 'yoloMode', 'doublePressToConfirm']
@@ -55,9 +55,15 @@ const validate: (config: unknown) => asserts config is Record<string, unknown> =
     if (booleans.includes(key)) valid = typeof value === 'boolean'
     if (integers.includes(key)) valid = typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
     if (['piInfrastructureReadPaths', 'authorizerChain'].includes(key))
-      valid = Array.isArray(value) && value.every((item) => typeof item === 'string' && item.length > 0)
+      valid =
+        Array.isArray(value) &&
+        value.length <= 1000 &&
+        value.every((item) => typeof item === 'string' && item.length > 0)
     if (key === 'promptNotifications')
-      valid = Array.isArray(value) && value.every((item) => ['bell', 'osc9', 'osc777'].includes(item))
+      valid =
+        Array.isArray(value) &&
+        value.length <= 1000 &&
+        value.every((item) => ['bell', 'osc9', 'osc777'].includes(item))
     if (key === 'permissionDialogKeys')
       valid =
         object(value) &&
@@ -148,7 +154,7 @@ export const resolveAgentDir = (
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
 ) => {
-  // Public Pi 1.3 getAgentDir uses PI_CODING_AGENT_DIR and expands '~'.
+  // Public Pi getAgentDir uses PI_CODING_AGENT_DIR and expands '~'.
   const override = env.PI_CODING_AGENT_DIR
   const value =
     explicit ??
