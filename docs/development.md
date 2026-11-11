@@ -2,6 +2,23 @@
 
 [← Documentation](README.md) · [Source release record](releases/0.12.13.md)
 
+## Upstream reviews
+
+The repository-local [`check-upstream`](../.pi/skills/check-upstream/SKILL.md)
+skill compares public Pi SDK versions, patched PSS/subagent dependencies and
+Letta Code behavior with their separate local baselines. Ask to “check upstream”
+or use `/skill:check-upstream` when the project skill is loaded. It reports what
+to adopt, adapt, defer, skip or leave unchanged; it does not upgrade dependencies,
+port source, install profiles or run live probes.
+
+The skill lives under `.pi/skills/`, outside the package's seven built-in skills
+and manifest resources. It is contributor guidance, not an installed feature;
+`.pi` remains excluded from source archives. Reference refreshes and metadata
+requests belong to an invoked review, not merely loading or authoring the skill.
+Follow the current [Letta roadmap](letta-parity-roadmap.md) for its clean-checkout
+and `git pull --ff-only` requirement. Keep optional reports/caches under ignored
+`.agent-state/runtime/upstream-review/` within the existing state budget.
+
 ## Dependencies and checks
 
 Use Node ≥22.19.0 and pnpm **10.33.0**. Install declared public dependencies

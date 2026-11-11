@@ -12,6 +12,10 @@ and skill-authoring skills ([`maintaining-core-memory`](../skills/maintaining-co
 Other workflow roles and their model preferences belong to the user's local
 configuration. Pi package resource loading does not automatically install agent roles.
 
+The separate contributor-only [`check-upstream`](development.md#upstream-reviews)
+skill lives in `.pi/skills/`, not the package skill resource. It reviews upstream
+changes and recommends bounded follow-ups without adopting them automatically.
+
 ## Package roles
 
 | Role | Route and limits | Responsibility |
