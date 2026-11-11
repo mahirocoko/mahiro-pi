@@ -118,7 +118,19 @@ test('current context owns real RTK helper semantics and retirement, not the his
       'command policy is not a universal path sandbox',
       /Direct commands and mixed chains remain subject to command policy, not a universal path sandbox/,
     ],
-    ['no verified savings claim', /savings remain unverified/i],
+    [
+      'upstream estimates are not provider billing',
+      /output-token estimates \(bytes\/4\).*not provider input\/output tokens, billed tokens, dollars or native quota/,
+    ],
+    [
+      'statistics use explicit bounded fixed CLI',
+      /rtk gain --daily --format json --text -p.*128 KiB JSON or 256 KiB report stdout, 3 seconds and at most two children/,
+    ],
+    ['status diagnostics stay CLI-free', /Status\/doctor do not invoke the CLI/],
+    [
+      'upstream CLI may own database writes',
+      /upstream CLI itself may initialize or migrate its tracking database/,
+    ],
     [
       'new defaults off and explicit state survives',
       /installations default to `off`.*Existing explicit state and installed defaults are preserved/,

@@ -40,7 +40,7 @@ const DEFAULT_SURFACE_META: Record<string, { menuLabel: string; description: str
   },
   'mh-rtk': {
     menuLabel: 'RTK  open',
-    description: 'Non-executing shell command rewrite preview and mode controls · /mh-rtk',
+    description: 'RTK usage estimates, daily tracking, CLI report and mode controls · /mh-rtk',
   },
   usage: {
     menuLabel: 'Usage  open',

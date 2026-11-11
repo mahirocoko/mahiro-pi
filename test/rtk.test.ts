@@ -305,6 +305,7 @@ function statusFixture() {
     const events = eventFixture(),
       commands = new Map()
     let allowed = true
+    let tool: any
     const runtime = registerRTK(
       {
         on: events.on,
@@ -312,7 +313,9 @@ function statusFixture() {
           name: string,
           command: { handler: (input: string, context: typeof ctx) => unknown },
         ) => commands.set(name, command),
-        registerTool() {},
+        registerTool(value: any) {
+          tool = value
+        },
       },
       {
         current: () => true,
@@ -328,6 +331,8 @@ function statusFixture() {
       runtime,
       ...events,
       command: (input: string, context = ctx) => commands.get('mh-rtk').handler(input, context),
+      tool: (args: any, context = ctx) =>
+        tool.execute('stats-test', args, context.signal, undefined, context),
       deny() {
         allowed = false
       },
@@ -447,16 +452,158 @@ test('RTK fixture delivers every ordered lifecycle listener without crossing eve
   }
 })
 
-test('RTK bare and whitespace commands report status, not an empty operation', async () => {
+test('gain reads actual evidence under fixed-command authority; status/doctor never invoke CLI', async () => {
+  const f = statusFixture()
+  const savedPath = process.env.PATH
+  const helper = installRTKHelper(path.dirname(f.file))
+  process.env.PATH = `${helper.bin}${path.delimiter}${savedPath ?? ''}`
+  helper.set({
+    nativeOut: JSON.stringify({
+      summary: {
+        total_commands: 1,
+        total_input: 1200,
+        total_output: 200,
+        total_saved: 1000,
+        avg_savings_pct: 83.33333333333334,
+        total_time_ms: 6,
+        avg_time_ms: 6,
+        oversized_excluded: 0,
+      },
+      daily: [],
+    }),
+  })
+  try {
+    let checks = 0
+    const a = f.create({
+      finalArgs: async (_name: string, args: any) => {
+        checks++
+        return args
+      },
+    })
+    for (const operation of ['status', 'doctor', 'log']) await a.tool({ operation })
+    assert.equal(checks, 0)
+    assert.equal(helper.spawns().length, 0)
+    const gain = await a.tool({ operation: 'gain' })
+    assert.equal(gain.details.snapshot.summary.total_saved, 1000)
+    assert.deepEqual(helper.spawns(), [['gain', '--daily', '--format', 'json', '--text', '-p']])
+    await assert.rejects(a.tool({ operation: 'status', scope: 'all' }), /require gain/)
+    await assert.rejects(a.tool({ operation: 'gain', scope: '../private' }), /Invalid RTK statistics/)
+    await assert.rejects(a.tool({ operation: 'gain', view: '--watch' }), /Invalid RTK statistics/)
+    helper.set({ nativeOut: '\x1b[31mBy Command\x1b[0m\nOpaque table\0' })
+    const report = await a.tool({ operation: 'gain', scope: 'all', view: 'commands' })
+    assert.equal(report.details.report, 'By Command\nOpaque table\n')
+    assert.deepEqual(helper.spawns().at(-1), ['gain', '--text'])
+    f.ctx.mode = 'rpc'
+    await a.command('gain all')
+    assert.equal(JSON.parse(f.notifications.at(-1).text).scope, 'all')
+  } finally {
+    process.env.PATH = savedPath
+    f.restore()
+  }
+})
+
+test('gain fences feature/Bash, fixed host command, identity/state/generation before and after awaits', async () => {
+  const f = statusFixture()
+  const savedPath = process.env.PATH
+  const helper = installRTKHelper(path.dirname(f.file))
+  process.env.PATH = `${helper.bin}${path.delimiter}${savedPath ?? ''}`
+  helper.set({
+    nativeOut: JSON.stringify({
+      summary: {
+        total_commands: 1,
+        total_input: 1200,
+        total_output: 200,
+        total_saved: 1000,
+        avg_savings_pct: 83.3,
+        total_time_ms: 6,
+        avg_time_ms: 6,
+        oversized_excluded: 0,
+      },
+      daily: [],
+    }),
+  })
+  try {
+    for (const permission of ['ask', 'deny']) {
+      let host = false
+      const a = f.create({
+        permission: () => ({ state: permission }),
+        finalArgs: async () => {
+          host = true
+        },
+      })
+      await assert.rejects(a.tool({ operation: 'gain' }), /access unavailable/)
+      assert.equal(host, false)
+    }
+    assert.equal(helper.spawns().length, 0)
+    const changed = f.create({ finalArgs: async () => ({ command: 'rtk gain --quota' }) })
+    await assert.rejects(changed.tool({ operation: 'gain' }), /access unavailable/)
+    assert.equal(helper.spawns().length, 0)
+    for (const mutation of ['state', 'session', 'generation', 'feature', 'bash']) {
+      const originalSessionId = f.ctx.sessionManager.getSessionId
+      let allowed = true,
+        current = true
+      const a = f.create({
+        current: () => current,
+        permission: () => ({ state: allowed ? 'allow' : 'deny' }),
+        finalArgs: async (_name: string, args: any) => {
+          if (mutation === 'state') f.state('off', 30)
+          if (mutation === 'session') f.ctx.sessionManager.getSessionId = () => 'replacement'
+          if (mutation === 'generation') current = false
+          if (mutation === 'feature') a.deny()
+          if (mutation === 'bash') allowed = false
+          return args
+        },
+      })
+      await assert.rejects(a.tool({ operation: 'gain' }), /access unavailable/)
+      assert.equal(helper.spawns().length, 0)
+      f.ctx.sessionManager.getSessionId = originalSessionId
+      f.state('off')
+    }
+    for (const mutation of ['bash', 'feature', 'session', 'state', 'generation']) {
+      let permissions = 0,
+        current = true
+      const originalSessionId = f.ctx.sessionManager.getSessionId
+      const a = f.create({
+        current: () => current,
+        permission: () => {
+          permissions++
+          if (permissions === 3) {
+            if (mutation === 'bash') return { state: 'deny' }
+            if (mutation === 'feature') a.deny()
+            if (mutation === 'session') f.ctx.sessionManager.getSessionId = () => 'replaced'
+            if (mutation === 'state') f.state('on', 77)
+            if (mutation === 'generation') current = false
+          }
+          return { state: 'allow' }
+        },
+      })
+      const before = helper.spawns().length
+      // Revoke during the final permission query, then require a final complete fence.
+      await assert.rejects(a.tool({ operation: 'gain' }), /access unavailable/)
+      assert.equal(helper.spawns().length, before + 1)
+      f.ctx.sessionManager.getSessionId = originalSessionId
+      f.state('off')
+    }
+  } finally {
+    process.env.PATH = savedPath
+    f.restore()
+  }
+})
+
+test('RTK bare and whitespace commands open usage, not controls or a mode write', async () => {
   const f = statusFixture()
   try {
     const a = f.create()
+    let opened = 0
+    f.ctx.ui.custom = async () => {
+      opened++
+    }
     a.runtime.initialize(f.ctx)
     for (const input of ['', '   ', '\t \t']) {
       await a.command(input)
-      const notice = f.notifications.at(-1)
-      assert.equal(notice.level, 'info')
-      assert.equal(JSON.parse(notice.text).activeThisGeneration, 'off')
+      assert.equal(opened, ['', '   ', '\t \t'].indexOf(input) + 1)
+      assert.equal(f.notifications.length, 0)
+      assert.equal(JSON.parse(fs.readFileSync(f.file, 'utf8')).sequence, 0)
     }
     for (const input of ['status\n', '\n', '\r', '\v', '\f', '\0', '\x7f']) {
       await a.command(input)

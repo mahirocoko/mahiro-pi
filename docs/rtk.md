@@ -31,10 +31,10 @@ The existing footer status cell reports the effective mode or unavailability,
 not helper availability or verified savings. Status includes the initialized
 `activeThisGeneration` value and current `automaticInterception` mode intent;
 individual commands still require feature/data access, a current native receipt,
-resolver support and PSS authorization. Status/doctor/gain do not probe the
-binary or read history. Mahiro's `log` remains empty; Mahiro does not collect an
-interception history. The separately installed RTK CLI may maintain its own
-tracking database. Savings remain unverified.
+resolver support and PSS authorization. Status/doctor do not invoke the CLI or
+read tracking. Mahiro's `log` remains empty; Mahiro does not collect an
+interception history. Explicit `gain` reads the separately installed RTK CLI's
+tracking estimates, not Pi-session history or provider billing.
 
 ## Native approval and execution
 
@@ -74,13 +74,18 @@ See [the native receipt contract](guards.md#effective-bash-approval).
 /mh-rtk log
 /mh-rtk doctor
 /mh-rtk guidance
-/mh-rtk gain
+/mh-rtk gain [project|all]
 /mh-rtk projects
 /mh-rtk rewrite git status --short
 ```
 
-Bare or spaces/tabs-only input means status, never a mode write. `mh_rtk` exposes
-the equivalent operation schema. Mode mutation requires primary identity,
+Bare or spaces/tabs-only input opens the usage dashboard in TUI, never a mode
+write. `/mh-rtk gain [project|all]` opens the same dashboard; `/mh-rtk menu`
+opens controls, which also has a usage entry. Status and doctor remain explicit
+structured diagnostics without CLI access. `mh_rtk` exposes the equivalent
+operation schema, with `scope: project|all` and `view: overview|daily|commands`
+accepted only for `gain` (defaults: project and overview). Non-TUI gain returns
+structured evidence without custom UI. Mode mutation requires primary identity,
 standard PSS authority (including wildcard/yolo), the fresh expected sequence
 and actual public UI confirmation. Do not invent a sequence or bypass a
 declined/stale confirmation. Native children execute under their own policy;
@@ -92,6 +97,56 @@ it later. The preview input requires current PSS allow;
 previews do not consume native execution receipts. Binding, generation and state
 are rechecked after the helper. Submitting a proposal later as Bash goes through
 the ordinary native permission pipeline. Explicit denies remain in force.
+
+## Usage dashboard and upstream evidence
+
+The temporary native Pi screen uses the active theme. Overview shows command
+count, estimated raw/filtered/saved output tokens and output reduction. Daily
+shows up to seven recent dates from that same JSON snapshot. `1`/`o`, `2`/`d`
+and `3`/`c` select Overview, Daily and CLI report; `r` explicitly refreshes,
+`p` or `s` toggles project/all, arrows scroll, `m` opens controls and Escape
+closes. There is no polling or automatic mode change. Close/disposal cancels the
+request and stale scope/generation results are discarded. Human visual
+acceptance and installed readiness remain separate.
+
+The fixed argv-only JSON command is
+`rtk gain --daily --format json --text -p`; all-project scope omits `-p`.
+Upstream `-p` uses canonical current working directory and its descendants,
+not an automatically discovered Git root. Tracking can include other RTK
+clients: this is not this Pi session's usage. Input/output/saved in the upstream
+schema mean raw/filtered/saved **output-token estimates (bytes/4)**, not provider
+input/output tokens, billed tokens, dollars or native quota. Output reduction
+comes directly from RTK, not a reconstructed formula. RTK headline/day totals
+exclude oversized commands; a nonzero `oversized_excluded` count appears in
+Overview. Empty data is distinguished from missing or inaccessible data.
+
+Upstream JSON does not export command groups or recent history. Selecting
+**CLI report** explicitly runs `rtk gain --text -p` (all omits `-p`). This view
+preserves the complete original plain static report, including its By Command
+table, rather than parsing a fragile table. Any upstream proxy sections are
+opaque upstream information, may be global even with project scope, and are not
+Pi-specific or provider billing measurements. No watch, quota, reset, API or raw
+history requests are added. `--text` avoids upstream dashboard/proxy auto-dispatch.
+
+Statistics children use no shell and accept only the fixed scope/view enums.
+Bounds are 128 KiB JSON or 256 KiB report stdout, 3 seconds and at most two
+children. Strict UTF-8, bounded JSON, dates and finite nonnegative safe numeric
+values are validated; unused additive fields are ignored. CLI report ANSI/OSC
+and remaining terminal controls are removed before rendering or tool return.
+Missing binary, timeout, oversize, malformed output and busy states never return
+partial data or fake zero counters; stderr/private launch errors are not shown.
+Each child sets `RTK_TELEMETRY_DISABLED=1` and `NO_COLOR=1` without persistent
+configuration changes. Mahiro does not open SQLite; the upstream CLI itself may
+initialize or migrate its tracking database, so invoking gain is not a promise
+of zero upstream-owned filesystem writes.
+
+Feature/data authority, current primary context/session, generation, binding and
+state revision remain fenced before launch and after awaits. The exact fixed
+command requires current public PSS Bash allow (including wildcard/yolo) and
+existing final host argument validation; modified command text is refused,
+never executed. Late evidence is withheld if authority changes. These explicit
+statistics commands do not consume or bypass automatic-interception receipts
+and never execute resolver candidates.
 
 ## Resolver and failure behavior
 
@@ -126,6 +181,7 @@ and mixed chains remain subject to command policy, not a universal path sandbox.
 This covers CLI filters, not provider API proxy activation, account/config changes
 or billed-savings measurement.
 
-Owners: [resolver and controls](../lib/rtk.ts), [state](../lib/rtk-state.ts) and the
+Owners: [resolver and controls](../lib/rtk.ts), [statistics](../lib/rtk-stats.ts),
+[native usage panel](../lib/rtk-panel.ts), [state](../lib/rtk-state.ts) and the
 [Root guard](../lib/guards/index.ts). Saved Model Profiles is retired; native
 `/model`, auth/defaults and local roles are untouched.

@@ -2,6 +2,8 @@
 // No settings hooks, history DB, permission bypass or native usage mutation.
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
+import { readRTKStats, rtkStatsArgs, type RTKScope, type RTKStatsResult } from './rtk-stats.ts'
+import { openRTKPanel } from './rtk-panel.ts'
 import { registerWorkflowCommand, selectHubMenu } from './workflow-hub.ts'
 import { registerWorkflowAttention } from './workflow-attention.ts'
 import { registerWorkflowPresentation, workflowRenderers } from './workflow-ui.ts'
@@ -257,11 +259,23 @@ export function registerRTK(
     if (
       !args ||
       Array.isArray(args) ||
-      Object.keys(args).some((k) => !['operation', 'mode', 'expected_sequence', 'command'].includes(k))
+      Object.keys(args).some(
+        (k) => !['operation', 'mode', 'expected_sequence', 'command', 'scope', 'view'].includes(k),
+      )
     )
       throw Error('Closed RTK arguments required')
+    if (args.operation !== 'gain' && (args.scope !== undefined || args.view !== undefined))
+      throw Error('RTK scope/view require gain')
     if (!alive || !owner.current(ctx) || ctx.signal?.aborted) throw Error('RTK generation unavailable')
-    const { b, state, ticket, revision } = read(ctx, args.operation === 'mode' ? 'write' : 'read')
+    const initial = () => {
+      try {
+        return read(ctx, args.operation === 'mode' ? 'write' : 'read')
+      } catch (error) {
+        if (args.operation === 'gain') throw Error('RTK statistics feature/data access unavailable')
+        throw error
+      }
+    }
+    const { b, state, ticket, revision } = initial()
     if (args.operation === 'mode') {
       if (
         !rtkModes.includes(args.mode) ||
@@ -276,7 +290,7 @@ export function registerRTK(
       if (
         !(await ctx.ui.confirm(
           'Mahiro RTK mode',
-          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nOn resolves supported Bash equivalents through RTK and executes only independently allowed replacements. Off leaves native Bash unchanged without helper calls. PSS remains the authority; no settings hooks or history access.`,
+          `${args.mode}\nSequence: ${state.sequence}\nSession: ${session}\nProject: ${b.project}\nProfile: ${b.profile}\nOn resolves supported Bash equivalents through RTK and executes only independently allowed replacements. Off leaves native Bash unchanged without helper calls. PSS remains the authority; changing mode does not read tracking history or change settings hooks.`,
         ))
       )
         throw Error('RTK mode declined')
@@ -308,6 +322,37 @@ export function registerRTK(
     }
     if (!['status', 'log', 'rewrite', 'doctor', 'guidance', 'gain', 'projects'].includes(args.operation))
       throw Error('Unknown RTK operation')
+    if (args.operation === 'gain') {
+      const scope = args.scope ?? 'project'
+      const view = args.view ?? 'overview'
+      const argv = rtkStatsArgs(scope, view)
+      const command = `rtk ${argv.join(' ')}`
+      const captured = epoch
+      const manager = ctx.sessionManager
+      const session = manager.getSessionId()
+      const cwd = ctx.cwd
+      const assert = () => {
+        if (ctx.sessionManager !== manager || manager.getSessionId() !== session || ctx.cwd !== cwd)
+          throw Error('RTK statistics session changed')
+        assertPreview(ctx, captured, b, revision)
+        authorizePreview(ctx, command)
+        if (ctx.sessionManager !== manager || manager.getSessionId() !== session || ctx.cwd !== cwd)
+          throw Error('RTK statistics session changed')
+        assertPreview(ctx, captured, b, revision)
+      }
+      try {
+        assert()
+        const final = await owner.finalArgs('bash', { command }, ctx)
+        assert()
+        if (final?.command !== command) throw Error('Fixed RTK statistics command changed')
+        const result = await readRTKStats(scope, view, { cwd, signal: ctx.signal })
+        assert()
+        return result
+      } catch {
+        // Never publish late evidence or host errors containing private paths.
+        throw Error('RTK statistics access unavailable or changed; feature/data and Bash allow required')
+      }
+    }
     if (args.operation === 'rewrite') {
       const captured = epoch
       const original = await owner.finalArgs('bash', { command: args.command }, ctx)
@@ -327,14 +372,17 @@ export function registerRTK(
       activeThisGeneration: mode,
       automaticInterception: effectiveRTKMode(state.mode) === 'on',
       recent: args.operation === 'log' ? structuredClone(recent) : undefined,
-      savings: 'unverified; no history reads or native usage/quota changes',
+      savings: 'Use explicit gain for upstream RTK tracking; not provider billing or native usage/quota',
+      trackingRead: false,
+      logSource: 'Mahiro rewrite log only; empty, separate from upstream RTK tracking',
       binaryProbe: false,
       resolver:
         'rtk rewrite -- <original>; exit 0/3 are proposals, 1 unchanged, 2 denied; errors return no candidate',
       helperBounds: RTK_HELPER_BOUNDS,
       supported:
         'on executes independently allowed supported equivalents; off and legacy modes leave native Bash unchanged',
-      doctor: 'No availability/version probe or history access; rewrite explicitly invokes the resolver',
+      doctor:
+        'Status/doctor do not invoke CLI; gain explicitly reads upstream tracking, rewrite invokes resolver',
       projects: args.operation === 'projects' ? [b.project] : undefined,
     }
   }
@@ -345,7 +393,7 @@ export function registerRTK(
     name: 'mh_rtk',
     label: 'Mahiro RTK',
     description:
-      'Native RTK off/on execution and explicit non-executing rewrite preview. Defaults off; legacy state stays inactive. PSS checks original and replacement. No history or savings claims. Mode writes require exact sequence and actual UI.',
+      'Native RTK off/on execution and explicit non-executing rewrite preview. Defaults off; legacy state stays inactive. PSS checks original and replacement. Explicit gain reads upstream tracking estimates (not provider billing), default project; commands view fetches original CLI report. Status/doctor never invoke CLI. Mode writes require exact sequence and actual UI.',
     parameters: {
       type: 'object',
       properties: {
@@ -356,6 +404,8 @@ export function registerRTK(
         mode: { type: 'string', enum: [...rtkModes] },
         expected_sequence: { type: 'integer', minimum: 0 },
         command: { type: 'string', maxLength: 4096 },
+        scope: { type: 'string', enum: ['project', 'all'] },
+        view: { type: 'string', enum: ['overview', 'daily', 'commands'] },
       },
       required: ['operation'],
       additionalProperties: false,
@@ -371,7 +421,7 @@ export function registerRTK(
       }
     },
   })
-  const openRTKMenu = async (ctx: any): Promise<boolean | void> => {
+  const openRTKMenu = async (ctx: any): Promise<boolean | 'usage' | void> => {
     if (ctx.mode !== 'tui' || !ctx.hasUI) return
     while (ctx.mode === 'tui' && ctx.hasUI) {
       let currentStatus: any
@@ -382,6 +432,7 @@ export function registerRTK(
         ctx.ui.notify(e instanceof Error ? e.message : 'RTK failed', 'error')
         return
       }
+      const usageRow = 'Usage dashboard'
       const modeRow = `Mode · ${currentStatus.mode} [profile]`
       const rewriteRow = 'Test command rewrite… (/mh-rtk rewrite)'
       const logRow = 'Recent rewrite log (/mh-rtk log)'
@@ -392,6 +443,11 @@ export function registerRTK(
         ctx,
         `Mahiro RTK · mode: ${currentStatus.mode}`,
         [
+          {
+            value: usageRow,
+            label: 'Usage  dashboard',
+            description: 'Read upstream RTK tracking estimates · project/all, daily and CLI report',
+          },
           {
             value: modeRow,
             label: `Mode  ${currentStatus.mode}`,
@@ -406,7 +462,7 @@ export function registerRTK(
           {
             value: logRow,
             label: 'Rewrite log  view',
-            description: 'No command history or savings are collected · /mh-rtk log',
+            description: 'Mahiro log is empty; upstream RTK tracking is separate · /mh-rtk log',
           },
           {
             value: doctorRow,
@@ -427,6 +483,7 @@ export function registerRTK(
         { hint: '↑/↓ focus · Enter/Space select · Esc/← back' },
       )
       if (!choice || choice === backRow) return true
+      if (choice === usageRow) return 'usage'
       try {
         if (choice === modeRow) {
           const modeDescriptions: Record<string, string> = {
@@ -491,12 +548,35 @@ export function registerRTK(
       }
     }
   }
+  const openUsage = async (ctx: any, scope: RTKScope = 'project', controls = false) => {
+    if (ctx.mode !== 'tui' || !ctx.hasUI) {
+      ctx.ui.notify(JSON.stringify(await run({ operation: 'gain', scope }, ctx)), 'info')
+      return
+    }
+    while (alive && owner.current(ctx)) {
+      if (controls) {
+        const choice = await openRTKMenu(ctx)
+        if (choice !== 'usage') return choice
+      }
+      const choice = await openRTKPanel(
+        ctx,
+        scope,
+        async (nextScope, view, signal) =>
+          (await run(
+            { operation: 'gain', scope: nextScope, view },
+            { ...ctx, signal: ctx.signal ? AbortSignal.any([ctx.signal, signal]) : signal },
+          )) as RTKStatsResult,
+      )
+      if (choice !== 'controls') return
+      controls = true
+    }
+  }
   registerWorkflowCommand(
     pi,
     'mh-rtk',
     {
       description:
-        'Native RTK status | menu | mode <off|on> <sequence> | rewrite <command> | log | doctor | guidance',
+        'RTK usage | gain [project|all] | menu | status | mode <off|on> <sequence> | rewrite <command> | log | doctor',
       handler: async (input: string, ctx: any) => {
         try {
           if (
@@ -506,9 +586,18 @@ export function registerRTK(
             (!/^[ \t]*$/.test(input) && /[\x00-\x1f\x7f]/.test(input))
           )
             throw Error('Bounded RTK command required')
-          const [operation, requested, sequence] = (input.trim() || 'status').split(/\s+/)
+          const [operation, requested, sequence] = (input.trim() || 'gain').split(/\s+/)
           if (operation === 'menu') {
-            await openRTKMenu(ctx)
+            await openUsage(ctx, 'project', true)
+            return
+          }
+          if (operation === 'gain') {
+            if (
+              (requested !== undefined && !['project', 'all'].includes(requested)) ||
+              sequence !== undefined
+            )
+              throw Error('Use /mh-rtk gain [project|all]')
+            await openUsage(ctx, (requested ?? 'project') as RTKScope)
             return
           }
           const args =
@@ -527,7 +616,7 @@ export function registerRTK(
         }
       },
     },
-    { open: openRTKMenu },
+    { open: openUsage },
   )
   return {
     initialize(ctx: any) {
