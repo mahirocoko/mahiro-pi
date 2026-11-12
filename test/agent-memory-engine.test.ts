@@ -36,7 +36,7 @@ import {
 } from '../lib/agent-memory/engine/io.ts'
 import { parseOperation, validatePlan } from '../lib/agent-memory/engine/operation.ts'
 import { reserveExecutor } from '../lib/agent-memory/engine/executor.ts'
-import { acquireOperationLock } from '../lib/agent-memory/engine/owned-lock.ts'
+import { acquireOperationLock, operationLockContended } from '../lib/agent-memory/engine/owned-lock.ts'
 import { parseDraft } from '../lib/agent-memory/engine/manifest.ts'
 import {
   encode,
@@ -1193,6 +1193,134 @@ async function fullOldDraftFixture(f: ReturnType<typeof fixture>, journalCount =
     for (const name of readdirSync(directory))
       evidence.set(join(directory, name), readFileSync(join(directory, name)))
   return { active, draftFolder, journal, folder, record, evidence }
+}
+
+for (const variant of ['pre-lock', 'after-lock', 'no-proof', 'revoked'] as const) {
+  test(`foreign HEAD publication lifecycle proof: ${variant}`, async () => {
+    const f = fixture(0)
+    const observer = new MemoryEngineController(f.root, f.env)
+    try {
+      const plan = await recoveryPlan(f)
+      const path = join(f.root, '.views/.engine-v2/journal', `${plan.id}.json`)
+      // Disposable fixture: a separate writer wins before this publisher's lock mutation.
+      const later = f.store.createView('project', 120000, true)
+      f.store.edit(later, 'global/later.md', null, '# Later committed knowledge\n', [])
+      f.store.integrate(later)
+      const head = f.git('rev-parse', 'HEAD')
+      const before = readFileSync(path)
+      if (variant === 'pre-lock' || variant === 'revoked') {
+        let live = true
+        const result = await new MemoryPublisher(f.engine, f.env).publish(plan, {
+          current: () => live,
+          barrier: async () => {
+            if (variant === 'revoked') live = false
+          },
+        })
+        assert.equal(result.stage, variant === 'revoked' ? 'unknown' : 'not_committed_dirty')
+        assert.equal(result.mutated, false)
+        assert.equal(result.commitStarted, false)
+        assert.equal(result.lockRetained, false)
+        if (variant === 'revoked') assert.deepEqual(readFileSync(path), before)
+        await assert.rejects(new MemoryPublisher(f.engine, f.env).publish(plan, f.context))
+        const recovered = await new MemoryPublisher(observer, f.env).reconcileExisting(
+          plan.id,
+          plan.digest,
+          f.context,
+        )
+        assert.equal(recovered.stage, 'not_committed_dirty')
+        const next = await observer.request('create', { project: 'project', shared: true }, f.context)
+        assert.ok(next.view, 'settled pre-lock failure does not poison subsequent writes')
+      } else {
+        if (variant === 'after-lock') {
+          const executor = reserveExecutor(f.root, plan)
+          executor.beginLock()
+          executor.seal()
+        }
+        const record = parseOperation(before.toString())
+        record.sequence = 3
+        record.receipt = { stage: 'unknown' }
+        writeFileSync(path, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+        const result = await new MemoryPublisher(observer, f.env).reconcileExisting(
+          plan.id,
+          plan.digest,
+          f.context,
+        )
+        assert.equal(result.stage, 'unknown')
+      }
+      assert.equal(f.git('rev-parse', 'HEAD'), head)
+      assert.equal(f.git('status', '--porcelain'), '')
+      assert.equal(existsSync(join(f.root, '.lock')), false)
+      assert.equal(readFileSync(join(f.root, 'global/later.md'), 'utf8'), '# Later committed knowledge\n')
+    } finally {
+      await observer.close()
+      await f.close()
+    }
+  })
+}
+
+for (const variant of ['contention', 'after-mkdir-authority', 'after-mkdir-eexist'] as const) {
+  test(`publication exact mkdir lifecycle: ${variant}`, async () => {
+    const f = fixture(0)
+    try {
+      const plan = await recoveryPlan(f)
+      const lock = join(f.root, '.lock')
+      const ownerPath = join(lock, 'owner.json')
+      if (variant === 'contention') {
+        await acquireOperationLock(f.root, randomUUID(), 'a'.repeat(64), randomUUID(), f.context)
+        const nonce = randomUUID()
+        await assert.rejects(
+          acquireOperationLock(f.root, plan.id, plan.digest, nonce, f.context),
+          (error) => {
+            assert.equal(operationLockContended(error, f.root, plan.id, plan.digest, 'invented'), false)
+            assert.equal(operationLockContended(error, f.root, plan.id, plan.digest, nonce), true)
+            assert.equal(operationLockContended(error, f.root, plan.id, plan.digest, nonce), false)
+            return true
+          },
+        )
+        writeFileSync(join(f.root, 'Core.md'), '# Another executor is writing\n')
+      }
+      const beforeOwner = existsSync(ownerPath) ? readFileSync(ownerPath) : undefined
+      const result = await new MemoryPublisher(f.engine, f.env).publish(plan, {
+        current: (targets) => {
+          if (variant === 'after-mkdir-authority' && existsSync(lock) && targets.physical.length) return false
+          if (variant === 'after-mkdir-eexist' && existsSync(lock) && !existsSync(ownerPath))
+            writeFileSync(ownerPath, 'ambiguous post-mkdir evidence', { mode: 0o600 })
+          return true
+        },
+      })
+      assert.equal(result.stage, variant === 'contention' ? 'not_committed_dirty' : 'unknown')
+      assert.equal(result.mutated, false)
+      assert.equal(result.commitStarted, false)
+      assert.equal(result.lockRetained, variant !== 'contention')
+      assert.equal(existsSync(lock), true, 'never remove the foreign or uncertain lock')
+      if (beforeOwner) assert.deepEqual(readFileSync(ownerPath), beforeOwner)
+      assert.equal(
+        operationLockContended(
+          Object.assign(Error('fake'), { code: 'EEXIST' }),
+          f.root,
+          plan.id,
+          plan.digest,
+          randomUUID(),
+        ),
+        false,
+      )
+      // No-proof and after-lock recovery cannot use a later clean HEAD as outcome truth.
+      if (variant !== 'contention') {
+        rmSync(lock, { recursive: true }) // fixture-only cooperative offline removal
+        const later = f.store.createView('project', 120000, true)
+        f.store.edit(later, 'global/later.md', null, '# Later\n', [])
+        f.store.integrate(later)
+        const recovered = await new MemoryPublisher(f.engine, f.env).reconcileExisting(
+          plan.id,
+          plan.digest,
+          f.context,
+        )
+        assert.equal(recovered.stage, 'unknown')
+      }
+    } finally {
+      await f.close()
+    }
+  })
 }
 
 test('paused empty-plan publisher blocks fresh-controller admission with a nonterminal journal', async () => {
@@ -3639,7 +3767,7 @@ test('owned lock parent fsync EIO retains anonymous lock and HEAD-only reads; no
   }
 })
 
-test('hook-altered exact tree and foreign/malformed locks remain unknown and retained', async () => {
+test('hook-altered publication stays unknown; sealed contention never alters foreign/malformed locks', async () => {
   for (const variant of ['tree', 'index', 'foreign', 'malformed']) {
     const f = fixture(0)
     try {
@@ -3673,19 +3801,25 @@ test('hook-altered exact tree and foreign/malformed locks remain unknown and ret
         )
       }
       const result = await new MemoryPublisher(f.engine, f.env).publish(plan, f.context)
-      assert.equal(result.stage, 'unknown', variant)
+      const stage = variant === 'foreign' || variant === 'malformed' ? 'not_committed_dirty' : 'unknown'
+      assert.equal(result.stage, stage, variant)
       const recovered = await new MemoryPublisher(f.engine, f.env).reconcileExisting(
         plan.id,
         plan.digest,
         f.context,
       )
-      assert.equal(recovered.stage, 'unknown', variant)
+      assert.equal(recovered.stage, stage, variant)
       assert.equal(existsSync(join(f.root, '.lock')), true)
       const lockBeforeCreate = readFileSync(join(f.root, '.lock', 'owner.json'))
       const journal = join(f.root, '.views', '.engine-v2', 'journal', `${plan.id}.json`)
       const journalBeforeCreate = readFileSync(journal)
       const headBeforeCreate = f.git('rev-parse', 'HEAD')
-      await assert.rejects(f.engine.request('create', { project: 'project' }, f.context), engineError())
+      if (stage === 'unknown')
+        await assert.rejects(f.engine.request('create', { project: 'project' }, f.context), engineError())
+      else {
+        const created = await f.engine.request('create', { project: 'project' }, f.context)
+        assert.ok(created.view, 'never-started failure does not block draft admission')
+      }
       assert.deepEqual(readFileSync(join(f.root, '.lock', 'owner.json')), lockBeforeCreate, variant)
       assert.deepEqual(readFileSync(journal), journalBeforeCreate, variant)
       assert.equal(f.git('rev-parse', 'HEAD'), headBeforeCreate, variant)
@@ -3702,9 +3836,20 @@ test('query-loaded publication facades share only actual native sealed executor 
   const root = '/synthetic-publication-reference-test'
   const plan = { id: 'actual-operation', digest: 'actual-digest' } as Plan
   const owner = a.reserveExecutor(root, plan)
+  assert.equal(b.executorNeverStarted(root, plan.id, plan.digest), false)
   assert.equal(b.executorDrained(root, plan.id, plan.digest), false)
   assert.equal(b.executorOwnsLock(root, plan.id, plan.digest, owner.nonce), false)
   owner.seal()
+  assert.equal(b.executorNeverStarted(root, plan.id, plan.digest), true)
+  assert.equal(b.executorNeverStarted(root, plan.id, 'invented'), false)
+  assert.throws(() => owner.beginLock(), /sealed/)
+  assert.throws(() => owner.lockContended(), /lifecycle/)
+  const attempted = { id: 'attempted-operation', digest: 'attempted-digest' } as Plan
+  const started = a.reserveExecutor(root, attempted)
+  started.beginLock()
+  started.seal()
+  assert.equal(b.executorDrained(root, attempted.id, attempted.digest), true)
+  assert.equal(b.executorNeverStarted(root, attempted.id, attempted.digest), false)
   assert.equal(b.executorDrained(root, plan.id, plan.digest), true)
   assert.equal(b.executorOwnsLock(root, plan.id, plan.digest, owner.nonce), true)
   assert.equal(b.executorOwnsLock(root, plan.id, plan.digest, 'invented'), false)

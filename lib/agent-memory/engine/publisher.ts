@@ -9,7 +9,7 @@ import type { Plan, Receipt, Stage } from './protocol.ts'
 import { startGitMutation } from './native-git.ts'
 import { allowedPath, limits } from './schema.ts'
 import { reserveExecutor, executorOwnsLock } from './executor.ts'
-import { acquireOperationLock, releaseOperationLock } from './owned-lock.ts'
+import { acquireOperationLock, operationLockContended, releaseOperationLock } from './owned-lock.ts'
 import type { LockOwner } from './operation.ts'
 import { recordMemoryDiagnostic } from '../../guards/memory-fixture.mjs'
 
@@ -105,8 +105,18 @@ export class MemoryPublisher {
       await fence()
       await gitCheck()
       await safePath(lock)
-      lockAttempted = true
-      lockOwner = await acquireOperationLock(root, plan.id, plan.digest, executor.nonce, context)
+      try {
+        lockOwner = await acquireOperationLock(root, plan.id, plan.digest, executor.nonce, context, () => {
+          executor.beginLock()
+          lockAttempted = true
+        })
+      } catch (error) {
+        if (operationLockContended(error, root, plan.id, plan.digest, executor.nonce)) {
+          executor.lockContended()
+          lockAttempted = false // exact rejected mkdir created nothing; never a post-mkdir downgrade
+        }
+        throw error
+      }
       locked = true
       await this.engine.request('claim', { plan: plan.id, digest: plan.digest, owner: lockOwner }, context)
       await fence()

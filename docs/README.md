@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.14.1 source release record](releases/0.14.1.md) — concurrent memory publication recovery,
+  exact pre-lock lifecycle proof and bounded publication inspection.
 - [v0.14.0 source release record](releases/0.14.0.md) — native RTK usage dashboard, scoped CLI
   estimates, daily statistics and explicit upstream command reports.
 - [v0.13.0 source release record](releases/0.13.0.md) — opt-in native RTK off/on filtering,

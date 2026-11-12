@@ -49,6 +49,9 @@ export type OfflineResetFailureCode =
   | 'reset-controller-busy'
   | 'reset-request-shape'
   | 'fingerprint'
+  | 'recovery-plan'
+  | 'recovery-commit'
+  | 'recovery-proposal'
 const require = createRequire(import.meta.url)
 const native = require('./reasons.mjs') as {
   memoryFailure(

@@ -2009,7 +2009,12 @@ export class MemoryDataEngine {
       return false
     }
   }
-  private async outcome(record: OperationRecord, drained: boolean, unpublished = false): Promise<Receipt> {
+  private async outcome(
+    record: OperationRecord,
+    drained: boolean,
+    unpublished = false,
+    neverStarted = false,
+  ): Promise<Receipt> {
     const p = record.immutable
     const unknown = (detail: string, evidence: Partial<Receipt> = {}): Receipt => ({
       stage: 'unknown',
@@ -2052,6 +2057,20 @@ export class MemoryDataEngine {
           `${revision} ${p.plan.current}`
     if ((await this.head()) !== revision || (await this.config()).configHash !== configHash)
       return unknown('State changed during reconciliation')
+    if (neverStarted && record.owner === null) {
+      // Actual sealed executor proof, recorded before the lock syscall. Legacy drain,
+      // a clean tree, and absent ownership cannot manufacture this lifecycle fact.
+      if (
+        !same(record, await this.loadOperation(p.plan.id, p.plan.digest)) ||
+        !['prepared', 'unknown', 'not_committed_dirty'].includes(record.receipt.stage)
+      )
+        return unknown('Never-started publication evidence changed', evidence)
+      // Foreign writers may still own the lock or dirty worktree. This receipt says
+      // only that THIS executor never started, never that their outcome is known.
+      if ((await this.head()) !== revision || (await this.config()).configHash !== configHash)
+        return unknown('State changed during reconciliation')
+      return { stage: 'not_committed_dirty', ...evidence }
+    }
     if (unpublished) {
       // This proof is narrower than executor drain: no publication was ever admitted.
       // Never turn an unchanged/no-op tree into evidence of a committed publication.
@@ -2091,17 +2110,19 @@ export class MemoryDataEngine {
     signal: AbortSignal,
     drained = false,
     unpublished = false,
+    neverStarted = false,
   ): Promise<Operations[M]['output']> {
     this.check = check
     this.signal = signal
     // Entry serializes requests; the cast is confined to the method dispatch boundary.
-    return (await this.dispatch(method, input, drained, unpublished)) as Operations[M]['output']
+    return (await this.dispatch(method, input, drained, unpublished, neverStarted)) as Operations[M]['output']
   }
   private async dispatch(
     method: Method,
     input: Operations[Method]['input'],
     drained = false,
     unpublished = false,
+    neverStarted = false,
   ): Promise<unknown> {
     switch (method) {
       case 'knowledgeHistory': {
@@ -3171,16 +3192,17 @@ export class MemoryDataEngine {
       case 'reconcile': {
         const args = input as Input<'reconcile'>
         const p = this.plan(args.plan, args.digest)
-        if (!(await this.exactLock(p.record.owner)))
+        if (!(neverStarted && p.record.owner === null) && !(await this.exactLock(p.record.owner)))
           return { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
-        return await this.outcome(p.record, drained, unpublished)
+        return await this.outcome(p.record, drained, unpublished, neverStarted)
       }
       case 'recover': {
         const args = input as Input<'recover'>
         const record = await this.loadOperation(args.plan, args.digest)
-        const receipt: Receipt = (await this.exactLock(record.owner))
-          ? await this.outcome(record, drained, unpublished)
-          : { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
+        const receipt: Receipt =
+          (neverStarted && record.owner === null) || (await this.exactLock(record.owner))
+            ? await this.outcome(record, drained, unpublished, neverStarted)
+            : { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
         const next = await this.updateOperation(record, receipt)
         const cached = this.plans.get(args.plan)
         if (

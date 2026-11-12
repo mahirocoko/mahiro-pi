@@ -129,7 +129,7 @@ test('reset CLI inspect stays fresh with automatic reflection and a locked prepa
                 .digest('hex'),
         ])
     const before = tree(directory)
-    const run = () =>
+    const run = (reset = true) =>
       spawnSync(
         process.execPath,
         [
@@ -138,7 +138,7 @@ test('reset CLI inspect stays fresh with automatic reflection and a locked prepa
           agentDir,
           '--project',
           project,
-          '--reset',
+          ...(reset ? ['--reset'] : []),
           '--inspect',
         ],
         { encoding: 'utf8', timeout: 120000, maxBuffer: 131072, env: process.env },
@@ -155,6 +155,16 @@ test('reset CLI inspect stays fresh with automatic reflection and a locked prepa
     assert.equal(receipt.maintenance.corpusReturned, false)
     assert.equal(inspected.stdout.includes('HELD_PRIVATE_FIXTURE'), false)
     assert.equal(inspected.stdout.includes(directory), false)
+    assert.deepEqual(tree(directory), before)
+    // Non-reset recovery reports the same branded, bounded owner diagnostics.
+    const publication = run(false)
+    assert.equal(publication.status, 1)
+    const publicationDiagnostic = JSON.parse(publication.stderr.split('\n')[0])
+    assert.equal(publicationDiagnostic.native.code, 'extension-rejected')
+    assert.equal(publicationDiagnostic.native.ownerCode, 'fingerprint')
+    assert.equal(publication.stdout, '')
+    assert.equal(publication.stderr.includes(directory), false)
+    assert.equal(publication.stderr.includes('HELD_PRIVATE_FIXTURE'), false)
     assert.deepEqual(tree(directory), before)
     const settingsPath = join(agentDir, 'settings.json')
     const settingsBytes = readFileSync(settingsPath)

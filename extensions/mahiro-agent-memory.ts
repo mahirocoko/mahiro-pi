@@ -908,7 +908,8 @@ export function activateAgentMemory(pi: ExtensionAPI, config: RuntimeConfig = {}
           if (
             name === 'agent_memory_manage' &&
             'action' in args &&
-            ['offline-reset', 'offline-reset-inspect'].includes(args.action as string)
+            typeof args.action === 'string' &&
+            args.action.startsWith('offline-')
           )
             reportOfflineResetFailure(ctx.sessionManager.getSessionId(), _id, error)
           throw publicMemoryError(error, name === 'agent_memory_read')

@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { assertPrivatePath, CONTINUITY_FILE_MAX_BYTES } from './continuity/store.ts'
 import { createMemoryStore } from './agent-memory/store.ts'
 import { memorySelectionPath, parseMemorySelection } from './agent-memory/profile.ts'
-import { parseLockOwner } from './agent-memory/engine/operation.ts'
+import { operationLimit, parseLockOwner, parseOperation } from './agent-memory/engine/operation.ts'
 import {
   renderWriterTemplate,
   validateWriterRoute,
@@ -333,6 +333,8 @@ interface Change {
   kind: string
 }
 export interface BootstrapPlan {
+  /** Explicit preview-only observation, excluded from plan/application authority. */
+  memoryInspection?: ReturnType<typeof memoryInspection>
   digest: string
   request: BootstrapRequest
   sources: unknown[]
@@ -523,6 +525,8 @@ const memoryInspection = (
       if (!stat.isDirectory() || stat.mode & 0o077 || (process.getuid && stat.uid !== process.getuid()))
         throw Error('Unsafe lock')
       lock.directory = `${stat.dev}:${stat.ino}`
+      const names = readdirSync(lockPath)
+      lock.ownerOnly = names.length === 1 && names[0] === 'owner.json'
       lock.markers = Object.fromEntries(
         ['owner.json', 'policy.json', 'config.next'].map((name) => [
           name,
@@ -557,12 +561,84 @@ const memoryInspection = (
       // Never follow an unsafe lock or relay filesystem errors/private payloads.
     }
   }
+  const operations: Record<string, unknown> = { state: 'absent' }
+  const journal = join(root, '.views/.engine-v2/journal')
+  try {
+    if (memoryMarkerPresent(journal)) {
+      canonical(journal, true)
+      const stat = lstatSync(journal)
+      if (!stat.isDirectory() || stat.mode & 0o077) throw Error('Unsafe operation directory')
+      const names = readdirSync(journal).sort()
+      const rows: Record<string, unknown>[] = []
+      let remainingBytes = 16 * 1024 * 1024
+      let budgetTruncated = false
+      const current = lstatSync(root)
+      operations.rootIdentity = `${current.dev}:${current.ino}`
+      operations.total = names.length
+      for (const name of names.slice(0, 64)) {
+        if (!/^[a-f0-9-]{36}\.json$/.test(name)) continue
+        const row: Record<string, unknown> = { id: name.slice(0, -5), state: 'unavailable' }
+        rows.push(row)
+        try {
+          const path = join(journal, name)
+          const size = lstatSync(path).size
+          if (size > remainingBytes) {
+            budgetTruncated = true
+            break
+          }
+          remainingBytes -= size
+          const file = readOwnedBootstrapFile(path, false, operationLimit)
+          if (!file || file.mode !== 0o600) continue
+          const record = parseOperation(file.text)
+          if (record.immutable.root !== root || record.immutable.plan.id !== row.id) continue
+          Object.assign(row, {
+            state: 'observed',
+            digest: record.immutable.plan.digest,
+            configHash: record.immutable.plan.configHash,
+            stage: record.receipt.stage,
+            current: record.immutable.plan.current,
+            currentMatchesHead: record.immutable.plan.current === revision,
+            rootIdentity: record.immutable.rootIdentity,
+            rootIdentityMatches: record.immutable.rootIdentity === operations.rootIdentity,
+            ownerOperation: record.owner?.operation ?? null,
+            ownerDigest: record.owner?.digest ?? null,
+            ownerMatchesLock:
+              record.owner !== null && JSON.stringify(record.owner) === JSON.stringify(lock.owner),
+            ownerDirectory: record.owner?.directory ?? null,
+            observedCommit: record.receipt.observedCommit ?? null,
+          })
+        } catch {
+          // A malformed/private record contributes only its validated filename ID, never payload or errors.
+        }
+      }
+      operations.state = 'observed'
+      operations.entries = rows
+      operations.truncated = names.length > 64 || budgetTruncated
+    }
+  } catch {
+    operations.state = 'unavailable'
+  }
   return {
     protocol: 1,
     revision,
     facts,
-    git: { entries, total, truncated: total > entries.length },
+    git: {
+      entries,
+      total,
+      truncated: total > entries.length,
+      storage: Object.fromEntries(
+        [
+          'commondir',
+          'objects/info/alternates',
+          'objects/info/http-alternates',
+          'shallow',
+          'worktrees',
+          'modules',
+        ].map((path) => [path, memoryMarkerPresent(join(root, '.git', path))]),
+      ),
+    },
     lock,
+    operations,
   }
 }
 const memoryMarkerPresent = (path: string) => {
@@ -1327,7 +1403,32 @@ export const inspectBootstrap = (
     skills: skillsInspect(r),
     memory,
   }
-  return { digest: sha(JSON.stringify(body)), ...body }
+  const inspectionRoot =
+    r.components.memory?.root ??
+    (r.components.memoryEngine || r.components.featureData ? join(r.agentDir, 'memory') : undefined)
+  return {
+    digest: sha(JSON.stringify(body)),
+    ...body,
+    ...(options.inspectMemory && inspectionRoot && existsSync(inspectionRoot)
+      ? {
+          memoryInspection: memoryInspection(
+            inspectionRoot,
+            run('git', ['--no-optional-locks', 'rev-parse', 'HEAD'], inspectionRoot).trim(),
+            {
+              lock: memoryMarkerPresent(join(inspectionRoot, '.lock')),
+              bootstrap: memoryMarkerPresent(join(inspectionRoot, '.bootstrap-v2.json')),
+              dirty: Boolean(
+                run(
+                  'git',
+                  ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal'],
+                  inspectionRoot,
+                ).trim(),
+              ),
+            },
+          ),
+        }
+      : {}),
+  }
 }
 
 const basicPolicySummary = (plan: BootstrapPlan['nativeBasicFilePolicy']) => {
@@ -1353,6 +1454,7 @@ export const bootstrapSummary = (plan: BootstrapPlan) => ({
   featureInstallation: plan.featureInstallation,
   skills: plan.skills,
   memory: plan.memory,
+  ...(plan.memoryInspection ? { memoryInspection: plan.memoryInspection } : {}),
   atomicAcrossOwners: false,
 })
 const mkdirPrivate = (path: string) => {

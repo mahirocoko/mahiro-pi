@@ -887,7 +887,13 @@ operation drained without ever admitting publication. With fresh authority bound
 the original runtime, root and generation, the parent may CAS-retire that unchanged
 `prepared` record as `not_committed_dirty`; it does not publish files, review episodes,
 delete the proposal or grant replay. Once publication is admitted, only the existing
-executor/reconciliation rules apply. Changed records, lost authority/channel evidence,
+executor/reconciliation rules apply. Upgraded executors additionally record their actual
+lifecycle before the first canonical lock mkdir. A sealed executor that never attempted
+that mutation, or whose exact mkdir returned identity-bound `EEXIST`, may settle its own
+ownerless operation as `not_committed_dirty` even if another writer advanced HEAD or
+still owns the lock/worktree. This does not certify that other writer's outcome, remove
+its lock, activate the proposal or permit replay. Post-mkdir errors never qualify.
+Generic drain, absent lock, clean state and legacy journals cannot supply this proof. Changed records, lost authority/channel evidence,
 and other controllers or restarted processes cannot adopt this preparation owner;
 uncertain operations remain retained for same-operation inspection/recovery. An unchanged
 HEAD/tree is not proof of a completed no-op publication: that success also requires
@@ -1076,8 +1082,45 @@ executor completed, a live-profile recovery instruction, or hostile-process
 exclusion. The same exact-root authority, revision CAS, copied full archive,
 marker and explicit reviewed crash-resume protocol below apply.
 
+The same transaction also accepts exactly one retained `reconciled_committed`
+lock-owner journal plus one independently bound, ownerless `unknown` journal whose
+plan starts at actual HEAD and whose ready proposal remains intact. The terminal
+record must match actual HEAD ancestry, tree, ledger, configuration and committed
+file hashes; its stored receipt alone is insufficient. This case requires clean
+tracked/index bytes and no native orphan or additional operation. Canonical root
+paths and both root/lock inodes must match. A consistent historical-to-current
+device-only identity mapping is accepted **only in this offline classifier**;
+inode/path drift or inconsistent device mappings refuse. Device renumbering is a
+possible explanation, not a proven cause or an online identity exception.
+
+Inspection adds one classified `retainedCommittedOwner` field containing the
+historical root identity and terminal operation binding. The ordinary target and
+operation fields identify the ownerless unknown; `owner` identifies the retained
+terminal lock owner. Both records, historical/current identities, exact lock bytes
+and the complete inventory participate in the reviewed fingerprint and all archive,
+checkpoint and resume checks. Only the exact lock, both journals and their relevant
+staging/empty CAS artifacts are quarantined. Unrelated empty staging directories
+remain unchanged in place and in the full archive; they are neither blockers nor
+selected artifacts in this clean composite. Unrelated nonempty or file staging
+still refuses recovery. Stored identities are never rewritten; the full archive
+retains original records. HEAD, config, raw index and knowledge
+remain unchanged. The unknown proposal becomes `conflict`, and completion still
+reports `manually-adopted-prior-outcome-unknown`, never a prior executor, no-op or
+committed outcome for that unknown operation.
+
+The same explicit offline transaction also accepts one ownerless `unknown` operation
+without a lock when its exact current root identity, unchanged configuration and hash-bound
+ready proposal remain intact, and its prepared HEAD is a proven ancestor of a later clean,
+owner-certified current HEAD. This is not an online outcome inference: all original bytes
+are archived, only the bound journal/CAS/staging blockers are quarantined, the proposal
+becomes `conflict`, and disposition remains `manually-adopted-prior-outcome-unknown`.
+Later commits, config and raw index stay unchanged. Unrelated direct empty UUID staging
+directories remain in place and in the archive, as in the clean composite above;
+files, nonempty or nested staging ambiguity refuse. Matching inventory, archive,
+ancestry, authority and explicit reviewed resume checks remain mandatory.
+
 Read-only `offline-inspect` returns bounded fingerprints, full HEAD, typed owner
-identity (or null for strictly classified ownerless prepared state), operation immutable hash/sequence, artifact paths and active journal,
+identity (or null for strictly classified ownerless prepared/unknown state), operation immutable hash/sequence, artifact paths and active journal,
 draft, legacy-view, staging and uncertain-admission counts; never corpus, raw
 configuration or proposal bodies. Apply requires that exact reviewed target and
 fingerprint. All Root file bytes (including raw Git index/config, Core/index,

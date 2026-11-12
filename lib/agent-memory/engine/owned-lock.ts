@@ -7,6 +7,28 @@ import { readPrivate, safePath } from './io.ts'
 import { parseLockOwner, type LockOwner } from './operation.ts'
 
 const identity = (s: Awaited<ReturnType<typeof lstat>>) => `${s.dev}:${s.ino}`
+// Actual error identities from this exact mkdir only, never an errno supplied by a caller
+// or an error after lock creation. This is process-local lifecycle evidence, not authority.
+const contentions = new WeakMap<object, { root: string; operation: string; digest: string; nonce: string }>()
+export function operationLockContended(
+  error: unknown,
+  root: string,
+  operation: string,
+  digest: string,
+  nonce: string,
+) {
+  const bound = typeof error === 'object' && error !== null ? contentions.get(error) : undefined
+  if (
+    !bound ||
+    bound.root !== root ||
+    bound.operation !== operation ||
+    bound.digest !== digest ||
+    bound.nonce !== nonce
+  )
+    return false
+  contentions.delete(error as object) // one exact executor may consume it once
+  return true
+}
 async function syncLockParent(root: string, context: OperationContext) {
   const current = () => assertCurrent(context, { physical: [root], logical: [], kind: 'data' })
   current()
@@ -24,13 +46,21 @@ export async function acquireOperationLock(
   digest: string,
   nonce: string,
   context: OperationContext,
+  beforeMkdir?: () => void,
 ) {
   const lock = join(root, '.lock')
   const file = join(lock, 'owner.json')
   const current = () => assertCurrent(context, { physical: [root, lock, file], logical: [], kind: 'data' })
   await safePath(lock)
   current()
-  await mkdir(lock, { mode: 0o700 })
+  beforeMkdir?.() // synchronous actual lifecycle mark immediately before the first possible mutation
+  try {
+    await mkdir(lock, { mode: 0o700 })
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'EEXIST')
+      contentions.set(error, { root, operation, digest, nonce })
+    throw error
+  }
   // Any interruption from here leaves a non-stealable lock, even if owner recording fails.
   await syncLockParent(root, context) // durable parent entry before recording ownership
   const stat = await lstat(lock)

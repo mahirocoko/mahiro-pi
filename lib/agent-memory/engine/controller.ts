@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { objectShape } from '../../continuity/records.ts'
 import { recordMemoryDiagnostic } from '../../guards/memory-fixture.mjs'
 import { decodeMemoryFailure, memoryFailure } from '../reasons.ts'
-import { executorDrained } from './executor.ts'
+import { executorDrained, executorNeverStarted } from './executor.ts'
 import { contained, engineEnvironment } from './io.ts'
 import { parseLockOwner, validatePlan, validateReceipt } from './operation.ts'
 import {
@@ -384,6 +384,7 @@ export class MemoryEngineController {
           own?.drained === true && !own.published && own.plan.digest === message.input.digest
         if (message.unpublished) own!.retired = true
         message.drained = executorDrained(this.root, message.input.plan, message.input.digest)
+        message.neverStarted = executorNeverStarted(this.root, message.input.plan, message.input.digest)
       }
       recordMemoryDiagnostic(this.root, 'dispatch', { id: p.id, method: p.method })
       this.send(message)

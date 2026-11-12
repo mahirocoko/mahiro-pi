@@ -260,6 +260,9 @@ try {
               'reset-controller-busy',
               'reset-request-shape',
               'fingerprint',
+              'recovery-plan',
+              'recovery-commit',
+              'recovery-proposal',
             ].includes(value.ownerCode))) &&
         [
           'request',

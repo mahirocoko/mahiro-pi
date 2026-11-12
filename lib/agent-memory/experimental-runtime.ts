@@ -1919,7 +1919,7 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
           'offline-context',
         )
       if (!reset && 'destruction' in args) throw Error('Destruction belongs only to offline reset')
-      const f = resetCheck(reset, 'reset-owner', () =>
+      const f = resetCheck(true, 'reset-owner', () =>
         owner(
           ctx,
           name,
@@ -1930,26 +1930,28 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         ),
       )
       if (f.access.kind !== 'primary' || !f.abi.isPrimarySession(ctx) || starting || job || draft)
-        throw reset
-          ? offlineResetFailure(Error('Idle ephemeral primary maintenance owner required'), 'idle')
-          : Error('Idle ephemeral primary maintenance owner required')
+        throw offlineResetFailure(Error('Idle ephemeral primary maintenance owner required'), 'idle')
       // No ordinary config/data barrier, cached recovered plan or manufactured current verdict.
       // Root maintenanceAccess rechecks the real manager, generation, tool and exact PSS targets.
       const anchor = await branch(ctx).catch((error) => {
-        throw reset ? offlineResetFailure(error, 'branch') : error
+        throw offlineResetFailure(error, 'branch')
       })
       const current = f.context.current
       const context: OperationContext = {
         ...f.context,
         current: (targets) => appendedSuffixSync(ctx, anchor).ok && current(targets),
       }
-      resetCheck(reset, 'branch', () => assertCurrent(context))
+      resetCheck(true, 'branch', () => assertCurrent(context))
       if (reset) {
         if (f.root !== join(resolveAgentDir(), 'memory'))
           throw offlineResetFailure(Error('Exact standard profile root required'), 'standard-root')
         return await offlineReset(f.engine, context, args as unknown as ResetRequest)
       }
-      return await offlineMaintenance(f.engine, context, args as unknown as MaintenanceRequest)
+      return await offlineMaintenance(f.engine, context, args as unknown as MaintenanceRequest).catch(
+        (error) => {
+          throw offlineResetFailure(error, 'recovery-plan')
+        },
+      )
     }
     if (
       name === 'agent_memory_manage' &&

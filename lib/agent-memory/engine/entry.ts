@@ -57,6 +57,7 @@ const frames = new Frames(transportLimits.request, (message) => {
       'failureStage',
       'drained',
       'unpublished',
+      'neverStarted',
     ]) ||
     message.v !== protocolVersion ||
     message.epoch !== epoch ||
@@ -90,8 +91,11 @@ const frames = new Frames(transportLimits.request, (message) => {
   }
   const observation = ['reconcile', 'recover'].includes(message.method as string)
   if (
-    Object.keys(message).length !== (observation ? 7 : 5) ||
-    (observation && (typeof message.drained !== 'boolean' || typeof message.unpublished !== 'boolean')) ||
+    Object.keys(message).length !== (observation ? 8 : 5) ||
+    (observation &&
+      (typeof message.drained !== 'boolean' ||
+        typeof message.unpublished !== 'boolean' ||
+        typeof message.neverStarted !== 'boolean')) ||
     !methods.includes(message.method as Method) ||
     active
   )
@@ -109,6 +113,7 @@ const frames = new Frames(transportLimits.request, (message) => {
         abort.signal,
         observation && message.drained === true,
         observation && message.unpublished === true,
+        observation && message.neverStarted === true,
       )
       abort.signal.throwIfAborted()
       await send({ id, result })

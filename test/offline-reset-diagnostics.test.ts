@@ -30,6 +30,9 @@ const codes: OfflineResetFailureCode[] = [
   'reset-controller-busy',
   'reset-request-shape',
   'fingerprint',
+  'recovery-plan',
+  'recovery-commit',
+  'recovery-proposal',
 ]
 test('reset preflight distinguishes controller activity from exact request shape, including undefined keys', async () => {
   const context = {

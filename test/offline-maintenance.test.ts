@@ -40,6 +40,8 @@ async function fixture(
     terminalDirty?: boolean
     largeOperation?: boolean
     overflow?: boolean
+    retainedCommittedOwner?: boolean
+    ownerlessUnknownDescendant?: boolean
   } = {},
 ) {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'mahiro-offline-'))
@@ -107,7 +109,53 @@ async function fixture(
     writeFileSync(exclude, `${readFileSync(exclude, 'utf8')}\n/.memory-engine-*.tmp\n`, { mode: 0o600 })
   }
   const context: OperationContext = { current: () => true }
-  const preparing = new MemoryEngineController(root)
+  let preparing = new MemoryEngineController(root)
+  let terminal: ReturnType<typeof parseOperation> | undefined
+  if (options.retainedCommittedOwner) {
+    const committed = await preparing.request('create', { project: 'fixture', shared: true }, context)
+    const text = '# Fixture\nPreserved core after committed publication.\n'
+    await preparing.request(
+      'edit',
+      {
+        view: committed.view,
+        path: 'Core.md',
+        expectedHash: createHash('sha256')
+          .update(readFileSync(join(root, 'Core.md')))
+          .digest('hex'),
+        text,
+        sources: [],
+      },
+      context,
+    )
+    await preparing.request('ready', { view: committed.view }, context)
+    const prepared = await preparing.request('prepare', { view: committed.view, reviewed: [] }, context)
+    assert.ok('plan' in prepared)
+    terminal = parseOperation(
+      readFileSync(join(root, '.views/.engine-v2/journal', `${prepared.plan.id}.json`), 'utf8'),
+    )
+    // Synthetic interrupted native publication: create the actual expected commit,
+    // then retain its terminal owner and independently prepare the next operation.
+    writeFileSync(join(root, 'Core.md'), text, { mode: 0o600 })
+    if (terminal.immutable.plan.changes.some((change) => change.path === '.memory.json'))
+      writeFileSync(join(root, '.memory.json'), terminal.immutable.ledgerText, { mode: 0o600 })
+    execFileSync('git', ['add', '--', 'Core.md', '.memory.json'], { cwd: root })
+    execFileSync('git', ['commit', '-m', 'Synthetic committed publication'], { cwd: root, stdio: 'ignore' })
+    terminal = {
+      ...terminal,
+      sequence: 8,
+      receipt: {
+        stage: 'reconciled_committed',
+        observedCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+      },
+    }
+    writeFileSync(
+      join(root, '.views/.engine-v2/journal', `${terminal.immutable.plan.id}.json`),
+      `${JSON.stringify(terminal)}\n`,
+      { mode: 0o600 },
+    )
+    await preparing.close()
+    preparing = new MemoryEngineController(root)
+  }
   if (options.overflow) {
     const initial = await preparing.request('create', { project: 'fixture', shared: true }, context)
     const folder = join(root, '.views/.engine-v2/drafts')
@@ -153,13 +201,18 @@ async function fixture(
   const stat = lstatSync(join(root, '.lock'))
   const owner = {
     version: 1 as const,
-    operation: prepared.plan.id,
-    digest: prepared.plan.digest,
+    operation: terminal?.immutable.plan.id ?? prepared.plan.id,
+    digest: terminal?.immutable.plan.digest ?? prepared.plan.digest,
     nonce: randomUUID(),
     directory: `${stat.dev}:${stat.ino}`,
   }
   writeFileSync(join(root, '.lock/owner.json'), JSON.stringify(owner), { mode: 0o600 })
-  const uncertain = { ...record, sequence: 3, owner, receipt: { stage: 'unknown' as const } }
+  const uncertain = {
+    ...record,
+    sequence: 3,
+    owner: terminal ? null : owner,
+    receipt: { stage: 'unknown' as const },
+  }
   parseOperation(JSON.stringify(uncertain))
   writeFileSync(path, `${JSON.stringify(uncertain)}\n`, { mode: 0o600 })
   if (options.partialMutation || options.terminalDirty) {
@@ -193,6 +246,40 @@ async function fixture(
     if (!options.lockedPrepared) rmSync(join(root, '.lock'), { recursive: true })
     rmSync(`${path}.cas`, { recursive: true })
     rmSync(join(root, orphan))
+  }
+  if (terminal) {
+    const rootStat = lstatSync(root)
+    const historicalDevice = rootStat.dev + 1000
+    owner.directory = `${historicalDevice}:${stat.ino}`
+    writeFileSync(join(root, '.lock/owner.json'), JSON.stringify(owner), { mode: 0o600 })
+    terminal = {
+      ...terminal,
+      sequence: 8,
+      owner,
+      receipt: {
+        stage: 'reconciled_committed',
+        observedCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+      },
+    }
+    for (const operation of [terminal, uncertain]) {
+      operation.immutable.rootIdentity = `${historicalDevice}:${rootStat.ino}`
+      operation.immutableHash = createHash('sha256').update(JSON.stringify(operation.immutable)).digest('hex')
+      parseOperation(JSON.stringify(operation))
+      writeFileSync(
+        join(root, '.views/.engine-v2/journal', `${operation.immutable.plan.id}.json`),
+        `${JSON.stringify(operation)}\n`,
+        { mode: 0o600 },
+      )
+    }
+    rmSync(join(root, orphan))
+  }
+  if (options.ownerlessUnknownDescendant) {
+    writeFileSync(path, `${JSON.stringify({ ...uncertain, owner: null })}\n`, { mode: 0o600 })
+    rmSync(join(root, '.lock'), { recursive: true })
+    rmSync(join(root, orphan))
+    const later = store.createView('fixture', 120000, true)
+    store.edit(later, 'global/later.md', null, '# Legitimate later committed knowledge\n', [])
+    store.integrate(later)
   }
   await preparing.close()
   const engine = new MemoryEngineController(root)
@@ -606,6 +693,326 @@ test('offline adoption archives ALL original bytes, quarantines typed blockers, 
     )
   } finally {
     await f.close()
+  }
+})
+
+test('offline ownerless unknown descendant archives without inferring outcome or rewinding later commits', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const interrupt of [false, true]) {
+    const f = await fixture({ ownerlessUnknownDescendant: true })
+    try {
+      const empty = `.views/.engine-v2/staging/${randomUUID()}`
+      mkdirSync(join(f.root, empty), { recursive: true, mode: 0o700 })
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }).trim()
+      const prior = parseOperation(readFileSync(f.path, 'utf8'))
+      rmSync(`${f.path}.cas`, { recursive: true })
+      const online = await f.engine.request(
+        'recover',
+        {
+          plan: prior.immutable.plan.id,
+          digest: prior.immutable.plan.digest,
+        },
+        f.context,
+      )
+      assert.equal(online.receipt.stage, 'unknown', 'clean descendant is never online outcome proof')
+      mkdirSync(`${f.path}.cas`, { mode: 0o700 })
+      f.original.set(f.path.slice(f.root.length + 1), readFileSync(f.path))
+      const preview = await f.inspect()
+      assert.ok('owner' in preview)
+      assert.equal(preview.priorOutcome, 'unknown')
+      assert.equal(preview.owner, null)
+      assert.deepEqual(
+        preview.artifacts.sort(),
+        [f.path.slice(f.root.length + 1), `${f.path.slice(f.root.length + 1)}.cas`].sort(),
+      )
+      let result
+      if (interrupt) {
+        let stopped = false
+        await assert.rejects(
+          f.apply(preview, {
+            current: () => {
+              if (!stopped && !existsSync(f.path)) {
+                stopped = true
+                return false
+              }
+              return true
+            },
+          }),
+          /authority/,
+        )
+        assert.equal(stopped, true)
+        const checkpoint = await f.inspect()
+        result = await offlineMaintenance(f.engine, f.context, {
+          action: 'offline-resume',
+          target: checkpoint.target,
+          revision: checkpoint.revision,
+          offline: offlineAssurance,
+        })
+      } else result = await f.apply(preview)
+      assert.equal('disposition' in result && result.disposition, 'manually-adopted-prior-outcome-unknown')
+      const snapshot = join(f.root, '.views/.maintenance', result.target!, 'snapshot')
+      for (const [path, bytes] of f.original)
+        assert.deepEqual(readFileSync(join(snapshot, path)), bytes, path)
+      for (const path of ['Core.md', 'index.md', 'config.json', '.memory.json', '.git/index', '.git/config'])
+        assert.deepEqual(readFileSync(join(f.root, path)), f.original.get(path), path)
+      assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }).trim(), head)
+      assert.equal(
+        readFileSync(join(f.root, 'global/later.md'), 'utf8'),
+        '# Legitimate later committed knowledge\n',
+      )
+      assert.deepEqual(readdirSync(join(f.root, empty)), [])
+      assert.deepEqual(readdirSync(join(snapshot, empty)), [])
+      assert.equal(existsSync(f.path), false)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+      assert.equal(
+        JSON.parse(
+          readFileSync(join(f.root, `.views/.engine-v2/drafts/${preview.operation.view}.json`), 'utf8'),
+        ).state,
+        'conflict',
+      )
+      const created = await f.engine.request('create', { project: 'fixture', shared: true }, f.context)
+      await f.engine.request('cancel', { view: created.view }, f.context)
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('offline ownerless unknown descendant refuses changed authority, ancestry and ambiguous artifacts', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const kind of [
+    'root',
+    'proposal',
+    'config',
+    'dirty',
+    'index',
+    'same-head',
+    'unrelated',
+    'extra',
+    'lock',
+    'staging-file',
+    'staging-nonempty',
+    'staging-nested',
+  ] as const) {
+    const f = await fixture({ ownerlessUnknownDescendant: true })
+    try {
+      const record = parseOperation(readFileSync(f.path, 'utf8'))
+      if (kind === 'root') record.immutable.rootIdentity = '0:1'
+      if (kind === 'same-head')
+        record.immutable.plan.current = execFileSync('git', ['rev-parse', 'HEAD'], {
+          cwd: f.root,
+          encoding: 'utf8',
+        }).trim()
+      if (kind === 'unrelated')
+        record.immutable.plan.current = execFileSync(
+          'git',
+          ['commit-tree', 'HEAD^{tree}', '-m', 'Unrelated synthetic root'],
+          { cwd: f.root, encoding: 'utf8' },
+        ).trim()
+      if (kind === 'root' || kind === 'same-head' || kind === 'unrelated') {
+        const { digest: _, ...metadata } = record.immutable.plan
+        record.immutable.plan.digest = createHash('sha256').update(JSON.stringify(metadata)).digest('hex')
+        record.immutableHash = createHash('sha256').update(JSON.stringify(record.immutable)).digest('hex')
+        writeFileSync(f.path, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+      }
+      if (kind === 'proposal')
+        writeFileSync(join(f.root, `.views/.engine-v2/drafts/${record.immutable.plan.view}.json`), '{}\n')
+      if (kind === 'config') {
+        const path = join(f.root, 'config.json')
+        const config = JSON.parse(readFileSync(path, 'utf8'))
+        writeFileSync(path, JSON.stringify({ ...config, automatic: true }))
+      }
+      if (kind === 'dirty' || kind === 'index') {
+        writeFileSync(join(f.root, 'Core.md'), '# Unrelated dirty state\n')
+        if (kind === 'index')
+          execFileSync('git', ['update-index', '--assume-unchanged', 'Core.md'], { cwd: f.root })
+      }
+      if (kind === 'extra') writeFileSync(join(dirname(f.path), `${randomUUID()}.json`), readFileSync(f.path))
+      if (kind === 'lock') mkdirSync(join(f.root, '.lock'), { mode: 0o700 })
+      if (kind.startsWith('staging-')) {
+        const path = join(f.root, '.views/.engine-v2/staging', randomUUID())
+        mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+        if (kind === 'staging-file') writeFileSync(path, 'ambiguous', { mode: 0o600 })
+        else {
+          mkdirSync(path, { mode: 0o700 })
+          if (kind === 'staging-nested') mkdirSync(join(path, randomUUID()), { mode: 0o700 })
+          else writeFileSync(join(path, 'evidence'), 'ambiguous', { mode: 0o600 })
+        }
+      }
+      await assert.rejects(f.inspect())
+      assert.equal(existsSync(f.path), true)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('offline retained terminal owner plus ownerless unknown with device-only drift archives both and resumes exactly', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const interrupt of [false, true]) {
+    const f = await fixture({ retainedCommittedOwner: true })
+    try {
+      const emptyStaging = `.views/.engine-v2/staging/${randomUUID()}`
+      mkdirSync(join(f.root, emptyStaging), { recursive: true, mode: 0o700 })
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }).trim()
+      const preview = await f.inspect()
+      assert.ok('retainedCommittedOwner' in preview && preview.retainedCommittedOwner)
+      assert.equal(preview.priorOutcome, 'unknown')
+      assert.notEqual(preview.operation.id, preview.owner?.operation)
+      assert.equal(preview.retainedCommittedOwner.operation.id, f.owner.operation)
+      assert.equal(preview.retainedCommittedOwner.rootIdentity.split(':')[1], String(lstatSync(f.root).ino))
+      assert.notEqual(preview.retainedCommittedOwner.rootIdentity, preview.rootIdentity)
+      assert.equal(preview.counts.journal, 3) // two records plus target's empty CAS
+      assert.equal(preview.remainingJournal, 0)
+      const terminalPath = join(f.root, '.views/.engine-v2/journal', `${f.owner.operation}.json`)
+      let interrupted = false
+      let result
+      if (interrupt) {
+        await assert.rejects(
+          f.apply(preview, {
+            current: () => {
+              if (!interrupted && !existsSync(terminalPath)) {
+                interrupted = true
+                return false
+              }
+              return true
+            },
+          }),
+          /authority/,
+        )
+        assert.equal(interrupted, true)
+        const checkpoint = await f.inspect()
+        assert.equal('phase' in checkpoint && checkpoint.phase, 'quarantining')
+        result = await offlineMaintenance(f.engine, f.context, {
+          action: 'offline-resume',
+          target: checkpoint.target,
+          revision: checkpoint.revision,
+          offline: offlineAssurance,
+        })
+      } else result = await f.apply(preview)
+      assert.equal('disposition' in result && result.disposition, 'manually-adopted-prior-outcome-unknown')
+      const work = join(f.root, '.views/.maintenance', result.target!)
+      for (const path of [join(f.root, emptyStaging), join(work, 'snapshot', emptyStaging)]) {
+        assert.equal(lstatSync(path).isDirectory(), true)
+        assert.deepEqual(readdirSync(path), [])
+      }
+      for (const [path, bytes] of f.original)
+        assert.deepEqual(readFileSync(join(work, 'snapshot', path)), bytes, path)
+      for (const path of ['Core.md', 'index.md', 'config.json', '.memory.json', '.git/index', '.git/config'])
+        assert.deepEqual(readFileSync(join(f.root, path)), f.original.get(path), path)
+      assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }).trim(), head)
+      assert.equal(existsSync(join(f.root, '.lock')), false)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+      assert.deepEqual(readdirSync(join(f.root, '.views/.engine-v2/journal')), [])
+      assert.equal(
+        JSON.parse(
+          readFileSync(join(f.root, `.views/.engine-v2/drafts/${preview.operation.view}.json`), 'utf8'),
+        ).state,
+        'conflict',
+      )
+      // Reopen an ordinary controller: recovery has not granted online identity exceptions.
+      await f.engine.close()
+      const reopened = new MemoryEngineController(f.root)
+      try {
+        const created = await reopened.request('create', { project: 'fixture', shared: true }, f.context)
+        await reopened.request('cancel', { view: created.view }, f.context)
+      } finally {
+        await reopened.close()
+      }
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('offline retained terminal classifier refuses non-device drift, inconsistent evidence and dirty work', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const kind of [
+    'inode',
+    'path',
+    'device-map',
+    'commit',
+    'tree',
+    'ledger',
+    'extra',
+    'dirty',
+    'staging',
+  ] as const) {
+    const f = await fixture({ retainedCommittedOwner: true })
+    try {
+      const terminalPath = join(f.root, '.views/.engine-v2/journal', `${f.owner.operation}.json`)
+      const record = parseOperation(
+        readFileSync(kind === 'inode' || kind === 'path' ? f.path : terminalPath, 'utf8'),
+      )
+      if (kind === 'inode') record.immutable.rootIdentity = `${lstatSync(f.root).dev + 1000}:1`
+      if (kind === 'path') record.immutable.root = f.directory
+      if (kind === 'device-map') record.owner!.directory = `1:${lstatSync(join(f.root, '.lock')).ino}`
+      if (kind === 'commit') record.receipt.observedCommit = record.immutable.plan.current
+      if (kind === 'tree')
+        record.immutable.tree = record.immutable.tree.filter((line) => !line.endsWith('\tCore.md'))
+      if (kind === 'ledger') {
+        record.immutable.ledger.reviewed.push('synthetic-extra')
+        record.immutable.ledgerText = `${JSON.stringify(record.immutable.ledger)}\n`
+      }
+      if (kind === 'extra') {
+        const extra = parseOperation(readFileSync(f.path, 'utf8'))
+        extra.immutable.plan.id = randomUUID()
+        const { digest: _, ...metadata } = extra.immutable.plan
+        extra.immutable.plan.digest = createHash('sha256').update(JSON.stringify(metadata)).digest('hex')
+        extra.immutableHash = createHash('sha256').update(JSON.stringify(extra.immutable)).digest('hex')
+        writeFileSync(join(dirname(f.path), `${extra.immutable.plan.id}.json`), JSON.stringify(extra), {
+          mode: 0o600,
+        })
+      } else if (kind === 'dirty')
+        writeFileSync(join(f.root, 'Core.md'), '# Private proposal\nNot activated.\n')
+      else if (kind === 'staging') {
+        const path = join(f.root, '.views/.engine-v2/staging', randomUUID())
+        mkdirSync(path, { recursive: true, mode: 0o700 })
+        writeFileSync(join(path, 'unrelated'), 'Unknown staging must remain untouched', { mode: 0o600 })
+      } else {
+        record.immutableHash = createHash('sha256').update(JSON.stringify(record.immutable)).digest('hex')
+        writeFileSync(kind === 'inode' || kind === 'path' ? f.path : terminalPath, JSON.stringify(record), {
+          mode: 0o600,
+        })
+      }
+      await assert.rejects(f.inspect(), /Offline/)
+      assert.equal(existsSync(join(f.root, '.lock')), true)
+      assert.equal(existsSync(f.path), true)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+    } finally {
+      await f.close()
+    }
+  }
+})
+
+test('offline retained terminal exact apply refuses changed lock, record or full-byte fingerprint', {
+  skip: !kernelAvailable,
+}, async () => {
+  for (const kind of ['lock', 'record', 'fingerprint']) {
+    const f = await fixture({ retainedCommittedOwner: true })
+    try {
+      const preview = await f.inspect()
+      if (kind === 'lock')
+        writeFileSync(join(f.root, '.lock/owner.json'), JSON.stringify({ ...f.owner, nonce: randomUUID() }))
+      if (kind === 'record') {
+        const record = parseOperation(readFileSync(f.path, 'utf8'))
+        record.receipt.detail = 'Changed evidence'
+        writeFileSync(f.path, JSON.stringify(record))
+      }
+      if (kind === 'fingerprint')
+        writeFileSync(join(f.root, '.git/config'), `${readFileSync(join(f.root, '.git/config'), 'utf8')}\n`)
+      await assert.rejects(f.apply(preview), /Offline|Exact reviewed/)
+      assert.equal(existsSync(join(f.root, '.lock')), true)
+      assert.equal(existsSync(f.path), true)
+      assert.equal(existsSync(join(f.root, maintenanceMarker)), false)
+    } finally {
+      await f.close()
+    }
   }
 })
 

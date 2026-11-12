@@ -78,14 +78,25 @@ not repair: an existing memory blocker still refuses installation with the same
 message prefix and lock/publication/worktree facts. Ordinary previews do not print
 additional metadata.
 
-On that blocker, explicit inspection adds protocol-1 JSON with the observed snapshot
+Explicit inspection adds protocol-1 JSON on both successful existing-root previews
+and blocker refusals. Successful summaries carry optional `memoryInspection` metadata,
+excluded from the plan digest and application authority. A clean Git tree does not
+prove that publication journals are settled. The observation contains the snapshot
 revision, those three facts, and read-only Git porcelain `-z` relative paths plus
 index/worktree status (at most 64 entries, with total/truncated indicators). It may
-also show the private lock directory's type and device/inode identity, fixed marker
-presence (`owner.json`, `policy.json`, `config.next`), and a schema-validated owner
+also show six fixed Git storage-marker booleans, the private lock directory's type,
+device/inode identity, whether its sole entry is `owner.json`, fixed marker presence (`owner.json`, `policy.json`, `config.next`), and a schema-validated owner
 operation/digest/nonce/directory. Owner input must be a private regular 0600,
 single-link, non-symlink file of at most 2048 bytes; unsafe, malformed or oversized
 input yields only generic unavailable reasons, never raw payloads or parser errors.
+Inspection also reports bounded schema-validated operation metadata: id/digest/config hash,
+stage, plan HEAD and its comparison with observed HEAD, stored/current root identity
+comparison, owner operation/digest/directory and its comparison with the observed
+lock owner, and any observed commit. At most 64 journal names and 16 MiB aggregate
+record input are considered, with total/truncated indicators; each record retains
+the engine's 8-MiB bound. Malformed or unsafe records yield unavailable metadata,
+never record bodies or raw errors. An aggregate-budget stop is reported as truncated
+even when some input budget remains.
 No arbitrary lock contents, corpus text, config values or credentials are printed.
 Filenames are untrusted diagnostic metadata, not command operands or authority;
 review output privacy before sharing it. Marker presence does not prove marker
@@ -96,9 +107,20 @@ change, native operation or reload is performed by inspection.
 ## Offline memory operator
 
 Installation never repairs uncertain memory. A separate explicit owner entry is
-available for the exact operation-bound unknown or terminal-dirty incident described
-in [offline maintenance recovery](agent-memory.md#explicit-offline-maintenance-recovery).
+available for the exact operation-bound unknown, terminal-dirty or retained terminal
+lock-owner plus ownerless-unknown incident described in
+[offline maintenance recovery](agent-memory.md#explicit-offline-maintenance-recovery).
+The last case may classify consistent historical device-only drift offline; it
+never rewrites stored identities or weakens online lock checks. Its inspect target
+is the unknown operation, with a separate `retainedCommittedOwner` binding, and its
+result remains prior-outcome-unknown with the proposal retained as a conflict.
 No actual operator window is implied by source installation, testing or these examples.
+
+The registered ephemeral operator reports bounded, identity-branded `ownerCode`
+refusals for both reset and non-reset recovery. `recovery-plan`, `recovery-commit`
+and `recovery-proposal` identify the verification phase; existing `scan`,
+`fingerprint` and holder/authority codes remain available. These are fixed metadata,
+not raw exception messages, permission grants or proof that a recovery is safe.
 
 After explicitly closing known sessions/workers for the target profile and
 assuring that no cooperative external writers will start during the window:

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
+import { createHash } from 'node:crypto'
 import childProcess, { spawnSync } from 'node:child_process'
 import {
   chmodSync,
@@ -13,6 +14,7 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
@@ -963,6 +965,48 @@ test('bootstrap existing memory diagnostics distinguish independent blockers wit
     })
 })
 
+test('explicit clean memory preview returns diagnostics without changing plan authority or bytes', () => {
+  fixture((root, r) => {
+    const memory = join(root, 'memory')
+    const project = join(root, 'project')
+    mkdirSync(project, { mode: 0o700 })
+    const store = createMemoryStore(memory)
+    store.initialize(
+      {
+        version: 1,
+        projects: [{ cwd: project, id: 'fixture' }],
+        coreBytes: 8192,
+        indexBytes: 2048,
+        fileBytes: 8192,
+        totalBytes: 65536,
+        automatic: false,
+      },
+      '# Core\nSynthetic corpus must never escape.\n',
+    )
+    r.components = {
+      packages: true,
+      roles: true,
+      memory: { root: memory, project, projectId: 'fixture', seedFile: join(root, 'not-read.md') },
+    }
+    const bytes = () =>
+      readdirSync(memory, { recursive: true }).map((path) => {
+        const full = join(memory, String(path))
+        const stat = lstatSync(full)
+        return [path, stat.mode, stat.ino, stat.isFile() ? readFileSync(full) : null]
+      })
+    const before = bytes()
+    const ordinary = inspectBootstrap(r)
+    const explicit = inspectBootstrap(r, { inspectMemory: true })
+    assert.equal(Object.hasOwn(ordinary, 'memoryInspection'), false)
+    assert.equal(explicit.digest, ordinary.digest)
+    assert.deepEqual(explicit.memoryInspection?.facts, { lock: false, bootstrap: false, dirty: false })
+    assert.equal(explicit.memoryInspection?.revision, store.snapshot().revision)
+    assert.deepEqual(bootstrapSummary(explicit).memoryInspection, explicit.memoryInspection)
+    assert.equal(JSON.stringify(explicit.memoryInspection).includes('Synthetic corpus'), false)
+    assert.deepEqual(bytes(), before)
+  })
+})
+
 test('explicit memory inspection exposes bounded typed metadata only and preserves every disposable byte', () => {
   for (const kind of ['valid', 'malformed', 'symlink', 'oversize', 'public', 'hardlink', 'lock-symlink'])
     fixture((root, r) => {
@@ -1104,6 +1148,160 @@ test('explicit memory inspection exposes bounded typed metadata only and preserv
       assert.deepEqual(bytes(), before)
       assert.equal(existsSync(r.agentDir), false)
     })
+})
+
+test('bootstrap operation diagnostics expose bounded bindings, not bodies, and flag aggregate truncation', () => {
+  fixture((root, r) => {
+    const memory = join(root, 'memory')
+    const project = join(root, 'project')
+    mkdirSync(project, { mode: 0o700 })
+    const store = createMemoryStore(memory, () => {}, 'primary')
+    store.initialize(
+      {
+        version: 1,
+        projects: [{ id: 'fixture', cwd: project }],
+        coreBytes: 8192,
+        indexBytes: 2048,
+        fileBytes: 8192,
+        totalBytes: 65536,
+        automatic: false,
+      },
+      '# Synthetic private core must not escape.\n',
+    )
+    r.components = {
+      packages: true,
+      roles: true,
+      memory: {
+        root: memory,
+        project,
+        projectId: 'fixture',
+        seedFile: join(root, 'not-read.md'),
+      },
+    }
+    const digest = (text: string) => createHash('sha256').update(text).digest('hex')
+    const id = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000001`
+    const lock = join(memory, '.lock')
+    mkdirSync(lock, { mode: 0o700 })
+    const stat = lstatSync(lock)
+    const rootStat = lstatSync(memory)
+    const owner = {
+      version: 1,
+      operation: id(1),
+      digest: '',
+      nonce: id(9),
+      directory: `${stat.dev + 1}:${stat.ino}`,
+    }
+    const journal = join(memory, '.views/.engine-v2/journal')
+    mkdirSync(journal, { recursive: true, mode: 0o700 })
+    const ledger = {
+      version: 2,
+      forgottenPaths: [],
+      forgottenSources: [],
+      reviewed: ['synthetic-private-evidence'],
+      sources: { 'Core.md': [], 'index.md': [] },
+    }
+    const revision = store.snapshot().revision
+    for (const n of [1, 2]) {
+      const metadata = {
+        id: id(n),
+        view: id(n + 10),
+        base: revision,
+        current: revision,
+        configHash: 'a'.repeat(64),
+        ledgerHash: digest(JSON.stringify(ledger)),
+        changes: [],
+      }
+      const plan = { ...metadata, digest: digest(JSON.stringify(metadata)) }
+      if (n === 1) owner.digest = plan.digest
+      const immutable = {
+        root: memory,
+        rootIdentity: `${rootStat.dev + 1}:${rootStat.ino}`,
+        plan,
+        ledger,
+        ledgerText: JSON.stringify(ledger),
+        proposalHash: 'b'.repeat(64),
+        tree: [],
+        next: {
+          'Core.md': { hash: 'a'.repeat(64), size: 1, sources: [] },
+          'index.md': { hash: 'a'.repeat(64), size: 1, sources: [] },
+        },
+      }
+      put(
+        join(journal, `${id(n)}.json`),
+        JSON.stringify({
+          version: 1,
+          immutable,
+          immutableHash: digest(JSON.stringify(immutable)),
+          sequence: 3,
+          owner: n === 1 ? owner : null,
+          receipt: {
+            stage: n === 1 ? 'reconciled_committed' : 'unknown',
+            observedCommit: revision,
+            detail: 'synthetic-private-receipt',
+          },
+        }),
+      )
+    }
+    put(join(lock, 'owner.json'), JSON.stringify(owner))
+    for (const n of [3, 4, 5]) {
+      const path = join(journal, `${id(n)}.json`)
+      put(path, 'synthetic-private-malformed')
+      truncateSync(path, (n === 5 ? 3 : 7) * 1024 * 1024)
+    }
+    const before = readdirSync(memory, { recursive: true }).map((path) => {
+      const full = join(memory, String(path))
+      const stat = lstatSync(full)
+      return [path, stat.ino, stat.mode, stat.size, stat.isFile() ? digest(readFileSync(full, 'utf8')) : null]
+    })
+    assert.throws(
+      () => inspectBootstrap(r, { inspectMemory: true }),
+      (error: any) => {
+        const metadata = error.memoryInspection
+        const operations = metadata.operations
+        assert.equal(metadata.revision, revision)
+        assert.equal(operations.state, 'observed')
+        assert.equal(operations.rootIdentity, `${rootStat.dev}:${rootStat.ino}`)
+        assert.equal(operations.total, 5)
+        assert.equal(operations.truncated, true, 'positive remaining budget must not hide an omitted record')
+        const [terminal, unknown] = operations.entries
+        assert.equal(terminal.stage, 'reconciled_committed')
+        assert.equal(terminal.observedCommit, revision)
+        assert.equal(terminal.ownerMatchesLock, true)
+        assert.equal(terminal.ownerDigest, owner.digest)
+        assert.equal(terminal.configHash, 'a'.repeat(64))
+        assert.equal(metadata.lock.ownerOnly, true)
+        assert.equal(
+          Object.values(metadata.git.storage).every((present) => present === false),
+          true,
+        )
+        assert.equal(terminal.ownerDirectory, owner.directory)
+        assert.equal(terminal.rootIdentityMatches, false)
+        assert.equal(terminal.currentMatchesHead, true)
+        assert.equal(unknown.stage, 'unknown')
+        assert.equal(unknown.ownerOperation, null)
+        assert.equal(unknown.ownerMatchesLock, false)
+        assert.doesNotMatch(
+          JSON.stringify(metadata),
+          /synthetic-private|"(?:ledgerText|proposalHash|receipt|next)":/,
+        )
+        return true
+      },
+    )
+    assert.deepEqual(
+      readdirSync(memory, { recursive: true }).map((path) => {
+        const full = join(memory, String(path))
+        const stat = lstatSync(full)
+        return [
+          path,
+          stat.ino,
+          stat.mode,
+          stat.size,
+          stat.isFile() ? digest(readFileSync(full, 'utf8')) : null,
+        ]
+      }),
+      before,
+    )
+  })
 })
 
 test('install CLI refuses memory inspection without preview before creating a profile or scaffold', () => {
