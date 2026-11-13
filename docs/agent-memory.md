@@ -885,8 +885,10 @@ preparation completes but its reply loses caller authority, only that controller
 actual pre-write ownership and terminal child response can establish that the exact
 operation drained without ever admitting publication. With fresh authority bound to
 the original runtime, root and generation, the parent may CAS-retire that unchanged
-`prepared` record as `not_committed_dirty`; it does not publish files, review episodes,
-delete the proposal or grant replay. Once publication is admitted, only the existing
+`prepared` record as `not_committed_dirty`, even while a different operation retains
+the canonical lock. That proof settles only its own ownerless record and never
+releases the other lock. It does not publish files, review episodes, delete the
+proposal or grant replay. Once publication is admitted, only the existing
 executor/reconciliation rules apply. Upgraded executors additionally record their actual
 lifecycle before the first canonical lock mkdir. A sealed executor that never attempted
 that mutation, or whose exact mkdir returned identity-bound `EEXIST`, may settle its own
@@ -898,6 +900,15 @@ and other controllers or restarted processes cannot adopt this preparation owner
 uncertain operations remain retained for same-operation inspection/recovery. An unchanged
 HEAD/tree is not proof of a completed no-op publication: that success also requires
 an actual drained publication executor, not a foreign prepared record.
+
+Preparation also checks canonical lock presence before namespace reclamation and
+again before creating a durable plan. An observed lock refuses preparation while
+preserving the ready proposal instead of creating another journal blocker.
+Namespace reclamation leaves journals and proposals in place while a lock is
+observed. These authority-checked absence checks are advisory, not atomic exclusion:
+absence grants nothing, and native exclusive acquisition plus exact contention
+settlement still handle races. Draft reads and edits remain available under their
+ordinary authority and revision fences.
 
 Ordinary read-only engine requests (`projection`, `config`, `status`, `episodes`,
 `conflicts`, `read`, `headRead`, `stats`, and `manage` with `doctor` or `palace`)
@@ -1033,8 +1044,9 @@ a separate action, not part of reset.
 ## Explicit offline maintenance recovery
 
 This separate ABI2 owner operation handles one exact interrupted publication: a
-typed `unknown` operation with its retained lock or a terminal
-`not_committed_dirty` operation whose lock has already been released. The Git index
+typed `unknown` operation with its retained lock, a terminal
+`not_committed_dirty` operation whose lock has already been released, or a verified
+committed publication whose exact owner lock remains retained. The Git index
 must remain clean. Every worktree mutation, deletion and staging path must bind to
 the selected operation's immutable plan, expected hash and size; unrelated dirty
 paths refuse recovery. Ordinary publication, policy and same-process reconciliation
@@ -1107,6 +1119,41 @@ retains original records. HEAD, config, raw index and knowledge
 remain unchanged. The unknown proposal becomes `conflict`, and completion still
 reports `manually-adopted-prior-outcome-unknown`, never a prior executor, no-op or
 committed outcome for that unknown operation.
+
+A retained committed lock owner also has a standalone case, without an ownerless
+unknown. Inspection reports `priorOutcome: retained-committed`; its target and
+operation identify that committed owner, and `retainedCommittedOwner.kind` is
+`terminal-lock-owner`. The exact current root and lock identities must match; this
+case does not accept device-only drift. Full HEAD ancestry/tree, clean tracked/index
+bytes, ledger, configuration and proposal bindings are independently checked. Other
+terminal journals remain unchanged; additional unresolved operations, unrelated CAS
+and unrelated nonempty or ambiguous staging refuse. The same archive-before-quarantine,
+cooperative offline assurance, holder inspection and reviewed resume gates apply.
+Only the bound lock, journal and related staging/empty CAS artifacts move. HEAD,
+config, raw index, corpus and the original ready or committed proposal bytes/state
+remain unchanged; no proposal becomes a conflict. Completion reports
+`manually-retired-retained-committed`, not recovered executor drain or a replayed
+publication. This is a recovery classification, not proof that a live native writer
+can now publish; that requires a separate guarded write/publication check.
+
+A separate composite handles that verified committed owner plus exactly one
+ownerless `prepared` operation at actual HEAD: sequence zero, receipt exactly
+`prepared`, unchanged config/ledger and an intact ready proposal. Inspection reports
+`priorOutcome: retained-committed-prepared`; its target identifies the prepared
+operation, with `retainedCommittedOwner.kind: terminal-lock-owner-with-ownerless-prepared`.
+Other journals must be terminal and remain unchanged. Exact current root/lock
+identities are required, without the older composite's device-only exception.
+Any CAS or prepared-target staging refuses. The verified committed owner's typed,
+empty staging directory may be archived and quarantined; nonempty or nested owner
+staging and unrelated staging ambiguity refuse.
+
+The full independent archive, authority, clean-state, holder, cooperative offline
+assurance and reviewed resume gates remain mandatory. Only the exact lock and the
+two selected journals/bound artifacts move; the committed owner's proposal remains
+byte-for-byte unchanged. The prepared proposal is archived before becoming a
+conflict in the active namespace, never relabelled `unknown` or replayed.
+Completion reports `manually-retired-retained-committed-prepared`; HEAD, config,
+raw index and committed knowledge stay unchanged.
 
 The same explicit offline transaction also accepts one ownerless `unknown` operation
 without a lock when its exact current root identity, unchanged configuration and hash-bound

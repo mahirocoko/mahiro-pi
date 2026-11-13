@@ -18,7 +18,7 @@ import {
 } from './schema.ts'
 import { draftArchiveMaintenance } from './offline-draft-archive.ts'
 import { episodeRecoveryMaintenance } from './offline-episode-recovery.ts'
-import { offlineResetFailure } from '../reasons.ts'
+import { offlineResetFailure, type OfflineResetFailureCode } from '../reasons.ts'
 
 // Explicit cooperative offline adoption only. This is NOT executor drain or normal reconciliation.
 export const maintenanceMarker = '.views/.maintenance-active.json'
@@ -47,9 +47,18 @@ interface Plan {
   configSemantic: string
   owner: LockOwner | null
   operation: { id: string; digest: string; immutableHash: string; sequence: number; view: string }
-  outcome: 'unknown' | 'not_committed_dirty' | 'prepared' | 'locked-prepared'
+  outcome:
+    | 'unknown'
+    | 'not_committed_dirty'
+    | 'prepared'
+    | 'locked-prepared'
+    | 'retained-committed'
+    | 'retained-committed-prepared'
   retainedCommittedOwner?: {
-    kind: 'terminal-lock-owner-with-ownerless-unknown'
+    kind:
+      | 'terminal-lock-owner-with-ownerless-unknown'
+      | 'terminal-lock-owner'
+      | 'terminal-lock-owner-with-ownerless-prepared'
     rootIdentity: string
     operation: Plan['operation']
   }
@@ -119,6 +128,8 @@ interface State {
     | 'manually-recovered-not-committed-dirty'
     | 'manually-retired-ownerless-prepared'
     | 'manually-retired-locked-prepared'
+    | 'manually-retired-retained-committed'
+    | 'manually-retired-retained-committed-prepared'
 }
 export interface MaintenanceRequest {
   action:
@@ -322,13 +333,15 @@ export async function git(root: string, args: string[], context: OperationContex
   await gate(context, [root, join(root, '.git'), join(root, '.git/index')])
   return await runGit(root, args, engineEnvironment(), context.signal)
 }
-// Only this offline composite classifier accepts a historical device mapping. Both
-// inodes and the canonical path stay bound; online ownership checks remain exact.
+// Only the offline composite classifier accepts a historical device mapping. The
+// standalone owner requires exact current identities; online ownership stays exact.
 function retainedIdentityBinding(plan: Pick<Plan, 'entries' | 'owner' | 'retainedCommittedOwner'>) {
   const historical = plan.retainedCommittedOwner?.rootIdentity
   const current = plan.entries.find((e) => e.path === '.')?.identity
   const lock = plan.entries.find((e) => e.path === '.lock')?.identity
   if (!historical || !current || !lock || !plan.owner) return false
+  if (plan.retainedCommittedOwner?.kind !== 'terminal-lock-owner-with-ownerless-unknown')
+    return historical === current && plan.owner.directory === lock
   const [oldDevice, oldInode] = historical.split(':')
   const [device, inode] = current.split(':')
   const [oldLockDevice, oldLockInode] = plan.owner.directory.split(':')
@@ -344,6 +357,25 @@ const operationBinding = (record: ReturnType<typeof parseOperation>): Plan['oper
   sequence: record.sequence,
   view: record.immutable.plan.view,
 })
+const operationStage = (outcome: Plan['outcome']) =>
+  outcome === 'locked-prepared' || outcome === 'retained-committed-prepared'
+    ? 'prepared'
+    : outcome === 'retained-committed'
+      ? 'reconciled_committed'
+      : outcome
+function proposalMatches(raw: string, record: ReturnType<typeof parseOperation>, standalone: boolean) {
+  const proposal = parseDraft(raw)
+  // Match the engine outcome's committed normalization, never rewrite persisted evidence.
+  const normalized =
+    standalone && proposal.state === 'committed'
+      ? `${JSON.stringify({ ...proposal, state: 'ready' })}\n`
+      : raw
+  return (
+    proposal.id === record.immutable.plan.view &&
+    (proposal.state === 'ready' || (standalone && proposal.state === 'committed')) &&
+    hash(normalized) === record.immutable.proposalHash
+  )
+}
 async function cleanHead(root: string, head: string, entries: Entry[], context: OperationContext) {
   if (
     (await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], context)).length ||
@@ -384,6 +416,11 @@ async function verifyRetainedCommit(
 ) {
   const retained = plan.retainedCommittedOwner!
   const p = record.immutable
+  if (retained.kind === 'terminal-lock-owner-with-ownerless-prepared') {
+    const path = await proposalPath(root, plan.entries, p.plan.view, context)
+    if (!proposalMatches(await read(root, path, 2 * 1024 * 1024, context), record, true))
+      throw Error('Offline retained committed proposal evidence changed')
+  }
   const tree = await cleanHead(root, plan.head, plan.entries, context)
   const ledgerText = await read(root, '.memory.json', limits.ledger, context)
   const parent =
@@ -432,6 +469,21 @@ async function verifyOwnerlessUnknown(
   await cleanHead(root, plan.head, plan.entries, context)
 }
 async function review(root: string, context: OperationContext): Promise<Omit<Plan, 'id'>> {
+  let phase: OfflineResetFailureCode = 'recovery-layout'
+  try {
+    return await reviewEvidence(root, context, (next) => {
+      phase = next
+    })
+  } catch (error) {
+    // Closed source-owned phase only; never expose exception text or private entries.
+    throw offlineResetFailure(error, phase)
+  }
+}
+async function reviewEvidence(
+  root: string,
+  context: OperationContext,
+  phase: (next: OfflineResetFailureCode) => void,
+): Promise<Omit<Plan, 'id'>> {
   await privateDirectory(root)
   const entries = await inventory(root, context, [maintenanceMarker]).catch((error) => {
     throw offlineResetFailure(error, 'scan')
@@ -464,6 +516,7 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
   if (!/^[a-f0-9]{40,64}$/.test(head)) throw Error('Offline adoption requires full HEAD')
   const configSemantic = hash(JSON.stringify(parseConfig(await read(root, 'config.json', 131072, context))))
   parseLedger(await read(root, '.memory.json', limits.ledger, context))
+  phase('recovery-journal')
   const journalEntries = entries.filter((e) => dirname(e.path) === journal)
   const records: { entry: Entry; record: ReturnType<typeof parseOperation> }[] = []
   for (const e of journalEntries) {
@@ -476,6 +529,7 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
       throw Error('Offline operation root binding mismatch')
     records.push({ entry: e, record })
   }
+  phase('recovery-lock')
   let owner: LockOwner | null
   let target: string
   let outcome: Plan['outcome']
@@ -500,10 +554,30 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
           record.owner === null &&
           record.immutable.plan.current === head,
       )
-      if (records.length !== 2 || unknown.length !== 1)
-        throw Error('Offline retained terminal lock requires one independently bound ownerless unknown')
+      const standalone = records.every(
+        ({ record }) =>
+          record.receipt.stage === 'reconciled_committed' || record.receipt.stage === 'not_committed_dirty',
+      )
+      const unresolved = records.filter(
+        ({ record }) => !['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage),
+      )
+      const prepared =
+        unresolved.length === 1 &&
+        unresolved[0].record.receipt.stage === 'prepared' &&
+        unresolved[0].record.owner === null &&
+        unresolved[0].record.immutable.plan.current === head
+          ? unresolved[0].record
+          : undefined
+      if (!standalone && !prepared && (records.length !== 2 || unknown.length !== 1))
+        throw Error(
+          'Offline retained terminal lock requires terminal-only history or one independently bound ownerless unknown',
+        )
       retainedCommittedOwner = {
-        kind: 'terminal-lock-owner-with-ownerless-unknown',
+        kind: standalone
+          ? 'terminal-lock-owner'
+          : prepared
+            ? 'terminal-lock-owner-with-ownerless-prepared'
+            : 'terminal-lock-owner-with-ownerless-unknown',
         rootIdentity: candidate.immutable.rootIdentity,
         operation: operationBinding(candidate),
       }
@@ -515,7 +589,11 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
       ).catch((error) => {
         throw offlineResetFailure(error, 'recovery-commit')
       })
-      target = unknown[0].record.immutable.plan.id
+      if (standalone) outcome = 'retained-committed'
+      else if (prepared) {
+        outcome = 'retained-committed-prepared'
+        target = prepared.immutable.plan.id
+      } else target = unknown[0].record.immutable.plan.id
     } else if (owner.directory !== entry('.lock')!.identity)
       throw Error('Offline adoption lock identity mismatch')
   } else {
@@ -537,12 +615,14 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
     if (outcome === 'unknown')
       await verifyOwnerlessUnknown(root, { head, entries, configSemantic }, candidate, context)
   }
+  phase('recovery-journal')
   const ownerlessUnknown = outcome === 'unknown' && owner === null
   const expectedRootIdentity = retainedCommittedOwner?.rootIdentity ?? entry('.')!.identity
   if (records.some(({ record }) => record.immutable.rootIdentity !== expectedRootIdentity))
     throw Error('Offline operation root binding mismatch')
   const moves = lockPresent ? ['.lock'] : []
-  if (retainedCommittedOwner) moves.push(`${journal}/${retainedCommittedOwner.operation.id}.json`)
+  if (retainedCommittedOwner && outcome !== 'retained-committed')
+    moves.push(`${journal}/${retainedCommittedOwner.operation.id}.json`)
   let operation: Plan['operation'] | undefined
   let operationRecord: ReturnType<typeof parseOperation> | undefined
   let draft: string | null = null
@@ -551,9 +631,13 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
       if (
         (!retainedCommittedOwner && owner !== null && record.immutable.plan.digest !== owner.digest) ||
         JSON.stringify(record.owner) !==
-          JSON.stringify(retainedCommittedOwner || outcome === 'locked-prepared' ? null : owner) ||
-        (!ownerlessUnknown && record.immutable.plan.current !== head) ||
-        record.receipt.stage !== (outcome === 'locked-prepared' ? 'prepared' : outcome)
+          JSON.stringify(
+            (retainedCommittedOwner && outcome !== 'retained-committed') || outcome === 'locked-prepared'
+              ? null
+              : owner,
+          ) ||
+        (!ownerlessUnknown && outcome !== 'retained-committed' && record.immutable.plan.current !== head) ||
+        record.receipt.stage !== operationStage(outcome)
       )
         throw Error('Offline recovery operation binding mismatch')
       operation = operationBinding(record)
@@ -565,31 +649,32 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
       const proposalRaw = await read(root, path, 2 * 1024 * 1024, context).catch((error) => {
         throw offlineResetFailure(error, 'recovery-proposal')
       })
-      let proposal: ReturnType<typeof parseDraft>
+      let matches: boolean
       try {
-        proposal = parseDraft(proposalRaw)
+        matches = proposalMatches(proposalRaw, record, outcome === 'retained-committed')
       } catch (error) {
         throw offlineResetFailure(error, 'recovery-proposal')
       }
-      if (
-        proposal.id !== record.immutable.plan.view ||
-        proposal.state !== 'ready' ||
-        hash(proposalRaw) !== record.immutable.proposalHash
-      )
+      if (!matches)
         throw offlineResetFailure(
-          Error('Offline adoption requires retained ready proposal'),
+          Error('Offline adoption requires exact retained proposal evidence'),
           'recovery-proposal',
         )
       draft = path
     } else if (!['reconciled_committed', 'not_committed_dirty'].includes(record.receipt.stage))
       throw Error('Offline adoption refuses additional unresolved operations')
   }
-  const prepared = outcome === 'prepared' || outcome === 'locked-prepared'
+  phase('recovery-artifacts')
+  const prepared =
+    outcome === 'prepared' || outcome === 'locked-prepared' || outcome === 'retained-committed-prepared'
   if (outcome === 'locked-prepared' && records.length !== 1)
     throw Error('Offline locked prepared recovery refuses additional journal entries')
   if (prepared && journalEntries.some((e) => e.path.endsWith('.cas')))
     throw Error('Offline prepared recovery refuses any CAS evidence')
-  const relevantIds = retainedCommittedOwner ? [target, retainedCommittedOwner.operation.id] : [target]
+  const relevantIds =
+    retainedCommittedOwner && outcome !== 'retained-committed'
+      ? [target, retainedCommittedOwner.operation.id]
+      : [target]
   if (
     (retainedCommittedOwner || ownerlessUnknown) &&
     journalEntries.some(
@@ -612,7 +697,7 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
     throw Error('Offline adoption requires complete typed operation evidence')
   const stagingPaths = relevantIds.map((id) => `.views/.engine-v2/staging/${id}`)
   const stagingEntries = entries.filter((e) => e.path.startsWith('.views/.engine-v2/staging/'))
-  // Old empty staging directories are not active blockers. The clean composite
+  // Old empty staging directories are not active blockers. Clean retained recovery
   // leaves them unchanged in place AND in the archive; only bound artifacts move.
   const unrelatedStaging = stagingEntries.filter((e) => !stagingPaths.some((path) => within(e.path, path)))
   if (
@@ -631,7 +716,13 @@ async function review(root: string, context: OperationContext): Promise<Omit<Pla
     )
   for (const stagingPath of stagingPaths) {
     if (entry(stagingPath)) {
-      if (prepared) throw Error('Offline ownerless prepared recovery refuses staging evidence')
+      const emptyCommittedStaging =
+        outcome === 'retained-committed-prepared' &&
+        stagingPath === `.views/.engine-v2/staging/${retainedCommittedOwner!.operation.id}` &&
+        entry(stagingPath)?.kind === 'directory' &&
+        !entries.some((child) => child.path.startsWith(`${stagingPath}/`))
+      if (prepared && !emptyCommittedStaging)
+        throw Error('Offline ownerless prepared recovery refuses staging evidence')
       if (entry(stagingPath)?.kind !== 'directory')
         throw Error('Offline operation staging is not a directory')
       moves.push(stagingPath)
@@ -931,14 +1022,19 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
     throw Error('Archive full byte inventory verification failed')
   const root = join(work, 'snapshot')
   const operation = plan.operation
-  const archivedOwner =
-    plan.owner !== null && (plan.outcome === 'unknown' || plan.outcome === 'locked-prepared')
-      ? parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
-      : null
+  const standalone = plan.outcome === 'retained-committed'
+  const locked =
+    plan.owner !== null &&
+    (plan.outcome === 'unknown' ||
+      plan.outcome === 'locked-prepared' ||
+      plan.outcome === 'retained-committed-prepared' ||
+      standalone)
+  const archivedOwner = locked
+    ? parseLockOwner(JSON.parse(await read(root, '.lock/owner.json', 2048, context)))
+    : null
   const record = parseOperation(await read(root, `${journal}/${operation.id}.json`, operationLimit, context))
   const resolvedDraft = await proposalPath(root, actual, plan.operation.view, context)
   const draftRaw = await read(root, resolvedDraft, 2 * 1024 * 1024, context)
-  const draft = parseDraft(draftRaw)
   const semantic = hash(JSON.stringify(parseConfig(await read(root, 'config.json', 131072, context))))
   parseLedger(await read(root, '.memory.json', limits.ledger, context))
   const changes = new Map(record.immutable.plan.changes.map((change) => [change.path, change]))
@@ -951,7 +1047,7 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
     return entry?.kind === 'file' && entry.hash === change.hash && entry.size === change.size
   })
   if (
-    (plan.owner !== null && (plan.outcome === 'unknown' || plan.outcome === 'locked-prepared')
+    (locked
       ? JSON.stringify(archivedOwner) !== JSON.stringify(plan.owner) ||
         (plan.retainedCommittedOwner
           ? !retainedIdentityBinding(plan)
@@ -965,14 +1061,18 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
     record.immutable.plan.digest !== operation.digest ||
     record.immutable.plan.id !== operation.id ||
     JSON.stringify(record.owner) !==
-      JSON.stringify(plan.retainedCommittedOwner || plan.outcome === 'locked-prepared' ? null : plan.owner) ||
-    record.receipt.stage !== (plan.outcome === 'locked-prepared' ? 'prepared' : plan.outcome) ||
-    (!(plan.outcome === 'unknown' && plan.owner === null) && record.immutable.plan.current !== plan.head) ||
+      JSON.stringify(
+        (plan.retainedCommittedOwner && !standalone) || plan.outcome === 'locked-prepared'
+          ? null
+          : plan.owner,
+      ) ||
+    record.receipt.stage !== operationStage(plan.outcome) ||
+    (!standalone &&
+      !(plan.outcome === 'unknown' && plan.owner === null) &&
+      record.immutable.plan.current !== plan.head) ||
     record.immutable.plan.view !== plan.operation.view ||
     resolvedDraft !== plan.draft ||
-    hash(draftRaw) !== record.immutable.proposalHash ||
-    draft.id !== plan.operation.view ||
-    draft.state !== 'ready' ||
+    !proposalMatches(draftRaw, record, standalone) ||
     semantic !== plan.configSemantic ||
     !worktreeBound
   )
@@ -989,6 +1089,36 @@ async function verifyArchive(plan: Plan, work: string, context: OperationContext
       ),
     )
     await verifyRetainedCommit(root, plan, terminal, context)
+    if (plan.outcome === 'retained-committed-prepared') {
+      if (
+        record.sequence !== 0 ||
+        record.owner !== null ||
+        JSON.stringify(record.receipt) !== JSON.stringify({ stage: 'prepared' }) ||
+        record.immutable.plan.current !== plan.head ||
+        record.immutable.plan.configHash !== semantic ||
+        record.immutable.plan.ledgerHash !==
+          hash(JSON.stringify(parseLedger(await read(root, '.memory.json', limits.ledger, context))))
+      )
+        throw Error('Archive ownerless prepared evidence changed')
+      await cleanHead(root, plan.head, actual, context)
+    }
+    if (standalone || plan.outcome === 'retained-committed-prepared') {
+      for (const entry of actual.filter(
+        (entry) => dirname(entry.path) === journal && entry.path.endsWith('.json'),
+      )) {
+        const historical = parseOperation(await read(root, entry.path, operationLimit, context))
+        if (
+          entry.path !== `${journal}/${historical.immutable.plan.id}.json` ||
+          historical.immutable.root !== plan.root ||
+          historical.immutable.rootIdentity !== plan.retainedCommittedOwner.rootIdentity ||
+          (!(
+            plan.outcome === 'retained-committed-prepared' && historical.immutable.plan.id === operation.id
+          ) &&
+            !['reconciled_committed', 'not_committed_dirty'].includes(historical.receipt.stage))
+        )
+          throw Error('Archive retained terminal history binding failed')
+      }
+    }
   }
 }
 async function conflictBytes(plan: Plan, work: string, context: OperationContext) {
@@ -1121,7 +1251,7 @@ async function verifyActive(plan: Plan, work: string, context: OperationContext,
   const active = (await inventory(plan.root, context, [maintenanceMarker, relative(plan.root, work)])).filter(
     (entry) => !restored.has(entry.path),
   )
-  if (allowMoves && plan.draft) {
+  if (allowMoves && plan.draft && plan.outcome !== 'retained-committed') {
     const current = active.find((e) => e.path === plan.draft)
     const before = expected.get(plan.draft)!
     if (current?.hash !== before.hash) {
@@ -1273,6 +1403,8 @@ async function loadTransaction(root: string, context: OperationContext) {
       'manually-recovered-not-committed-dirty',
       'manually-retired-ownerless-prepared',
       'manually-retired-locked-prepared',
+      'manually-retired-retained-committed',
+      'manually-retired-retained-committed-prepared',
     ].includes(state.disposition)
   )
     throw Error('Offline maintenance checkpoint unavailable')
@@ -1280,11 +1412,17 @@ async function loadTransaction(root: string, context: OperationContext) {
   const retained = plan.retainedCommittedOwner
   if (retained !== undefined) {
     const operation = retained?.operation
-    const ids = [plan.operation?.id, operation?.id]
+    const standalone = retained?.kind === 'terminal-lock-owner'
+    const prepared = retained?.kind === 'terminal-lock-owner-with-ownerless-prepared'
+    const ids = standalone ? [plan.operation?.id] : [plan.operation?.id, operation?.id]
     if (
       !retained ||
       Object.keys(retained).sort().join() !== 'kind,operation,rootIdentity' ||
-      retained.kind !== 'terminal-lock-owner-with-ownerless-unknown' ||
+      ![
+        'terminal-lock-owner-with-ownerless-unknown',
+        'terminal-lock-owner',
+        'terminal-lock-owner-with-ownerless-prepared',
+      ].includes(retained.kind) ||
       typeof retained.rootIdentity !== 'string' ||
       !/^\d+:\d+$/.test(retained.rootIdentity) ||
       !operation ||
@@ -1296,17 +1434,27 @@ async function loadTransaction(root: string, context: OperationContext) {
       !Number.isSafeInteger(operation.sequence) ||
       operation.sequence < 0 ||
       !retainedIdentityBinding(plan) ||
-      plan.outcome !== 'unknown' ||
+      plan.outcome !==
+        (standalone ? 'retained-committed' : prepared ? 'retained-committed-prepared' : 'unknown') ||
       plan.worktree.length !== 0 ||
       !plan.owner ||
       plan.owner.operation !== operation.id ||
       plan.owner.digest !== operation.digest ||
-      operation.id === plan.operation?.id ||
+      (standalone
+        ? JSON.stringify(operation) !== JSON.stringify(plan.operation)
+        : operation.id === plan.operation?.id) ||
       !plan.moves.includes(`${journal}/${operation.id}.json`) ||
-      plan.entries.filter((e) => dirname(e.path) === journal && e.path.endsWith('.json')).length !== 2 ||
+      (!standalone &&
+        !prepared &&
+        plan.entries.filter((e) => dirname(e.path) === journal && e.path.endsWith('.json')).length !== 2) ||
       plan.entries.some(
         (e) =>
           dirname(e.path) === journal &&
+          !(
+            (standalone || prepared) &&
+            e.kind === 'file' &&
+            /^[a-f0-9-]{36}\.json$/.test(relative(journal, e.path))
+          ) &&
           !ids.some((id) => e.path === `${journal}/${id}.json` || e.path === `${journal}/${id}.json.cas`),
       ) ||
       plan.moves.some((path) => /^\.memory-engine-/.test(path))
@@ -1325,7 +1473,23 @@ async function loadTransaction(root: string, context: OperationContext) {
     !uuidPattern.test(plan.operation.view) ||
     (plan.draft !== `${drafts}/${plan.operation.view}.json` &&
       plan.draft !== `${overflowDrafts}/${plan.operation.view}.json`) ||
-    !['unknown', 'not_committed_dirty', 'prepared', 'locked-prepared'].includes(plan.outcome) ||
+    ![
+      'unknown',
+      'not_committed_dirty',
+      'prepared',
+      'locked-prepared',
+      'retained-committed',
+      'retained-committed-prepared',
+    ].includes(plan.outcome) ||
+    (plan.outcome === 'retained-committed') !==
+      (state.disposition === 'manually-retired-retained-committed') ||
+    (plan.outcome === 'retained-committed' && retained?.kind !== 'terminal-lock-owner') ||
+    (plan.outcome === 'retained-committed-prepared') !==
+      (state.disposition === 'manually-retired-retained-committed-prepared') ||
+    (plan.outcome === 'retained-committed-prepared' &&
+      (retained?.kind !== 'terminal-lock-owner-with-ownerless-prepared' ||
+        plan.operation.sequence !== 0 ||
+        plan.worktree.length !== 0)) ||
     (plan.outcome === 'locked-prepared') !== (state.disposition === 'manually-retired-locked-prepared') ||
     (plan.owner === null && plan.outcome !== 'prepared' && plan.outcome !== 'unknown') ||
     (plan.outcome === 'prepared' && plan.owner !== null) ||
@@ -1337,7 +1501,11 @@ async function loadTransaction(root: string, context: OperationContext) {
       (plan.operation.sequence !== 0 || plan.worktree.length !== 0 || plan.moves.length !== 1)) ||
     (plan.outcome === 'locked-prepared' &&
       (plan.operation.sequence !== 0 || plan.worktree.length !== 0 || plan.moves.length !== 2)) ||
-    (plan.owner !== null && (plan.outcome === 'unknown' || plan.outcome === 'locked-prepared')
+    (plan.owner !== null &&
+    (plan.outcome === 'unknown' ||
+      plan.outcome === 'locked-prepared' ||
+      plan.outcome === 'retained-committed' ||
+      plan.outcome === 'retained-committed-prepared')
       ? !plan.moves.includes('.lock')
       : plan.moves.includes('.lock')) ||
     (plan.outcome === 'unknown') !== (state.disposition === 'manually-adopted-prior-outcome-unknown') ||
@@ -1440,7 +1608,7 @@ async function finish(
       await syncDirectory(dirname(destination), context)
       await syncDirectory(dirname(source), context)
     }
-    if (plan.draft) {
+    if (plan.draft && plan.outcome !== 'retained-committed') {
       const text = await conflictBytes(plan, work, context)
       if (!text) throw Error('Offline retained proposal unavailable')
       await gate(context, [join(plan.root, plan.draft)])
@@ -1605,13 +1773,17 @@ export async function offlineMaintenance(
     phase: 'prepared',
     planHash: hash(raw),
     disposition:
-      plan.outcome === 'unknown'
-        ? 'manually-adopted-prior-outcome-unknown'
-        : plan.outcome === 'locked-prepared'
-          ? 'manually-retired-locked-prepared'
-          : plan.outcome === 'prepared'
-            ? 'manually-retired-ownerless-prepared'
-            : 'manually-recovered-not-committed-dirty',
+      plan.outcome === 'retained-committed-prepared'
+        ? 'manually-retired-retained-committed-prepared'
+        : plan.outcome === 'retained-committed'
+          ? 'manually-retired-retained-committed'
+          : plan.outcome === 'unknown'
+            ? 'manually-adopted-prior-outcome-unknown'
+            : plan.outcome === 'locked-prepared'
+              ? 'manually-retired-locked-prepared'
+              : plan.outcome === 'prepared'
+                ? 'manually-retired-ownerless-prepared'
+                : 'manually-recovered-not-committed-dirty',
   }
   await durableJSON(join(work, 'state.json'), state, context)
   const path = join(root, maintenanceMarker)

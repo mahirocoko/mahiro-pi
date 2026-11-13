@@ -3316,6 +3316,161 @@ async function recoveryPlan(f: ReturnType<typeof fixture>) {
   assert.equal(Buffer.from(chunk.data, 'base64').toString('utf8'), '# Durable proposal\n')
   return plan
 }
+test('prepare refuses retained canonical lock before journal creation and cleanup preserves owner evidence', async () => {
+  const f = fixture(0)
+  try {
+    const plan = await recoveryPlan(f)
+    assert.equal(
+      (await new MemoryPublisher(f.engine, f.env).publish(plan, f.context)).stage,
+      'reconciled_committed',
+    )
+    const journal = join(f.root, '.views/.engine-v2/journal', `${plan.id}.json`)
+    const proposal = join(f.root, '.views/.engine-v2/drafts', `${plan.view}.json`)
+    const next = await f.engine.request('create', { project: 'project' }, f.context)
+    await f.engine.request('ready', { view: next.view }, f.context)
+    const readyPath = join(f.root, '.views/.engine-v2/drafts', `${next.view}.json`)
+    const readyBytes = readFileSync(readyPath)
+    const journalBytes = readFileSync(journal)
+    const proposalBytes = readFileSync(proposal)
+    await acquireOperationLock(f.root, plan.id, plan.digest, randomUUID(), f.context)
+    const lockBytes = readFileSync(join(f.root, '.lock/owner.json'))
+    const names = readdirSync(join(f.root, '.views/.engine-v2/journal'))
+    await assert.rejects(
+      f.engine.request('prepare', { view: next.view, reviewed: [] }, f.context),
+      engineError(),
+    )
+    assert.deepEqual(readdirSync(join(f.root, '.views/.engine-v2/journal')), names)
+    assert.deepEqual(readFileSync(readyPath), readyBytes)
+    const cleanup = await f.engine.request('manage', { action: 'cleanup', project: 'project' }, f.context)
+    assert.ok('cleanup' in cleanup)
+    assert.equal(cleanup.cleanup.reclaimedJournals, 0)
+    assert.equal(cleanup.cleanup.reclaimedDrafts, 0)
+    assert.deepEqual(readFileSync(journal), journalBytes)
+    assert.deepEqual(readFileSync(proposal), proposalBytes)
+    assert.deepEqual(readFileSync(join(f.root, '.lock/owner.json')), lockBytes)
+    const core = await read(f, next.view)
+    await f.engine.request(
+      'edit',
+      {
+        view: next.view,
+        path: 'Core.md',
+        expectedHash: core.hash as string,
+        text: '# Still editable\n',
+        sources: [],
+      },
+      f.context,
+    )
+    assert.equal((await read(f, next.view)).text, '# Still editable\n')
+  } finally {
+    await f.close()
+  }
+})
+
+test('actual local unpublished retirement settles only its journal under missing or foreign lock', async () => {
+  for (const variant of [
+    'missing',
+    'foreign',
+    'revoked',
+    'foreign-controller',
+    'generic-drain',
+    'proposal',
+    'owner',
+  ] as const) {
+    const f = fixture(0)
+    let observer: MemoryEngineController | undefined
+    try {
+      const plan = await recoveryPlan(f)
+      const journal = join(f.root, '.views/.engine-v2/journal', `${plan.id}.json`)
+      const before = readFileSync(journal)
+      const head = f.git('rev-parse', 'HEAD')
+      const proposalPath = join(f.root, '.views/.engine-v2/drafts', `${plan.view}.json`)
+      const proposalBytes = readFileSync(proposalPath)
+      if (variant === 'missing' || variant === 'foreign') {
+        await assert.rejects(
+          new MemoryPublisher(f.engine, f.env).publish(plan, { current: () => false }),
+          /authority|current/i,
+        )
+        assert.deepEqual(readFileSync(journal), before)
+        assert.deepEqual(readFileSync(proposalPath), proposalBytes)
+      }
+      let owner
+      if (variant !== 'missing')
+        owner = await acquireOperationLock(f.root, randomUUID(), 'b'.repeat(64), randomUUID(), f.context)
+      const lockPath = join(f.root, '.lock/owner.json')
+      const lockBytes = existsSync(lockPath) ? readFileSync(lockPath) : undefined
+      if (variant === 'proposal') {
+        const path = join(f.root, '.views/.engine-v2/drafts', `${plan.view}.json`)
+        const draft = JSON.parse(readFileSync(path, 'utf8'))
+        writeFileSync(path, `${JSON.stringify({ ...draft, state: 'cancelled' })}\n`, { mode: 0o600 })
+      }
+      if (variant === 'owner') {
+        const record = parseOperation(before.toString())
+        record.owner = owner!
+        writeFileSync(journal, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+      }
+      if (variant === 'revoked') {
+        await assert.rejects(
+          f.engine.retireUnpublished(plan.view, { current: () => false }),
+          /authority|current/i,
+        )
+        assert.deepEqual(readFileSync(journal), before)
+      } else if (variant === 'foreign-controller' || variant === 'generic-drain') {
+        if (variant === 'generic-drain') {
+          const executor = reserveExecutor(f.root, plan)
+          executor.beginLock()
+          executor.seal()
+        }
+        observer = new MemoryEngineController(f.root, f.env)
+        assert.equal(await observer.retireUnpublished(plan.view, f.context), undefined)
+        const result = await observer.request('recover', { plan: plan.id, digest: plan.digest }, f.context)
+        assert.equal(result.receipt.stage, 'unknown')
+        assert.equal(parseOperation(readFileSync(journal, 'utf8')).receipt.stage, 'unknown')
+      } else if (variant === 'owner') {
+        const ownedBytes = readFileSync(journal)
+        await assert.rejects(f.engine.retireUnpublished(plan.view, f.context), engineError())
+        assert.deepEqual(readFileSync(journal), ownedBytes)
+      } else {
+        const result = await f.engine.retireUnpublished(plan.view, f.context)
+        const expected = variant === 'proposal' ? 'unknown' : 'not_committed_dirty'
+        assert.equal(result?.receipt.stage, expected)
+        assert.equal(parseOperation(readFileSync(journal, 'utf8')).receipt.stage, expected)
+        assert.equal(f.engine.ownsPlan(plan), false)
+      }
+      assert.equal(f.git('rev-parse', 'HEAD'), head)
+      if (lockBytes) assert.deepEqual(readFileSync(lockPath), lockBytes)
+      else assert.equal(existsSync(join(f.root, '.lock')), false)
+      if (variant === 'missing') {
+        // A failed before admission, then its actual owner retired it. Neither a
+        // fabricated commit nor manual cleanup is needed for independent job B.
+        const next = await f.engine.request('create', { project: 'project' }, f.context)
+        const core = await read(f, next.view)
+        await f.engine.request(
+          'edit',
+          {
+            view: next.view,
+            path: 'Core.md',
+            expectedHash: core.hash as string,
+            text: '# Independent B\n',
+            sources: [],
+          },
+          f.context,
+        )
+        const nextPlan = await ready(f, next.view)
+        const result = await new MemoryPublisher(f.engine, f.env).publish(nextPlan, f.context)
+        assert.equal(result.stage, 'reconciled_committed')
+        assert.equal(f.git('rev-list', '--count', `${head}..HEAD`), '1')
+        assert.equal(readFileSync(join(f.root, 'Core.md'), 'utf8'), '# Independent B\n')
+        assert.deepEqual(readFileSync(proposalPath), proposalBytes, 'A proposal remains preserved')
+        assert.equal(parseOperation(readFileSync(journal, 'utf8')).receipt.stage, 'not_committed_dirty')
+        assert.equal(existsSync(join(f.root, '.lock')), false)
+      }
+    } finally {
+      await observer?.close()
+      await f.close()
+    }
+  }
+})
+
 for (const variant of ['owned', 'no-executor', 'foreign', 'dirty', 'hard-cap'] as const) {
   test(`oversized exact historical commit recovery retains boundaries: ${variant}`, async () => {
     const f = fixture(1)

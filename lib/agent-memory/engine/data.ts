@@ -537,6 +537,9 @@ export class MemoryDataEngine {
       reclaimedJournals: 0,
       reclaimedBlobs: 0,
     }
+    // A retained canonical lock retains its original journal/proposal evidence.
+    // Absence is only a precondition, never publication authority.
+    if (await this.canonicalLockPresent()) return counts
     const journal = join(this.folder, 'journal')
     const draftsFolder = join(this.folder, 'drafts')
     await this.gate([journal, draftsFolder], [], 'view')
@@ -548,6 +551,7 @@ export class MemoryDataEngine {
       if (force && name.endsWith('.tmp')) {
         const tmpPath = join(draftsFolder, name)
         await this.gate([tmpPath], [], 'view')
+        await this.requireNoCanonicalLock()
         await unlink(tmpPath).catch(() => {})
         continue
       }
@@ -672,6 +676,7 @@ export class MemoryDataEngine {
     }
     const unlinkJournal = async (entry: { path: string; planId: string }) => {
       await this.gate([entry.path], [], 'view')
+      await this.requireNoCanonicalLock()
       await unlink(entry.path).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw error
       })
@@ -693,6 +698,7 @@ export class MemoryDataEngine {
     }
     for (const entry of reclaimableDrafts) {
       await this.gate([entry.path], [], 'view')
+      await this.requireNoCanonicalLock()
       await unlink(entry.path).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw error
       })
@@ -1990,6 +1996,21 @@ export class MemoryDataEngine {
       await rmdir(cas)
     }
   }
+  private async canonicalLockPresent(): Promise<boolean> {
+    const lock = join(this.root, '.lock')
+    await this.gate([lock])
+    try {
+      await lstat(lock)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  }
+  private async requireNoCanonicalLock() {
+    if (await this.canonicalLockPresent())
+      throw Error('Publication lock retained; explicit recovery required; proposal retained')
+  }
   private async exactLock(owner: LockOwner | null): Promise<boolean> {
     const lock = join(this.root, '.lock')
     await this.gate([lock, join(lock, 'owner.json')])
@@ -2076,6 +2097,7 @@ export class MemoryDataEngine {
       // Never turn an unchanged/no-op tree into evidence of a committed publication.
       if (
         record.owner !== null ||
+        !same(record, await this.loadOperation(p.plan.id, p.plan.digest)) ||
         (record.receipt.stage === 'prepared' && record.sequence !== 0) ||
         !['prepared', 'not_committed_dirty'].includes(record.receipt.stage) ||
         revision !== p.plan.current
@@ -2997,6 +3019,7 @@ export class MemoryDataEngine {
         const args = input as Input<'prepare'>
         const { v, config, refs } = await this.active(args.view, true)
         if (v.state !== 'ready') throw Error('Proposal is not ready')
+        await this.requireNoCanonicalLock()
         await this.initializeNamespace()
         if (dirname(await this.manifest(v)) === this.overflowFolder()) await this.overflowJournalFence()
         if (
@@ -3134,6 +3157,7 @@ export class MemoryDataEngine {
           kind: 'view',
           preparing: plan,
         })
+        await this.requireNoCanonicalLock()
         await this.write(this.operationPath(plan.id), raw)
         this.plans.set(plan.id, prepared)
         return { plan }
@@ -3192,7 +3216,10 @@ export class MemoryDataEngine {
       case 'reconcile': {
         const args = input as Input<'reconcile'>
         const p = this.plan(args.plan, args.digest)
-        if (!(neverStarted && p.record.owner === null) && !(await this.exactLock(p.record.owner)))
+        if (
+          !((neverStarted || unpublished) && p.record.owner === null) &&
+          !(await this.exactLock(p.record.owner))
+        )
           return { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
         return await this.outcome(p.record, drained, unpublished, neverStarted)
       }
@@ -3200,7 +3227,7 @@ export class MemoryDataEngine {
         const args = input as Input<'recover'>
         const record = await this.loadOperation(args.plan, args.digest)
         const receipt: Receipt =
-          (neverStarted && record.owner === null) || (await this.exactLock(record.owner))
+          ((neverStarted || unpublished) && record.owner === null) || (await this.exactLock(record.owner))
             ? await this.outcome(record, drained, unpublished, neverStarted)
             : { stage: 'unknown', detail: 'Operation lock unknown or replaced' }
         const next = await this.updateOperation(record, receipt)

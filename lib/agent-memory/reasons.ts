@@ -50,6 +50,10 @@ export type OfflineResetFailureCode =
   | 'reset-request-shape'
   | 'fingerprint'
   | 'recovery-plan'
+  | 'recovery-layout'
+  | 'recovery-journal'
+  | 'recovery-lock'
+  | 'recovery-artifacts'
   | 'recovery-commit'
   | 'recovery-proposal'
 const require = createRequire(import.meta.url)

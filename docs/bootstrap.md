@@ -107,18 +107,29 @@ change, native operation or reload is performed by inspection.
 ## Offline memory operator
 
 Installation never repairs uncertain memory. A separate explicit owner entry is
-available for the exact operation-bound unknown, terminal-dirty or retained terminal
-lock-owner plus ownerless-unknown incident described in
-[offline maintenance recovery](agent-memory.md#explicit-offline-maintenance-recovery).
-The last case may classify consistent historical device-only drift offline; it
-never rewrites stored identities or weakens online lock checks. Its inspect target
-is the unknown operation, with a separate `retainedCommittedOwner` binding, and its
-result remains prior-outcome-unknown with the proposal retained as a conflict.
+available for the exact operation-bound unknown, terminal-dirty, standalone retained
+committed lock-owner, or retained terminal lock-owner plus ownerless-unknown incident
+in [offline maintenance recovery](agent-memory.md#explicit-offline-maintenance-recovery).
+The composite case may classify consistent historical device-only drift offline;
+its target is the unknown operation, with a separate `retainedCommittedOwner`
+binding, and its result remains prior-outcome-unknown with that proposal retained
+as a conflict. The standalone committed-owner case requires exact current identities,
+reports `priorOutcome: retained-committed`, preserves the proposal bytes/state and
+unrelated terminal history, and completes as `manually-retired-retained-committed`.
+A committed owner plus one exact ownerless prepared operation at HEAD uses the
+separate `retained-committed-prepared` classification and completes as
+`manually-retired-retained-committed-prepared`. The prepared proposal is archived
+then retained as a conflict; the committed owner's proposal and unrelated terminal
+history remain unchanged. This case also requires exact current identities.
+None of these cases rewrites stored identities, reconstructs executor drain or
+weakens online lock checks.
 No actual operator window is implied by source installation, testing or these examples.
 
 The registered ephemeral operator reports bounded, identity-branded `ownerCode`
-refusals for both reset and non-reset recovery. `recovery-plan`, `recovery-commit`
-and `recovery-proposal` identify the verification phase; existing `scan`,
+refusals for both reset and non-reset recovery. `recovery-layout`,
+`recovery-journal`, `recovery-lock` and `recovery-artifacts` identify classification
+phases; `recovery-plan`, `recovery-commit` and `recovery-proposal` identify later
+verification boundaries. Narrower source branding survives outer catches. Existing `scan`,
 `fingerprint` and holder/authority codes remain available. These are fixed metadata,
 not raw exception messages, permission grants or proof that a recovery is safe.
 
@@ -251,7 +262,8 @@ explicitly select `--resume --offline --target <transaction-UUID> --expect <dige
 Publication recovery has no automatic replay, lost-executor drain inference or rollback. A malformed
 checkpoint remains unavailable. Even with an absent `.lock` and clean Git, a
 maintenance marker blocks the installer until supported owner completion.
-Completed receipts say prior outcome unknown; they do not claim human acceptance.
+Receipts distinguish unknown-outcome adoption from terminal-dirty/prepared recovery
+and verified retained-committed ownership retirement; none claims human acceptance.
 The explicit operator is completion-driven: it retains fixed resource, output,
 Git-command and holder-inspection bounds but does not terminate a valid large
 archive on an arbitrary whole-operation wall clock. Its dedicated cold

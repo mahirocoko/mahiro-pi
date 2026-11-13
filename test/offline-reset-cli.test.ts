@@ -156,12 +156,12 @@ test('reset CLI inspect stays fresh with automatic reflection and a locked prepa
     assert.equal(inspected.stdout.includes('HELD_PRIVATE_FIXTURE'), false)
     assert.equal(inspected.stdout.includes(directory), false)
     assert.deepEqual(tree(directory), before)
-    // Non-reset recovery reports the same branded, bounded owner diagnostics.
+    // The untracked synthetic artifact refuses non-reset recovery at its branded phase.
     const publication = run(false)
     assert.equal(publication.status, 1)
     const publicationDiagnostic = JSON.parse(publication.stderr.split('\n')[0])
     assert.equal(publicationDiagnostic.native.code, 'extension-rejected')
-    assert.equal(publicationDiagnostic.native.ownerCode, 'fingerprint')
+    assert.equal(publicationDiagnostic.native.ownerCode, 'recovery-artifacts')
     assert.equal(publication.stdout, '')
     assert.equal(publication.stderr.includes(directory), false)
     assert.equal(publication.stderr.includes('HELD_PRIVATE_FIXTURE'), false)
