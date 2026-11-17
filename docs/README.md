@@ -44,6 +44,8 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.14.4 source release record](releases/0.14.4.md) — fail-fast release prerequisites and
+  explicit TAP reporters without removing verification tiers.
 - [v0.14.3 source release record](releases/0.14.3.md) — PSS 42.0.2 forwarding-spelling fix,
   preserved approval patch and verified fresh installed runtime.
 - [v0.14.2 source release record](releases/0.14.2.md) — memory failure isolation, retained-owner

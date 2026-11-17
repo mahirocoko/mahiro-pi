@@ -1,6 +1,6 @@
 # Development and release
 
-[← Documentation](README.md) · [Source release record](releases/0.14.3.md)
+[← Documentation](README.md) · [Source release record](releases/0.14.4.md)
 
 ## Upstream reviews
 
@@ -25,9 +25,17 @@ Use Node ≥22.19.0 and pnpm **10.33.0**. Install declared public dependencies
 explicitly with the frozen lockfile. No private corpus or sibling runtime is
 required. This repository authors the guards, dependency patches and narrow ABIs.
 
+`check:release` first runs the bounded, read-only `check:release:preflight`: the
+actual Node executable/version and Bun, fd (or fdfind), and ripgrep on the same
+process PATH. Missing prerequisites stop before the suites; the check never
+installs tools, downloads binaries or changes profiles. The existing release
+tiers remain unchanged. SDK wrappers that inspect TAP explicitly select that
+reporter rather than relying on a Node-version-dependent default.
+
 ```sh
 pnpm check:fast # default static tier; pnpm check is an alias
 pnpm check:state # read-only whole-state budget
+pnpm check:release:preflight # fail fast on executor prerequisites, without running suites
 pnpm check:docs
 pnpm check:types
 pnpm format # writes the owned formatter surface

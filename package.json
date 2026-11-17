@@ -1,6 +1,6 @@
 {
   "name": "@mahirocoko/mahiro-pi",
-  "version": "0.14.3",
+  "version": "0.14.4",
   "private": true,
   "type": "module",
   "description": "Native Pi companion UI, maintained memory, guarded RTK, explicit workflow tools and parent-scoped Herdr metadata.",
@@ -46,7 +46,8 @@
     "check": "pnpm check:fast",
     "check:fast": "pnpm check:state && pnpm check:types && pnpm check:format && node check-package.mjs && pnpm check:docs",
     "check:source": "node --import ./test/public-dependency-loader.mjs --test --test-concurrency=1 test/*.test.ts && pnpm check:state",
-    "check:release": "pnpm check:fast && pnpm check:source && pnpm check:public-sdk && pnpm check:state",
+    "check:release:preflight": "node check-release-preflight.mjs",
+    "check:release": "pnpm check:release:preflight && pnpm check:fast && pnpm check:source && pnpm check:public-sdk && pnpm check:state",
     "check:state": "node check-state.mjs",
     "check:types": "node check-types.mjs",
     "check:public-sdk": "node check-public-sdk.mjs",
