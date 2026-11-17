@@ -823,7 +823,7 @@ export const assertBootstrapNativeContract = (
   if (
     !object(metadata) ||
     metadata.dependencies?.['@gotgenes/pi-subagents'] !== '25.0.5' ||
-    metadata.dependencies?.['@gotgenes/pi-permission-system'] !== '42.0.0' ||
+    metadata.dependencies?.['@gotgenes/pi-permission-system'] !== '42.0.2' ||
     JSON.stringify(metadata.pi?.extensions?.slice(0, 2)) !==
       JSON.stringify(['./lib/guards/bootstrap.ts', './lib/guards/index.ts'])
   )
@@ -835,10 +835,10 @@ export const assertBootstrapNativeContract = (
     (permissionPatchHash !== undefined &&
       (!/^[a-f0-9]{64}$/.test(permissionPatchHash) ||
         !workspace.includes(
-          "'@gotgenes/pi-permission-system@42.0.0': patches/@gotgenes__pi-permission-system@42.0.0.patch",
+          "'@gotgenes/pi-permission-system@42.0.2': patches/@gotgenes__pi-permission-system@42.0.2.patch",
         ) ||
         !lock.includes(
-          `hash: ${permissionPatchHash}\n    path: patches/@gotgenes__pi-permission-system@42.0.0.patch`,
+          `hash: ${permissionPatchHash}\n    path: patches/@gotgenes__pi-permission-system@42.0.2.patch`,
         )))
   )
     throw new Error('Canonical patch provenance mismatch')
@@ -854,7 +854,7 @@ export const inspectBootstrap = (
   const meta = readJson(join(adapter, 'package.json'))
   const patch = readBootstrapFile(join(adapter, 'patches/@gotgenes__pi-subagents@25.0.5.patch'))
   const permissionPatch = readBootstrapFile(
-    join(adapter, 'patches/@gotgenes__pi-permission-system@42.0.0.patch'),
+    join(adapter, 'patches/@gotgenes__pi-permission-system@42.0.2.patch'),
   )
   const lock = readBootstrapFile(join(adapter, 'pnpm-lock.yaml'))
   const workspace = readBootstrapFile(join(adapter, 'pnpm-workspace.yaml'))
@@ -870,7 +870,7 @@ export const inspectBootstrap = (
   }
   for (const [name, version, key] of [
     ['@gotgenes/pi-subagents', '25.0.5', 'subagents'],
-    ['@gotgenes/pi-permission-system', '42.0.0', 'permissions'],
+    ['@gotgenes/pi-permission-system', '42.0.2', 'permissions'],
   ] as const) {
     const link = join(modules, name)
     if (!existsSync(link))
@@ -1159,7 +1159,7 @@ export const inspectBootstrap = (
   }
   const skillPolicy = r.components.skillPolicy ? inspectSetup(r.agentDir) : null
   // Structural installation preconditions, not a policy resolver. Runtime queries
-  // remain exclusively with the public Root permission service. PSS 42.0.0's
+  // remain exclusively with the public Root permission service. PSS 42.0.2's
   // documented unset universal fallback is ask (yolo may promote ask, never deny).
   let installationPolicy: string | undefined
   let removedDefaultDeny = false

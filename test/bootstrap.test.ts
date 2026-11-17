@@ -505,7 +505,7 @@ test('package locators and child exclusion survive replacement of a disposable p
       retarget(newOwner)
       rmSync(oldOwner, { recursive: true })
       assert.equal(existsSync(oldOwner), false)
-      assert.equal(parse(join(parse(settingsPath).packages[0], 'package.json')).version, '42.0.0')
+      assert.equal(parse(join(parse(settingsPath).packages[0], 'package.json')).version, '42.0.2')
       const after = inspectBootstrap(r)
       assert.equal(after.dependencies.permissions, newOwner)
       applyBootstrap(after, after.digest)
@@ -689,14 +689,14 @@ test('bootstrap Mods preflight rejects wrong dependency pins, missing patch owne
   const metadata = {
     dependencies: {
       '@gotgenes/pi-subagents': '25.0.5',
-      '@gotgenes/pi-permission-system': '42.0.0',
+      '@gotgenes/pi-permission-system': '42.0.2',
     },
     pi: { extensions: ['./lib/guards/bootstrap.ts', './lib/guards/index.ts'] },
   }
   const permissionHash = 'c'.repeat(64)
   const permissionMapping =
-    "'@gotgenes/pi-permission-system@42.0.0': patches/@gotgenes__pi-permission-system@42.0.0.patch"
-  const permissionLock = `hash: ${permissionHash}\n    path: patches/@gotgenes__pi-permission-system@42.0.0.patch`
+    "'@gotgenes/pi-permission-system@42.0.2': patches/@gotgenes__pi-permission-system@42.0.2.patch"
+  const permissionLock = `hash: ${permissionHash}\n    path: patches/@gotgenes__pi-permission-system@42.0.2.patch`
   const hash = 'a'.repeat(64),
     workspace = "'@gotgenes/pi-subagents@25.0.5': patches/@gotgenes__pi-subagents@25.0.5.patch",
     lock = `hash: ${hash}`

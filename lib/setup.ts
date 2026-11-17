@@ -35,7 +35,7 @@ const surface = (value: unknown) =>
     Object.entries(value).every(([key, decision]) => key.length > 0 && patternAction(decision)))
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 
-// This installer validates a bounded subset of PSS 42.0.0 config. New fields,
+// This installer validates a bounded subset of PSS 42.0.2 config. New fields,
 // including commandEffects, are refused unchanged rather than silently edited.
 const validate: (config: unknown) => asserts config is Record<string, unknown> = (config) => {
   if (!object(config)) throw new Error('Unsupported permission config')

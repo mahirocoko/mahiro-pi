@@ -127,6 +127,11 @@ incomplete.
 
 ## Effective Bash approval
 
+PSS 42.0.2 preserves each forwarded asking Bash unit's child-computed spellings.
+The parent resolves those spellings against its rules without recomputing paths
+against the parent's cwd. Malformed forwarded spellings discard the access facts
+and retain the upstream ask/escalation path, not an implicit allow.
+
 The authored PSS patch exposes optional `consumeBashApproval`. Only the
 **aggregate successful native Bash pipeline** mints a bounded one-shot receipt,
 bound before awaiting to:
@@ -208,7 +213,7 @@ through a helper or another executor. Resolve the named
 owner rather than disabling guards or forging metadata.
 
 Owners: [feature kernel](../lib/kernel/index.ts), [Root guard](../lib/guards/index.ts) and the authored
-[PSS patch](../patches/@gotgenes__pi-permission-system@42.0.0.patch), with child-control
+[PSS patch](../patches/@gotgenes__pi-permission-system@42.0.2.patch), with child-control
 attestation in the authored [subagents patch](../patches/@gotgenes__pi-subagents@25.0.5.patch).
 Source declarations and offline SDK/Faux fixtures do not prove that installed
 dependencies are patched or a running session loaded them. Installation and an
