@@ -610,7 +610,52 @@ Failed/cancelled/retired attempts and conflicts are not successful integration.
 `latestAttempt` reflects newly observed native metadata, not historical private
 attempt inspection or proof of semantic learning.
 
-**Prepared-publication retirement handoff (safe vertical slice).**
+### Troubleshooting: retained prepared operation or writer error
+
+`episode-or-writer-unavailable` is a broad failure label, not a diagnosis of
+corpus corruption, missing permissions or a provider failure. `owner reported an
+error` means the runtime returned a nonempty `lastError`; the label alone does
+not distinguish a historical error from an active blocker. `Ready` describes
+prerequisite readiness, not successful completion of every earlier write.
+
+Run these read-only commands **in the affected primary session**, not a different
+installation or another user's machine:
+
+```text
+/mh-memory status
+/mh-memory doctor
+/mh-memory prepared-retire status
+```
+
+1. Review `lastError`, `latestAttempt`, worker state and pending operations in
+   status together with doctor findings. Do not treat `Ready`, `idle` or a healthy
+   doctor result alone as proof that the failed publication recovered.
+2. For a retained prepared operation, inspect the prepared-retirement result.
+   The record is preserved because its outcome needs review; its presence alone
+   does not prove committed knowledge was lost. Use only the recovery
+   classification actually returned, not the generic writer-error label.
+3. If a capable owner returns a supported prepared classification, the
+   [retirement handoff below](#prepared-publication-retirement-handoff) can drain
+   that memory generation and return an `offline-required` target/revision.
+   `/mh-memory prepared-retire` is **not a read-only check or a repair**: it retires
+   the generation. Use it only when ready to coordinate
+   [explicit offline maintenance recovery](#explicit-offline-maintenance-recovery).
+   Re-inspect offline before applying recovery; an old
+   fingerprint or a quiet process is not authorization.
+4. If the status command itself returns `reason: unknown`, or reports an
+   unavailable capability, **no online recovery classification was certified**.
+   Do not guess a target/revision or repeatedly invoke retirement. Preserve the
+   store and report the affected Mahiro Pi, Pi and PSS versions, exact failing
+   command and sanitized diagnostic output to the maintainer. Include a failure
+   stage when supplied; omit memory bodies, credentials and private paths. The
+   maintainer must diagnose that failure before choosing a supported recovery.
+
+Never delete `.lock`, journals, proposals or the memory root to clear this warning;
+never disable guards, broaden permissions, reset/reseed existing memory or replay
+an uncertain proposal. These instructions preserve evidence and identify the next
+supported action; they do not claim to repair the `unknown` diagnostic itself.
+
+### Prepared-publication retirement handoff
 `/mh-memory prepared-retire status` classifies only strict ownerless-prepared or
 locked-prepared publication evidence using the existing offline review/fingerprint
 owner. `/mh-memory prepared-retire` first reviews that exact operation, then fences
