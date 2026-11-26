@@ -105,10 +105,9 @@ index c93b0480b8767fbb379ce87093f926460c530fe4..0f9c6f10e101f491f2c1bffd59501c3e
    // handlers for an event in registration order, so the widget is torn down once
    // `abortAll()` and the awaited `manager.dispose()` have finished — no terminal
 diff --git a/src/lifecycle/create-subagent-session.ts b/src/lifecycle/create-subagent-session.ts
-index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae0a7852ab 100644
 --- a/src/lifecycle/create-subagent-session.ts
 +++ b/src/lifecycle/create-subagent-session.ts
-@@ -31,6 +31,7 @@ import type { EnvInfo } from "#src/session/env";
+@@ -31,6 +31,7 @@
  import { expandMcpToolPatterns } from "#src/session/mcp-tool-patterns";
  import type { ModelRegistry } from "#src/session/model-resolver";
  import { NotifyParentTool, type UpdateAnnouncer } from "#src/session/notify-parent-tool";
@@ -116,7 +115,7 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
  import { type AssemblerIO, assembleSessionConfig } from "#src/session/session-config";
  import type {
    ParentSessionInfo,
-@@ -146,6 +147,8 @@ export type SubagentSessionIO = EnvironmentIO & SessionFactoryIO;
+@@ -146,6 +147,8 @@
   * static domain deps (exec, registry) every creation needs.
   */
  export interface SubagentSessionDeps {
@@ -125,7 +124,7 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
    io: SubagentSessionIO;
    exec: ShellExec;
    registry: AgentConfigLookup;
-@@ -183,8 +186,7 @@ export interface CreateSubagentSessionParams {
+@@ -183,8 +186,7 @@
    askParent?: QuestionRecorder;
    /**
     * Announces a mid-run update the child sends with `notify_parent`. Supplied
@@ -135,7 +134,16 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
     */
    notifyParent?: UpdateAnnouncer;
    /** The caller's turn-limit inputs, resolved with the agent's own limit into the session's. */
-@@ -264,6 +266,8 @@ export async function createSubagentSession(
+@@ -231,7 +233,7 @@
+       parentPortablePrompt: snapshot.portablePrompt,
+       parentModel: snapshot.model,
+       modelRegistry: snapshot.modelRegistry,
+-      resolvePromptInheritance: deps.resolvePromptInheritance,
++      resolvePromptInheritance: snapshot.detachParentPrompt ? () => "portable" : deps.resolvePromptInheritance,
+     },
+     {
+       cwd: params.cwd,
+@@ -264,6 +266,8 @@
    // would defeat prompt_mode: replace. Parent context, if wanted, reaches the
    // subagent via prompt_mode: append (parentSystemPrompt is embedded in
    // systemPromptOverride) or inherit_context (conversation).
@@ -144,7 +152,7 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
    const loader = deps.io.createResourceLoader({
      cwd: cfg.effectiveCwd,
      agentDir,
-@@ -273,9 +277,17 @@ export async function createSubagentSession(
+@@ -273,9 +277,17 @@
      noContextFiles: true,
      systemPromptOverride: () => cfg.systemPrompt,
      appendSystemPromptOverride: () => [],
@@ -164,7 +172,7 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
  
    // Create a persisted SessionManager so transcripts are written in Pi's
    // official JSONL format. Falls back to a temp directory when the parent
-@@ -285,7 +297,6 @@ export async function createSubagentSession(
+@@ -285,7 +297,6 @@
    sessionManager.newSession({ parentSession: params.parentSession?.parentSessionId });
    const sessionId = sessionManager.getSessionId();
  
@@ -172,7 +180,7 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
    const { session } = await deps.io.createSession({
      cwd: cfg.effectiveCwd,
      agentDir,
-@@ -298,7 +309,11 @@ export async function createSubagentSession(
+@@ -298,7 +309,11 @@
      excludeTools: EXCLUDED_TOOL_NAMES,
      resourceLoader: loader,
      thinkingLevel: cfg.thinkingLevel,
@@ -184,7 +192,7 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
  
    const subagentSession = new SubagentSession(session, {
      outputFile: sessionManager.getSessionFile(),
-@@ -308,6 +323,7 @@ export async function createSubagentSession(
+@@ -308,6 +323,7 @@
      turnLimits: resolveTurnLimits(params.turnLimits, cfg.agentMaxTurns),
      parentContext: snapshot.parentContext,
      lifecycle: deps.lifecycle,
@@ -192,7 +200,7 @@ index 16c5c81b0825c6f6907584c4d23722c82dbe5f47..045092a3724fd3b4530c857265ddfdae
    });
  
    // Publish session-created before bindExtensions() so observers (e.g. the
-@@ -320,7 +336,9 @@ export async function createSubagentSession(
+@@ -320,7 +336,9 @@
    try {
      // Bind extensions so that session_start fires and extensions can initialize.
      await session.bindExtensions({});
@@ -542,3 +550,94 @@ index 0000000000000000000000000000000000000000..659bd5444dd815c1ec56682b04fd2f8b
 +    },
 +  };
 +}
+diff --git a/src/tools/agent-tool.ts b/src/tools/agent-tool.ts
+--- a/src/tools/agent-tool.ts
++++ b/src/tools/agent-tool.ts
+@@ -42,7 +42,7 @@
+ 
+ /** Narrow runtime interface — the Agent tool's slice of SubagentRuntime. */
+ export interface AgentToolRuntime {
+-	buildSnapshot(inheritContext: boolean): ParentSnapshot;
++	buildSnapshot(inheritContext: boolean, detachParentPrompt?: boolean): ParentSnapshot;
+ 	getModelInfo(): ModelInfo;
+ 	getSessionInfo(): { parentSessionFile: string; parentSessionId: string };
+ }
+@@ -82,17 +82,38 @@
+ 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
+ 		this.registry.reload();
+ 
++		const exactRole = params.require_exact_role === true;
++		if (exactRole) {
++			const role = params.subagent_type;
++			if (signal?.aborted || _ctx.signal?.aborted) return textResult("Subagent dispatch was cancelled.");
++			if (params.resume || typeof role !== "string" || this.registry.resolveType(role) !== role || !this.registry.isValidType(role)) {
++				return textResult("The exact subagent role is unavailable; no worker was started.");
++			}
++		}
++
++		const modelInfo = this.runtime.getModelInfo();
+ 		// ---- Config resolution (pure) ----
+ 		const config = resolveSpawnConfig(
+ 			params,
+ 			this.registry,
+-			this.runtime.getModelInfo(),
++			modelInfo,
+ 			this.settings,
+ 		);
+ 		if ("error" in config) return textResult(config.error);
++		if (exactRole) {
++			if (!config.execution.runInBackground || config.execution.inheritContext) {
++				return textResult("The exact-role dispatch requires background execution without inherited conversation context.");
++			}
++			const configured = this.registry.resolveAgentConfig(config.identity.subagentType).model;
++			const resolved = config.execution.model;
++			if (!configured || !resolved || `${resolved.provider}/${resolved.id}` !== configured ||
++				!modelInfo.modelRegistry?.getAvailable?.().some((model) => `${model.provider}/${model.id}` === configured)) {
++				return textResult("The configured exact-role model is unavailable; no worker was started.");
++			}
++		}
+ 
+ 		// ---- Boundary extraction (after config so inheritContext is resolved) ----
+-		const snapshot = this.runtime.buildSnapshot(config.execution.inheritContext);
++		const snapshot = this.runtime.buildSnapshot(config.execution.inheritContext, exactRole);
+ 		const { parentSessionFile, parentSessionId } = this.runtime.getSessionInfo();
+ 		const parentSession: ParentSessionInfo = { parentSessionFile, parentSessionId, toolCallId };
+ 
+@@ -255,6 +276,9 @@
+ 						description:
+ 							"Set to true to run in background. Returns agent ID immediately. You will be notified when it completes. Omit to use the agent's own default.",
+ 					}),
++				),
++				require_exact_role: Type.Optional(
++					Type.Boolean({ description: "Require an enabled, exact role for a fresh background launch without inherited parent context. Require its configured provider/model; never fall back." }),
+ 				),
+ 				resume: Type.Optional(
+ 					Type.String({
+diff --git a/src/lifecycle/parent-snapshot.ts b/src/lifecycle/parent-snapshot.ts
+--- a/src/lifecycle/parent-snapshot.ts
++++ b/src/lifecycle/parent-snapshot.ts
+@@ -38,6 +38,8 @@
+   cwd: string;
+   /** Parent's effective system prompt (for append-mode agents). */
+   systemPrompt: string;
++  /** Exact-role tool launches do not capture the parent prompt. */
++  detachParentPrompt?: true;
+   /** Parent's current model instance (fallback when agent config has no model). */
+   model: Model<any> | undefined;
+   /** Model registry for resolving config.model strings and creating sessions. */
+diff --git a/src/runtime.ts b/src/runtime.ts
+--- a/src/runtime.ts
++++ b/src/runtime.ts
+@@ -69,7 +69,11 @@
+    * Build a parent snapshot from the current session context.
+    * Only valid during an active session (currentCtx is defined).
+    */
+-  buildSnapshot(inheritContext: boolean): ParentSnapshot {
++  buildSnapshot(inheritContext: boolean, detachParentPrompt = false): ParentSnapshot {
++    if (detachParentPrompt) {
++      const ctx = this.currentCtx!;
++      return { cwd: ctx.cwd, model: ctx.model, modelRegistry: ctx.modelRegistry, systemPrompt: "", detachParentPrompt: true };
++    }
+ 
+     return buildParentSnapshot(this.currentCtx!, inheritContext, this.lastPromptOptions);
+   }

@@ -335,6 +335,11 @@ export function renderFooter(
   const statuses = data.getExtensionStatuses()
   const memory = text(statuses.get('mahiro-memory'))
   const rtk = text(statuses.get('mahiro-rtk'))
+  const orchestration = text(statuses.get('mahiro-orchestrator'))
+  const orch =
+    geometry.visibleWidth(orchestration) > width && orchestration === 'Orch off · finishing'
+      ? 'Orch off/drain'
+      : orchestration
   const native = cell(`↑${tokens(stats.input)} ↓${tokens(stats.output)}`)
   const modelBudget = Math.min(width, Math.max(30, Math.floor(width / 2)))
   const rows =
@@ -366,6 +371,7 @@ export function renderFooter(
         native,
         ...(memory ? [cell(memory)] : []),
         ...(rtk ? [cell(rtk)] : []),
+        ...(orch ? [cell(orch)] : []),
       ],
       width,
       geometry,
@@ -375,7 +381,7 @@ export function renderFooter(
   const route = routeLabel(ctx)
   if (route) rows.push(...pack([cell(route, COLORS.context)], width, geometry))
   const others = [...statuses]
-    .filter(([key]) => key !== 'mahiro-status' && key !== 'mahiro-memory' && key !== 'mahiro-rtk')
+    .filter(([key]) => !['mahiro-status', 'mahiro-memory', 'mahiro-rtk', 'mahiro-orchestrator'].includes(key))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, value]) => cell(text(value, 4096)))
   const statusRows = pack(others, width, geometry)

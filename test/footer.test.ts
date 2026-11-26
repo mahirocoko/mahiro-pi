@@ -350,6 +350,34 @@ test('extension status group is right-aligned below model without losing cells a
   }
 })
 
+test('orchestration status wraps without replacing model, native usage, context or quota', () => {
+  const f = fixture()
+  const state = { ...f.state, quota: [{ text: 'Codex 5h 62%', color: COLORS.git }] }
+  f.data.getExtensionStatuses = () => new Map([['mahiro-orchestrator', 'Orch off · finishing']])
+  for (const width of [14, 20, 40, 80, 160]) {
+    const rows = renderFooter(f.ctx, {}, f.data, state, width, geometry)
+    assert.ok(
+      rows.every((row) => geometry.visibleWidth(row) <= width),
+      `${width}: overflow`,
+    )
+    const content = rows.map(plain).join('\n')
+    const orch = width < 20 ? 'Orch off/drain' : 'Orch off · finishing'
+    const baseline = renderFooter(
+      f.ctx,
+      {},
+      { ...f.data, getExtensionStatuses: () => new Map() },
+      state,
+      width,
+      geometry,
+    )
+    assert.equal(rows[width < 80 ? 1 : 0], baseline[width < 80 ? 1 : 0], `${width}: model row changed`)
+    for (const part of ['0.0%', 'Codex 5h 62%', '↑10 ↓3', orch]) {
+      assert.ok(content.includes(part), `${width}: ${part}`)
+    }
+    assert.equal(content.split(orch).length - 1, 1)
+  }
+})
+
 test('minimal core rows retain native input/output, context semantics, palette and status ownership', () => {
   const f = fixture()
   f.data.getExtensionStatuses = () =>

@@ -8,7 +8,7 @@ import ts from 'typescript'
 const root = fileURLToPath(new URL('.', import.meta.url))
 const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@mahirocoko/mahiro-pi')
-assert.equal(manifest.version, '0.14.4')
+assert.equal(manifest.version, '0.15.0')
 const rootGuard = await readFile(resolve(root, 'lib/guards/index.ts'), 'utf8')
 assert.doesNotMatch(rootGuard, /owned-provenance|createMetaProvenance|unsupported tool\/alias/)
 assert.doesNotMatch(

@@ -30,6 +30,7 @@
   [R3](letta-parity-r3.md), [R4](letta-parity-r4.md), [R5](letta-parity-r5.md),
   [R6](letta-parity-r6.md), [R7](letta-parity-r7.md), [R8](letta-parity-r8.md).
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
+- [Orchestrator trial](orchestrator.md) — optional per-session toggle and one guarded background writer.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),
   readable tool cards, [Goals](workflows.md#goals),
   [Code Evidence](workflows.md#code-evidence), [UX workflow](workflows.md#ux-workflow)
@@ -44,6 +45,7 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.15.0 source release record](releases/0.15.0.md) — optional guarded single-writer orchestration trial.
 - [v0.14.4 source release record](releases/0.14.4.md) — fail-fast release prerequisites and
   explicit TAP reporters without removing verification tiers.
 - [v0.14.3 source release record](releases/0.14.3.md) — PSS 42.0.2 forwarding-spelling fix,
