@@ -147,7 +147,7 @@ export default function mahiroGoal(pi: ExtensionAPI) {
     'mh-goal',
     {
       description:
-        'Native Goal: status/list; human-directed create/revise/move, plan/rules and confirmed human gates',
+        'Create a Goal and start work: /mh-goal <objective>. Use help for status and management commands.',
       handler,
     },
     { open: openGoalMenu },

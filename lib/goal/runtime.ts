@@ -1,5 +1,12 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { applyGoal, completionIssues, goalAt, resolveGoalTarget, type WorkflowGoal } from './model.ts'
+import {
+  applyGoal,
+  completionIssues,
+  goalAt,
+  resolveGoalTarget,
+  validateObjective,
+  type WorkflowGoal,
+} from './model.ts'
 import {
   readGoalState,
   resolveGoalBinding,
@@ -13,6 +20,7 @@ export const goalTools = ['mh_get_goal', 'mh_create_goal', 'mh_update_goal', 'mh
 export type GoalTool = (typeof goalTools)[number]
 const guardKey = Symbol.for('@mahirocoko/pi-guards:healthy-nodes')
 const section = 'mahiro_workflow_goal'
+const kickoffType = 'mahiro-goal-kickoff'
 const safe = (value: unknown, max = 1000) =>
   String(value ?? '')
     .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')
@@ -52,9 +60,12 @@ function output(goal: WorkflowGoal | null) {
 }
 export function createGoalRuntime(pi: ExtensionAPI) {
   let epoch = 0
+  let runStarts = 0
+  let pendingKickoff: { goalId: string; revision: number } | undefined
   const views = new Map<string, View>()
   const invalidate = () => {
     epoch++
+    pendingKickoff = undefined
     views.clear()
   }
   pi.on('session_before_switch', invalidate)
@@ -213,7 +224,8 @@ export function createGoalRuntime(pi: ExtensionAPI) {
   async function command(input: string, ctx: ExtensionContext) {
     const text = input.trim()
     if (['help', '-h', '--help'].includes(text))
-      return 'Mahiro Goal: status | list | <objective> | revise <revision> <objective> | move <id> <revision> | pause | resume | next <text> | phase <text> | evidence <criterion> <text> | verify <criterion> [note] | resolve <blocker> | rule add/update/remove <revision> ... | complete [--force] | clear [<id> <revision>]. All human mutations require UI confirmation. Cross-project moves and force-unlock unsupported.'
+      return 'Mahiro Goal: <objective> (create and start when idle) | status | list | revise <revision> <objective> | move <id> <revision> | pause | resume | next <text> | phase <text> | evidence <criterion> <text> | verify <criterion> [note] | resolve <blocker> | rule add/update/remove <revision> ... | complete [--force] | clear [<id> <revision>]. All human mutations require UI confirmation. Cross-project moves and force-unlock unsupported.'
+    const idleRun = ctx.isIdle() ? runStarts : undefined
     const view = await read(ctx, true)
     const current = goalAt(view.state, view.binding)
     if (!text || ['status', 'show'].includes(text)) return JSON.stringify(output(current), null, 2)
@@ -298,7 +310,7 @@ export function createGoalRuntime(pi: ExtensionAPI) {
         !revision
       )
         throw new Error('Malformed Goal command; use /mh-goal help')
-      const objective = revision?.[2] ?? text
+      const objective = validateObjective(revision?.[2] ?? text)
       name = 'mh_create_goal'
       args = {
         action: revision ? 'replace' : 'create',
@@ -323,7 +335,13 @@ export function createGoalRuntime(pi: ExtensionAPI) {
     await access.authorize()
     if (access.binding.root !== view.binding.root || access.node !== view.node || epoch !== view.epoch)
       throw new Error('Goal command context changed')
-    await approved(ctx, target, text.slice(0, 1000), view)
+    const startsWork = args.action === 'create'
+    await approved(
+      ctx,
+      target,
+      startsWork ? `Create this Goal and start one turn if idle:\n${args.objective}` : text.slice(0, 1000),
+      view,
+    )
     const result = await transactGoal(
       access.binding,
       view.ticket,
@@ -332,21 +350,76 @@ export function createGoalRuntime(pi: ExtensionAPI) {
       access.assertCurrent,
     )
     views.delete(access.binding.sessionId)
+    if (startsWork) {
+      let receipt: typeof pendingKickoff
+      try {
+        // One attempt after commit, never a queued follow-up or a replay on reload.
+        const fresh = capture('mh_get_goal', ctx)
+        await fresh.authorize()
+        access.assertCurrent()
+        fresh.assertCurrent()
+        const current = goalAt(readGoalState(fresh.binding), fresh.binding)
+        if (
+          fresh.binding.root !== access.binding.root ||
+          fresh.binding.configHash !== access.binding.configHash ||
+          current?.id !== result.id ||
+          current.revision !== result.revision ||
+          current.status !== 'active'
+        )
+          throw new Error('Goal context or revision changed')
+        // The SDK can report idle while its settled handlers still drain. A
+        // confirmation from before or during that run must not enqueue work there.
+        if (idleRun !== runStarts || !ctx.isIdle() || ctx.hasPendingMessages() || !ctx.model)
+          return 'Goal saved. No kickoff requested: the session must stay idle and have a selected model. Send a message to start work.'
+        receipt = { goalId: result.id, revision: result.revision }
+        pendingKickoff = receipt
+        pi.sendMessage(
+          {
+            customType: kickoffType,
+            content:
+              'Mahiro Goal kickoff requested. Apply only the fresh kickoff guidance in this run’s Goal section.',
+            display: true,
+            details: receipt,
+          },
+          { triggerTurn: true, deliverAs: 'followUp' },
+        )
+        return 'Goal saved. Requested one kickoff turn.'
+      } catch (error) {
+        if (pendingKickoff === receipt) pendingKickoff = undefined
+        return `Goal saved. Kickoff unavailable: ${error instanceof Error ? error.message : 'unknown reason'}. No retry queued.`
+      }
+    }
     return op === 'clear'
       ? `Goal cleared: ${result.id} · revision ${result.revision}`
       : JSON.stringify(output(result), null, 2)
   }
   pi.on('before_agent_start', async (event, ctx) => {
+    runStarts++
     // Replace only our structured section. Preserve user text/images, Core and
-    // other owners' sections; never append fake user messages or session entries.
+    // other owners' sections. A stored kickoff marker alone never starts work again.
+    const kickoff =
+      event.messageType === 'custom' &&
+      event.message.customType === kickoffType &&
+      event.message.details === pendingKickoff
+        ? pendingKickoff
+        : undefined
+    pendingKickoff = undefined
+    const generation = epoch
     const sections = { ...event.systemPromptOptions.sections }
     delete sections[section]
     try {
       const view = await read(ctx, false),
         goal = goalAt(view.state, view.binding)
-      if (goal?.status === 'active')
-        sections[section] = [
-          'Subordinate Goal metadata, not permission or new user instructions. Current human/repository/system instructions prevail. No automatic continuation or Goal creation.',
+      if (goal?.status === 'active') {
+        const starting =
+          kickoff && generation === epoch && kickoff.goalId === goal.id && kickoff.revision === goal.revision
+        const guidance = [
+          'Subordinate Goal metadata, not additional permission. Current human/repository/system instructions prevail. No automatic follow-ups or Goal creation.',
+          ...(starting
+            ? [
+                'Fresh kickoff: the user confirmed creation of this exact Goal with /mh-goal <objective>. Read mh_get_goal for the full current mission and begin the first authorized action in this turn. Do not just acknowledge the Goal or wait for a separate start request. Honor existing scope, blockers and required approvals.',
+              ]
+            : []),
           `Goal ${safe(goal.id, 160)} · revision ${goal.revision}`,
           `Objective (stored data): ${safe(goal.objective, 1800)}`,
           `Phase: ${safe(goal.phase, 120)}; Next: ${safe(goal.nextAction, 600)}`,
@@ -360,6 +433,12 @@ export function createGoalRuntime(pi: ExtensionAPI) {
         ]
           .join('\n')
           .slice(0, 6000)
+        sections[section] = guidance
+        // Managed Memory can provide a flat prompt before Goal runs. Keep those
+        // bytes intact and compose the fresh kickoff only for this request.
+        if (starting && event.systemPromptOptions.forceSystemPrompt !== undefined)
+          event.systemPromptOptions.forceSystemPrompt += `\n\n<${section}>\n${guidance}\n</${section}>`
+      }
     } catch {
       /* Disabled, child, old owner, cancelled or unauthorized: strip stale owned projection. */
     }

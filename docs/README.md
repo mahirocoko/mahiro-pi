@@ -45,6 +45,7 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.16.0 source release record](releases/0.16.0.md) — start an approved Goal in the same Pi session.
 - [v0.15.0 source release record](releases/0.15.0.md) — optional guarded single-writer orchestration trial.
 - [v0.14.4 source release record](releases/0.14.4.md) — fail-fast release prerequisites and
   explicit TAP reporters without removing verification tiers.

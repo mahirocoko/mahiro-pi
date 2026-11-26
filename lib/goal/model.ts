@@ -372,7 +372,7 @@ function historyEntry(revision: number, actor: Actor, action: string, summary: s
   }
 }
 
-function validateObjective(value: unknown): string {
+export function validateObjective(value: unknown): string {
   const objective = String(value ?? '').trim()
   if (!objective) throw new Error('Goal objective must not be empty.')
   if (objective.length > MAX_OBJECTIVE_CHARS) {

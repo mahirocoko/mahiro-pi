@@ -130,7 +130,19 @@ unlock or overwrite newer state; recovery requires reviewed owner work.
 
 ## Goals
 
+Use `/mh-goal <objective>` to create a new mission and start work in the same
+session. For example, `/mh-goal Fix the flaky parser test and verify it with the
+focused suite`. Confirm the full objective in the existing UI dialog. After the
+Goal is saved, a primary session that stayed idle through confirmation requests
+one native agent turn to start the first authorized action. It needs a selected
+model and no pending messages. If work was already running or a run started
+during confirmation, the command saves the Goal without requesting a kickoff;
+send a normal message when ready to work on it.
+
 Use `/mh-goal help` for command syntax and `/mh-goal-status` for a read-only alias.
+Status, management commands (including resume), and model-tool creation do not
+start agent turns. The kickoff does not add scope, permission, retries or a
+continuation loop.
 
 - `mh_get_goal` reads this session's canonical Goal and establishes a ticket.
 - `mh_create_goal` creates an explicitly requested mission. `replace: true`
@@ -158,9 +170,13 @@ updates and eligible audited completion do not acquire a universal new UI gate.
 Create/revise/move guidance is not mechanical requester authentication.
 No UI, decline or a changed target after confirmation means no write.
 
-An authorized active primary Goal projects a bounded owned reminder into the
-next request. It is subordinate metadata, not a fake user instruction, Core
-rewrite, permission or automatic continuation.
+An authorized active primary Goal contributes a bounded reminder to the request.
+Only the fresh, matching create-command kickoff adds a run-local instruction to
+start. On that run, Goal also appends the guidance to any earlier flat system
+prompt, preserving its content. The visible kickoff marker is a native custom
+message, not a user message;
+reading it later does not re-arm the kickoff. Neither the reminder nor the kickoff
+rewrites Core, grants permission, or verifies completion.
 
 Optional `pnpm goal:preview --project /canonical/project --agent-dir /private/profile`
 prints legacy configuration and capability names only; it has no apply option.
