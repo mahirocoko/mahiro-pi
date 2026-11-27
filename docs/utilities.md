@@ -2,13 +2,14 @@
 
 [← Documentation](README.md)
 
-## Terra persistence pilot
+## Persistence advisory for Terra and Sol
 
-The existing bootstrap registers a bounded persistence advisory only for ordinary
-primary user runs whose selected model is exactly `openai/gpt-6.1-terra`.
-Other providers, aliases/preview IDs, custom-message runs, child/fork/worker
-contexts and unavailable kernel identity skip it. No model or profile is changed.
-Disable it with the native boolean flag `--mahiro-terra-persistence-disable`.
+The existing bootstrap registers one shared persistence advisory only for ordinary
+primary user runs whose selected model is exactly `openai/gpt-6.1-terra` or
+`openai/gpt-6.2-sol`. Other models (including Astra), providers, aliases/preview IDs,
+custom-message runs, child/fork/worker contexts and unavailable kernel identity
+skip it. No model or profile is changed. The existing native boolean flag
+`--mahiro-terra-persistence-disable` disables the advisory for both models.
 Source availability does not activate it in an already-running session.
 
 The advisory distinguishes intermediate checkpoints from completion, asks for
@@ -52,11 +53,11 @@ section preservation, a memory-style prompt replacement followed by the real
 session-step owner, and no forced continuation after a partial response. Memory
 composition here is a fixture of its public hook pattern, not live private-memory
 or provider acceptance. Prompt text assertions for scan/partial-edit/test and
-question/stop/blocker/approval and uncertainty cases do not prove Terra follows
-them. A small live
-baseline/pilot comparison with synthetic primary identity observed both variants
-complete and respect the tested boundaries; it did not establish an advantage.
-No follow-up reduction, latency/cost benefit or behavioral resolution is claimed.
+question/stop/blocker/approval and uncertainty cases do not prove either model
+follows them. A small live Terra baseline/pilot comparison with synthetic primary
+identity observed both variants complete and respect the tested boundaries; it did
+not establish an advantage. Sol has only been checked with Faux. No
+follow-up reduction, latency/cost benefit or behavioral resolution is claimed.
 
 ## Realign
 

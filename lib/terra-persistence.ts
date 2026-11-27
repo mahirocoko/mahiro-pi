@@ -4,7 +4,7 @@ import { nodes } from './kernel/registry.mjs'
 
 export const TERRA_PERSISTENCE_SECTION = 'mahiro_terra_persistence'
 export const TERRA_PERSISTENCE_GUIDANCE = [
-  'Terra persistence pilot (subordinate guidance, not a new human request or permission):',
+  'Persistence advisory (subordinate guidance, not a new human request or permission):',
   'For a clear actionable request, do the requested work within its approved scope rather than merely promising to start, recommending that same work, or asking again for permission already granted. Carry authorized investigation, implementation and verification through to a checked result.',
   'Assess the actual action and evidence, not a hypothetical worst case or a cautious-sounding label. If a concern is uncertain, use available non-destructive, in-scope inspection or checks to resolve it and continue where safe; do not treat uncertainty alone as a proven blocker or invent an approval gate. Do not infer permission from lack of evidence or bypass a required safety boundary.',
   'An intermediate checkpoint is progress, not completion. After a scan, plan, partial edit or test, continue the remaining already-authorized steps when feasible; a progress update need not become a final handoff. Do not manufacture extra work once the request is satisfied.',
@@ -21,7 +21,7 @@ export function registerTerraPersistence(pi: ExtensionAPI) {
   pi.registerFlag('mahiro-terra-persistence-disable', {
     type: 'boolean',
     default: false,
-    description: 'Disable the exact openai/gpt-6.1-terra primary-session persistence pilot',
+    description: 'Disable the primary-session persistence advisory for GPT-6.1 Terra and GPT-6.2 Sol',
   })
   pi.on('before_agent_start', (event, ctx) => {
     const sections = event.systemPromptOptions.sections
@@ -32,7 +32,7 @@ export function registerTerraPersistence(pi: ExtensionAPI) {
       pi.getFlag('mahiro-terra-persistence-disable') === true ||
       event.messageType !== 'user' ||
       ctx.model?.provider !== 'openai' ||
-      ctx.model.id !== 'gpt-6.1-terra' ||
+      (ctx.model.id !== 'gpt-6.1-terra' && ctx.model.id !== 'gpt-6.2-sol') ||
       !node?.isPrimarySession(ctx) ||
       /<active_agent\s+name=/.test(event.systemPrompt) ||
       event.systemPrompt.includes("You maintain the primary companion's private managed knowledge") ||

@@ -32,11 +32,20 @@ test('exact-model/run/identity gates strip only the owned section and never star
   registry.set('terra-unit', {
     isPrimarySession: (ctx: ExtensionContext) => primary && ctx.sessionManager === manager,
   } as unknown as KernelNode)
+  const modelIds = new Map([
+    ['terra', 'gpt-6.1-terra'],
+    ['terra-preview', 'gpt-6.1-terra-preview'],
+    ['sol-preview', 'gpt-6.2-sol-preview'],
+    ['astra', 'gpt-6.2-astra'],
+  ])
   try {
     for (const variant of [
       'terra',
+      'sol',
       'repeat',
-      'other-id',
+      'terra-preview',
+      'sol-preview',
+      'astra',
       'other-provider',
       'undefined-model',
       'custom',
@@ -72,7 +81,7 @@ test('exact-model/run/identity gates strip only the owned section and never star
             ? undefined
             : {
                 provider: variant === 'other-provider' ? 'azure' : 'openai',
-                id: variant === 'other-id' ? 'gpt-6.1-terra-preview' : 'gpt-6.1-terra',
+                id: modelIds.get(variant) ?? 'gpt-6.2-sol',
               },
       } as unknown as ExtensionContext
       if (variant === 'missing-kernel') registry.delete('terra-unit')
@@ -91,7 +100,8 @@ test('exact-model/run/identity gates strip only the owned section and never star
       assert.equal(handlers.get('before_agent_start')!(event, ctx), undefined)
       const expected = structuredClone(before)
       delete expected.sections[section]
-      if (variant === 'terra' || variant === 'repeat') expected.sections[section] = guidance
+      if (variant === 'terra' || variant === 'sol' || variant === 'repeat')
+        expected.sections[section] = guidance
       assert.deepEqual(options, expected, variant)
       assert.equal(event.prompt, 'Do the authorized work')
       assert.equal(event.images[0].data, 'unchanged')
@@ -163,8 +173,11 @@ test('public SDK/Faux: section survives memory-like replacement then real Todos 
     allowModelNetwork: false,
     refreshOnCreate: false,
   })
-  // Exact identifiers, deterministic Faux transport only: no Terra inference/auth/network.
-  const faux = ai.fauxProvider({ provider: 'openai', models: [{ id: 'gpt-6.1-terra' }, { id: 'other' }] })
+  // Exact identifiers, deterministic Faux transport only: no live inference/auth/network.
+  const faux = ai.fauxProvider({
+    provider: 'openai',
+    models: [{ id: 'gpt-6.1-terra' }, { id: 'gpt-6.2-sol' }, { id: 'gpt-6.2-astra' }],
+  })
   modelRuntime.registerNativeProvider(faux.provider)
   const errors: unknown[] = []
   let disabled = false
@@ -258,8 +271,11 @@ test('public SDK/Faux: section survives memory-like replacement then real Todos 
       ])
       await runtime!.session.prompt(text)
       assert.equal(calls, 1, 'a partial response never forces another request')
-      assert.equal(serialized.includes('Terra persistence pilot'), expected, text)
-      assert.equal(serialized.split('Terra persistence pilot').length - 1, expected ? 1 : 0)
+      assert.equal(
+        serialized.split('Persistence advisory (subordinate guidance').length - 1,
+        expected ? 1 : 0,
+        text,
+      )
       assert.match(serialized, /Canonical persona/)
       assert.match(serialized, /OTHER SECTION/)
       assert.equal(serialized.includes('CORE FIXTURE'), memoryEnabled)
@@ -272,11 +288,13 @@ test('public SDK/Faux: section survives memory-like replacement then real Todos 
         /Checkpoint only: deliberately no automatic continuation/,
       )
     }
-    await request('Scan then implement then verify within approved scope', true)
-    await runtime.session.setModel(faux.getModel('other')!)
-    await request('Other model', false)
-    await runtime.session.setModel(faux.getModel('gpt-6.1-terra')!)
-    await request('Terra again', true)
+    await request('Scan then implement then verify within approved scope on Terra', true)
+    await runtime.session.setModel(faux.getModel('gpt-6.2-sol')!)
+    await request('Switch to Sol', true)
+    await runtime.session.setModel(faux.getModel('gpt-6.2-astra')!)
+    await request('Astra is not selected for the advisory', false)
+    await runtime.session.setModel(faux.getModel('gpt-6.2-sol')!)
+    await request('Sol again', true)
     disabled = true
     await request('Disabled pilot', false)
     disabled = false
