@@ -159,8 +159,18 @@ Thai/CJK/emoji labels and narrow terminals use public width-aware TUI helpers.
 The low-priority footer names branch-local ownership, the tsk/acceptance boundary
 and each available keyboard destination; clear-completed appears only when applicable.
 Reload/resume reconstructs the existing active-branch journal without stronger durability
-promises or changes to retention. RPC and non-TUI contexts retain the native
-selector flow. Dependency editing uses a toggle list with complete IDs so similarly titled steps remain
+promises or changes to retention. Bare `/mh-todos` retains the native selector
+flow in RPC and other non-TUI contexts. In RPC clients that display Pi extension
+statuses, the composer can show `Todos done/total · active title` (or a pending
+count when no step is in progress). The line follows the active branch and is
+hidden when view is `off` or no steps are open.
+
+Send `/mh-todos status` as a standalone command for a read-only native notice:
+branch totals by status, up to 12 step titles with their statuses and open
+dependency counts, and a count of any remaining steps. The notice works even
+with view `off`, omits descriptions and metadata, and does not start a model run.
+
+Dependency editing uses a toggle list with complete IDs so similarly titled steps remain
 distinguishable. The command supports create, title/description edits,
 dependencies, status/reopen, delete, clear completed and session-local settings:
 

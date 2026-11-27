@@ -18,6 +18,7 @@ import { registerSessionQueue } from '../lib/session-work/queue.ts'
 export async function sessionWorkFixture(
   options: {
     memory?: boolean
+    rpcRoot?: string
     extensions?: Array<(pi: ExtensionAPI) => void>
     extensionPaths?: string[]
   } = {},
@@ -27,7 +28,7 @@ export async function sessionWorkFixture(
   const tui = await import('@earendil-works/pi-tui')
   const base = resolve('.agent-state/runtime')
   mkdirSync(base, { recursive: true })
-  const dir = mkdtempSync(join(base, 'session-work-'))
+  const dir = options.rpcRoot ?? mkdtempSync(join(base, 'session-work-'))
   const cwd = join(dir, 'project'),
     agentDir = join(dir, 'agent')
   mkdirSync(cwd)
@@ -390,13 +391,14 @@ export async function sessionWorkFixture(
       thinkingLevel: 'off',
       noTools: 'builtin',
     })
-    await result.session.bindExtensions({
-      mode: 'tui',
-      uiContext: ui,
-      onError: (error) => {
-        errors.push(error)
-      },
-    })
+    if (!options.rpcRoot)
+      await result.session.bindExtensions({
+        mode: 'tui',
+        uiContext: ui,
+        onError: (error) => {
+          errors.push(error)
+        },
+      })
     return { ...result, services, diagnostics: services.diagnostics }
   }
   const runtime = await sdk.createAgentSessionRuntime(createRuntime, {

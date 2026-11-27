@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import type { SubagentsService } from '@gotgenes/pi-subagents'
+import type { SubagentsService, SubagentStatus } from '@gotgenes/pi-subagents'
 import { Type } from 'typebox'
 import { nodes as sharedNodes } from '../lib/kernel/registry.mjs'
 import type { KernelNode, KernelRegistry } from '../lib/kernel/types.ts'
@@ -40,13 +40,14 @@ interface Session {
   manager: Manager
   id: string
   owner: KernelNode
+  mode: ExtensionContext['mode']
   ui: ExtensionContext['ui']
   service?: SubagentsService
   enabled: boolean
   modeEpoch: number
   runEpoch?: number
   pending?: Dispatch
-  job?: { id: string; description: string; terminal: boolean }
+  job?: { id: string; description: string; status: SubagentStatus }
   uncertain: boolean
 }
 
@@ -114,14 +115,33 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
       s.uncertain = true
       return
     }
-    s.job.terminal = terminal.has(record.status)
+    s.job.status = record.status
   }
+  const liveJob = (s: Session) => !!s.job && !terminal.has(s.job.status)
   const status = (s: Session) => {
     if (s.uncertain) return s.enabled ? 'Orch · unknown' : 'Orch off · unknown'
-    const busy = !!s.pending || (!!s.job && !s.job.terminal)
+    if (s.mode === 'rpc') {
+      const prefix = s.enabled ? 'Orch' : 'Orch off'
+      if (s.pending) return `${prefix} · ${s.enabled ? 'dispatching' : 'cancelling dispatch'}`
+      switch (s.job?.status) {
+        case 'queued':
+          return `${prefix} · implementer queued`
+        case 'running':
+          return `${prefix} · implementer running`
+        case 'completed':
+          return `${prefix} · implementer finished (Main review)`
+        case 'error':
+          return `${prefix} · implementer failed`
+        case 'stopped':
+          return `${prefix} · implementer stopped`
+        case 'aborted':
+          return `${prefix} · implementer aborted`
+      }
+    }
+    const busy = !!s.pending || liveJob(s)
     if (!s.enabled) return busy ? 'Orch off · finishing' : 'Orch off'
     if (busy) return 'Orch · worker'
-    return s.job?.terminal ? 'Orch · review' : 'Orch on'
+    return s.job ? 'Orch · review' : 'Orch on'
   }
   const paint = (s: Session) => {
     if (session === s && !retired) s.ui.setStatus(STATUS, current(s) ? status(s) : undefined)
@@ -135,6 +155,7 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
     session = {
       id,
       manager: ctx.sessionManager,
+      mode: ctx.mode,
       ui: ctx.ui,
       owner,
       enabled: false,
@@ -148,15 +169,20 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
   pi.on('resources_discover', (_event, ctx) => {
     bind(ctx)
   })
-  const wakeups = ['subagents:completed', 'subagents:failed', 'subagents:resuming', 'subagents:resumed'].map(
-    (event) =>
-      pi.events.on(event, (eventData: unknown) => {
-        const s = session
-        if (!s || !current(s) || s.job?.id !== (eventData as { id?: unknown } | undefined)?.id) return
-        // The event is only a wakeup. Never trust its status, result or role.
-        review(s)
-        paint(s)
-      }),
+  const wakeups = [
+    'subagents:started',
+    'subagents:completed',
+    'subagents:failed',
+    'subagents:resuming',
+    'subagents:resumed',
+  ].map((event) =>
+    pi.events.on(event, (eventData: unknown) => {
+      const s = session
+      if (!s || !current(s) || s.job?.id !== (eventData as { id?: unknown } | undefined)?.id) return
+      // The event is only a wakeup. Never trust its status, result or role.
+      review(s)
+      paint(s)
+    }),
   )
   pi.on('session_shutdown', (_event, ctx) => {
     if (session && session.manager !== ctx.sessionManager) return
@@ -287,7 +313,7 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
       // An OFF → ON transition never reauthorizes calls from that older run.
       if (s.runEpoch !== s.modeEpoch)
         return reply('stale-mode', 'Orchestration mode changed during this run. Start a fresh Main turn.')
-      if (s.pending || (s.job && !s.job.terminal))
+      if (s.pending || liveJob(s))
         return reply(
           'occupied',
           'One orchestrated writer is already in flight. No second worker was started.',
@@ -354,8 +380,7 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
             record.description === d.input.description &&
             record.isBackground
           ) {
-            s.job = { id, description: d.input.description, terminal: false }
-            review(s)
+            s.job = { id, description: d.input.description, status: record.status }
             return reply(
               'dispatched',
               'Native Subagents accepted the writer. Wait for its report; dispatch is not completion.',

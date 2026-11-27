@@ -12,6 +12,7 @@ import {
   taskProjection,
   taskTools,
   type Task,
+  type TaskState,
   type TaskTool,
 } from './task-model.ts'
 import { openTaskPanel, showTaskWidget, type TaskPanelChoice } from './task-panel.ts'
@@ -44,6 +45,37 @@ const adoptionGuidance = [
   'Read mh_task_get or mh_task_list before mh_task_update, use the latest expected_revision, and reread on conflicts. Mark in_progress when starting; mark completed only after doing the scoped step and checking its result, recording evidence or limitations. Completion is not worker execution, tsk outcome or human acceptance. Tracking grants no new scope, worker scheduling or Goal creation. Follow actual user/system instructions, including requests not to track.',
 ].join('\n')
 
+const RPC_STATUS = 'mahiro-todos'
+const STATUS_STEP_LIMIT = 12
+
+function statusTitle(subject: string) {
+  const clean = label(
+    subject.replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/[\u2028\u2029]/g, ' '),
+  ).trim()
+  const characters = [...clean]
+  return (characters.length > 80 ? `${characters.slice(0, 79).join('')}…` : clean) || '(untitled)'
+}
+
+function taskCounts(state: TaskState) {
+  const counts = { pending: 0, in_progress: 0, completed: 0 }
+  for (const task of state.tasks) counts[task.status]++
+  return counts
+}
+
+function statusNotice(state: TaskState) {
+  const { pending, in_progress, completed } = taskCounts(state)
+  const open = new Set(state.tasks.filter((task) => task.status !== 'completed').map((task) => task.id))
+  const lines = [
+    `Todos ${completed}/${state.tasks.length} · ${pending} pending · ${in_progress} in_progress · ${completed} completed`,
+    ...state.tasks.slice(0, STATUS_STEP_LIMIT).map((task) => {
+      const blockers = task.blockedBy.filter((id) => open.has(id)).length
+      return `${task.status} · ${statusTitle(task.subject)} · ${blockers} open dependencies`
+    }),
+  ]
+  if (state.tasks.length > STATUS_STEP_LIMIT) lines.push(`… ${state.tasks.length - STATUS_STEP_LIMIT} more`)
+  return lines.join('\n')
+}
+
 export function registerSessionTasks(pi: ExtensionAPI) {
   registerWorkflowPresentation(pi)
   const journal = createBranchJournal(pi, 'mahiro-session-tasks-v1', emptyTasks, isTaskOperation, reduceTasks)
@@ -64,7 +96,27 @@ export function registerSessionTasks(pi: ExtensionAPI) {
   let reminded = false
   let settled = true
   let retireFinishedOnCreate = false
-  async function refresh(ctx: ExtensionContext) {
+  function refreshRpc(ctx: ExtensionContext) {
+    if (!ctx.hasUI || ctx.mode !== 'rpc' || !journal.active(ctx)) return
+    let text: string | undefined
+    try {
+      if (!active(ctx)) return
+      const { state } = journal.read(ctx)
+      if (state.config.view === 'off') return
+      const { pending, in_progress, completed } = taskCounts(state)
+      if (!pending && !in_progress) return
+      const step = state.tasks.find((task) => task.status === 'in_progress')
+      text = `Todos ${completed}/${state.tasks.length} · ${step ? statusTitle(step.subject) : `${pending} pending`}`
+    } finally {
+      // Re-emit at lifecycle boundaries, even when a rebound host has cleared identical status text.
+      ctx.ui.setStatus(RPC_STATUS, text)
+    }
+  }
+  async function refresh(ctx: ExtensionContext, changed = true) {
+    if (ctx.mode === 'rpc') {
+      if (changed) refreshRpc(ctx)
+      return
+    }
     if (!primary(ctx)) return
     const { state, ticket } = journal.read(ctx)
     await showTaskWidget(ctx, state, () => {
@@ -167,12 +219,13 @@ export function registerSessionTasks(pi: ExtensionAPI) {
       async execute(_id, args, signal, _update, ctx) {
         if (signal?.aborted) throw new Error('Task call aborted.')
         const result = run(name, args, ctx)
-        await refresh(ctx)
+        await refresh(ctx, name === 'mh_task_create' || name === 'mh_task_update')
         return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result }
       },
     })
   pi.on('session_start', (_event, ctx) => {
-    if (!journal.active(ctx) || sessionId) return
+    if (!journal.active(ctx)) return
+    if (sessionId) return refreshRpc(ctx)
     sessionId = ctx.sessionManager.getSessionId()
     return refresh(ctx)
   })
@@ -186,9 +239,13 @@ export function registerSessionTasks(pi: ExtensionAPI) {
   pi.on('session_before_switch', reset)
   pi.on('session_before_fork', reset)
   pi.on('session_before_tree', reset)
+  pi.on('session_tree', (_event, ctx) => refreshRpc(ctx))
   pi.on('before_agent_start', (event, ctx) => {
     if (!journal.active(ctx) || sessionId !== ctx.sessionManager.getSessionId()) return
-    if (roleChild(event.systemPrompt)) child = true
+    if (!child && roleChild(event.systemPrompt)) {
+      child = true
+      refreshRpc(ctx)
+    }
     if (event.messageType !== 'user' || !primary(ctx, event.systemPrompt)) return
     const { state } = journal.read(ctx)
     if (state.config.view === 'off') return
@@ -203,9 +260,9 @@ export function registerSessionTasks(pi: ExtensionAPI) {
     if (!active(ctx)) return
     gap++
     const { state, ticket } = journal.read(ctx)
-    if (state.config.retention === 'four-turns' && state.tasks.length)
-      journal.write(ctx, { kind: 'tick' }, ticket)
-    await refresh(ctx)
+    const tick = state.config.retention === 'four-turns' && state.tasks.length > 0
+    if (tick) journal.write(ctx, { kind: 'tick' }, ticket)
+    await refresh(ctx, tick)
   })
   pi.on('agent_start', (_event, ctx) => {
     if (!active(ctx)) return
@@ -247,15 +304,27 @@ export function registerSessionTasks(pi: ExtensionAPI) {
     }
   })
   pi.on('session_shutdown', (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setWidget('mahiro-session-tasks', undefined)
+    if (ctx.hasUI) {
+      if (ctx.mode === 'rpc') ctx.ui.setStatus(RPC_STATUS, undefined)
+      ctx.ui.setWidget('mahiro-session-tasks', undefined)
+    }
   })
   const command: Parameters<ExtensionAPI['registerCommand']>[1] = {
     description:
-      'Todos: branch-local session steps, dependencies and retention/reminders (not tsk or acceptance)',
-    async handler(_args, ctx) {
+      'Todos: manage branch-local steps, dependencies and settings; status shows a read-only summary',
+    async handler(args, ctx) {
       if (!ctx.hasUI || !active(ctx)) return
       try {
+        const action = args.trim()
+        if (action && action !== 'status') {
+          ctx.ui.notify('Usage: /mh-todos [status]', 'warning')
+          return
+        }
         const view = journal.read(ctx)
+        if (action === 'status') {
+          ctx.ui.notify(statusNotice(view.state), 'info')
+          return
+        }
         let choice: TaskPanelChoice
         if (ctx.mode === 'tui' && typeof ctx.ui.custom === 'function') {
           choice = await openTaskPanel(ctx, view.state)
@@ -380,7 +449,7 @@ export function registerSessionTasks(pi: ExtensionAPI) {
           assertCurrent(ctx, view.ticket)
           run('mh_task_update', { id: task.id, expected_revision: task.revision, ...patch }, ctx)
         }
-        await refresh(ctx)
+        await refresh(ctx, ctx.mode !== 'rpc' || journal.read(ctx).ticket.revision !== view.ticket.revision)
       } catch (error) {
         // A pending modal can outlive reload; retired contexts cannot access UI either.
         if (active(ctx)) ctx.ui.notify(error instanceof Error ? error.message : 'Todos unavailable.', 'error')

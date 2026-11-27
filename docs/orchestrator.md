@@ -12,7 +12,21 @@ Only one orchestrated writer can be in flight. Turning OFF blocks new dispatch a
 
 In a T3 Code thread using Pi with this extension loaded, send `/mh-orchestrate on` as a standalone message, without backticks or attachments. Pi handles the control without asking the model and reports the state in a native notice; no terminal footer is required. Use `/mh-orchestrate status` to check the mode of that same thread. A command quoted in prose is not a control, and opening another terminal does not change the T3 session. If no notice appears, check that the thread has loaded the extension; installing it in a profile does not update an already running Pi process. Send attachments separately: Pi resolves registered slash commands before normal prompt input.
 
-The footer shows `Orch on`, `Orch · worker`, `Orch · review`, `Orch off` or `Orch off · finishing` (shortened at narrow widths). `review` means the owned writer reached a terminal state, not that the result passed checks. An unverified dispatch shows `unknown` and blocks retries for that session; inspect the native Subagents result rather than relaunching. Worker completion, Main verification and human acceptance stay separate. Reuse `/mh-todos` for session steps rather than creating an Execution Run to track one worker.
+The TUI footer keeps its compact `Orch on`, `Orch · worker`, `Orch · review`,
+`Orch off`, and `Orch off · finishing` labels. RPC clients such as T3 Code can
+show more detail in the same status entry: `dispatching` before native admission,
+then `implementer queued` or `implementer running` from the owned native record.
+`implementer finished (Main review)` means the worker completed, not that its
+report passed checks. Failure, stop, and abort have separate labels. `Orch off`
+as a prefix means new dispatch is disabled, not that a running worker was stopped.
+This status covers only the writer dispatched by Orch; it does not add a T3 child
+thread or replace the native Subagents tracker.
+
+An unverified dispatch shows `unknown` and blocks retries for that session;
+inspect the native Subagents result rather than relaunching. Worker completion,
+Main verification, and human acceptance stay separate. Reuse `/mh-todos` for
+session steps rather than creating an Execution Run to track one worker. Worker
+completion does not update a Todo.
 
 ## Offline validation
 
