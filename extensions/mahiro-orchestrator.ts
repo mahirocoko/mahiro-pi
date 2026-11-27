@@ -14,6 +14,12 @@ const DISPATCH = 'mh_orchestrate_dispatch'
 const STATUS = 'mahiro-orchestrator'
 const WRITER = 'implementer'
 const terminal = new Set(['completed', 'error', 'stopped', 'aborted'])
+const workflowGuidance = [
+  'Orchestration is ON for this session. This is a workflow, not permission or a request to do work.',
+  'Answer questions and handle small scoped changes yourself. For already authorized implementation where delegation helps, decide the plan, scope, non-goals and checks before calling mh_orchestrate_dispatch. Use it rather than calling subagent directly for this orchestration lane.',
+  'Send the writer only the necessary brief, never private memory, credentials or parent conversation history. Return contradictory evidence, two failures of the same check, scope/budget decisions or human gates to Main rather than silently changing the plan.',
+  'Use native Subagents completion and get_subagent_result to receive the worker report. Check results before marking existing /mh-todos steps complete. A worker report is not Main review or human acceptance. Do not dispatch more work merely because a completion woke you.',
+].join('\n')
 
 type Manager = ExtensionContext['sessionManager']
 interface Dispatch {
@@ -160,23 +166,20 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
     session = undefined
     for (const unsubscribe of wakeups) unsubscribe()
   })
-  pi.registerCommand(COMMAND, {
-    description: 'Toggle orchestration for this session; workers already started can finish normally',
-    handler: async (args, ctx) => {
-      if (args.trim()) {
-        ctx.ui.notify(`Usage: /${COMMAND}`, 'warning')
-        return
-      }
-      const s = bind(ctx)
-      if (!s) {
-        ctx.ui.notify('Orchestrator requires a current guarded primary session.', 'warning')
-        return
-      }
-      if (s.enabled) {
-        s.enabled = false
-        // Cancel admission, never call abort on a worker owned by Subagents.
-        s.pending?.abort.abort()
-      } else {
+  const control = (args: string, ctx: ExtensionContext) => {
+    const action = args.trim()
+    if (action && action !== 'on' && action !== 'off' && action !== 'status') {
+      ctx.ui.notify(`Usage: /${COMMAND} [on|off|status]`, 'warning')
+      return
+    }
+    const s = bind(ctx)
+    if (!s) {
+      ctx.ui.notify('Orchestrator requires a current guarded primary session.', 'warning')
+      return
+    }
+    const enabled = action === 'status' ? s.enabled : action ? action === 'on' : !s.enabled
+    if (enabled !== s.enabled) {
+      if (enabled) {
         const service = route(s)
         if (!guarded(s) || !service || !nativeTool() || (s.service && s.service !== service) || s.uncertain) {
           ctx.ui.notify(
@@ -185,13 +188,28 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
           )
           return
         }
-        s.enabled = true
       }
+      s.enabled = enabled
       s.modeEpoch++
-      review(s)
-      paint(s)
-      ctx.ui.notify(status(s), 'info')
-    },
+      // Cancel admission, never call abort on a worker owned by Subagents.
+      if (!enabled) s.pending?.abort.abort()
+    }
+    review(s)
+    paint(s)
+    ctx.ui.notify(status(s), 'info')
+  }
+  pi.registerCommand(COMMAND, {
+    description: 'Show or change orchestration for this session: on, off, status, or toggle',
+    handler: async (args, ctx) => control(args, ctx),
+  })
+  // Pi runs registered commands first. Handle an exact human RPC submission
+  // only if it reaches the input path without native command expansion.
+  pi.on('input', (event, ctx) => {
+    if (ctx.mode !== 'rpc' || event.source !== 'rpc' || event.images?.length) return
+    const match = /^\/mh-orchestrate(?:[ \t]+(on|off|status))?$/.exec(event.text.trim())
+    if (!match) return
+    control(match[1] ?? '', ctx)
+    return { action: 'handled' }
   })
   pi.on('before_agent_start', (event, ctx) => {
     const s = bind(ctx)
@@ -201,13 +219,12 @@ export default async function mahiroOrchestrator(pi: ExtensionAPI) {
       review(s)
       paint(s)
       s.runEpoch = s.enabled && !s.uncertain ? s.modeEpoch : undefined
-      if (s.runEpoch !== undefined)
-        sections[STATUS] = [
-          'Orchestration is ON for this session. This is a workflow, not permission or a request to do work.',
-          'Answer questions and handle small scoped changes yourself. For already authorized implementation where delegation helps, decide the plan, scope, non-goals and checks before calling mh_orchestrate_dispatch. Use it rather than calling subagent directly for this orchestration lane.',
-          'Send the writer only the necessary brief, never private memory, credentials or parent conversation history. Return contradictory evidence, two failures of the same check, scope/budget decisions or human gates to Main rather than silently changing the plan.',
-          'Use native Subagents completion and get_subagent_result to receive the worker report. Check results before marking existing /mh-todos steps complete. A worker report is not Main review or human acceptance. Do not dispatch more work merely because a completion woke you.',
-        ].join('\n')
+      if (s.runEpoch !== undefined) {
+        sections[STATUS] = workflowGuidance
+        // Managed Memory can flatten earlier sections before this extension runs.
+        if (event.systemPromptOptions.forceSystemPrompt !== undefined)
+          event.systemPromptOptions.forceSystemPrompt += `\n\n<${STATUS}>\n${workflowGuidance}\n</${STATUS}>`
+      }
     }
     event.systemPromptOptions.sections = sections
   })
