@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { lstat, realpath } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { createLearnedSkillReader } from '../agent-skill-learning/view.ts'
 import { bytes, digest, hasSecret, objectShape, validId } from '../continuity/records.ts'
 import { selectedVerification, verificationResultText } from './verification-evidence.ts'
 import { recordMemoryDiagnostic } from '../guards/memory-fixture.mjs'
@@ -1297,8 +1298,12 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
       job?.cancel()
       const serial = ++viewerSerial
       const capture = await capturePalaceViewer(ctx, abort.signal)
+      const readLearnedSkills = await createLearnedSkillReader(ctx)
+      const learnedSkills = readLearnedSkills?.()
+      const learnedSnapshot = learnedSkills?.length ? JSON.stringify(learnedSkills) : undefined
       const handoff = {
         ...capture.handoff,
+        learnedSkills,
         diagnostic: {
           ...capture.handoff.diagnostic,
           structure: {
@@ -1335,7 +1340,8 @@ export function createExperimentalMemoryRuntime(pi: ExtensionAPI, config: Experi
         !starting &&
         !job &&
         !draft &&
-        sameSessionAnchor(ctx, capture.branch)
+        sameSessionAnchor(ctx, capture.branch) &&
+        (learnedSnapshot === undefined || JSON.stringify(readLearnedSkills?.()) === learnedSnapshot)
       await atomicPrivate(
         filePath,
         html,

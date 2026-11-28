@@ -1903,6 +1903,10 @@ still in progress but does not delete an existing snapshot. The owner must remov
 unneeded exported bytes. A newer export replaces the path, but cannot erase
 copies already read or saved elsewhere.
 
+In the opted-in project, an authorized **Learned Skills** tab shows the pilot's
+active revision separately from the memory file tree and history. See
+[View the active skill](skill-learning.md#view-the-active-skill).
+
 The owner supplies paged metadata and complete UTF-8 committed bodies through
 `engine/data.ts`, using shared primary `allowedPath` (including global, deferred
 and procedures) plus the legacy-archive attribution fence and forgetting

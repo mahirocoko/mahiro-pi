@@ -14,6 +14,7 @@ import test from 'node:test'
 import * as ai from '@earendil-works/pi-ai'
 import * as sdk from '@earendil-works/pi-coding-agent'
 import type { SubagentsService } from '@gotgenes/pi-subagents'
+import type { createLearnedSkillReader } from '../lib/agent-skill-learning/view.ts'
 import {
   changeSkill,
   configureScope,
@@ -68,13 +69,19 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
   const services = new Map<string, SubagentsService>()
   const key = Symbol.for(`mahiro-skill-test:${root}`)
   const globals = globalThis as typeof globalThis & {
-    [key]?: (ctx: sdk.ExtensionContext, get: (manager: object) => SubagentsService | undefined) => void
+    [key]?: (
+      ctx: sdk.ExtensionContext,
+      get: (manager: object) => SubagentsService | undefined,
+      createReader: typeof createLearnedSkillReader,
+    ) => void
   }
   const available = new Map<string, string[]>()
-  globals[key] = (ctx, get) => {
+  const readers = new Map<string, () => ReturnType<typeof createLearnedSkillReader>>()
+  globals[key] = (ctx, get, createReader) => {
     if (!ctx.sessionManager.getHeader()?.parentSession) {
       const service = get(ctx.sessionManager)
       if (service) services.set(ctx.cwd, service)
+      readers.set(ctx.cwd, () => createReader(ctx))
       available.set(
         ctx.cwd,
         ctx.modelRegistry
@@ -106,7 +113,7 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
     save(join(profile, 'auth.json'), { [provider]: { type: 'api_key', key: 'FIXTURE_ONLY' } })
     const store = learningRoot(profile)
     const storePaths = { [store]: 'allow', [`${store}/*`]: 'allow' }
-    const writePolicy = (extraWrites: Record<string, string> = {}) =>
+    const writePolicy = (extraWrites: Record<string, string> = {}, extraReads: Record<string, string> = {}) =>
       save(join(profile, 'extensions', 'pi-permission-system', 'config.json'), {
         permission: {
           '*': 'ask',
@@ -116,7 +123,7 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
           steer_subagent: 'allow',
           mh_skill_learning: 'allow',
           skill: { '*': 'allow', 'blocked-fixture': 'deny' },
-          path_read: { [`${project}/*`]: 'allow', ...storePaths },
+          path_read: { [`${project}/*`]: 'allow', ...storePaths, ...extraReads },
           path_write: { ...storePaths, ...extraWrites },
           external_directory_read: storePaths,
           external_directory_write: storePaths,
@@ -135,7 +142,7 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
     symlinkSync(modules, join(root, 'node_modules'), 'dir')
     writeFileSync(
       bridge,
-      `import { getSubagentsServiceForSession } from '@gotgenes/pi-subagents';\nexport default pi => { pi.on('resources_discover', (_, ctx) => globalThis[Symbol.for(${JSON.stringify(Symbol.keyFor(key))})](ctx, getSubagentsServiceForSession)); };\n`,
+      `import { getSubagentsServiceForSession } from '@gotgenes/pi-subagents';\nimport { createLearnedSkillReader } from ${JSON.stringify(join(product, 'lib/agent-skill-learning/view.ts'))};\nexport default pi => { pi.on('resources_discover', (_, ctx) => globalThis[Symbol.for(${JSON.stringify(Symbol.keyFor(key))})](ctx, getSubagentsServiceForSession, createLearnedSkillReader)); };\n`,
     )
     configureScope(profile, project, true)
     assert.equal(readScope(store, other), undefined)
@@ -267,6 +274,8 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
       return { session, call, spawn, collect }
     }
     const parent = await open(project)
+    const createParentReader = readers.get(project)
+    assert.ok(createParentReader)
     const pilot = async (args: ai.JsonObject) => {
       const result = await parent.call(action, args)
       const item = result.content[0]
@@ -299,7 +308,15 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
       selected.map(({ ref }) => ref),
       [v1.revision],
     )
-    assert.ok(readFileSync(selected[0].path, 'utf8').includes(first))
+    const readView = await createParentReader()
+    assert.ok(readView)
+    const { path, ...metadata } = selected[0]
+    const publishedMarkdown = readFileSync(path, 'utf8')
+    assert.ok(publishedMarkdown.includes(first))
+    assert.deepEqual(readView(), [{ ...metadata, markdown: publishedMarkdown }])
+    writePolicy({}, { [path]: 'deny' })
+    assert.deepEqual(readView(), [], 'a live read denial suppresses the selected revision and its metadata')
+    writePolicy()
     assert.equal(
       await parent.collect(
         await parent.spawn('verifier', 'Recheck fixture without supplied skill path', request),
@@ -347,6 +364,8 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
     assert.equal(v2.status, 'published')
     const updated = describeSkills(store)[0]
     assert.notEqual(updated.ref, v1.revision)
+    assert.equal(readView()?.[0]?.ref, v2.revision)
+    assert.match(readView()?.[0]?.markdown ?? '', /report the exact key/)
     assert.equal(
       await parent.collect(await parent.spawn('verifier', 'Recheck with updated skill catalogue', request)),
       'Verification with key: fallback-color.',
@@ -392,12 +411,18 @@ test('native exact-role review publishes a scoped revision; a fresh specialist d
       'Verification with attested color: zircon-blue.',
     )
     assert.equal(seenPaths.at(-1), selected[0].path)
+    assert.deepEqual(readView(), [{ ...metadata, markdown: publishedMarkdown }])
     const outsider = await open(other)
+    const createOutsiderReader = readers.get(other)
+    assert.ok(createOutsiderReader)
+    assert.equal(await createOutsiderReader(), undefined)
     assert.ok(!outsider.session.getAllTools().some((tool) => tool.name === action))
     assert.equal(
       await outsider.collect(await outsider.spawn('verifier', 'Same task, other project', request)),
       'No matching learned skill was advertised.',
     )
+    configureScope(profile, project, false)
+    assert.equal(readView(), undefined)
     assert.deepEqual(errors, [])
   } finally {
     for (const session of sessions.reverse()) await session.dispose()

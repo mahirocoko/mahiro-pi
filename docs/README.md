@@ -46,6 +46,7 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.17.1 source release record](releases/0.17.1.md) — open the active learned skill from Memory Palace.
 - [v0.17.0 source release record](releases/0.17.0.md) — opt-in, project-scoped learning from native specialist results.
 - [v0.16.2 source release record](releases/0.16.2.md) — Todo progress and richer Orch worker status in T3 Code.
 - [v0.16.1 source release record](releases/0.16.1.md) — explicit Orch controls from T3 Code.

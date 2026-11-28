@@ -170,17 +170,25 @@ function assertRevision(root: string, name: string, ref: string) {
   privateDirectory(join(root, 'revisions'))
   privateDirectory(join(root, 'revisions', ref))
   privateDirectory(join(root, 'revisions', ref, `mh-learned-${name}`))
-  if (digest(ownFile(path)) !== ref) throw Error('Skill content no longer matches the selected revision')
-  return path
+  const markdown = ownFile(path)
+  if (digest(markdown) !== ref) throw Error('Skill content no longer matches the selected revision')
+  return { path, markdown }
 }
 
-export function describeSkills(root: string, role?: Role, allowed?: (name: string, path: string) => boolean) {
+export function readActiveSkills(
+  root: string,
+  role?: Role,
+  allowed?: (name: string, path: string) => boolean,
+) {
   return readCatalog(root).entries.flatMap(({ slug: name, active }) => {
     if (!active || (role && !active.roles.includes(role))) return []
     if (allowed && !allowed(name, revisionPath(root, name, active.ref))) return []
-    const path = assertRevision(root, name, active.ref)
-    return [{ slug: name, ...active, path }]
+    return [{ slug: name, ...active, ...assertRevision(root, name, active.ref) }]
   })
+}
+
+export function describeSkills(root: string, role?: Role, allowed?: (name: string, path: string) => boolean) {
+  return readActiveSkills(root, role, allowed).map(({ markdown: _markdown, ...skill }) => skill)
 }
 
 export interface ISkillChange {

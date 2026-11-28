@@ -89,6 +89,38 @@ function handoff() {
   })
 }
 
+test('Palace renders authorized learned skills as a separate, escaped Markdown view', () => {
+  const existing = handoff()
+  assert.doesNotMatch(renderAbi2PalacePage(existing), /id="view-skills"|Learned Skills/)
+  assert.match(renderAbi2PalacePage({ ...existing, learnedSkills: [] }), /No active skill available to view/)
+
+  const ref = 'd'.repeat(64)
+  const html = renderAbi2PalacePage({
+    ...existing,
+    learnedSkills: [
+      {
+        slug: 'project-procedure',
+        ref,
+        roles: ['implementer', 'verifier'],
+        description: 'Check the project <fixture>.',
+        markdown:
+          '---\nname: do-not-render-frontmatter\n---\n## Procedure\n1. Read the fixture.\n2. Report **what changed**.\n<img src="fixture" onerror="alert(1)">',
+      },
+    ],
+  })
+  assert.match(html, /for="view-skills">Learned Skills \(1\)/)
+  assert.match(html, /id="view-skills"/)
+  assert.match(html, /class="view view-skills"/)
+  assert.match(html, /Active at export/)
+  assert.match(html, /implementer, verifier/)
+  assert.ok(html.includes(ref))
+  assert.match(html, /Check the project &lt;fixture&gt;/)
+  assert.match(html, /<strong>what changed<\/strong>/)
+  assert.match(html, /&lt;img src=/)
+  assert.doesNotMatch(html, /<img src=|do-not-render-frontmatter/)
+  assert.match(html, /Core Memory \(1\)/)
+})
+
 test('bounded committed previews survive immutable handoff and render escaped with truthful truncation', () => {
   const s = structure()
   s.bodyInspection = 'bounded-committed-preview'

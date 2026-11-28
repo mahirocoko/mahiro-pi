@@ -1,3 +1,4 @@
+import type { SkillView } from '../agent-skill-learning/view.ts'
 import type { PalaceHandoff } from '../agent-memory/palace-handoff.ts'
 import { utf8Preview } from '../agent-memory/palace-structure.ts'
 
@@ -214,14 +215,17 @@ code { overflow-wrap: anywhere; }
 .agent-id, .lc-meta, .file-chars, .dir-count { color: var(--text-dim); font-size: 11px; }
 .view-radio, .file-radio, .raw-toggle-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .view { display: none; }
+.view-skills h2 { overflow-wrap: anywhere; text-transform: none; }
 .app-shell:has(#view-context:checked) .view-context,
 .app-shell:has(#view-core:checked) .view-core,
 .app-shell:has(#view-external:checked) .view-external,
-.app-shell:has(#view-history:checked) .view-history { display: block; }
+.app-shell:has(#view-history:checked) .view-history,
+.app-shell:has(#view-skills:checked) .view-skills { display: block; }
 .app-shell:has(#view-context:checked) label.tab[for="view-context"],
 .app-shell:has(#view-core:checked) label.tab[for="view-core"],
 .app-shell:has(#view-external:checked) label.tab[for="view-external"],
-.app-shell:has(#view-history:checked) label.tab[for="view-history"] { color: var(--accent); background: var(--panel); box-shadow: inset 0 -2px 0 var(--accent); }
+.app-shell:has(#view-history:checked) label.tab[for="view-history"],
+.app-shell:has(#view-skills:checked) label.tab[for="view-skills"] { color: var(--accent); background: var(--panel); box-shadow: inset 0 -2px 0 var(--accent); }
 .view-radio:focus-visible ~ nav, .files-layout:has(.file-radio:focus-visible) .tree-panel,
 .raw-toggle-input:focus-visible + .raw-toggle { outline: 2px solid var(--accent); outline-offset: -2px; }
 .files-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; height: 74vh; }
@@ -339,6 +343,7 @@ ${contextCoverageCss()}
 export type PalaceRenderInput = Pick<PalaceHandoff, 'diagnostic'> & {
   history?: PalaceHandoff['history']
   historyUnavailable?: true
+  learnedSkills?: readonly SkillView[]
 }
 
 export function renderAbi2PalacePage(handoff: PalaceRenderInput): string {
@@ -346,12 +351,14 @@ export function renderAbi2PalacePage(handoff: PalaceRenderInput): string {
   const structure = handoff.diagnostic.structure
   const core = structure.files.filter(isCore)
   const external = structure.files.filter((file) => !isCore(file))
-  const views = [
+  const { learnedSkills } = handoff
+  const views: [string, string][] = [
     ['context', 'Context'],
     ['core', `Core Memory (${core.length})`],
     ['external', `External Memory (${external.length})`],
     ['history', 'History'],
-  ] as const
+  ]
+  if (learnedSkills) views.push(['skills', `Learned Skills (${learnedSkills.length})`])
   const viewInputs = views
     .map(
       ([id], index) =>
@@ -393,11 +400,31 @@ ${viewInputs}
 <div class="view view-core" aria-label="Core Memory">${fileWorkspace(core, 'core', handoff)}</div>
 <div class="view view-external" aria-label="External Memory">${fileWorkspace(external, 'external', handoff)}</div>
 <div class="view view-history" aria-label="History">${commitCards(handoff)}</div>
+${learnedSkills ? learnedSkillsView(learnedSkills) : ''}
 </main>
 <footer>Captured <time datetime="${escape(context.capturedAt)}">${escape(formatShortDate(context.capturedAt))}</time> · Persistent private snapshot; exported bytes remain until removed by you</footer>
 </div>
 </body>
 </html>`
+}
+
+function learnedSkillsView(skills: readonly SkillView[]): string {
+  const cards = skills
+    .map(
+      (skill) => `<article class="panel">
+<h2>${escape(skill.slug)}</h2>
+<div class="file-meta">
+<p>${escape(skill.description)}</p>
+<div class="meta-row"><span class="meta-pill">Active at export</span><span class="meta-pill">Roles: <strong>${escape(skill.roles.join(', '))}</strong></span><span class="meta-pill">Revision: <code>${escape(skill.ref)}</code></span></div>
+</div>
+<div class="file-body">${markdown(frontmatter(skill.markdown).text)}</div>
+</article>`,
+    )
+    .join('')
+  return `<section class="view view-skills" aria-label="Learned Skills">
+<p class="lede">Project skills are stored separately from memory. Run /mh-memory palace again to update this snapshot.</p>
+${cards || '<p class="lede">No active skill available to view.</p>'}
+</section>`
 }
 
 type PalaceFile = PalaceHandoff['diagnostic']['structure']['files'][number]

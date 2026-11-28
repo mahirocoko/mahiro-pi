@@ -63,6 +63,16 @@ procedures remain subordinate to the user, repository and permission policy.
 Already-permitted filesystem access is not revoked. An open or resumed child
 may still hold the contents or a previously indexed skill path.
 
+## View the active skill
+
+In an idle Main TUI session in the enabled project, run `/mh-memory palace`
+with ABI2 memory and open **Learned Skills**. The tab shows the active skill's
+description, eligible roles, exact revision and rendered Markdown. The pilot
+tool and read policy must already allow access. No drafts, superseded revisions
+or review reports are included. This is a private snapshot, not a live view;
+run the command again after publication, rollback or disable. Existing exported
+copies are not revoked. The skill remains in its own catalogue, separate from memory.
+
 ## Recovery
 
 If a fresh checked implementer result finds the selected revision is wrong,
