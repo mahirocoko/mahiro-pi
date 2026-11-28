@@ -30,6 +30,7 @@
   [R3](letta-parity-r3.md), [R4](letta-parity-r4.md), [R5](letta-parity-r5.md),
   [R6](letta-parity-r6.md), [R7](letta-parity-r7.md), [R8](letta-parity-r8.md).
 - [Agents and skills](agents.md) — package-owned role registration and commit authorization.
+- [Project skill-learning pilot](skill-learning.md) — learn one verified project procedure from native specialists, with role-scoped discovery and rollback.
 - [Orchestrator trial](orchestrator.md) — optional per-session toggle and one guarded background writer.
 - [Workflow tools](workflows.md) — [on-demand `/mh` inspector](workflows.md#on-demand-workflow-inspector),
   readable tool cards, [Goals](workflows.md#goals),
@@ -45,6 +46,7 @@
 
 - [Development and release](development.md) — scoped fast/focused checks, explicit heavy release tiers,
   disposable fixture ownership, whole-state budget and source artifacts.
+- [v0.17.0 source release record](releases/0.17.0.md) — opt-in, project-scoped learning from native specialist results.
 - [v0.16.2 source release record](releases/0.16.2.md) — Todo progress and richer Orch worker status in T3 Code.
 - [v0.16.1 source release record](releases/0.16.1.md) — explicit Orch controls from T3 Code.
 - [v0.16.0 source release record](releases/0.16.0.md) — start an approved Goal in the same Pi session.

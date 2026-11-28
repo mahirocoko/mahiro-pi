@@ -7,7 +7,7 @@ terminal presentation, private maintained knowledge, opt-in RTK command filterin
 and explicit workflow tools. Pi keeps ownership of models, authentication,
 native tools and subagent lifecycle.
 
-**v0.16.2 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
+**v0.17.0 · Pi ≥1.3.0 · Node ≥22.19.0 · pnpm 10.33.0**
 
 [Install and upgrade](docs/getting-started.md) · [Documentation](docs/README.md) ·
 [Source releases](https://github.com/mahirocoko/mahiro-pi/releases) ·
@@ -61,6 +61,7 @@ profile selection, restriction failures and upgrades.
 | [Memory and recall](docs/agent-memory.md) | Private Markdown/Git knowledge, scoped drafts, bounded lexical retrieval and separately screened historical quotations |
 | [Letta memory roadmap](docs/letta-parity-roadmap.md) | Direct current-upstream implementation plan; historical scores and proof ladders are not work drivers |
 | [Guards and permissions](docs/guards.md) | One Root guard, public permission resolution, final-argument checks and filtered configuration helpers |
+| [Project skill-learning pilot](docs/skill-learning.md) | Opt-in learning of one reviewed project procedure, with native specialist discovery and revision rollback |
 | [Workflow tools](docs/workflows.md) | Readable tool cards, owner-delegating inspector, Goals, Code Evidence, UX handoffs and execution coordination metadata |
 | [Utilities](docs/utilities.md) | Naturally chosen multi-step tracking, branch-local steps, editable staging, response copying, realignment, clock and Code Map |
 | [Integrations](docs/integrations.md) | Optional parent-scoped Herdr worker counts and private Web receipts enabled by one-time profile setup |

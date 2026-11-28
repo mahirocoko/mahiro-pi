@@ -21,6 +21,14 @@ export default async function bootstrap(pi: ExtensionAPI) {
   } catch {
     terraFailed = true
   }
+  if (!activationFailed) {
+    try {
+      const { registerSkillPilot } = await import('../agent-skill-learning/pilot.ts')
+      await registerSkillPilot(pi, () => (globalThis as typeof globalThis & { [key]?: KernelRegistry })[key])
+    } catch {
+      // An unavailable optional pilot is not a guard or ordinary-tool failure.
+    }
+  }
   // Kernel readiness is diagnostic, not permission to use ordinary tools.
   // Feature state operations check their own live session and ownership.
   // Inspect after every session_start handler, including PSS publication. Direct
